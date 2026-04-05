@@ -65,11 +65,18 @@ async def send_signal(bot: telegram.Bot, signal: dict):
         market_ar = MARKET_CONDITION_AR.get(signal['market_condition'], signal['market_condition'])
         paper_badge = "📝 بيبر تريد | " if signal['is_paper_trade'] else ""
         
+        # حساب الكمية بناءً على حجم الصفقة والسعر
+        entry_price = float(signal['entry_price'])
+        trade_amount = config.TRADE_AMOUNT_USDT
+        quantity = trade_amount / entry_price
+
         # صيغة الرسالة
         message = (
             f"{'─'*30}\n"
             f"🎯 {signal['symbol']}\n"
             f"{paper_badge}وضع السوق: {market_ar}\n\n"
+            f"💰 حجم الصفقة: {trade_amount} USDT\n"
+            f"📊 الكمية: {format_quantity(quantity)}\n\n"
             f"📈 Buy: {format_price(signal['entry_price'])}\n\n"
             f"🎯 Target:\n"
             f"  T1: {format_price(signal['target_1'])}\n"
@@ -121,6 +128,17 @@ async def monitor_open_trades(bot: telegram.Bot):
         
     except Exception as e:
         logger.error(f"خطأ في مراقبة الصفقات: {e}")
+
+def format_quantity(quantity: float) -> str:
+    """تنسيق الكمية بشكل مناسب"""
+    if quantity >= 1000:
+        return f"{quantity:,.0f}"
+    elif quantity >= 1:
+        return f"{quantity:.4f}"
+    elif quantity >= 0.001:
+        return f"{quantity:.6f}"
+    else:
+        return f"{quantity:.8f}"
 
 def format_price(price) -> str:
     """تنسيق السعر بشكل مناسب"""

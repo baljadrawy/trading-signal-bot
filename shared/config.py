@@ -30,7 +30,10 @@ class Config:
     MIN_SCORE_TO_SIGNAL: int = int(os.getenv('MIN_SCORE_TO_SIGNAL', '7'))
     SCAN_INTERVAL_SECONDS: int = int(os.getenv('SCAN_INTERVAL_SECONDS', '300'))
     TIMEFRAME: str = os.getenv('TIMEFRAME', '4h')
-    
+
+    # حجم الصفقة
+    TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
+
     # حماية رأس المال
     MAX_DAILY_LOSS_PERCENT: float = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '3'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '3'))

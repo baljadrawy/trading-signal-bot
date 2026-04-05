@@ -94,6 +94,11 @@ MIN_SCORE_TO_SIGNAL=7
 SCAN_INTERVAL_SECONDS=300
 TIMEFRAME=4h
 
+# ==================== حجم الصفقة ====================
+# الرقم بالـ USDT - غيّره حسب رأس مالك
+# مثال: 50 = كل صفقة بـ 50 USDT
+TRADE_AMOUNT_USDT=50
+
 # ==================== إدارة المخاطر ====================
 MAX_DAILY_LOSS_PERCENT=3
 STOP_ON_CONSECUTIVE_LOSSES=3
