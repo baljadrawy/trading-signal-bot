@@ -261,6 +261,116 @@ trading-signal-bot/
 
 ---
 
+## 🌿 Git Flow - طريقة العمل على الكود
+
+### الفروع الموجودة
+
+| الفرع | الغرض |
+|-------|-------|
+| `main` | الكود المستقر فقط - **لا تعدّل عليه مباشرة** |
+| `dev` | قاعدة التطوير - كل الميزات تنطلق وتعود هنا |
+| `feature/اسم-الميزة` | ميزة جديدة - يُنشأ من dev ويُدمج فيه |
+
+---
+
+### سيناريو 1: تطوير ميزة جديدة
+```bash
+# 1. تأكد أنك على dev وهو محدث
+git checkout dev
+git pull origin dev
+
+# 2. أنشئ فرع للميزة
+git checkout -b feature/whale-alert
+
+# 3. اشتغل وعدّل الكود
+# ... التعديلات ...
+
+# 4. احفظ التعديلات
+git add .
+git commit -m "✨ إضافة تحليل Whale Alert"
+
+# 5. ادفع الفرع لـ GitHub
+git push origin feature/whale-alert
+
+# 6. افتح Pull Request من feature/whale-alert → dev
+# على GitHub: Compare & pull request
+
+# 7. بعد المراجعة والاختبار ادمج
+git checkout dev
+git merge feature/whale-alert
+git push origin dev
+
+# 8. احذف الفرع بعد الدمج
+git branch -d feature/whale-alert
+git push origin --delete feature/whale-alert
+```
+
+---
+
+### سيناريو 2: نقل كود مستقر من dev إلى main
+```bash
+# بعد اختبار dev على الـ Raspberry Pi وتأكد من استقراره
+git checkout main
+git pull origin main
+git merge dev
+git push origin main
+```
+
+---
+
+### سيناريو 3: إصلاح خطأ طارئ في main (Hotfix)
+```bash
+# 1. أنشئ فرع الإصلاح من main مباشرة
+git checkout main
+git checkout -b hotfix/fix-scanner-crash
+
+# 2. صحح الخطأ
+# ... التعديل ...
+
+# 3. ادمجه في main وdev معاً
+git checkout main
+git merge hotfix/fix-scanner-crash
+git push origin main
+
+git checkout dev
+git merge hotfix/fix-scanner-crash
+git push origin dev
+
+# 4. احذف فرع الـ Hotfix
+git branch -d hotfix/fix-scanner-crash
+```
+
+---
+
+### أسماء Commits الموصى بها
+```
+✨ feat: إضافة ميزة جديدة
+🐛 fix: إصلاح خطأ
+📖 docs: تحديث الدوكيومنتيشن
+⚡ perf: تحسين الأداء
+🔧 config: تعديل إعدادات
+🧹 refactor: إعادة هيكلة الكود
+```
+
+---
+
+### على الـ Raspberry Pi - تحديث الكود
+```bash
+cd ~/trading-signal-bot
+
+# تحديث من main (الكود المستقر)
+git pull origin main
+docker compose build
+docker compose up -d
+
+# أو تجربة dev أولاً
+git pull origin dev
+docker compose build
+docker compose up -d
+```
+
+---
+
 ## 🔒 نظام الأمان
 
 | الإجراء | التفاصيل |
