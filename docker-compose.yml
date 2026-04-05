@@ -1,0 +1,151 @@
+version: '3.8'
+
+networks:
+  trading_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  models_data:
+  logs_data:
+
+services:
+
+  # ==================== قاعدة البيانات ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: trading_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ==================== Scanner ====================
+  scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: trading_scanner
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+    networks:
+      - trading_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+
+  # ==================== Analyzer ====================
+  analyzer:
+    build:
+      context: ./analyzer
+      dockerfile: Dockerfile
+    container_name: trading_analyzer
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - models_data:/app/models
+    networks:
+      - trading_network
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.5'
+
+  # ==================== Signal Engine ====================
+  signal_engine:
+    build:
+      context: ./signal_engine
+      dockerfile: Dockerfile
+    container_name: trading_signal_engine
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - models_data:/app/models
+    networks:
+      - trading_network
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+
+  # ==================== Claude Review ====================
+  claude_review:
+    build:
+      context: ./claude_review
+      dockerfile: Dockerfile
+    container_name: trading_claude_review
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+    networks:
+      - trading_network
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ==================== Telegram ====================
+  telegram:
+    build:
+      context: ./telegram
+      dockerfile: Dockerfile
+    container_name: trading_telegram
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+    networks:
+      - trading_network
+    deploy:
+      resources:
+        limits:
+          memory: 256m

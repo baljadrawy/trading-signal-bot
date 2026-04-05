@@ -1,0 +1,46 @@
+# البيئة والأسرار
+.env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# البيانات والنماذج
+models/*.pkl
+models/*.joblib
+models/*.h5
+database/data/
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# Docker
+.docker/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Colab credentials
+colab/credentials.json
+colab/token.json
