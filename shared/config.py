@@ -27,7 +27,7 @@ class Config:
     # إعدادات التداول
     PAPER_TRADING: bool = os.getenv('PAPER_TRADING', 'true').lower() == 'true'
     MAX_SIGNALS_PER_DAY: int = int(os.getenv('MAX_SIGNALS_PER_DAY', '5'))
-    MIN_SCORE_TO_SIGNAL: int = int(os.getenv('MIN_SCORE_TO_SIGNAL', '7'))
+    MIN_SCORE_TO_SIGNAL: float = float(os.getenv('MIN_SCORE_TO_SIGNAL', '5'))
     SCAN_INTERVAL_SECONDS: int = int(os.getenv('SCAN_INTERVAL_SECONDS', '300'))
     TIMEFRAME: str = os.getenv('TIMEFRAME', '4h')
 

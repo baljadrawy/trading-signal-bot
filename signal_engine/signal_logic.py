@@ -40,11 +40,10 @@ class SignalEngine:
             # شرط الحد الأدنى للنقاط
             if final_score < config.MIN_SCORE_TO_SIGNAL:
                 continue
-                
-            # شرط إلزامي: Volume يجب أن يكون موجوداً
+
+            # تحذير Volume ضعيف لكن لا نرفض الإشارة
             if data.get('score_details', {}).get('volume', 0) == 0:
-                logger.debug(f"رفض {row['symbol']} - Volume ضعيف")
-                continue
+                logger.debug(f"⚠️ {row['symbol']} - Volume ضعيف (لكن نكمل التقييم)")
             
             # أفضل نقاط
             if final_score > best_score:
