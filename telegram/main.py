@@ -4,6 +4,7 @@ Telegram - إرسال الإشارات مع نظام الموافقة والـ W
 import asyncio
 import sys
 import json
+from datetime import datetime
 sys.path.append('/app')
 
 from telegram import Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -45,6 +46,7 @@ async def main():
     app.add_handler(CommandHandler("performance", cmd_performance))
     app.add_handler(CommandHandler("signals",     cmd_signals))
     app.add_handler(CommandHandler("daily",       cmd_daily))
+    app.add_handler(CommandHandler("trades",      cmd_trades))
 
     # معالج أزرار الموافقة
     app.add_handler(CallbackQueryHandler(handle_callback))
@@ -58,6 +60,7 @@ async def main():
             BotCommand("status",      "📊 حالة النظام"),
             BotCommand("performance", "🏆 أداء Claude والإشارات"),
             BotCommand("signals",     "📡 آخر الإشارات"),
+            BotCommand("trades",      "💹 نتائج الصفقات"),
             BotCommand("daily",       "📅 ملخص اليوم الكامل"),
             BotCommand("whitelist",   "📋 العملات المعتمدة"),
             BotCommand("stats",       "📈 إحصائيات آخر 7 أيام"),
@@ -339,6 +342,46 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==================== بناء الرسائل ====================
+
+async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نتائج آخر الصفقات المسجلة"""
+    # الصفقات المغلقة
+    closed = await Database.fetch("""
+        SELECT symbol, result, profit_percent, profit_usdt,
+               target_reached, exit_time, notes
+        FROM trade_results
+        ORDER BY exit_time DESC
+        LIMIT 8
+    """)
+
+    # الصفقات النشطة حالياً
+    active = await Database.fetch("""
+        SELECT symbol, entry_price, highest_target_hit, opened_at
+        FROM active_trades
+        WHERE status = 'open'
+        ORDER BY opened_at DESC
+    """)
+
+    lines = ["💹 نتائج الصفقات\n" + "─"*28]
+
+    if active:
+        lines.append(f"\n⏳ نشطة الآن ({len(active)}):")
+        for t in active:
+            hrs = ((datetime.now() - t['opened_at']).total_seconds() / 3600)
+            lines.append(f"  • {t['symbol']} | T{t['highest_target_hit']} محقق | {hrs:.0f}س")
+
+    if closed:
+        lines.append(f"\n📊 آخر النتائج:")
+        for t in closed:
+            icon = "✅" if t['result'] == 'WIN' else "❌"
+            pct  = f"+{t['profit_percent']:.2f}%" if t['profit_percent'] > 0 else f"{t['profit_percent']:.2f}%"
+            usdt = f"{t['profit_usdt']:.2f}" if t['profit_usdt'] else "0.00"
+            lines.append(f"  {icon} {t['symbol']} | {pct} ({usdt} USDT) | T{t['target_reached']}")
+    else:
+        lines.append("\nلا توجد نتائج بعد — الصفقات قيد المتابعة")
+
+    await update.message.reply_text("\n".join(lines))
+
 
 def build_signal_message(signal: dict, is_direct: bool = False) -> str:
     market_ar = MARKET_CONDITION_AR.get(

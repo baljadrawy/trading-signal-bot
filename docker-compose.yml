@@ -131,6 +131,28 @@ services:
         limits:
           memory: 256m
 
+  # ==================== Trade Tracker ====================
+  trade_tracker:
+    build:
+      context: .
+      dockerfile: trade_tracker/Dockerfile
+    container_name: trading_tracker
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./trade_tracker:/app
+    networks:
+      - trading_network
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
   # ==================== Telegram ====================
   telegram:
     build:

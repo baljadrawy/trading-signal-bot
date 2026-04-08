@@ -82,10 +82,30 @@ CREATE TABLE IF NOT EXISTS trade_results (
     exit_time TIMESTAMP,
     result VARCHAR(10), -- WIN/LOSS/PARTIAL
     profit_percent DECIMAL(10, 4),
+    profit_usdt DECIMAL(10, 4) DEFAULT 0,
     target_reached INTEGER DEFAULT 0, -- 0,1,2,3
     stop_hit BOOLEAN DEFAULT false,
     duration_hours DECIMAL(10, 2),
-    failure_reason TEXT -- سبب الفشل إن وجد
+    failure_reason TEXT, -- سبب الفشل إن وجد
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_trade_results_symbol ON trade_results(symbol, exit_time DESC);
+
+-- جدول الصفقات النشطة (للمتابعة)
+CREATE TABLE IF NOT EXISTS active_trades (
+    id SERIAL PRIMARY KEY,
+    signal_id INTEGER REFERENCES signals(id),
+    symbol VARCHAR(20) NOT NULL,
+    entry_price DECIMAL(20,8) NOT NULL,
+    target_1 DECIMAL(20,8) NOT NULL,
+    target_2 DECIMAL(20,8) NOT NULL,
+    target_3 DECIMAL(20,8) NOT NULL,
+    stop_loss DECIMAL(20,8) NOT NULL,
+    timeframe VARCHAR(10),
+    is_paper_trade BOOLEAN DEFAULT true,
+    opened_at TIMESTAMP DEFAULT NOW(),
+    highest_target_hit INTEGER DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'open'
 );
 
 -- جدول أوزان المؤشرات (التعلم الذاتي)
