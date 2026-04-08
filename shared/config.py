@@ -34,6 +34,10 @@ class Config:
     # حجم الصفقة
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
 
+    # نظام الموافقة والـ Whitelist
+    APPROVAL_TIMEOUT_MINUTES: int = int(os.getenv('APPROVAL_TIMEOUT_MINUTES', '30'))
+    APPROVAL_MAX_PRICE_CHANGE_PCT: float = float(os.getenv('APPROVAL_MAX_PRICE_CHANGE_PCT', '0.5'))
+
     # حماية رأس المال
     MAX_DAILY_LOSS_PERCENT: float = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '3'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '3'))

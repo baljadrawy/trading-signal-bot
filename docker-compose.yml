@@ -1,3 +1,4 @@
+# يعمل على: Raspberry Pi 4 (arm64) و Hetzner VPS (amd64)
 version: '3.8'
 
 networks:
@@ -20,6 +21,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -38,8 +40,8 @@ services:
   # ==================== Scanner ====================
   scanner:
     build:
-      context: ./scanner
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: scanner/Dockerfile
     container_name: trading_scanner
     restart: unless-stopped
     env_file: .env
@@ -49,13 +51,9 @@ services:
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
+      - ./scanner:/app
     networks:
       - trading_network
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     deploy:
       resources:
         limits:
@@ -65,8 +63,8 @@ services:
   # ==================== Analyzer ====================
   analyzer:
     build:
-      context: ./analyzer
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: analyzer/Dockerfile
     container_name: trading_analyzer
     restart: unless-stopped
     env_file: .env
@@ -76,6 +74,7 @@ services:
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
+      - ./analyzer:/app
       - models_data:/app/models
     networks:
       - trading_network
@@ -88,8 +87,8 @@ services:
   # ==================== Signal Engine ====================
   signal_engine:
     build:
-      context: ./signal_engine
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: signal_engine/Dockerfile
     container_name: trading_signal_engine
     restart: unless-stopped
     env_file: .env
@@ -99,6 +98,7 @@ services:
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
+      - ./signal_engine:/app
       - models_data:/app/models
     networks:
       - trading_network
@@ -111,8 +111,8 @@ services:
   # ==================== Claude Review ====================
   claude_review:
     build:
-      context: ./claude_review
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: claude_review/Dockerfile
     container_name: trading_claude_review
     restart: unless-stopped
     env_file: .env
@@ -122,6 +122,7 @@ services:
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
+      - ./claude_review:/app
     networks:
       - trading_network
     deploy:
@@ -132,8 +133,8 @@ services:
   # ==================== Telegram ====================
   telegram:
     build:
-      context: ./telegram
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: telegram/Dockerfile
     container_name: trading_telegram
     restart: unless-stopped
     env_file: .env
@@ -143,6 +144,7 @@ services:
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
+      - ./telegram:/app
     networks:
       - trading_network
     deploy:

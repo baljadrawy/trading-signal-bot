@@ -188,6 +188,44 @@ docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_YYY
 
 ---
 
+## 🕌 نظام الموافقة الشرعية والـ Whitelist
+
+### كيف يعمل
+```
+إشارة جديدة
+    ↓
+هل العملة في الـ Whitelist؟
+    ↓ نعم               ↓ لا
+إرسال مباشر      طلب موافقة منك على Telegram
+للبوت المنفذ          ↓
+                  تضغط ✅ أو ❌
+                  خلال 30 دقيقة
+                      ↓ ✅
+               هل السعر تغير أكثر من 0.5%؟
+                  ↓ لا          ↓ نعم
+            إرسال الإشارة   رسالة "السعر تغير"
+            + إضافة العملة  البحث عن فرصة أخرى
+             للـ Whitelist
+```
+
+### أوامر التحكم من Telegram
+| الأمر | الوظيفة |
+|-------|---------|
+| `/start` | قائمة الأوامر |
+| `/status` | حالة النظام وإحصائيات اليوم |
+| `/whitelist` | عرض كل العملات المعتمدة |
+| `/pause` | إيقاف البوت مؤقتاً |
+| `/resume` | استئناف البوت |
+| `/stats` | إحصائيات آخر 7 أيام |
+
+### إعدادات الموافقة في `.env`
+```env
+APPROVAL_TIMEOUT_MINUTES=30      # وقت انتظار موافقتك
+APPROVAL_MAX_PRICE_CHANGE_PCT=0.5 # أقصى تغير سعري مقبول
+```
+
+---
+
 ## 📱 صيغة رسالة Telegram
 
 الرسائل تُرسل بهذا الشكل تلقائياً:
@@ -261,6 +299,116 @@ trading-signal-bot/
 
 ---
 
+## 🌿 Git Flow - طريقة العمل على الكود
+
+### الفروع الموجودة
+
+| الفرع | الغرض |
+|-------|-------|
+| `main` | الكود المستقر فقط - **لا تعدّل عليه مباشرة** |
+| `dev` | قاعدة التطوير - كل الميزات تنطلق وتعود هنا |
+| `feature/اسم-الميزة` | ميزة جديدة - يُنشأ من dev ويُدمج فيه |
+
+---
+
+### سيناريو 1: تطوير ميزة جديدة
+```bash
+# 1. تأكد أنك على dev وهو محدث
+git checkout dev
+git pull origin dev
+
+# 2. أنشئ فرع للميزة
+git checkout -b feature/whale-alert
+
+# 3. اشتغل وعدّل الكود
+# ... التعديلات ...
+
+# 4. احفظ التعديلات
+git add .
+git commit -m "✨ إضافة تحليل Whale Alert"
+
+# 5. ادفع الفرع لـ GitHub
+git push origin feature/whale-alert
+
+# 6. افتح Pull Request من feature/whale-alert → dev
+# على GitHub: Compare & pull request
+
+# 7. بعد المراجعة والاختبار ادمج
+git checkout dev
+git merge feature/whale-alert
+git push origin dev
+
+# 8. احذف الفرع بعد الدمج
+git branch -d feature/whale-alert
+git push origin --delete feature/whale-alert
+```
+
+---
+
+### سيناريو 2: نقل كود مستقر من dev إلى main
+```bash
+# بعد اختبار dev على الـ Raspberry Pi وتأكد من استقراره
+git checkout main
+git pull origin main
+git merge dev
+git push origin main
+```
+
+---
+
+### سيناريو 3: إصلاح خطأ طارئ في main (Hotfix)
+```bash
+# 1. أنشئ فرع الإصلاح من main مباشرة
+git checkout main
+git checkout -b hotfix/fix-scanner-crash
+
+# 2. صحح الخطأ
+# ... التعديل ...
+
+# 3. ادمجه في main وdev معاً
+git checkout main
+git merge hotfix/fix-scanner-crash
+git push origin main
+
+git checkout dev
+git merge hotfix/fix-scanner-crash
+git push origin dev
+
+# 4. احذف فرع الـ Hotfix
+git branch -d hotfix/fix-scanner-crash
+```
+
+---
+
+### أسماء Commits الموصى بها
+```
+✨ feat: إضافة ميزة جديدة
+🐛 fix: إصلاح خطأ
+📖 docs: تحديث الدوكيومنتيشن
+⚡ perf: تحسين الأداء
+🔧 config: تعديل إعدادات
+🧹 refactor: إعادة هيكلة الكود
+```
+
+---
+
+### على الـ Raspberry Pi - تحديث الكود
+```bash
+cd ~/trading-signal-bot
+
+# تحديث من main (الكود المستقر)
+git pull origin main
+docker compose build
+docker compose up -d
+
+# أو تجربة dev أولاً
+git pull origin dev
+docker compose build
+docker compose up -d
+```
+
+---
+
 ## 🔒 نظام الأمان
 
 | الإجراء | التفاصيل |
@@ -294,16 +442,39 @@ Claude يحلل الأداء ويعطي توصيات
 
 ---
 
-## 🔄 الانتقال لـ VPS مستقبلاً
+## 🔄 الانتقال لـ Hetzner VPS
 
+### إعداد الـ VPS
 ```bash
-# على الـ VPS الجديد
+# على الـ VPS الجديد (Ubuntu 22.04/24.04 - amd64)
+# تثبيت Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# استنساخ المشروع
 git clone https://baljadrawy:TOKEN@github.com/baljadrawy/trading-signal-bot.git
 cd trading-signal-bot
 cp .env.example .env
-nano .env  # نفس الإعدادات
+nano .env  # نفس الإعدادات تماماً
 ./setup.sh  # نفس الأمر - لا يوجد أي تغيير
 ```
+
+> ✅ الـ Docker images تعمل على amd64 (Hetzner) و arm64 (Raspberry Pi) بدون أي تعديل
+
+### نقل بيانات PostgreSQL من Raspberry Pi للـ VPS
+```bash
+# على الـ Raspberry Pi - تصدير البيانات
+docker exec trading_postgres pg_dump -U trading_bot trading_signals > backup_migration.sql
+
+# نقل الملف للـ VPS
+scp backup_migration.sql user@VPS_IP:~/trading-signal-bot/
+
+# على الـ VPS - استيراد البيانات (بعد تشغيل postgres)
+docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_migration.sql
+```
+
+> ⚠️ الـ Whitelist تنتقل معك تلقائياً ضمن قاعدة البيانات
 
 ---
 
