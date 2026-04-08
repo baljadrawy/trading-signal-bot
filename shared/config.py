@@ -2,7 +2,7 @@
 الإعدادات المشتركة بين جميع الـ Containers
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class Config:
@@ -33,7 +33,7 @@ class Config:
 
     # Timeframes متعددة للتحليل
     # يمكن تعديلها في .env: TIMEFRAMES=15m,1h,4h,1d
-    TIMEFRAMES: list = os.getenv('TIMEFRAMES', '15m,1h,4h,1d').split(',')
+    TIMEFRAMES: list = field(default_factory=lambda: os.getenv('TIMEFRAMES', '15m,1h,4h,1d').split(','))
 
     # الحد الأدنى لعدد Timeframes المتفقة لإصدار إشارة (من أصل 4)
     MIN_TIMEFRAME_CONFIRMATIONS: int = int(os.getenv('MIN_TIMEFRAME_CONFIRMATIONS', '2'))
