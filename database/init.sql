@@ -1,27 +1,5 @@
 -- ==================== إنشاء الجداول ====================
-
--- جدول الـ Whitelist (العملات المعتمدة شرعياً)
-CREATE TABLE IF NOT EXISTS symbol_whitelist (
-    id SERIAL PRIMARY KEY,
-    symbol VARCHAR(20) UNIQUE NOT NULL,
-    approved_at TIMESTAMP DEFAULT NOW(),
-    approved_by VARCHAR(50) DEFAULT 'user',
-    notes TEXT
-);
-
--- جدول طلبات الموافقة المعلّقة
-CREATE TABLE IF NOT EXISTS approval_requests (
-    id SERIAL PRIMARY KEY,
-    signal_id INTEGER REFERENCES signals(id) ON DELETE CASCADE,
-    symbol VARCHAR(20) NOT NULL,
-    requested_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending', -- pending / approved / rejected / expired
-    responded_at TIMESTAMP,
-    entry_price_at_request DECIMAL(20, 8) NOT NULL,
-    current_price_at_approval DECIMAL(20, 8),
-    price_change_pct DECIMAL(10, 4)
-);
+-- الترتيب مهم: الجداول المُشار إليها تُنشأ أولاً
 
 -- جدول العملات المراقبة
 CREATE TABLE IF NOT EXISTS symbols (
@@ -69,6 +47,30 @@ CREATE TABLE IF NOT EXISTS signals (
     is_paper_trade BOOLEAN DEFAULT true
 );
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, signal_time DESC);
+
+-- جدول الـ Whitelist (العملات المعتمدة شرعياً)
+CREATE TABLE IF NOT EXISTS symbol_whitelist (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) UNIQUE NOT NULL,
+    approved_at TIMESTAMP DEFAULT NOW(),
+    approved_by VARCHAR(50) DEFAULT 'user',
+    notes TEXT
+);
+
+-- جدول طلبات الموافقة (يأتي بعد signals لأنه يشير إليه)
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id SERIAL PRIMARY KEY,
+    signal_id INTEGER REFERENCES signals(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL,
+    requested_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',
+    responded_at TIMESTAMP,
+    entry_price_at_request DECIMAL(20, 8) NOT NULL,
+    current_price_at_approval DECIMAL(20, 8),
+    price_change_pct DECIMAL(10, 4)
+);
+CREATE INDEX IF NOT EXISTS idx_approval_signal ON approval_requests(signal_id, status);
 
 -- جدول نتائج الصفقات
 CREATE TABLE IF NOT EXISTS trade_results (

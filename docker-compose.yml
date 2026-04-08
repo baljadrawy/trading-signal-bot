@@ -1,5 +1,4 @@
 # يعمل على: Raspberry Pi 4 (arm64) و Hetzner VPS (amd64)
-version: '3.8'
 
 networks:
   trading_network:
