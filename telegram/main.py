@@ -345,24 +345,36 @@ def build_signal_message(signal: dict, is_direct: bool = False) -> str:
         signal['market_condition'], signal['market_condition']
     )
     entry = float(signal['entry_price'])
+    stop  = float(signal['stop_loss'])
+    t1    = float(signal['target_1'])
     trade_amount = config.TRADE_AMOUNT_USDT
     quantity = trade_amount / entry
-    paper_badge = "📝 بيبر تريد | " if signal['is_paper_trade'] else ""
-    whitelist_badge = "✅ معتمدة" if is_direct else "🆕 جديدة"
+    paper_badge = "🧪 بيبر تريد" if signal['is_paper_trade'] else "💰 تداول حقيقي"
+    whitelist_badge = "✅ معتمدة" if is_direct else "🆕 تحتاج موافقة"
+    rr = round((t1 - entry) / (entry - stop), 2) if (entry - stop) > 0 else 0
+
+    # جلب الإطارات المؤكدة من score_details
+    import json
+    score_details = signal.get('score_details', {})
+    if isinstance(score_details, str):
+        score_details = json.loads(score_details)
+    confirmed_tfs = score_details.get('confirmed_timeframes', [signal['timeframe']])
+    tfs_str = ' + '.join(confirmed_tfs) if confirmed_tfs else signal['timeframe']
 
     return (
         f"{'─'*30}\n"
         f"🎯 {signal['symbol']}  {whitelist_badge}\n"
-        f"{paper_badge}وضع السوق: {market_ar}\n\n"
+        f"{paper_badge} | وضع السوق: {market_ar}\n\n"
         f"💰 حجم الصفقة: {trade_amount} USDT\n"
         f"📊 الكمية: {format_quantity(quantity)}\n\n"
-        f"📈 Buy: {format_price(entry)}\n\n"
-        f"🎯 Target:\n"
+        f"📈 دخول: {format_price(entry)}\n\n"
+        f"🎯 الأهداف:\n"
         f"  T1: {format_price(signal['target_1'])}\n"
         f"  T2: {format_price(signal['target_2'])}\n"
         f"  T3: {format_price(signal['target_3'])}\n\n"
-        f"🛑 Stop: {format_price(signal['stop_loss'])}\n\n"
-        f"⏰ اغلاق {signal['timeframe']} أقل من\n"
+        f"🛑 وقف الخسارة: {format_price(signal['stop_loss'])}\n"
+        f"⚖️ المخاطرة/المكافأة: {rr}\n\n"
+        f"⏱️ الإطار: {tfs_str}\n"
         f"⭐ القوة: {signal['score']}/10\n"
         f"{'─'*30}"
     )
