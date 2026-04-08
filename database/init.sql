@@ -1,5 +1,28 @@
 -- ==================== إنشاء الجداول ====================
 
+-- جدول الـ Whitelist (العملات المعتمدة شرعياً)
+CREATE TABLE IF NOT EXISTS symbol_whitelist (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) UNIQUE NOT NULL,
+    approved_at TIMESTAMP DEFAULT NOW(),
+    approved_by VARCHAR(50) DEFAULT 'user',
+    notes TEXT
+);
+
+-- جدول طلبات الموافقة المعلّقة
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id SERIAL PRIMARY KEY,
+    signal_id INTEGER REFERENCES signals(id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL,
+    requested_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending', -- pending / approved / rejected / expired
+    responded_at TIMESTAMP,
+    entry_price_at_request DECIMAL(20, 8) NOT NULL,
+    current_price_at_approval DECIMAL(20, 8),
+    price_change_pct DECIMAL(10, 4)
+);
+
 -- جدول العملات المراقبة
 CREATE TABLE IF NOT EXISTS symbols (
     id SERIAL PRIMARY KEY,

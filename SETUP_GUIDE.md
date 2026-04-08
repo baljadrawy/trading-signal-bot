@@ -188,6 +188,44 @@ docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_YYY
 
 ---
 
+## 🕌 نظام الموافقة الشرعية والـ Whitelist
+
+### كيف يعمل
+```
+إشارة جديدة
+    ↓
+هل العملة في الـ Whitelist؟
+    ↓ نعم               ↓ لا
+إرسال مباشر      طلب موافقة منك على Telegram
+للبوت المنفذ          ↓
+                  تضغط ✅ أو ❌
+                  خلال 30 دقيقة
+                      ↓ ✅
+               هل السعر تغير أكثر من 0.5%؟
+                  ↓ لا          ↓ نعم
+            إرسال الإشارة   رسالة "السعر تغير"
+            + إضافة العملة  البحث عن فرصة أخرى
+             للـ Whitelist
+```
+
+### أوامر التحكم من Telegram
+| الأمر | الوظيفة |
+|-------|---------|
+| `/start` | قائمة الأوامر |
+| `/status` | حالة النظام وإحصائيات اليوم |
+| `/whitelist` | عرض كل العملات المعتمدة |
+| `/pause` | إيقاف البوت مؤقتاً |
+| `/resume` | استئناف البوت |
+| `/stats` | إحصائيات آخر 7 أيام |
+
+### إعدادات الموافقة في `.env`
+```env
+APPROVAL_TIMEOUT_MINUTES=30      # وقت انتظار موافقتك
+APPROVAL_MAX_PRICE_CHANGE_PCT=0.5 # أقصى تغير سعري مقبول
+```
+
+---
+
 ## 📱 صيغة رسالة Telegram
 
 الرسائل تُرسل بهذا الشكل تلقائياً:
@@ -404,16 +442,39 @@ Claude يحلل الأداء ويعطي توصيات
 
 ---
 
-## 🔄 الانتقال لـ VPS مستقبلاً
+## 🔄 الانتقال لـ Hetzner VPS
 
+### إعداد الـ VPS
 ```bash
-# على الـ VPS الجديد
+# على الـ VPS الجديد (Ubuntu 22.04/24.04 - amd64)
+# تثبيت Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# استنساخ المشروع
 git clone https://baljadrawy:TOKEN@github.com/baljadrawy/trading-signal-bot.git
 cd trading-signal-bot
 cp .env.example .env
-nano .env  # نفس الإعدادات
+nano .env  # نفس الإعدادات تماماً
 ./setup.sh  # نفس الأمر - لا يوجد أي تغيير
 ```
+
+> ✅ الـ Docker images تعمل على amd64 (Hetzner) و arm64 (Raspberry Pi) بدون أي تعديل
+
+### نقل بيانات PostgreSQL من Raspberry Pi للـ VPS
+```bash
+# على الـ Raspberry Pi - تصدير البيانات
+docker exec trading_postgres pg_dump -U trading_bot trading_signals > backup_migration.sql
+
+# نقل الملف للـ VPS
+scp backup_migration.sql user@VPS_IP:~/trading-signal-bot/
+
+# على الـ VPS - استيراد البيانات (بعد تشغيل postgres)
+docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_migration.sql
+```
+
+> ⚠️ الـ Whitelist تنتقل معك تلقائياً ضمن قاعدة البيانات
 
 ---
 
