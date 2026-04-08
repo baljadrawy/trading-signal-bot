@@ -72,6 +72,10 @@ async def register_new_signals():
             SELECT 1 FROM active_trades at2
             WHERE at2.symbol = s.symbol AND at2.status = 'open'
         )
+        AND NOT EXISTS (
+            SELECT 1 FROM approval_requests ar
+            WHERE ar.signal_id = s.id AND ar.status = 'rejected'
+        )
         ORDER BY s.symbol, s.signal_time DESC
     """)
 
