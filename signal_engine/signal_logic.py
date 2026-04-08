@@ -1,5 +1,5 @@
 """
-منطق اختيار أفضل إشارة وحفظها
+منطق اختيار أفضل إشارة مع تأكيد متعدد الـ Timeframes
 """
 import json
 from typing import Dict, List, Optional
@@ -11,52 +11,87 @@ from shared.logger import setup_logger
 logger = setup_logger('signal_logic')
 
 class SignalEngine:
-    
+
     async def find_best_signal(self, results: List) -> Optional[Dict]:
-        """إيجاد أفضل إشارة من نتائج التحليل"""
-        
+        """
+        يجمع نتائج كل الـ Timeframes لكل عملة،
+        ويختار الإشارة التي تجاوزت الحد الأدنى للتأكيد.
+        """
+
         # التحقق من حدود الإشارات اليومية
         signals_today = await Database.fetchval(
             "SELECT signals_sent FROM risk_management WHERE date = CURRENT_DATE"
         ) or 0
-        
+
         if signals_today >= config.MAX_SIGNALS_PER_DAY:
             logger.info(f"⏸️ وصلنا للحد الأقصى اليومي: {signals_today} إشارات")
             return None
-        
-        best = None
-        best_score = 0
-        
+
+        # تجميع النتائج حسب العملة
+        by_symbol: Dict[str, List[Dict]] = {}
         for row in results:
-            data = json.loads(row['analysis_data']) if isinstance(row['analysis_data'], str) else row['analysis_data']
-            
-            score = float(data.get('total_score', 0))
-            ob_score = data.get('order_book', {}).get('score', 0) if data.get('order_book') else 0
-            
-            # إضافة نقطة Order Book وBTC Trend
-            btc_bonus = self._get_btc_bonus(data.get('market_condition', 'sideways'))
-            final_score = score + ob_score + btc_bonus
-            
-            # شرط الحد الأدنى للنقاط
-            if final_score < config.MIN_SCORE_TO_SIGNAL:
+            data = row['analysis_data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            symbol = data.get('symbol') or row['symbol']
+            by_symbol.setdefault(symbol, []).append(data)
+
+        best_signal = None
+        best_score = 0
+
+        for symbol, tf_results in by_symbol.items():
+
+            # احسب عدد الـ Timeframes المتفقة (تجاوزت الحد الأدنى)
+            qualifying = []
+            for data in tf_results:
+                score = float(data.get('total_score', 0))
+                ob_score = data.get('order_book', {}).get('score', 0) if data.get('order_book') else 0
+                btc_bonus = self._get_btc_bonus(data.get('market_condition', 'sideways'))
+                final = score + ob_score + btc_bonus
+
+                if final >= config.MIN_SCORE_TO_SIGNAL:
+                    qualifying.append((final, data))
+
+            confirmations = len(qualifying)
+
+            if confirmations < config.MIN_TIMEFRAME_CONFIRMATIONS:
+                logger.debug(
+                    f"رفض {symbol} - تأكيدات: {confirmations}/{len(tf_results)} "
+                    f"(مطلوب {config.MIN_TIMEFRAME_CONFIRMATIONS})"
+                )
                 continue
 
-            # تحذير Volume ضعيف لكن لا نرفض الإشارة
-            if data.get('score_details', {}).get('volume', 0) == 0:
-                logger.debug(f"⚠️ {row['symbol']} - Volume ضعيف (لكن نكمل التقييم)")
-            
-            # أفضل نقاط
-            if final_score > best_score:
-                best_score = final_score
-                best = {**data, 'total_score': round(final_score, 2)}
-        
-        if best:
-            logger.info(f"🏆 أفضل إشارة: {best['symbol']} بنقاط {best['total_score']}/10")
-        
-        return best
+            # اختر نتيجة الـ Timeframe الأعلى نقاطاً كمرجع للإشارة
+            qualifying.sort(key=lambda x: x[0], reverse=True)
+            top_score, top_data = qualifying[0]
+
+            # جمع الـ Timeframes المؤكِّدة للعرض في الرسالة
+            confirmed_tfs = [d.get('timeframe', '?') for _, d in qualifying]
+
+            # نتأكد Volume ضعيف لكن لا نرفض
+            if top_data.get('score_details', {}).get('volume', 0) == 0:
+                logger.debug(f"⚠️ {symbol} - Volume ضعيف (لكن نكمل التقييم)")
+
+            if top_score > best_score:
+                best_score = top_score
+                best_signal = {
+                    **top_data,
+                    'total_score': round(top_score, 2),
+                    'confirmed_timeframes': confirmed_tfs,
+                    'timeframe_confirmations': confirmations,
+                }
+
+        if best_signal:
+            tfs = ', '.join(best_signal.get('confirmed_timeframes', []))
+            logger.info(
+                f"🏆 أفضل إشارة: {best_signal['symbol']} | "
+                f"نقاط: {best_signal['total_score']}/10 | "
+                f"تأكيد: {best_signal['timeframe_confirmations']} Timeframes ({tfs})"
+            )
+
+        return best_signal
 
     def _get_btc_bonus(self, market_condition: str) -> float:
-        """مكافأة بناءً على حالة BTC"""
         bonuses = {
             'strong_bullish': 1.0,
             'bullish': 0.7,
@@ -72,7 +107,12 @@ class SignalEngine:
         score_details = signal.get('score_details', {})
         if signal.get('order_book'):
             score_details['order_book'] = signal['order_book'].get('score', 0)
-        
+
+        # نحفظ الـ Timeframes المؤكِّدة في score_details
+        confirmed_tfs = signal.get('confirmed_timeframes', [])
+        score_details['confirmed_timeframes'] = confirmed_tfs
+        score_details['timeframe_confirmations'] = signal.get('timeframe_confirmations', 1)
+
         signal_id = await Database.fetchval("""
             INSERT INTO signals (
                 symbol, timeframe, market_condition,
@@ -82,7 +122,7 @@ class SignalEngine:
             RETURNING id
         """,
             signal['symbol'],
-            config.TIMEFRAME,
+            signal.get('timeframe', config.TIMEFRAME),
             signal.get('market_condition', 'unknown'),
             signal['entry_price'],
             signal['target_1'],
@@ -93,7 +133,7 @@ class SignalEngine:
             json.dumps(score_details),
             config.PAPER_TRADING
         )
-        
+
         # تحديث عداد الإشارات اليومية
         await Database.execute("""
             INSERT INTO risk_management (date, signals_sent)
@@ -101,5 +141,5 @@ class SignalEngine:
             ON CONFLICT (date) DO UPDATE
             SET signals_sent = risk_management.signals_sent + 1
         """)
-        
+
         return signal_id

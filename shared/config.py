@@ -29,7 +29,14 @@ class Config:
     MAX_SIGNALS_PER_DAY: int = int(os.getenv('MAX_SIGNALS_PER_DAY', '5'))
     MIN_SCORE_TO_SIGNAL: float = float(os.getenv('MIN_SCORE_TO_SIGNAL', '5'))
     SCAN_INTERVAL_SECONDS: int = int(os.getenv('SCAN_INTERVAL_SECONDS', '300'))
-    TIMEFRAME: str = os.getenv('TIMEFRAME', '4h')
+    TIMEFRAME: str = os.getenv('TIMEFRAME', '4h')  # الإطار الرئيسي (للتوافق)
+
+    # Timeframes متعددة للتحليل
+    # يمكن تعديلها في .env: TIMEFRAMES=15m,1h,4h,1d
+    TIMEFRAMES: list = os.getenv('TIMEFRAMES', '15m,1h,4h,1d').split(',')
+
+    # الحد الأدنى لعدد Timeframes المتفقة لإصدار إشارة (من أصل 4)
+    MIN_TIMEFRAME_CONFIRMATIONS: int = int(os.getenv('MIN_TIMEFRAME_CONFIRMATIONS', '2'))
 
     # حجم الصفقة
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))

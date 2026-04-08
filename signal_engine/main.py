@@ -1,6 +1,6 @@
 """
 Signal Engine - يقرر أي العملات تستحق إشارة
-بناءً على النقاط والتأكيدات المتعددة
+بناءً على النقاط والتأكيدات المتعددة من Timeframes مختلفة
 """
 import asyncio
 import json
@@ -16,59 +16,63 @@ logger = setup_logger('signal_engine')
 
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
+    logger.info(f"📊 Timeframes: {', '.join(config.TIMEFRAMES)} | تأكيد مطلوب: {config.MIN_TIMEFRAME_CONFIRMATIONS}")
+    logger.info(f"🎯 الحد الأدنى للنقاط: {config.MIN_SCORE_TO_SIGNAL}")
+
     await Database.connect()
-    
+
     engine = SignalEngine()
-    
-    # إنشاء جدول نتائج التحليل إن لم يوجد
+
+    # تأكد من وجود عمود timeframe في الجدول
     await Database.execute("""
-        CREATE TABLE IF NOT EXISTS analysis_results (
-            symbol VARCHAR(20) PRIMARY KEY,
-            analysis_data JSONB NOT NULL,
-            analyzed_at TIMESTAMP DEFAULT NOW(),
-            signal_generated BOOLEAN DEFAULT false
-        )
+        ALTER TABLE analysis_results
+        ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'
     """)
 
     try:
         while True:
             try:
-                # جلب نتائج التحليل الجديدة
+                # جلب نتائج التحليل لجميع الـ Timeframes
                 results = await Database.fetch("""
-                    SELECT symbol, analysis_data FROM analysis_results
+                    SELECT symbol, timeframe, analysis_data FROM analysis_results
                     WHERE signal_generated = false
                     AND analyzed_at > NOW() - INTERVAL '30 minutes'
-                    ORDER BY (analysis_data->>'total_score')::float DESC
-                    LIMIT 20
+                    ORDER BY symbol, (analysis_data->>'total_score')::float DESC
+                    LIMIT 200
                 """)
-                
+
                 if not results:
                     await asyncio.sleep(30)
                     continue
 
-                # إيجاد أفضل فرصة
+                # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
                 best_signal = await engine.find_best_signal(results)
-                
+
                 if best_signal:
-                    logger.info(f"🎯 إشارة قوية: {best_signal['symbol']} - النقاط: {best_signal['total_score']}/10")
-                    
+                    tfs = ', '.join(best_signal.get('confirmed_timeframes', []))
+                    logger.info(
+                        f"🎯 إشارة: {best_signal['symbol']} | "
+                        f"نقاط: {best_signal['total_score']}/10 | "
+                        f"تأكيد: {tfs}"
+                    )
+
                     # حفظ الإشارة في قاعدة البيانات
                     signal_id = await engine.save_signal(best_signal)
-                    
-                    # تحديث حالة التحليل
+
+                    # تحديث حالة التحليل لجميع الـ Timeframes لهذه العملة
                     await Database.execute(
                         "UPDATE analysis_results SET signal_generated = true WHERE symbol = $1",
                         best_signal['symbol']
                     )
-                    
+
                     logger.info(f"✅ تم حفظ الإشارة بـ ID: {signal_id}")
-                
+
                 await asyncio.sleep(60)
-                
+
             except Exception as e:
                 logger.error(f"❌ خطأ في Signal Engine: {e}")
                 await asyncio.sleep(30)
-                
+
     finally:
         await Database.disconnect()
 

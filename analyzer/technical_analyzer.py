@@ -17,9 +17,10 @@ class TechnicalAnalyzer:
     def __init__(self, client: AsyncClient):
         self.client = client
 
-    async def analyze(self, symbol: str) -> Optional[Dict]:
+    async def analyze(self, symbol: str, timeframe: str = None) -> Optional[Dict]:
+        tf = timeframe or config.TIMEFRAME
         try:
-            df = await self._get_candles(symbol)
+            df = await self._get_candles(symbol, tf)
             if df is None or len(df) < 50:
                 return None
 
@@ -31,6 +32,7 @@ class TechnicalAnalyzer:
 
             return {
                 'symbol': symbol,
+                'timeframe': tf,
                 'market_condition': market_condition,
                 'total_score': scores['total'],
                 'score_details': scores['details'],
@@ -45,14 +47,15 @@ class TechnicalAnalyzer:
                 'volume_ratio': float(df['volume_ratio'].iloc[-1]),
             }
         except Exception as e:
-            logger.error(f"خطأ في التحليل الفني لـ {symbol}: {e}")
+            logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {e}")
             return None
 
-    async def _get_candles(self, symbol: str) -> Optional[pd.DataFrame]:
+    async def _get_candles(self, symbol: str, timeframe: str = None) -> Optional[pd.DataFrame]:
+        tf = timeframe or config.TIMEFRAME
         try:
             klines = await self.client.get_klines(
                 symbol=symbol,
-                interval=config.TIMEFRAME,
+                interval=tf,
                 limit=config.CANDLES_TO_FETCH
             )
             df = pd.DataFrame(klines, columns=[
