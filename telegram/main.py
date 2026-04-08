@@ -6,7 +6,7 @@ import sys
 import json
 sys.path.append('/app')
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from shared.config import config
 from shared.database import Database
@@ -36,12 +36,15 @@ async def main():
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
 
     # تسجيل الأوامر
-    app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("status",   cmd_status))
-    app.add_handler(CommandHandler("whitelist",cmd_whitelist))
-    app.add_handler(CommandHandler("pause",    cmd_pause))
-    app.add_handler(CommandHandler("resume",   cmd_resume))
-    app.add_handler(CommandHandler("stats",    cmd_stats))
+    app.add_handler(CommandHandler("start",       cmd_start))
+    app.add_handler(CommandHandler("status",      cmd_status))
+    app.add_handler(CommandHandler("whitelist",   cmd_whitelist))
+    app.add_handler(CommandHandler("pause",       cmd_pause))
+    app.add_handler(CommandHandler("resume",      cmd_resume))
+    app.add_handler(CommandHandler("stats",       cmd_stats))
+    app.add_handler(CommandHandler("performance", cmd_performance))
+    app.add_handler(CommandHandler("signals",     cmd_signals))
+    app.add_handler(CommandHandler("daily",       cmd_daily))
 
     # معالج أزرار الموافقة
     app.add_handler(CallbackQueryHandler(handle_callback))
@@ -49,6 +52,18 @@ async def main():
     logger.info("✅ البوت يعمل...")
 
     async with app:
+        # تسجيل الأوامر في قائمة التيليغرام
+        await app.bot.set_my_commands([
+            BotCommand("start",       "🤖 قائمة الأوامر"),
+            BotCommand("status",      "📊 حالة النظام"),
+            BotCommand("performance", "🏆 أداء Claude والإشارات"),
+            BotCommand("signals",     "📡 آخر الإشارات"),
+            BotCommand("daily",       "📅 ملخص اليوم الكامل"),
+            BotCommand("whitelist",   "📋 العملات المعتمدة"),
+            BotCommand("stats",       "📈 إحصائيات آخر 7 أيام"),
+            BotCommand("pause",       "⏸️ إيقاف البوت مؤقتاً"),
+            BotCommand("resume",      "▶️ استئناف البوت"),
+        ])
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
         signal_task = asyncio.create_task(signal_loop(app.bot, whitelist_mgr, approval_mgr))
@@ -372,6 +387,126 @@ def build_approval_message(signal: dict) -> str:
         f"⏰ ينتهي الطلب خلال 30 دقيقة\n"
         f"{'─'*30}"
     )
+
+async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أداء Claude ونسبة القبول/الرفض"""
+    total = await Database.fetchval("SELECT COUNT(*) FROM signals") or 0
+    approved = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = true") or 0
+    rejected = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = false") or 0
+    sent = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE telegram_sent = true") or 0
+
+    # أداء آخر 7 أيام
+    wins = await Database.fetchval(
+        "SELECT COUNT(*) FROM trade_results WHERE result='WIN' AND exit_time > NOW() - INTERVAL '7 days'"
+    ) or 0
+    losses = await Database.fetchval(
+        "SELECT COUNT(*) FROM trade_results WHERE result='LOSS' AND exit_time > NOW() - INTERVAL '7 days'"
+    ) or 0
+    total_trades = wins + losses
+    win_rate = f"{(wins/total_trades*100):.1f}%" if total_trades > 0 else "لا توجد بيانات بعد"
+
+    approval_rate = f"{(approved/total*100):.1f}%" if total > 0 else "0%"
+
+    await update.message.reply_text(
+        f"🏆 أداء النظام\n"
+        f"{'─'*28}\n\n"
+        f"🤖 مراجعة Claude:\n"
+        f"  إجمالي الإشارات: {total}\n"
+        f"  ✅ موافق عليها: {approved} ({approval_rate})\n"
+        f"  ❌ مرفوضة: {rejected}\n"
+        f"  📤 مرسلة: {sent}\n\n"
+        f"📊 نتائج الصفقات (7 أيام):\n"
+        f"  أرباح: {wins} ✅\n"
+        f"  خسائر: {losses} ❌\n"
+        f"  نسبة النجاح: {win_rate}\n"
+        f"{'─'*28}"
+    )
+
+
+async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """آخر 5 إشارات مع حالتها"""
+    signals = await Database.fetch("""
+        SELECT symbol, timeframe, score, claude_approved, telegram_sent,
+               signal_time, claude_comment
+        FROM signals
+        ORDER BY signal_time DESC
+        LIMIT 5
+    """)
+
+    if not signals:
+        await update.message.reply_text("📡 لا توجد إشارات بعد")
+        return
+
+    lines = ["📡 آخر الإشارات\n" + "─"*28]
+    for s in signals:
+        claude_icon = "✅" if s['claude_approved'] else "❌"
+        sent_icon = "📤" if s['telegram_sent'] else "⏳"
+        time_str = s['signal_time'].strftime("%H:%M") if s['signal_time'] else "؟"
+        lines.append(
+            f"\n{sent_icon} {s['symbol']} [{s['timeframe']}]\n"
+            f"  ⭐ {s['score']}/10 | Claude: {claude_icon} | {time_str}\n"
+            f"  💬 {(s['claude_comment'] or '')[:60]}"
+        )
+
+    await update.message.reply_text("\n".join(lines))
+
+
+async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ملخص يومي كامل"""
+    risk = await Database.fetchrow(
+        "SELECT * FROM risk_management WHERE date = CURRENT_DATE"
+    )
+    signals_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE"
+    ) or 0
+    approved_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND claude_approved = true"
+    ) or 0
+    rejected_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND claude_approved = false"
+    ) or 0
+    sent_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND telegram_sent = true"
+    ) or 0
+
+    # أفضل إشارة اليوم
+    best = await Database.fetchrow("""
+        SELECT symbol, score, claude_approved FROM signals
+        WHERE signal_time::date = CURRENT_DATE
+        ORDER BY score DESC LIMIT 1
+    """)
+
+    # حالة السوق من آخر تحليل
+    market = await Database.fetchval("""
+        SELECT analysis_data->>'market_condition'
+        FROM analysis_results
+        ORDER BY analyzed_at DESC LIMIT 1
+    """) or "غير معروف"
+
+    market_ar = MARKET_CONDITION_AR.get(market, market)
+    status = "⏸️ موقوف" if (risk and risk['is_trading_paused']) else "✅ يعمل"
+    wins = risk['wins'] if risk else 0
+    losses = risk['losses'] if risk else 0
+
+    best_line = f"  🥇 أفضل إشارة: {best['symbol']} ({best['score']}/10)" if best else "  لا توجد بعد"
+
+    await update.message.reply_text(
+        f"📅 ملخص اليوم\n"
+        f"{'─'*28}\n\n"
+        f"⚙️ الحالة: {status}\n"
+        f"🌍 وضع السوق: {market_ar}\n\n"
+        f"📊 الإشارات:\n"
+        f"  إجمالي: {signals_today}\n"
+        f"  ✅ وافق Claude: {approved_today}\n"
+        f"  ❌ رفض Claude: {rejected_today}\n"
+        f"  📤 أُرسلت: {sent_today}\n"
+        f"{best_line}\n\n"
+        f"💰 الصفقات:\n"
+        f"  أرباح: {wins} ✅\n"
+        f"  خسائر: {losses} ❌\n"
+        f"{'─'*28}"
+    )
+
 
 def format_price(price) -> str:
     price = float(price)
