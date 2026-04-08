@@ -126,6 +126,16 @@ CREATE TABLE IF NOT EXISTS risk_management (
     pause_reason TEXT
 );
 
+-- جدول مرشحي المسح (للتواصل بين Scanner والـ Analyzer)
+CREATE TABLE IF NOT EXISTS scan_candidates (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    data JSONB NOT NULL,
+    scan_time TIMESTAMP DEFAULT NOW(),
+    analyzed BOOLEAN DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_scan_candidates_analyzed ON scan_candidates(analyzed, scan_time DESC);
+
 -- إدراج الأوزان الأولية للمؤشرات
 INSERT INTO indicator_weights (indicator_name, market_condition, weight) VALUES
     ('rsi', 'bullish', 1.0),
