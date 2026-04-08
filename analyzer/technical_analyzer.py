@@ -244,18 +244,32 @@ class TechnicalAnalyzer:
         support    = float(recent['low'].min())
         resistance = float(recent['high'].max())
 
-        entry      = close
-        stop_atr   = entry - (atr * 1.5)
-        stop_sup   = support * 0.99
-        stop_loss  = max(stop_atr, stop_sup)
-        risk       = entry - stop_loss
+        entry     = close
+        stop_atr  = entry - (atr * 1.5)
+        stop_sup  = support * 0.99
+        stop_loss = max(stop_atr, stop_sup)
+
+        # تأكد أن stop_loss أقل من entry دائماً
+        if stop_loss >= entry:
+            stop_loss = entry * 0.97
+
+        risk = entry - stop_loss
 
         target_1 = entry + (risk * 1.5)
         target_2 = entry + (risk * 2.5)
         target_3 = entry + (risk * 4.0)
 
-        if target_1 > resistance:
-            target_1 = resistance * 0.98
+        # لا نسمح للهدف أن يكون أقل من نقطة الدخول
+        if target_1 <= entry:
+            target_1 = entry + (risk * 1.5)
+        if target_2 <= target_1:
+            target_2 = entry + (risk * 2.5)
+        if target_3 <= target_2:
+            target_3 = entry + (risk * 4.0)
+
+        # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول
+        if target_1 > resistance and resistance > entry:
+            target_1 = resistance * 0.99
 
         return {
             'entry': round(entry, 8),
