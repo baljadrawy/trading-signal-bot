@@ -59,13 +59,14 @@ class BinanceScanner:
         return candidates
 
     async def _get_usdt_pairs(self) -> List[str]:
-        """جلب كل أزواج USDT النشطة"""
+        """جلب كل أزواج USDT النشطة - ASCII فقط"""
         exchange_info = await self.client.get_exchange_info()
         return [
             s['symbol'] for s in exchange_info['symbols']
             if s['quoteAsset'] == 'USDT'
             and s['status'] == 'TRADING'
             and s['symbol'] not in ['USDCUSDT', 'BUSDUSDT', 'TUSDUSDT']
+            and s['symbol'].isascii()  # فلتر الأحرف غير اللاتينية (صينية وغيرها)
         ]
 
     async def _get_24h_tickers(self) -> Dict:
