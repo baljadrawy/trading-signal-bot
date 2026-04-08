@@ -354,12 +354,13 @@ async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LIMIT 8
     """)
 
-    # الصفقات النشطة حالياً
+    # الصفقات النشطة حالياً (عملة واحدة فقط لكل رمز)
     active = await Database.fetch("""
-        SELECT symbol, entry_price, highest_target_hit, opened_at
+        SELECT DISTINCT ON (symbol)
+               symbol, entry_price, highest_target_hit, opened_at
         FROM active_trades
         WHERE status = 'open'
-        ORDER BY opened_at DESC
+        ORDER BY symbol, opened_at DESC
     """)
 
     lines = ["💹 نتائج الصفقات\n" + "─"*28]

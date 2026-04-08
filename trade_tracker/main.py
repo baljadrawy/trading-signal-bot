@@ -57,16 +57,22 @@ async def main():
 
 
 async def register_new_signals():
-    """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة"""
+    """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل عملة"""
     new_signals = await Database.fetch("""
-        SELECT s.id, s.symbol, s.entry_price, s.target_1, s.target_2, s.target_3,
+        SELECT DISTINCT ON (s.symbol)
+               s.id, s.symbol, s.entry_price, s.target_1, s.target_2, s.target_3,
                s.stop_loss, s.timeframe, s.is_paper_trade
         FROM signals s
         LEFT JOIN active_trades at ON s.id = at.signal_id
         WHERE s.telegram_sent = true
         AND s.claude_approved = true
         AND at.id IS NULL
-        AND s.signal_time > NOW() - INTERVAL '1 hour'
+        AND s.signal_time > NOW() - INTERVAL '2 hours'
+        AND NOT EXISTS (
+            SELECT 1 FROM active_trades at2
+            WHERE at2.symbol = s.symbol AND at2.status = 'open'
+        )
+        ORDER BY s.symbol, s.signal_time DESC
     """)
 
     for sig in new_signals:
