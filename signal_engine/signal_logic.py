@@ -23,7 +23,7 @@ class SignalEngine:
             "SELECT signals_sent FROM risk_management WHERE date = CURRENT_DATE"
         ) or 0
 
-        if signals_today >= config.MAX_SIGNALS_PER_DAY:
+        if config.MAX_SIGNALS_PER_DAY > 0 and signals_today >= config.MAX_SIGNALS_PER_DAY:
             logger.info(f"⏸️ وصلنا للحد الأقصى اليومي: {signals_today} إشارات")
             return None
 
