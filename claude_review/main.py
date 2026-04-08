@@ -61,12 +61,22 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
         reward = t1 - entry
         rr_ratio = reward / risk if risk > 0 else 0
         
-        prompt = f"""أنت محلل تداول خبير. راجع هذه الإشارة وقرر الموافقة أو الرفض.
+        # جلب عدد Timeframes المؤكدة من score_details
+        confirmed_tfs = score_details.get('confirmed_timeframes', [signal['timeframe']])
+        tf_count = score_details.get('timeframe_confirmations', 1)
+
+        prompt = f"""أنت محلل تداول خبير لنظام تداول ورقي (Paper Trading) للتعلم والاختبار.
+
+معلومات النظام:
+- النقاط تُحسب من 7 مؤشرات فنية، كل مؤشر يعطي نقطة واحدة كحد أقصى
+- النقاط الجيدة في هذا النظام هي 4-6 من 10 (ليس 8-10)
+- الإشارة تجاوزت فلتر تأكيد {tf_count} إطار زمني: {', '.join(confirmed_tfs)}
 
 العملة: {signal['symbol']}
-الإطار الزمني: {signal['timeframe']}
+الإطار الزمني الرئيسي: {signal['timeframe']}
 حالة السوق: {signal['market_condition']}
 النقاط الإجمالية: {signal['score']}/10
+الإطارات المؤكِّدة: {', '.join(confirmed_tfs)} ({tf_count} إطار)
 
 تفاصيل المؤشرات:
 {json.dumps(score_details, indent=2, ensure_ascii=False)}
@@ -79,10 +89,14 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
 - وقف الخسارة: {stop} ({((stop-entry)/entry*100):.2f}%)
 - نسبة المخاطرة/المكافأة: {rr_ratio:.2f}
 
+معايير الموافقة:
+- وافق إذا: نسبة المخاطرة/المكافأة >= 1.0 وعدد الإطارات المؤكدة >= 2
+- ارفض فقط إذا: نسبة المخاطرة/المكافأة سالبة أو أقل من 0.8
+
 قرر بـ APPROVED أو REJECTED مع سبب مختصر باللغة العربية.
 الشكل المطلوب:
 DECISION: APPROVED/REJECTED
-REASON: [السبب بجملة أو جملتين]"""
+REASON: [السبب بجملة واحدة]"""
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",  # Haiku أسرع وأرخص للمراجعة
