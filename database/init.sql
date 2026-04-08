@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS signals (
     stop_loss DECIMAL(20, 8) NOT NULL,
     score INTEGER NOT NULL, -- النقاط من 10
     score_details JSONB, -- تفاصيل كل مؤشر
-    claude_approved BOOLEAN DEFAULT false,
+    claude_approved BOOLEAN DEFAULT NULL,
     claude_comment TEXT,
     telegram_sent BOOLEAN DEFAULT false,
     is_paper_trade BOOLEAN DEFAULT true

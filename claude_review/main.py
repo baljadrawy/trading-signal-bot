@@ -28,8 +28,9 @@ async def main():
                            entry_price, target_1, target_2, target_3,
                            stop_loss, score, score_details
                     FROM signals
-                    WHERE claude_approved IS NULL
-                    AND signal_time > NOW() - INTERVAL '1 hour'
+                    WHERE (claude_approved IS NULL OR claude_approved = false)
+                    AND (claude_comment IS NULL OR claude_comment = '')
+                    AND signal_time > NOW() - INTERVAL '2 hours'
                     ORDER BY signal_time DESC
                 """)
                 
