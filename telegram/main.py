@@ -46,11 +46,22 @@ async def main():
     # معالج أزرار الموافقة
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # تشغيل حلقة إرسال الإشارات في الخلفية
-    asyncio.create_task(signal_loop(app.bot, whitelist_mgr, approval_mgr))
-
     logger.info("✅ البوت يعمل...")
-    await app.run_polling(drop_pending_updates=True)
+
+    async with app:
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        signal_task = asyncio.create_task(signal_loop(app.bot, whitelist_mgr, approval_mgr))
+        try:
+            await asyncio.Event().wait()
+        finally:
+            signal_task.cancel()
+            try:
+                await signal_task
+            except asyncio.CancelledError:
+                pass
+            await app.updater.stop()
+            await app.stop()
 
 
 async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
