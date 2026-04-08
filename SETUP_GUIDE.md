@@ -4,10 +4,10 @@
 
 | المكوّن | التفاصيل |
 |---------|----------|
-| الجهاز | Raspberry Pi 4 - 8GB RAM |
-| النظام | Ubuntu 24.04 LTS (aarch64) |
-| Docker | مثبت مسبقاً |
-| الاتصال | WiFi / LAN ثابت |
+| الجهاز | Hetzner VPS (أو أي خادم Ubuntu) |
+| النظام | Ubuntu 22.04 / 24.04 LTS (amd64) |
+| Docker | مثبت مسبقاً أو يُثبَّت عبر السكريبت |
+| الاتصال | IP ثابت + SSH مفعّل |
 
 ---
 
@@ -18,7 +18,7 @@
 - أنشئ API جديد باسم `trading-signal-bot`
 - **فعّل فقط**: ✅ Read Info, ✅ Spot Trading
 - **عطّل**: ❌ Withdrawals (مهم جداً للأمان)
-- **قيّد الـ IP**: أضف IP الـ Raspberry Pi فقط
+- **قيّد الـ IP**: أضف IP الخادم فقط
 ```
 BINANCE_API_KEY=
 BINANCE_API_SECRET=
@@ -49,16 +49,23 @@ POSTGRES_PASSWORD=اختر_كلمة_مرور_قوية
 
 ---
 
-## 🚀 خطوات الإعداد على الـ Raspberry Pi
+## 🚀 خطوات الإعداد على الخادم (VPS)
 
-### الخطوة 1: استنساخ المشروع
+### الخطوة 1: تثبيت Docker (إذا لم يكن مثبتاً)
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### الخطوة 2: استنساخ المشروع
 ```bash
 cd ~
-git clone https://baljadrawy:TOKEN@github.com/baljadrawy/trading-signal-bot.git
+git clone https://github.com/baljadrawy/trading-signal-bot.git
 cd trading-signal-bot
 ```
 
-### الخطوة 2: إعداد ملف البيئة
+### الخطوة 3: إعداد ملف البيئة
 ```bash
 cp .env.example .env
 nano .env
@@ -84,9 +91,6 @@ POSTGRES_DB=trading_signals
 POSTGRES_USER=trading_bot
 POSTGRES_PASSWORD=ضع_كلمة_مرور_قوية_هنا
 
-# ==================== Google Drive ====================
-GOOGLE_DRIVE_FOLDER_ID=ضع_folder_id_هنا
-
 # ==================== إعدادات التداول ====================
 PAPER_TRADING=true
 MAX_SIGNALS_PER_DAY=5
@@ -104,13 +108,13 @@ MAX_DAILY_LOSS_PERCENT=3
 STOP_ON_CONSECUTIVE_LOSSES=3
 ```
 
-### الخطوة 3: تشغيل المشروع
+### الخطوة 4: تشغيل المشروع
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-### الخطوة 4: التحقق من التشغيل
+### الخطوة 5: التحقق من التشغيل
 ```bash
 # مراقبة جميع الـ Containers
 docker compose logs -f
@@ -130,32 +134,45 @@ docker compose ps
 
 ## 📊 إعداد Google Colab للتدريب اليومي
 
-### الخطوة 1: إنشاء مجلد على Google Drive
-- افتح Google Drive
-- أنشئ مجلد باسم `trading-bot-data`
-- انسخ الـ Folder ID من الرابط:
-  `drive.google.com/drive/folders/`**`هذا_هو_الـ_ID`**
+يتصل Colab بقاعدة البيانات عبر **SSH Tunnel آمن** — لا داعي لفتح أي منفذ إضافي.
+
+### الخطوة 1: إنشاء SSH Key للـ Colab
+
+على جهازك المحلي أو الخادم:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/colab_key -N ""
+# انسخ المفتاح العام للخادم
+cat ~/.ssh/colab_key.pub >> ~/.ssh/authorized_keys
+# انسخ المفتاح الخاص — ستحتاجه في Colab
+cat ~/.ssh/colab_key
+```
 
 ### الخطوة 2: إعداد Colab Secrets
-- افتح Google Colab
-- افتح ملف `colab/daily_training.py`
-- من القائمة: 🔑 Secrets ← أضف هذي المفاتيح:
-```
-POSTGRES_HOST     = IP الـ Raspberry Pi (192.168.100.64)
-POSTGRES_PORT     = 5432
-POSTGRES_DB       = trading_signals
-POSTGRES_USER     = trading_bot
-POSTGRES_PASSWORD = كلمة_المرور_التي_اخترتها
-ANTHROPIC_API_KEY = مفتاح_Claude
-```
 
-> ⚠️ **ملاحظة مهمة**: لكي يصل Colab لـ PostgreSQL على الـ Raspberry Pi،
-> يجب أن يكون الـ Raspberry Pi متاح عبر الإنترنت (Port Forwarding)
-> أو استخدام ngrok مؤقتاً للاختبار.
+افتح Google Colab → 🔑 Secrets → أضف هذه المفاتيح:
 
-### الخطوة 3: جدولة التدريب
-- في Colab: Runtime ← Schedule (Colab Pro)
-- أو يدوياً كل يوم في وقت ثابت
+| الاسم | القيمة |
+|-------|--------|
+| `SSH_HOST` | IP الخادم (مثال: `178.104.128.198`) |
+| `SSH_USER` | اسم مستخدم SSH (مثال: `tradmin`) |
+| `SSH_KEY` | محتوى المفتاح الخاص (كل النص بما فيه السطر الأول والأخير) |
+| `POSTGRES_DB` | `trading_signals` |
+| `POSTGRES_USER` | `trading_bot` |
+| `POSTGRES_PASSWORD` | كلمة مرور قاعدة البيانات |
+| `ANTHROPIC_API_KEY` | مفتاح Claude |
+
+### الخطوة 3: تشغيل النوتبوك
+
+- افتح الملف: `colab/daily_training.ipynb`
+- شغّل الخلايا بالترتيب
+- خلية SSH Tunnel تنشئ اتصالاً آمناً بـ PostgreSQL على الخادم
+- التدريب يحدّث أوزان المؤشرات في قاعدة البيانات مباشرة
+
+### الخطوة 4: جدولة التدريب (يومياً)
+- في Colab Pro: Runtime ← Schedule
+- أو شغّله يدوياً كل يوم في وقت ثابت (مثلاً كل صباح)
+
+> ✅ عند نجاح التدريب ستظهر: `اكتمل التدريب اليومي!`
 
 ---
 
@@ -197,7 +214,7 @@ docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_YYY
 هل العملة في الـ Whitelist؟
     ↓ نعم               ↓ لا
 إرسال مباشر      طلب موافقة منك على Telegram
-للبوت المنفذ          ↓
+للمشتركين             ↓
                   تضغط ✅ أو ❌
                   خلال 30 دقيقة
                       ↓ ✅
@@ -209,45 +226,67 @@ docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_YYY
 ```
 
 ### أوامر التحكم من Telegram
+
+الأوامر تظهر تلقائياً في قائمة البوت (/) عند الضغط عليها:
+
 | الأمر | الوظيفة |
 |-------|---------|
-| `/start` | قائمة الأوامر |
-| `/status` | حالة النظام وإحصائيات اليوم |
-| `/whitelist` | عرض كل العملات المعتمدة |
-| `/pause` | إيقاف البوت مؤقتاً |
-| `/resume` | استئناف البوت |
-| `/stats` | إحصائيات آخر 7 أيام |
+| `/start` | 🤖 قائمة الأوامر |
+| `/status` | 📊 حالة النظام وإحصائيات اليوم |
+| `/whitelist` | 📋 عرض كل العملات المعتمدة |
+| `/stats` | 📈 إحصائيات آخر 7 أيام |
+| `/pause` | ⏸️ إيقاف البوت مؤقتاً |
+| `/resume` | ▶️ استئناف البوت |
 
 ### إعدادات الموافقة في `.env`
 ```env
-APPROVAL_TIMEOUT_MINUTES=30      # وقت انتظار موافقتك
+APPROVAL_TIMEOUT_MINUTES=30       # وقت انتظار موافقتك
 APPROVAL_MAX_PRICE_CHANGE_PCT=0.5 # أقصى تغير سعري مقبول
 ```
 
 ---
 
-## 📱 صيغة رسالة Telegram
+## 📱 صيغة رسائل Telegram
 
-الرسائل تُرسل بهذا الشكل تلقائياً:
+**إشارة مباشرة (عملة في الـ Whitelist):**
 ```
 ──────────────────────────────
-🎯 SHIBUSDT
-📝 بيبر تريد | وضع السوق: متقلب
+🎯 BTCUSDT  ✅ معتمدة
+وضع السوق: صاعد 📈
 
-📈 Buy: 0.00000597
+💰 حجم الصفقة: 50 USDT
+📊 الكمية: 0.0005
+
+📈 Buy: 83000.00
 
 🎯 Target:
-  T1: 0.0000062
-  T2: 0.00000638
-  T3: 0.00000647
+  T1: 84660.00
+  T2: 86490.00
+  T3: 88320.00
 
-🛑 Stop: 0.00000571
+🛑 Stop: 81340.00
 
 ⏰ اغلاق 4h أقل من
 ⭐ القوة: 8/10
-
-🤖 Claude: إشارة قوية مع دعم واضح في Order Book
 ──────────────────────────────
+```
+
+**طلب موافقة (عملة جديدة):**
+```
+──────────────────────────────
+🔍 مراجعة شرعية مطلوبة
+──────────────────────────────
+
+🪙 NEWUSDT  🆕 عملة جديدة
+وضع السوق: صاعد 📈
+
+📈 Buy: 1.2345
+🎯 T1 / T2 / T3 ...
+🛑 Stop: 1.1800
+
+⏰ ينتهي الطلب خلال 30 دقيقة
+──────────────────────────────
+[✅ موافق - شرعياً مقبولة]  [❌ رفض]
 ```
 
 ---
@@ -266,7 +305,7 @@ trading-signal-bot/
 ├── analyzer/            # التحليل الفني + Order Book
 ├── signal_engine/       # اختيار أفضل إشارة
 ├── claude_review/       # مراجعة Claude
-├── telegram/            # إرسال الإشارات
+├── telegram/            # إرسال الإشارات + أوامر التحكم
 │
 ├── shared/              # كود مشترك بين الـ Containers
 │   ├── config.py        # الإعدادات
@@ -274,11 +313,10 @@ trading-signal-bot/
 │   └── logger.py        # نظام السجلات
 │
 ├── database/
-│   └── init.sql         # جداول قاعدة البيانات
+│   └── init.sql         # جداول قاعدة البيانات (تُشغَّل مرة واحدة)
 │
-├── models/              # النماذج المدربة
 └── colab/
-    └── daily_training.py # نوتبوك التدريب اليومي
+    └── daily_training.ipynb  # نوتبوك التدريب اليومي (Google Colab)
 ```
 
 ---
@@ -290,16 +328,20 @@ trading-signal-bot/
 | `symbols` | العملات المراقبة |
 | `candles` | بيانات الشموع التاريخية |
 | `signals` | جميع الإشارات مع تفاصيلها |
+| `symbol_whitelist` | العملات المعتمدة شرعياً |
+| `approval_requests` | طلبات الموافقة المعلّقة |
 | `trade_results` | نتائج الصفقات (ربح/خسارة) |
 | `indicator_weights` | أوزان المؤشرات - يتحدث تلقائياً |
-| `learning_log` | سجل جلسات التعلم |
+| `learning_log` | سجل جلسات التعلم اليومي |
 | `risk_management` | إدارة المخاطر اليومية |
 | `scan_candidates` | عملات مرشحة للتحليل (مؤقت) |
-| `analysis_results` | نتائج التحليل الفني (مؤقت) |
+
+> ⚠️ الجداول تُنشأ تلقائياً عند أول تشغيل عبر `database/init.sql`
+> إذا أردت إعادة إنشاء الجداول: `docker compose down -v && docker compose up -d`
 
 ---
 
-## 🌿 Git Flow - طريقة العمل على الكود
+## 🗺️ Git Flow - طريقة العمل على الكود
 
 ### الفروع الموجودة
 
@@ -347,7 +389,7 @@ git push origin --delete feature/whale-alert
 
 ### سيناريو 2: نقل كود مستقر من dev إلى main
 ```bash
-# بعد اختبار dev على الـ Raspberry Pi وتأكد من استقراره
+# بعد اختبار dev على الخادم وتأكد من استقراره
 git checkout main
 git pull origin main
 git merge dev
@@ -392,7 +434,7 @@ git branch -d hotfix/fix-scanner-crash
 
 ---
 
-### على الـ Raspberry Pi - تحديث الكود
+### على الخادم - تحديث الكود
 ```bash
 cd ~/trading-signal-bot
 
@@ -415,8 +457,9 @@ docker compose up -d
 |---------|----------|
 | Binance API | Spot فقط + تقييد IP |
 | ملف `.env` | محمي بـ `.gitignore` |
-| PostgreSQL | مستخدم محدود الصلاحيات |
+| PostgreSQL | مستخدم محدود الصلاحيات، يُقبل على `127.0.0.1` فقط |
 | Docker Network | شبكة داخلية معزولة |
+| SSH Tunnel | الاتصال بـ Colab عبر SSH مشفّر فقط |
 | Paper Trading | مفعّل افتراضياً للاختبار |
 | وقف تلقائي | عند 3 خسائر متتالية أو 3% خسارة يومية |
 
@@ -429,7 +472,7 @@ docker compose up -d
     ↓
 النتيجة تُحفظ (ربح/خسارة)
     ↓
-Colab يحلل يومياً
+Colab يحلل يومياً (daily_training.ipynb)
     ↓
 يحسب ارتباط كل مؤشر بالنجاح
     ↓
@@ -439,42 +482,6 @@ Claude يحلل الأداء ويعطي توصيات
     ↓
 البوت يستخدم الأوزان الجديدة تلقائياً
 ```
-
----
-
-## 🔄 الانتقال لـ Hetzner VPS
-
-### إعداد الـ VPS
-```bash
-# على الـ VPS الجديد (Ubuntu 22.04/24.04 - amd64)
-# تثبيت Docker
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
-
-# استنساخ المشروع
-git clone https://baljadrawy:TOKEN@github.com/baljadrawy/trading-signal-bot.git
-cd trading-signal-bot
-cp .env.example .env
-nano .env  # نفس الإعدادات تماماً
-./setup.sh  # نفس الأمر - لا يوجد أي تغيير
-```
-
-> ✅ الـ Docker images تعمل على amd64 (Hetzner) و arm64 (Raspberry Pi) بدون أي تعديل
-
-### نقل بيانات PostgreSQL من Raspberry Pi للـ VPS
-```bash
-# على الـ Raspberry Pi - تصدير البيانات
-docker exec trading_postgres pg_dump -U trading_bot trading_signals > backup_migration.sql
-
-# نقل الملف للـ VPS
-scp backup_migration.sql user@VPS_IP:~/trading-signal-bot/
-
-# على الـ VPS - استيراد البيانات (بعد تشغيل postgres)
-docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_migration.sql
-```
-
-> ⚠️ الـ Whitelist تنتقل معك تلقائياً ضمن قاعدة البيانات
 
 ---
 
@@ -491,6 +498,10 @@ docker exec trading_postgres psql -U trading_bot trading_signals \
 # آخر إشارة مرسلة
 docker exec trading_postgres psql -U trading_bot trading_signals \
   -c "SELECT symbol, score, signal_time FROM signals ORDER BY signal_time DESC LIMIT 1;"
+
+# عملات في الـ Whitelist
+docker exec trading_postgres psql -U trading_bot trading_signals \
+  -c "SELECT symbol, approved_at FROM symbol_whitelist ORDER BY approved_at DESC;"
 ```
 
 ---
