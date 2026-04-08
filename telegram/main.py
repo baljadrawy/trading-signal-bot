@@ -404,6 +404,13 @@ def build_signal_message(signal: dict, is_direct: bool = False) -> str:
     confirmed_tfs = score_details.get('confirmed_timeframes', [signal['timeframe']])
     tfs_str = ' + '.join(confirmed_tfs) if confirmed_tfs else signal['timeframe']
 
+    t2   = float(signal['target_2'])
+    t3   = float(signal['target_3'])
+    t1_pct = ((t1   - entry) / entry) * 100
+    t2_pct = ((t2   - entry) / entry) * 100
+    t3_pct = ((t3   - entry) / entry) * 100
+    sl_pct = ((stop - entry) / entry) * 100
+
     return (
         f"{'─'*30}\n"
         f"🎯 {signal['symbol']}  {whitelist_badge}\n"
@@ -412,10 +419,10 @@ def build_signal_message(signal: dict, is_direct: bool = False) -> str:
         f"📊 الكمية: {format_quantity(quantity)}\n\n"
         f"📈 دخول: {format_price(entry)}\n\n"
         f"🎯 الأهداف:\n"
-        f"  T1: {format_price(signal['target_1'])}\n"
-        f"  T2: {format_price(signal['target_2'])}\n"
-        f"  T3: {format_price(signal['target_3'])}\n\n"
-        f"🛑 وقف الخسارة: {format_price(signal['stop_loss'])}\n"
+        f"  T1: {format_price(t1)}  (+{t1_pct:.2f}%)\n"
+        f"  T2: {format_price(t2)}  (+{t2_pct:.2f}%)\n"
+        f"  T3: {format_price(t3)}  (+{t3_pct:.2f}%)\n\n"
+        f"🛑 وقف الخسارة: {format_price(stop)}  ({sl_pct:.2f}%)\n"
         f"⚖️ المخاطرة/المكافأة: {rr}\n\n"
         f"⏱️ الإطار: {tfs_str}\n"
         f"⭐ القوة: {signal['score']}/10\n"
