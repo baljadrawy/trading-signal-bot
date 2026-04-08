@@ -33,10 +33,17 @@ async def main():
         while True:
             try:
                 # جلب نتائج التحليل لجميع الـ Timeframes
+                # مستثنى: العملات المرفوضة + العملات التي لديها صفقة مفتوحة
                 results = await Database.fetch("""
                     SELECT symbol, timeframe, analysis_data FROM analysis_results
                     WHERE signal_generated = false
                     AND analyzed_at > NOW() - INTERVAL '30 minutes'
+                    AND symbol NOT IN (
+                        SELECT symbol FROM active_trades WHERE status = 'open'
+                    )
+                    AND symbol NOT IN (
+                        SELECT symbol FROM approval_requests WHERE status = 'rejected'
+                    )
                     ORDER BY symbol, (analysis_data->>'total_score')::float DESC
                     LIMIT 200
                 """)

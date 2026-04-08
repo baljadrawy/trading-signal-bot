@@ -27,6 +27,18 @@ class SignalEngine:
             logger.info(f"⏸️ وصلنا للحد الأقصى اليومي: {signals_today} إشارات")
             return None
 
+        # جلب العملات المحظورة (صفقة مفتوحة أو مرفوضة)
+        open_symbols = set(r['symbol'] for r in await Database.fetch(
+            "SELECT DISTINCT symbol FROM active_trades WHERE status = 'open'"
+        ))
+        rejected_symbols = set(r['symbol'] for r in await Database.fetch(
+            "SELECT DISTINCT symbol FROM approval_requests WHERE status = 'rejected'"
+        ))
+        blocked_symbols = open_symbols | rejected_symbols
+
+        if blocked_symbols:
+            logger.info(f"🚫 عملات محظورة: {len(blocked_symbols)} (مفتوحة: {len(open_symbols)}, مرفوضة: {len(rejected_symbols)})")
+
         # تجميع النتائج حسب العملة
         by_symbol: Dict[str, List[Dict]] = {}
         for row in results:
@@ -40,6 +52,11 @@ class SignalEngine:
         best_score = 0
 
         for symbol, tf_results in by_symbol.items():
+
+            # تخطي العملات المحظورة (طبقة حماية ثانية)
+            if symbol in blocked_symbols:
+                logger.debug(f"⏭️ تخطي {symbol} - صفقة مفتوحة أو مرفوضة")
+                continue
 
             # احسب عدد الـ Timeframes المتفقة (تجاوزت الحد الأدنى)
             qualifying = []
