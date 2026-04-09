@@ -350,21 +350,24 @@ async def cmd_remove_blacklist(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def cmd_remove_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إزالة عملة من القائمة البيضاء — /remove_whitelist BTCUSDT"""
+    """إزالة عملة من القائمة البيضاء ونقلها للسوداء — /remove_whitelist BTCUSDT"""
     if not context.args:
         await update.message.reply_text(
             "⚠️ يرجى تحديد العملة\nمثال: /remove_whitelist BTCUSDT"
         )
         return
     symbol = context.args[0].upper()
-    mgr = WhitelistManager()
-    if not await mgr.is_whitelisted(symbol):
+    wl = WhitelistManager()
+    bl = BlacklistManager()
+    if not await wl.is_whitelisted(symbol):
         await update.message.reply_text(f"⚠️ {symbol} غير موجودة في القائمة البيضاء")
         return
-    await mgr.remove(symbol)
+    await wl.remove(symbol)
+    await bl.add_to_blacklist(symbol, reason="نُقلت من القائمة البيضاء للسوداء يدوياً")
     await update.message.reply_text(
-        f"🗑️ تمت إزالة {symbol} من القائمة البيضاء\n"
-        f"ستحتاج موافقة يدوية في المرة القادمة"
+        f"🚫 تمت إزالة {symbol} من القائمة البيضاء وإضافتها للسوداء\n"
+        f"لن تُحلَّل ولن تُرسل مجدداً\n\n"
+        f"للتراجع: /remove_blacklist {symbol}"
     )
 
 
