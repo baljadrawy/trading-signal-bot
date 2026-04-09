@@ -45,6 +45,7 @@ async def main():
     try:
         while True:
             try:
+                await close_blacklisted_trades()
                 await track_open_trades()
                 await register_new_signals()
                 await asyncio.sleep(300)  # كل 5 دقائق
@@ -55,6 +56,22 @@ async def main():
 
     finally:
         await Database.disconnect()
+
+
+async def close_blacklisted_trades():
+    """إغلاق أي صفقة مفتوحة لعملة في القائمة السوداء (مرفوضة من المستخدم)"""
+    blacklisted = await Database.fetch("""
+        SELECT at.id, at.symbol
+        FROM active_trades at
+        JOIN symbol_blacklist bl ON at.symbol = bl.symbol
+        WHERE at.status = 'open'
+    """)
+    for trade in blacklisted:
+        await Database.execute(
+            "UPDATE active_trades SET status = 'closed' WHERE id = $1",
+            trade['id']
+        )
+        logger.info(f"🚫 إغلاق صفقة {trade['symbol']} - العملة في القائمة السوداء")
 
 
 async def register_new_signals():
@@ -76,6 +93,9 @@ async def register_new_signals():
         AND NOT EXISTS (
             SELECT 1 FROM approval_requests ar
             WHERE ar.signal_id = s.id AND ar.status = 'rejected'
+        )
+        AND s.symbol NOT IN (
+            SELECT symbol FROM symbol_blacklist
         )
         ORDER BY s.symbol, s.signal_time DESC
     """)
