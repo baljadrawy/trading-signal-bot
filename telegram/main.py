@@ -42,6 +42,7 @@ async def main():
     app.add_handler(CommandHandler("whitelist",        cmd_whitelist))
     app.add_handler(CommandHandler("blacklist",        cmd_blacklist))
     app.add_handler(CommandHandler("remove_blacklist", cmd_remove_blacklist))
+    app.add_handler(CommandHandler("remove_whitelist", cmd_remove_whitelist))
     app.add_handler(CommandHandler("pause",            cmd_pause))
     app.add_handler(CommandHandler("resume",           cmd_resume))
     app.add_handler(CommandHandler("stats",            cmd_stats))
@@ -67,6 +68,7 @@ async def main():
             BotCommand("whitelist",        "✅ العملات المعتمدة (قائمة بيضاء)"),
             BotCommand("blacklist",        "🚫 العملات المحظورة (قائمة سوداء)"),
             BotCommand("remove_blacklist", "♻️ إزالة عملة من القائمة السوداء"),
+            BotCommand("remove_whitelist", "🗑️ إزالة عملة من القائمة البيضاء"),
             BotCommand("stats",            "📈 إحصائيات آخر 7 أيام"),
             BotCommand("pause",            "⏸️ إيقاف البوت مؤقتاً"),
             BotCommand("resume",           "▶️ استئناف البوت"),
@@ -346,6 +348,25 @@ async def cmd_remove_blacklist(update: Update, context: ContextTypes.DEFAULT_TYP
         f"✅ تمت إزالة {symbol} من القائمة السوداء\n"
         f"سيبدأ البوت بتحليلها مجدداً في الدورة القادمة"
     )
+
+async def cmd_remove_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إزالة عملة من القائمة البيضاء — /remove_whitelist BTCUSDT"""
+    if not context.args:
+        await update.message.reply_text(
+            "⚠️ يرجى تحديد العملة\nمثال: /remove_whitelist BTCUSDT"
+        )
+        return
+    symbol = context.args[0].upper()
+    mgr = WhitelistManager()
+    if not await mgr.is_whitelisted(symbol):
+        await update.message.reply_text(f"⚠️ {symbol} غير موجودة في القائمة البيضاء")
+        return
+    await mgr.remove(symbol)
+    await update.message.reply_text(
+        f"🗑️ تمت إزالة {symbol} من القائمة البيضاء\n"
+        f"ستحتاج موافقة يدوية في المرة القادمة"
+    )
+
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await Database.execute("""
