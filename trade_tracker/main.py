@@ -5,6 +5,7 @@ Trade Tracker - يراقب الإشارات المرسلة ويسجل نتائج
 import asyncio
 import sys
 import json
+from datetime import datetime, timezone
 sys.path.append('/app')
 
 import aiohttp
@@ -125,10 +126,8 @@ async def evaluate_trade(trade: dict, current_price: float):
     opened = trade['opened_at']
 
     # حساب مدة الصفقة
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     if opened.tzinfo is None:
-        from datetime import timezone
         opened = opened.replace(tzinfo=timezone.utc)
     hours_open = (now - opened).total_seconds() / 3600
 
