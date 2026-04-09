@@ -10,4 +10,8 @@ WORKDIR /app
 COPY telegram/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# نسخ الكود
+COPY shared/ ./shared/
+COPY telegram/ ./
+
 CMD ["python", "-u", "main.py"]

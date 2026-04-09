@@ -10,4 +10,8 @@ WORKDIR /app
 COPY signal_engine/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# نسخ الكود
+COPY shared/ ./shared/
+COPY signal_engine/ ./
+
 CMD ["python", "-u", "main.py"]

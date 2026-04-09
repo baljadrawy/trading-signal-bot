@@ -10,4 +10,8 @@ WORKDIR /app
 COPY claude_review/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# نسخ الكود
+COPY shared/ ./shared/
+COPY claude_review/ ./
+
 CMD ["python", "-u", "main.py"]

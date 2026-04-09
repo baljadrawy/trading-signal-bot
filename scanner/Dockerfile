@@ -10,4 +10,8 @@ WORKDIR /app
 COPY scanner/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# نسخ الكود
+COPY shared/ ./shared/
+COPY scanner/ ./
+
 CMD ["python", "-u", "main.py"]
