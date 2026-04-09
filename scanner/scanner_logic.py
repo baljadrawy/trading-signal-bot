@@ -19,7 +19,7 @@ class BinanceScanner:
 
     async def scan(self) -> List[Dict]:
         """المسح الرئيسي - يفلتر العملات المؤهلة"""
-        
+
         # 1. تحقق من حالة إدارة المخاطر
         if await self._is_trading_paused():
             logger.warning("⏸️ التداول موقوف - تجاوز حد الخسائر")
@@ -27,15 +27,23 @@ class BinanceScanner:
 
         # 2. تحديث اتجاه BTC أولاً
         await self._update_btc_trend()
-        
+
         # 3. جلب كل USDT pairs
         all_symbols = await self._get_usdt_pairs()
         logger.info(f"📊 إجمالي العملات: {len(all_symbols)}")
-        
-        # 4. جلب بيانات 24 ساعة لكل العملات دفعة واحدة
+
+        # 4. جلب القائمة السوداء (لا نحللها أبداً)
+        blacklisted = set(r['symbol'] for r in await Database.fetch(
+            "SELECT symbol FROM symbol_blacklist"
+        ))
+        if blacklisted:
+            logger.info(f"🚫 القائمة السوداء: {len(blacklisted)} عملة محظورة")
+            all_symbols = [s for s in all_symbols if s not in blacklisted]
+
+        # 5. جلب بيانات 24 ساعة لكل العملات دفعة واحدة
         tickers = await self._get_24h_tickers()
-        
-        # 5. الفلتر الأولي السريع
+
+        # 6. الفلتر الأولي السريع
         candidates = []
         for symbol in all_symbols:
             ticker = tickers.get(symbol)
@@ -51,10 +59,10 @@ class BinanceScanner:
                     'scan_time': datetime.now().isoformat()
                 })
         
-        # 6. حفظ المرشحين في قاعدة البيانات للـ Analyzer
+        # 7. حفظ المرشحين في قاعدة البيانات للـ Analyzer
         if candidates:
             await self._save_candidates(candidates)
-        
+
         logger.info(f"🎯 العملات المؤهلة للتحليل: {len(candidates)}")
         return candidates
 

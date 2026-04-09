@@ -51,10 +51,46 @@ class WhitelistManager:
         logger.info(f"🗑️ تمت إزالة {symbol} من الـ Whitelist")
 
 
+class BlacklistManager:
+    """إدارة القائمة السوداء - العملات المرفوضة نهائياً"""
+
+    async def add_to_blacklist(self, symbol: str, reason: str = "رفض يدوي من Telegram"):
+        """إضافة عملة للقائمة السوداء"""
+        await Database.execute("""
+            INSERT INTO symbol_blacklist (symbol, reason)
+            VALUES ($1, $2)
+            ON CONFLICT (symbol) DO UPDATE
+            SET rejected_at = NOW(), reason = $2
+        """, symbol, reason)
+        logger.info(f"🚫 تمت إضافة {symbol} للقائمة السوداء")
+
+    async def is_blacklisted(self, symbol: str) -> bool:
+        """هل العملة في القائمة السوداء؟"""
+        result = await Database.fetchval(
+            "SELECT COUNT(*) FROM symbol_blacklist WHERE symbol = $1", symbol
+        )
+        return result > 0
+
+    async def remove_from_blacklist(self, symbol: str):
+        """إزالة عملة من القائمة السوداء"""
+        await Database.execute(
+            "DELETE FROM symbol_blacklist WHERE symbol = $1", symbol
+        )
+        logger.info(f"✅ تمت إزالة {symbol} من القائمة السوداء")
+
+    async def get_all(self) -> list:
+        """جلب كل العملات المحظورة"""
+        rows = await Database.fetch(
+            "SELECT symbol, rejected_at, reason FROM symbol_blacklist ORDER BY rejected_at DESC"
+        )
+        return [dict(r) for r in rows]
+
+
 class ApprovalManager:
 
     def __init__(self):
         self.whitelist = WhitelistManager()
+        self.blacklist = BlacklistManager()
         self.timeout_minutes = config.APPROVAL_TIMEOUT_MINUTES
         self.max_price_change_pct = config.APPROVAL_MAX_PRICE_CHANGE_PCT
 
@@ -113,10 +149,14 @@ class ApprovalManager:
             await self._update_request(signal_id, 'expired', current_price)
             return {'action': 'expired', 'reason': f'انتهت الصلاحية (30 دقيقة)'}
 
-        # إذا رفض المستخدم
+        # إذا رفض المستخدم → أضف للقائمة السوداء فوراً
         if not approved:
             await self._update_request(signal_id, 'rejected', current_price)
-            return {'action': 'reject', 'reason': 'تم الرفض يدوياً'}
+            await self.blacklist.add_to_blacklist(
+                request['symbol'],
+                reason="رفض يدوي من Telegram"
+            )
+            return {'action': 'reject', 'reason': 'تم الرفض وإضافة العملة للقائمة السوداء'}
 
         # تحقق من تغير السعر
         entry_price = float(request['entry_price_at_request'])
@@ -129,9 +169,10 @@ class ApprovalManager:
                 'reason': f'السعر تغير {price_change_pct:.2f}% (الحد الأقصى {self.max_price_change_pct}%)'
             }
 
-        # موافقة ناجحة - أضف للـ Whitelist
+        # موافقة ناجحة → أضف للـ Whitelist وأزل من السوداء إن وُجدت
         await self._update_request(signal_id, 'approved', current_price, price_change_pct)
         await self.whitelist.add_to_whitelist(request['symbol'])
+        await self.blacklist.remove_from_blacklist(request['symbol'])
 
         return {'action': 'send', 'reason': 'تمت الموافقة وإضافة العملة للـ Whitelist'}
 

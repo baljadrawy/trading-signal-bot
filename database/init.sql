@@ -146,6 +146,15 @@ CREATE TABLE IF NOT EXISTS risk_management (
     pause_reason TEXT
 );
 
+-- جدول القائمة السوداء (العملات المرفوضة نهائياً - لا تُحلَّل ولا تُرسل)
+CREATE TABLE IF NOT EXISTS symbol_blacklist (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) UNIQUE NOT NULL,
+    rejected_at TIMESTAMP DEFAULT NOW(),
+    reason TEXT DEFAULT 'رفض يدوي من Telegram'
+);
+CREATE INDEX IF NOT EXISTS idx_blacklist_symbol ON symbol_blacklist(symbol);
+
 -- جدول مرشحي المسح (للتواصل بين Scanner والـ Analyzer)
 CREATE TABLE IF NOT EXISTS scan_candidates (
     id SERIAL PRIMARY KEY,

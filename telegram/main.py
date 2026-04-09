@@ -12,7 +12,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
-from whitelist import WhitelistManager, ApprovalManager
+from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
 
@@ -37,16 +37,18 @@ async def main():
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
 
     # تسجيل الأوامر
-    app.add_handler(CommandHandler("start",       cmd_start))
-    app.add_handler(CommandHandler("status",      cmd_status))
-    app.add_handler(CommandHandler("whitelist",   cmd_whitelist))
-    app.add_handler(CommandHandler("pause",       cmd_pause))
-    app.add_handler(CommandHandler("resume",      cmd_resume))
-    app.add_handler(CommandHandler("stats",       cmd_stats))
-    app.add_handler(CommandHandler("performance", cmd_performance))
-    app.add_handler(CommandHandler("signals",     cmd_signals))
-    app.add_handler(CommandHandler("daily",       cmd_daily))
-    app.add_handler(CommandHandler("trades",      cmd_trades))
+    app.add_handler(CommandHandler("start",            cmd_start))
+    app.add_handler(CommandHandler("status",           cmd_status))
+    app.add_handler(CommandHandler("whitelist",        cmd_whitelist))
+    app.add_handler(CommandHandler("blacklist",        cmd_blacklist))
+    app.add_handler(CommandHandler("remove_blacklist", cmd_remove_blacklist))
+    app.add_handler(CommandHandler("pause",            cmd_pause))
+    app.add_handler(CommandHandler("resume",           cmd_resume))
+    app.add_handler(CommandHandler("stats",            cmd_stats))
+    app.add_handler(CommandHandler("performance",      cmd_performance))
+    app.add_handler(CommandHandler("signals",          cmd_signals))
+    app.add_handler(CommandHandler("daily",            cmd_daily))
+    app.add_handler(CommandHandler("trades",           cmd_trades))
 
     # معالج أزرار الموافقة
     app.add_handler(CallbackQueryHandler(handle_callback))
@@ -56,16 +58,18 @@ async def main():
     async with app:
         # تسجيل الأوامر في قائمة التيليغرام
         await app.bot.set_my_commands([
-            BotCommand("start",       "🤖 قائمة الأوامر"),
-            BotCommand("status",      "📊 حالة النظام"),
-            BotCommand("performance", "🏆 أداء Claude والإشارات"),
-            BotCommand("signals",     "📡 آخر الإشارات"),
-            BotCommand("trades",      "💹 نتائج الصفقات"),
-            BotCommand("daily",       "📅 ملخص اليوم الكامل"),
-            BotCommand("whitelist",   "📋 العملات المعتمدة"),
-            BotCommand("stats",       "📈 إحصائيات آخر 7 أيام"),
-            BotCommand("pause",       "⏸️ إيقاف البوت مؤقتاً"),
-            BotCommand("resume",      "▶️ استئناف البوت"),
+            BotCommand("start",            "🤖 قائمة الأوامر"),
+            BotCommand("status",           "📊 حالة النظام"),
+            BotCommand("performance",      "🏆 أداء Claude والإشارات"),
+            BotCommand("signals",          "📡 آخر الإشارات"),
+            BotCommand("trades",           "💹 نتائج الصفقات"),
+            BotCommand("daily",            "📅 ملخص اليوم الكامل"),
+            BotCommand("whitelist",        "✅ العملات المعتمدة (قائمة بيضاء)"),
+            BotCommand("blacklist",        "🚫 العملات المحظورة (قائمة سوداء)"),
+            BotCommand("remove_blacklist", "♻️ إزالة عملة من القائمة السوداء"),
+            BotCommand("stats",            "📈 إحصائيات آخر 7 أيام"),
+            BotCommand("pause",            "⏸️ إيقاف البوت مؤقتاً"),
+            BotCommand("resume",           "▶️ استئناف البوت"),
         ])
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
@@ -216,8 +220,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif result['action'] == 'reject':
             await query.edit_message_text(
-                f"❌ تم رفض إشارة {signal['symbol']}\n"
-                f"🔍 سيبحث البوت عن فرصة أخرى"
+                f"🚫 تم رفض {signal['symbol']} وإضافتها للقائمة السوداء\n"
+                f"لن يسألك البوت عنها مجدداً\n\n"
+                f"إذا أردت إعادتها لاحقاً:\n"
+                f"/remove_blacklist {signal['symbol']}"
             )
 
         elif result['action'] == 'expired':
@@ -300,12 +306,45 @@ async def cmd_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mgr = WhitelistManager()
     symbols = await mgr.get_all()
     if not symbols:
-        await update.message.reply_text("📋 الـ Whitelist فارغة حتى الآن")
+        await update.message.reply_text("✅ القائمة البيضاء فارغة حتى الآن\nسيُضاف إليها كل عملة توافق عليها")
         return
     lines = [f"• {s['symbol']}" for s in symbols]
     await update.message.reply_text(
-        f"📋 العملات المعتمدة شرعياً ({len(symbols)}):\n\n" +
+        f"✅ القائمة البيضاء — العملات المعتمدة ({len(symbols)}):\n"
+        f"(تُرسل إشاراتها مباشرة بدون سؤال)\n\n" +
         "\n".join(lines)
+    )
+
+async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mgr = BlacklistManager()
+    symbols = await mgr.get_all()
+    if not symbols:
+        await update.message.reply_text("🚫 القائمة السوداء فارغة\nالعملات المرفوضة ستظهر هنا")
+        return
+    lines = [f"• {s['symbol']}" for s in symbols]
+    await update.message.reply_text(
+        f"🚫 القائمة السوداء — العملات المحظورة ({len(symbols)}):\n"
+        f"(لن تُحلَّل ولن تُرسل أبداً)\n\n" +
+        "\n".join(lines) +
+        f"\n\nللإزالة: /remove_blacklist SYMBOL"
+    )
+
+async def cmd_remove_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إزالة عملة من القائمة السوداء — /remove_blacklist BTCUSDT"""
+    if not context.args:
+        await update.message.reply_text(
+            "⚠️ يرجى تحديد العملة\nمثال: /remove_blacklist BTCUSDT"
+        )
+        return
+    symbol = context.args[0].upper()
+    mgr = BlacklistManager()
+    if not await mgr.is_blacklisted(symbol):
+        await update.message.reply_text(f"⚠️ {symbol} غير موجودة في القائمة السوداء")
+        return
+    await mgr.remove_from_blacklist(symbol)
+    await update.message.reply_text(
+        f"✅ تمت إزالة {symbol} من القائمة السوداء\n"
+        f"سيبدأ البوت بتحليلها مجدداً في الدورة القادمة"
     )
 
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
