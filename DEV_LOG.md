@@ -4,6 +4,39 @@
 
 ---
 
+## 2026-04-14
+
+### 🔒 تحسينات الموثوقية (من مراجعة البنية)
+
+**1. Task Timeout في Analyzer**
+- أضيف `asyncio.wait_for(task, timeout=60)` لكل عملة
+- عملة واحدة بطيئة لا تعطّل تحليل باقي الـ 49
+- timeout warning يُسجَّل في اللوق عند التجاوز
+
+**2. تنبيهات Telegram للأخطاء الحرجة**
+- ملف جديد `shared/alerts.py` — دالة `send_alert(msg, level, component)`
+- كل container عنده عداد أخطاء متتالية
+- عند 3 أخطاء متتالية → تنبيه 🚨 critical يُرسل للتيليجرام تلقائياً
+- مستويات: `info` ℹ️ | `warning` ⚠️ | `critical` 🚨
+
+**3. حد MAX_OPEN_TRADES**
+- إضافة `MAX_OPEN_TRADES=10` في config (0 = بلا حد)
+- trade_tracker يتحقق قبل تسجيل صفقة جديدة
+- يمنع فتح عشرات الصفقات في نفس الوقت
+
+**4. Exponential Backoff**
+- كل container يطبّق: `wait = min(60 * consecutive_errors, 300)`
+- scanner: 60s → 120s → 180s... max 5 دقائق
+- analyzer/claude_review: 30s → 60s → 90s... max 5 دقائق
+- يمنع قصف Binance API بطلبات عند الأعطال
+
+**5. Health Checks لجميع الـ containers**
+- أضيف healthcheck لـ scanner, analyzer, signal_engine, claude_review, trade_tracker, telegram
+- الفحص: `pgrep -f 'python.*main.py'` كل 60 ثانية
+- Docker يعيد التشغيل تلقائياً عند 3 فشل متتالي
+
+---
+
 ## 2026-04-13
 
 ### ✨ نظام القائمة البيضاء والسوداء الكامل

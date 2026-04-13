@@ -10,19 +10,21 @@ import anthropic
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.alerts import send_alert
 
 logger = setup_logger('claude_review')
 
 async def main():
     logger.info("🚀 بدء تشغيل Claude Review...")
     await Database.connect()
-    
+
     claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     
+    consecutive_errors = 0
+
     try:
         while True:
             try:
-                # جلب الإشارات التي تحتاج مراجعة
                 signals = await Database.fetch("""
                     SELECT id, symbol, timeframe, market_condition,
                            entry_price, target_1, target_2, target_3,
@@ -33,15 +35,23 @@ async def main():
                     AND signal_time > NOW() - INTERVAL '2 hours'
                     ORDER BY signal_time DESC
                 """)
-                
+
                 for signal in signals:
                     await review_signal(claude_client, dict(signal))
-                
+
+                consecutive_errors = 0
                 await asyncio.sleep(15)
-                
+
             except Exception as e:
-                logger.error(f"❌ خطأ في Claude Review: {e}")
-                await asyncio.sleep(30)
+                consecutive_errors += 1
+                wait = min(30 * consecutive_errors, 300)
+                logger.error(f"❌ خطأ في Claude Review ({consecutive_errors}): {e}")
+                if consecutive_errors >= 3:
+                    await send_alert(
+                        f"Claude Review فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
+                        level='critical', component='ClaudeReview'
+                    )
+                await asyncio.sleep(wait)
                 
     finally:
         await Database.disconnect()

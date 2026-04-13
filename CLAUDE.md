@@ -23,7 +23,11 @@ trading-signal-bot/
 ├── claude_review/    ← Claude Haiku يراجع الإشارة ويوافق/يرفض
 ├── telegram/         ← يرسل الإشارات + يدير القوائم + أوامر التحكم
 ├── trade_tracker/    ← يتابع الصفقات المفتوحة كل 5 دقائق
-├── shared/           ← config.py + database.py + logger.py (مشترك)
+├── shared/
+│   ├── config.py     ← الإعدادات المشتركة
+│   ├── database.py   ← Connection Pool لـ PostgreSQL
+│   ├── logger.py     ← Logger موحد
+│   └── alerts.py     ← تنبيهات Telegram للأخطاء الحرجة ← جديد
 ├── database/         ← init.sql + migrate.sql
 ├── docker-compose.yml
 ├── .env              ← المتغيرات السرية (لا تُرفع لـ GitHub)
@@ -86,6 +90,7 @@ TIMEFRAMES=15m,1h,4h,1d             # الـ timeframes للتحليل
 MIN_TIMEFRAME_CONFIRMATIONS=2       # يشترط موافقة 2+ timeframes
 TRADE_AMOUNT_USDT=50                # حجم الصفقة الافتراضية
 APPROVAL_TIMEOUT_MINUTES=30         # وقت انتهاء طلب الموافقة
+MAX_OPEN_TRADES=10                  # حد الصفقات المفتوحة في نفس الوقت (0 = بلا حد)
 ```
 
 ---
@@ -151,7 +156,20 @@ git push origin main
 
 ---
 
-## 8. المشاكل الشائعة وحلولها
+## 8. نظام التنبيهات (shared/alerts.py)
+
+دالة `send_alert(message, level, component)` تُرسل تنبيهاً لـ Telegram:
+```python
+from shared.alerts import send_alert
+
+# مستويات: 'info' | 'warning' | 'critical'
+await send_alert("Scanner فشل 3 مرات", level='critical', component='Scanner')
+```
+- كل container عنده عداد `consecutive_errors`
+- عند 3 أخطاء متتالية → تنبيه critical تلقائي
+- الـ backoff: `min(60 * consecutive_errors, 300)` ثانية (max 5 دقائق)
+
+## 9. المشاكل الشائعة وحلولها
 
 ### الـ Dockerfile لا ينسخ الكود
 **المشكلة**: الـ Dockerfiles كانت تنسخ `requirements.txt` فقط، والكود يأتي من volume mount — لكن بعض الـ containers ليس لها volume.  
@@ -188,7 +206,7 @@ COPY service_name/ ./
 
 ---
 
-## 9. نقاط مهمة
+## 10. نقاط مهمة
 
 - **القائمة البيضاء**: الموافقة على عملة → تُضاف تلقائياً، إشاراتها القادمة مباشرة بدون سؤال
 - **القائمة السوداء**: الرفض → تُضاف تلقائياً، لا تُحلَّل من Scanner أصلاً
@@ -199,7 +217,7 @@ COPY service_name/ ./
 
 ---
 
-## 10. المراجع
+## 11. المراجع
 
 - [DEV_LOG.md](DEV_LOG.md) — سجل كل التحديثات مع التواريخ
 - [SETUP_GUIDE.md](SETUP_GUIDE.md) — إعداد المشروع من الصفر

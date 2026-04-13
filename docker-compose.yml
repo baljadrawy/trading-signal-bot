@@ -55,6 +55,12 @@ services:
       - ./scanner:/app
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import asyncpg\" && pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -79,6 +85,12 @@ services:
       - models_data:/app/models
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -103,6 +115,12 @@ services:
       - models_data:/app/models
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -126,6 +144,12 @@ services:
       - ./claude_review:/app
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -148,6 +172,12 @@ services:
       - ./trade_tracker:/app
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -170,6 +200,12 @@ services:
       - ./telegram:/app
     networks:
       - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:

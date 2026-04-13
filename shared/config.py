@@ -48,7 +48,8 @@ class Config:
     # حماية رأس المال
     MAX_DAILY_LOSS_PERCENT: float = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '3'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '3'))
-    
+    MAX_OPEN_TRADES: int = int(os.getenv('MAX_OPEN_TRADES', '10'))  # 0 = بلا حد
+
     # المؤشرات
     RSI_PERIOD: int = 14
     RSI_OVERSOLD: float = 35

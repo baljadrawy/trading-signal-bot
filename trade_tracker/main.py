@@ -12,6 +12,7 @@ import aiohttp
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.alerts import send_alert
 
 logger = setup_logger('trade_tracker')
 
@@ -42,17 +43,27 @@ async def main():
         )
     """)
 
+    consecutive_errors = 0
+
     try:
         while True:
             try:
                 await close_blacklisted_trades()
                 await track_open_trades()
                 await register_new_signals()
+                consecutive_errors = 0
                 await asyncio.sleep(300)  # كل 5 دقائق
 
             except Exception as e:
-                logger.error(f"❌ خطأ في Trade Tracker: {e}")
-                await asyncio.sleep(60)
+                consecutive_errors += 1
+                wait = min(60 * consecutive_errors, 300)
+                logger.error(f"❌ خطأ في Trade Tracker ({consecutive_errors}): {e}")
+                if consecutive_errors >= 3:
+                    await send_alert(
+                        f"Trade Tracker فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
+                        level='critical', component='TradeTracker'
+                    )
+                await asyncio.sleep(wait)
 
     finally:
         await Database.disconnect()
@@ -76,6 +87,15 @@ async def close_blacklisted_trades():
 
 async def register_new_signals():
     """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل عملة"""
+    # تحقق من حد الصفقات المفتوحة
+    if config.MAX_OPEN_TRADES > 0:
+        open_count = await Database.fetchval(
+            "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
+        ) or 0
+        if open_count >= config.MAX_OPEN_TRADES:
+            logger.info(f"⏸️ وصلنا للحد الأقصى للصفقات المفتوحة: {open_count}/{config.MAX_OPEN_TRADES}")
+            return
+
     new_signals = await Database.fetch("""
         SELECT DISTINCT ON (s.symbol)
                s.id, s.symbol, s.entry_price, s.target_1, s.target_2, s.target_3,

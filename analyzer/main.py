@@ -10,6 +10,7 @@ from binance import AsyncClient
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.alerts import send_alert
 from technical_analyzer import TechnicalAnalyzer
 from orderbook_analyzer import OrderBookAnalyzer
 
@@ -52,6 +53,8 @@ async def main():
     tech_analyzer = TechnicalAnalyzer(client)
     ob_analyzer = OrderBookAnalyzer(client)
 
+    consecutive_errors = 0
+
     try:
         while True:
             try:
@@ -69,20 +72,35 @@ async def main():
                     await asyncio.sleep(30)
                     continue
 
+                consecutive_errors = 0
                 logger.info(f"🔬 تحليل {len(candidates)} عملة × {len(config.TIMEFRAMES)} timeframes...")
 
-                # تحليل كل عملة على جميع الـ Timeframes
+                # تحليل كل عملة على جميع الـ Timeframes (timeout 60 ثانية لكل عملة)
                 tasks = [
-                    analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row)
+                    asyncio.wait_for(
+                        analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row),
+                        timeout=60
+                    )
                     for row in candidates
                 ]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for i, result in enumerate(results):
+                    if isinstance(result, asyncio.TimeoutError):
+                        symbol = candidates[i]['symbol']
+                        logger.warning(f"⏰ timeout في تحليل {symbol} - تخطي")
 
                 await asyncio.sleep(10)
 
             except Exception as e:
-                logger.error(f"❌ خطأ في دورة التحليل: {e}")
-                await asyncio.sleep(30)
+                consecutive_errors += 1
+                wait = min(30 * consecutive_errors, 300)
+                logger.error(f"❌ خطأ في دورة التحليل ({consecutive_errors}): {e}")
+                if consecutive_errors >= 3:
+                    await send_alert(
+                        f"Analyzer فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
+                        level='critical', component='Analyzer'
+                    )
+                await asyncio.sleep(wait)
 
     finally:
         await client.close_connection()
