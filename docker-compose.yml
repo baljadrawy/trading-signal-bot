@@ -183,6 +183,34 @@ services:
         limits:
           memory: 256m
 
+  # ==================== Optimizer Agent ====================
+  optimizer:
+    build:
+      context: .
+      dockerfile: optimizer/Dockerfile
+    container_name: trading_optimizer
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./optimizer:/app
+    networks:
+      - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
   # ==================== Telegram ====================
   telegram:
     build:
