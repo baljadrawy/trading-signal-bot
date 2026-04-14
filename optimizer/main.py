@@ -4,7 +4,7 @@ Optimizer Agent - يحسّن الخوارزمية تلقائياً بناءً ع
 """
 import asyncio
 import sys
-sys.path.append('/app')
+sys.path.insert(0, '/app')
 
 from shared.config import config
 from shared.database import Database

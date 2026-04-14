@@ -49,6 +49,7 @@ async def main():
         while True:
             try:
                 await close_blacklisted_trades()
+                await enforce_max_open_trades()
                 await track_open_trades()
                 await register_new_signals()
                 consecutive_errors = 0
@@ -83,6 +84,42 @@ async def close_blacklisted_trades():
             trade['id']
         )
         logger.info(f"🚫 إغلاق صفقة {trade['symbol']} - العملة في القائمة السوداء")
+
+
+async def enforce_max_open_trades():
+    """إذا الصفقات المفتوحة تجاوزت الحد الأقصى، أغلق الأقدم حتى نصل للحد"""
+    if config.MAX_OPEN_TRADES <= 0:
+        return
+
+    open_trades = await Database.fetch("""
+        SELECT id, symbol, opened_at
+        FROM active_trades
+        WHERE status = 'open'
+        ORDER BY opened_at ASC
+    """)
+
+    excess = len(open_trades) - config.MAX_OPEN_TRADES
+    if excess <= 0:
+        return
+
+    logger.warning(f"⚠️ {len(open_trades)} صفقة مفتوحة تتجاوز الحد {config.MAX_OPEN_TRADES} — إغلاق {excess} قديمة")
+
+    for trade in open_trades[:excess]:
+        current_price = await get_current_price(trade['symbol'])
+        if current_price:
+            trade_dict = dict(await Database.fetchrow(
+                "SELECT * FROM active_trades WHERE id = $1", trade['id']
+            ))
+            entry = float(trade_dict['entry_price'])
+            profit_pct = ((current_price - entry) / entry) * 100
+            result = 'WIN' if current_price > entry else 'LOSS'
+            await close_trade(trade_dict, result, profit_pct, current_price,
+                              f"إغلاق تلقائي - تجاوز حد MAX_OPEN_TRADES={config.MAX_OPEN_TRADES}")
+        else:
+            await Database.execute(
+                "UPDATE active_trades SET status = 'closed' WHERE id = $1", trade['id']
+            )
+            logger.info(f"🚫 إغلاق {trade['symbol']} (بدون سعر) - تجاوز الحد الأقصى")
 
 
 async def register_new_signals():
