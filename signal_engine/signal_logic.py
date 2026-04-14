@@ -125,10 +125,11 @@ class SignalEngine:
         if signal.get('order_book'):
             score_details['order_book'] = signal['order_book'].get('score', 0)
 
-        # نحفظ الـ Timeframes المؤكِّدة في score_details
+        # نحفظ الـ Timeframes المؤكِّدة كـ string منفصل (لا نضعها في score_details لأنها list)
         confirmed_tfs = signal.get('confirmed_timeframes', [])
-        score_details['confirmed_timeframes'] = confirmed_tfs
         score_details['timeframe_confirmations'] = signal.get('timeframe_confirmations', 1)
+        # confirmed_timeframes تُحفظ كـ string مفصول بفاصلة لتجنب مشاكل float() في التدريب
+        score_details['confirmed_timeframes_str'] = ','.join(confirmed_tfs)
 
         signal_id = await Database.fetchval("""
             INSERT INTO signals (

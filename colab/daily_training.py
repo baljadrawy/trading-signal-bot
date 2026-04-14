@@ -77,9 +77,14 @@ async def fetch_training_data():
             'result': 1 if row['result'] == 'WIN' else 0,
             'profit': float(row['profit_percent'] or 0),
         }
-        # إضافة تفاصيل المؤشرات
+        # إضافة تفاصيل المؤشرات (الأرقام فقط - نتخطى strings و lists)
         for indicator, value in (details or {}).items():
-            entry[f'ind_{indicator}'] = float(value)
+            if isinstance(value, (list, str)):
+                continue
+            try:
+                entry[f'ind_{indicator}'] = float(value)
+            except (TypeError, ValueError):
+                entry[f'ind_{indicator}'] = 0.0
         
         data.append(entry)
     
