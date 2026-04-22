@@ -293,6 +293,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "SELECT COUNT(*) FROM approval_requests WHERE status = 'pending'"
     )
 
+    # العتبات الحيّة من optimizer_settings (يحدّثها Optimizer تلقائياً)
+    thresholds = await Database.fetch(
+        "SELECT key, value FROM optimizer_settings "
+        "WHERE key IN ('min_score_to_signal','min_timeframe_confirmations')"
+    )
+    settings = {row['key']: row['value'] for row in thresholds}
+    min_score = settings.get('min_score_to_signal', '—')
+    min_tf    = settings.get('min_timeframe_confirmations', '—')
+
     status = "⏸️ موقوف" if (risk and risk['is_trading_paused']) else "✅ يعمل"
     await update.message.reply_text(
         f"📊 حالة النظام: {status}\n\n"
@@ -300,6 +309,9 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  إشارات: {risk['signals_sent'] if risk else 0}\n"
         f"  أرباح: {risk['wins'] if risk else 0}\n"
         f"  خسائر: {risk['losses'] if risk else 0}\n\n"
+        f"🎯 العتبات الحيّة:\n"
+        f"  الحد الأدنى للنقاط: {min_score}\n"
+        f"  تأكيد Timeframes: {min_tf}\n\n"
         f"📋 الـ Whitelist: {whitelist_count} عملة\n"
         f"⏳ طلبات معلّقة: {pending}"
     )
