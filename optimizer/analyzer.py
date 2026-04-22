@@ -8,11 +8,11 @@ from shared.logger import setup_logger
 
 logger = setup_logger('optimizer.analyzer')
 
-# حدود الأوزان
-MIN_WEIGHT = 0.3
+# حدود الأوزان — MIN=0 يسمح بتصفية المؤشرات الضارة تماماً
+MIN_WEIGHT = 0.0
 MAX_WEIGHT = 2.5
 # الحد الأدنى للصفقات لحساب وزن مؤشر معين
-MIN_SAMPLES_PER_INDICATOR = 5
+MIN_SAMPLES_PER_INDICATOR = 20
 
 
 class PerformanceAnalyzer:
@@ -86,14 +86,15 @@ class PerformanceAnalyzer:
 
     async def update_indicator_weights(self) -> int:
         """
-        يحسب ارتباط كل مؤشر بالنجاح ويحدّث وزنه في DB.
-        يعيد عدد الأوزان التي تم تحديثها.
+        يحسب أثر كل مؤشر على PnL ويحدّث وزنه في DB.
+        المنهجية: مقارنة متوسط الربح/الخسارة عند تفعيل المؤشر مقابل تعطيله.
+        مؤشر يحسّن PnL → وزن > 1، مؤشر يضر → وزن < 1، يضر بشدة → وزن 0.
         """
-        # جلب الإشارات مع نتائجها
         rows = await Database.fetch("""
             SELECT
                 s.market_condition,
                 s.score_details,
+                tr.profit_percent,
                 CASE WHEN tr.result = 'WIN' THEN 1.0 ELSE 0.0 END AS success
             FROM signals s
             JOIN trade_results tr ON s.id = tr.signal_id
@@ -110,6 +111,7 @@ class PerformanceAnalyzer:
         for row in rows:
             condition = row['market_condition']
             success   = float(row['success'])
+            pnl       = float(row['profit_percent'] or 0)
 
             details = row['score_details']
             if isinstance(details, str):
@@ -121,7 +123,6 @@ class PerformanceAnalyzer:
                 continue
 
             for indicator, value in details.items():
-                # نتخطى القيم غير الرقمية
                 if isinstance(value, (list, str)):
                     continue
                 try:
@@ -131,9 +132,10 @@ class PerformanceAnalyzer:
 
                 key = f"{indicator}|{condition}"
                 if key not in data:
-                    data[key] = {'scores': [], 'successes': []}
+                    data[key] = {'scores': [], 'successes': [], 'pnls': []}
                 data[key]['scores'].append(score)
                 data[key]['successes'].append(success)
+                data[key]['pnls'].append(pnl)
 
         updated = 0
 
@@ -141,28 +143,38 @@ class PerformanceAnalyzer:
             indicator, condition = key.split('|', 1)
             scores    = vals['scores']
             successes = vals['successes']
+            pnls      = vals['pnls']
 
             if len(scores) < MIN_SAMPLES_PER_INDICATOR:
                 continue
 
-            # حساب الوزن الجديد بناءً على معدل النجاح عند المؤشر > 0
-            positive_indices = [i for i, s in enumerate(scores) if s > 0]
-            if not positive_indices:
-                continue
+            active_idx = [i for i, s in enumerate(scores) if s > 0]
+            off_idx    = [i for i, s in enumerate(scores) if s == 0]
 
-            success_when_active = sum(successes[i] for i in positive_indices) / len(positive_indices)
-            overall_success     = sum(successes) / len(successes)
-
-            # الوزن: كيف يؤثر المؤشر إيجابياً مقارنة بالمتوسط
-            if overall_success > 0:
-                ratio = success_when_active / overall_success
+            # المؤشر الذي لا يُفعَّل أبداً → وزن 0 (إزالة من الحسبة)
+            if len(active_idx) < MIN_SAMPLES_PER_INDICATOR:
+                new_weight = 0.0
+                pnl_active = 0.0
+                success_when_active = 0.0
+            elif len(off_idx) < MIN_SAMPLES_PER_INDICATOR:
+                # المؤشر دائماً مفعّل — لا يمكن قياس أثره، اتركه محايداً
+                new_weight = 1.0
+                pnl_active = sum(pnls[i] for i in active_idx) / len(active_idx)
+                success_when_active = sum(successes[i] for i in active_idx) / len(active_idx)
             else:
-                ratio = 1.0
+                pnl_active = sum(pnls[i] for i in active_idx) / len(active_idx)
+                pnl_off    = sum(pnls[i] for i in off_idx) / len(off_idx)
+                success_when_active = sum(successes[i] for i in active_idx) / len(active_idx)
 
-            new_weight = max(MIN_WEIGHT, min(MAX_WEIGHT, ratio))
+                # PnL lift: كم يحسّن المؤشر متوسط الربح
+                # lift > 0 → نافع | lift < 0 → ضار
+                lift = pnl_active - pnl_off
+                # كل 1% lift يضيف 0.5 للوزن (مؤشر يحسّن 1% → وزن 1.5)
+                new_weight = 1.0 + lift * 0.5
+
+            new_weight = max(MIN_WEIGHT, min(MAX_WEIGHT, new_weight))
             new_weight = round(new_weight, 4)
 
-            # تحديث DB
             await Database.execute("""
                 UPDATE indicator_weights
                 SET weight       = $1,
@@ -174,8 +186,7 @@ class PerformanceAnalyzer:
 
             logger.debug(
                 f"⚖️ {indicator}/{condition}: "
-                f"نجاح عند نشاط={success_when_active:.2f} "
-                f"وزن جديد={new_weight}"
+                f"PnL_active={pnl_active:.2f}% وزن={new_weight}"
             )
             updated += 1
 

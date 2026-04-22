@@ -10,7 +10,7 @@ logger = setup_logger('optimizer.tuner')
 
 # حدود الإعدادات (حماية من التطرف)
 MIN_SCORE_LIMIT    = 3.0
-MAX_SCORE_LIMIT    = 8.0
+MAX_SCORE_LIMIT    = 10.0
 MIN_TF_CONFIRM     = 1
 MAX_TF_CONFIRM     = 4
 
@@ -92,7 +92,19 @@ class ParameterTuner:
             logger.info(f"⚙️ تم تغيير MIN_TF_CONFIRMATIONS: {current_tf} → {new_tf}")
 
         if not changes:
-            logger.info("✅ Tuner: الإعدادات مناسبة، لا تغييرات مطلوبة")
+            if win_rate < BAD_WIN_RATE:
+                at_score_cap = current_score >= MAX_SCORE_LIMIT - 0.5
+                at_tf_cap    = current_tf >= MAX_TF_CONFIRM
+                if at_score_cap or at_tf_cap:
+                    logger.warning(
+                        f"⚠️ Tuner: أداء سيء (Win Rate={win_rate:.1f}%) لكن الإعدادات عند السقف "
+                        f"(score={current_score}/{MAX_SCORE_LIMIT}, tf={current_tf}/{MAX_TF_CONFIRM}) — "
+                        f"رفع الحدود أو مراجعة الاستراتيجية مطلوب"
+                    )
+                else:
+                    logger.info("✅ Tuner: الإعدادات مناسبة، لا تغييرات مطلوبة")
+            else:
+                logger.info("✅ Tuner: الإعدادات مناسبة، لا تغييرات مطلوبة")
 
         return changes
 

@@ -21,8 +21,9 @@ class BinanceScanner:
         """المسح الرئيسي - يفلتر العملات المؤهلة"""
 
         # 1. تحقق من حالة إدارة المخاطر
-        if await self._is_trading_paused():
-            logger.warning("⏸️ التداول موقوف - تجاوز حد الخسائر")
+        pause_reason = await self._get_pause_reason()
+        if pause_reason is not None:
+            logger.warning(f"⏸️ التداول موقوف - السبب: {pause_reason or 'غير محدد'}")
             return []
 
         # 2. تحديث اتجاه BTC أولاً
@@ -174,3 +175,12 @@ class BinanceScanner:
             "SELECT is_trading_paused FROM risk_management WHERE date = CURRENT_DATE"
         )
         return result['is_trading_paused'] if result else False
+
+    async def _get_pause_reason(self):
+        """يعيد سبب الإيقاف إذا كان موقوفاً، أو None إذا كان التداول مفعّل"""
+        result = await Database.fetchrow(
+            "SELECT is_trading_paused, pause_reason FROM risk_management WHERE date = CURRENT_DATE"
+        )
+        if not result or not result['is_trading_paused']:
+            return None
+        return result['pause_reason']

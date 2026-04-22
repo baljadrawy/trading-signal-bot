@@ -12,11 +12,28 @@ logger = setup_logger('signal_logic')
 
 class SignalEngine:
 
+    async def _get_live_thresholds(self) -> tuple:
+        """يقرأ إعدادات MIN_SCORE و MIN_TF من optimizer_settings (تحديث حي)،
+        ويعود إلى config.* إذا لم تكن موجودة."""
+        try:
+            rows = await Database.fetch(
+                "SELECT key, value FROM optimizer_settings WHERE key IN ('min_score_to_signal', 'min_timeframe_confirmations')"
+            )
+            settings = {row['key']: row['value'] for row in rows}
+            min_score = float(settings.get('min_score_to_signal', config.MIN_SCORE_TO_SIGNAL))
+            min_tf = int(settings.get('min_timeframe_confirmations', config.MIN_TIMEFRAME_CONFIRMATIONS))
+            return min_score, min_tf
+        except Exception:
+            return config.MIN_SCORE_TO_SIGNAL, config.MIN_TIMEFRAME_CONFIRMATIONS
+
     async def find_best_signal(self, results: List) -> Optional[Dict]:
         """
         يجمع نتائج كل الـ Timeframes لكل عملة،
         ويختار الإشارة التي تجاوزت الحد الأدنى للتأكيد.
         """
+
+        # إعدادات حيّة (يحدّثها Optimizer في DB)
+        min_score, min_tf = await self._get_live_thresholds()
 
         # التحقق من حدود الإشارات اليومية
         signals_today = await Database.fetchval(
@@ -58,23 +75,40 @@ class SignalEngine:
                 logger.debug(f"⏭️ تخطي {symbol} - صفقة مفتوحة أو مرفوضة")
                 continue
 
+            # فلتر حالة السوق: رفض volatile (تاريخياً 34.4% win rate، -1.79% avg)
+            volatile_count = sum(1 for d in tf_results if d.get('market_condition') == 'volatile')
+            if volatile_count >= len(tf_results) / 2:
+                logger.debug(f"⏭️ تخطي {symbol} - أغلب الإطارات volatile")
+                continue
+
+            # فلتر الاتجاه: رفض إذا لا يوجد إطار واحد على الأقل فوق ema200
+            if not any(d.get('trend_ok') for d in tf_results):
+                logger.debug(f"⏭️ تخطي {symbol} - تحت ema200 في كل الإطارات (downtrend)")
+                continue
+
             # احسب عدد الـ Timeframes المتفقة (تجاوزت الحد الأدنى)
             qualifying = []
             for data in tf_results:
+                # تخطي إطار volatile أو downtrend (تحت ema200)
+                if data.get('market_condition') == 'volatile':
+                    continue
+                if not data.get('trend_ok', True):
+                    continue
+
                 score = float(data.get('total_score', 0))
                 ob_score = data.get('order_book', {}).get('score', 0) if data.get('order_book') else 0
                 btc_bonus = self._get_btc_bonus(data.get('market_condition', 'sideways'))
                 final = score + ob_score + btc_bonus
 
-                if final >= config.MIN_SCORE_TO_SIGNAL:
+                if final >= min_score:
                     qualifying.append((final, data))
 
             confirmations = len(qualifying)
 
-            if confirmations < config.MIN_TIMEFRAME_CONFIRMATIONS:
+            if confirmations < min_tf:
                 logger.debug(
                     f"رفض {symbol} - تأكيدات: {confirmations}/{len(tf_results)} "
-                    f"(مطلوب {config.MIN_TIMEFRAME_CONFIRMATIONS})"
+                    f"(مطلوب {min_tf})"
                 )
                 continue
 

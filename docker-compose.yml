@@ -1,42 +1,17 @@
 # يعمل على: Raspberry Pi 4 (arm64) و Hetzner VPS (amd64)
+# ملاحظة: postgres يعمل كخدمة مشتركة في /home/tradmin/shared-postgres
 
 networks:
   trading_network:
     driver: bridge
+  shared_db_net:
+    external: true
 
 volumes:
-  postgres_data:
   models_data:
   logs_data:
 
 services:
-
-  # ==================== قاعدة البيانات ====================
-  postgres:
-    image: postgres:16-alpine
-    container_name: trading_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - trading_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 512m
 
   # ==================== Scanner ====================
   scanner:
@@ -46,17 +21,15 @@ services:
     container_name: trading_scanner
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./scanner:/app
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import asyncpg\" && pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "python -c 'import asyncpg' && grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -75,9 +48,6 @@ services:
     container_name: trading_analyzer
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -85,8 +55,9 @@ services:
       - models_data:/app/models
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -105,9 +76,6 @@ services:
     container_name: trading_signal_engine
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -115,8 +83,9 @@ services:
       - models_data:/app/models
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -135,17 +104,15 @@ services:
     container_name: trading_claude_review
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./claude_review:/app
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -163,17 +130,15 @@ services:
     container_name: trading_tracker
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./trade_tracker:/app
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -191,15 +156,13 @@ services:
     container_name: trading_optimizer
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -217,17 +180,15 @@ services:
     container_name: trading_telegram
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./telegram:/app
     networks:
       - trading_network
+      - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python.*main.py' > /dev/null"]
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
       interval: 60s
       timeout: 10s
       retries: 3
