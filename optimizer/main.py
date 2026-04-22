@@ -58,17 +58,17 @@ async def main():
 async def run_optimization_cycle(analyzer: PerformanceAnalyzer, tuner: ParameterTuner):
     """دورة تحسين كاملة"""
 
-    # 1. تحقق من توفر بيانات كافية
-    total_trades = await Database.fetchval(
-        "SELECT COUNT(*) FROM trade_results WHERE result IS NOT NULL"
-    ) or 0
+    # 1. تحليل الأداء العام (مصفّى على صفقات ما بعد rebuild)
+    stats = await analyzer.get_overall_stats()
 
-    if total_trades < MIN_TRADES_TO_OPTIMIZE:
-        logger.info(f"⏳ بيانات غير كافية للتحسين: {total_trades}/{MIN_TRADES_TO_OPTIMIZE} صفقة")
+    # 2. تحقق من توفر صفقات كافية ما بعد rebuild
+    if stats['total_trades'] < MIN_TRADES_TO_OPTIMIZE:
+        logger.info(
+            f"⏳ بيانات غير كافية للتحسين بعد rebuild: "
+            f"{stats['total_trades']}/{MIN_TRADES_TO_OPTIMIZE} صفقة"
+        )
         return
 
-    # 2. تحليل الأداء العام
-    stats = await analyzer.get_overall_stats()
     logger.info(
         f"📊 الأداء الحالي: Win Rate={stats['win_rate']:.1f}% | "
         f"متوسط ربح={stats['avg_profit']:.2f}% | "

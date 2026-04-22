@@ -9,8 +9,10 @@ from shared.logger import setup_logger
 logger = setup_logger('optimizer.tuner')
 
 # حدود الإعدادات (حماية من التطرف)
-MIN_SCORE_LIMIT    = 3.0
-MAX_SCORE_LIMIT    = 10.0
+# السقف 3.5 لأن النظام الجديد ينتج نقاط من 3 مؤشرات mean-reverting (rsi/bollinger/stoch_rsi)
+# + order_book bonus صغير. أقصى نقاط فعلياً ≈ 3.17 حالياً. رفع السقف أعلى = صمت البوت.
+MIN_SCORE_LIMIT    = 1.5
+MAX_SCORE_LIMIT    = 3.5
 MIN_TF_CONFIRM     = 1
 MAX_TF_CONFIRM     = 4
 

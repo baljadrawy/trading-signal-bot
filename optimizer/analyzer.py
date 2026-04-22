@@ -2,6 +2,7 @@
 Performance Analyzer - يحلل نتائج الصفقات ويحدّث أوزان المؤشرات
 """
 import json
+import os
 from typing import Dict, List
 from shared.database import Database
 from shared.logger import setup_logger
@@ -14,23 +15,30 @@ MAX_WEIGHT = 2.5
 # الحد الأدنى للصفقات لحساب وزن مؤشر معين
 MIN_SAMPLES_PER_INDICATOR = 20
 
+# فاصل زمني: أي صفقة قبل هذا التاريخ تستخدم نظام تسجيل قديم
+# ولا يجب استخدامها لضبط الإعدادات الحالية.
+# عدّلها عبر env var عند أي rebuild كبير للاستراتيجية.
+STRATEGY_REBUILD_AT = os.getenv('STRATEGY_REBUILD_AT', '2026-04-22 20:00:00')
+
 
 class PerformanceAnalyzer:
 
     async def get_overall_stats(self) -> Dict:
-        """إحصائيات الأداء العام للـ 30 يوم الأخيرة"""
+        """إحصائيات الأداء العام — تستثني الصفقات قبل آخر rebuild للاستراتيجية"""
         row = await Database.fetchrow("""
             SELECT
                 COUNT(*)                                        AS total_trades,
-                SUM(CASE WHEN result='WIN' THEN 1 ELSE 0 END)  AS wins,
-                SUM(CASE WHEN result='LOSS' THEN 1 ELSE 0 END) AS losses,
-                AVG(profit_percent)                             AS avg_profit,
-                AVG(CASE WHEN result='WIN' THEN profit_percent END) AS avg_win,
-                AVG(CASE WHEN result='LOSS' THEN profit_percent END) AS avg_loss
-            FROM trade_results
-            WHERE result IS NOT NULL
-            AND exit_time > NOW() - INTERVAL '30 days'
-        """)
+                SUM(CASE WHEN tr.result='WIN' THEN 1 ELSE 0 END)  AS wins,
+                SUM(CASE WHEN tr.result='LOSS' THEN 1 ELSE 0 END) AS losses,
+                AVG(tr.profit_percent)                          AS avg_profit,
+                AVG(CASE WHEN tr.result='WIN' THEN tr.profit_percent END) AS avg_win,
+                AVG(CASE WHEN tr.result='LOSS' THEN tr.profit_percent END) AS avg_loss
+            FROM trade_results tr
+            JOIN signals s ON tr.signal_id = s.id
+            WHERE tr.result IS NOT NULL
+            AND tr.exit_time > NOW() - INTERVAL '30 days'
+            AND s.signal_time >= $1::timestamp
+        """, STRATEGY_REBUILD_AT)
 
         total = int(row['total_trades'] or 0)
         wins  = int(row['wins'] or 0)
@@ -44,10 +52,11 @@ class PerformanceAnalyzer:
             JOIN signals s ON tr.signal_id = s.id
             WHERE tr.result IS NOT NULL
             AND tr.exit_time > NOW() - INTERVAL '30 days'
+            AND s.signal_time >= $1::timestamp
             GROUP BY s.market_condition
             ORDER BY wr DESC
             LIMIT 1
-        """)
+        """, STRATEGY_REBUILD_AT)
 
         return {
             'total_trades': total,
@@ -61,7 +70,7 @@ class PerformanceAnalyzer:
         }
 
     async def get_stats_by_condition(self) -> Dict[str, Dict]:
-        """إحصائيات مقسّمة حسب حالة السوق"""
+        """إحصائيات مقسّمة حسب حالة السوق — صفقات ما بعد rebuild فقط"""
         rows = await Database.fetch("""
             SELECT
                 s.market_condition,
@@ -72,8 +81,9 @@ class PerformanceAnalyzer:
             JOIN signals s ON tr.signal_id = s.id
             WHERE tr.result IS NOT NULL
             AND tr.exit_time > NOW() - INTERVAL '30 days'
+            AND s.signal_time >= $1::timestamp
             GROUP BY s.market_condition
-        """)
+        """, STRATEGY_REBUILD_AT)
 
         return {
             row['market_condition']: {
@@ -100,7 +110,8 @@ class PerformanceAnalyzer:
             JOIN trade_results tr ON s.id = tr.signal_id
             WHERE tr.result IS NOT NULL
             AND tr.exit_time > NOW() - INTERVAL '30 days'
-        """)
+            AND s.signal_time >= $1::timestamp
+        """, STRATEGY_REBUILD_AT)
 
         if not rows:
             return 0
