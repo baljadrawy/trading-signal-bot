@@ -158,6 +158,8 @@ services:
     env_file: .env
     volumes:
       - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./optimizer:/app/optimizer
     networks:
       - trading_network
       - shared_db_net

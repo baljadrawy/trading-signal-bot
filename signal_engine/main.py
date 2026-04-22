@@ -16,12 +16,17 @@ logger = setup_logger('signal_engine')
 
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
-    logger.info(f"📊 Timeframes: {', '.join(config.TIMEFRAMES)} | تأكيد مطلوب: {config.MIN_TIMEFRAME_CONFIRMATIONS}")
-    logger.info(f"🎯 الحد الأدنى للنقاط: {config.MIN_SCORE_TO_SIGNAL}")
 
     await Database.connect()
 
     engine = SignalEngine()
+
+    # اطبع العتبات الحيّة من DB بدل قيم الـ env الافتراضية
+    live_score, live_tf = await engine._get_live_thresholds()
+    logger.info(
+        f"📊 Timeframes: {', '.join(config.TIMEFRAMES)} | "
+        f"تأكيد مطلوب: {live_tf} | الحد الأدنى للنقاط: {live_score}"
+    )
 
     # تأكد من وجود عمود timeframe في الجدول
     await Database.execute("""
