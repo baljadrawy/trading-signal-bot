@@ -13,6 +13,7 @@ from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
+from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 
 logger = setup_logger('trade_tracker')
 
@@ -57,11 +58,16 @@ async def main():
 
             except Exception as e:
                 consecutive_errors += 1
-                wait = min(60 * consecutive_errors, 300)
-                logger.error(f"❌ خطأ في Trade Tracker ({consecutive_errors}): {e}")
-                if consecutive_errors >= 3:
+                network = is_network_error(e)
+                wait = compute_backoff(consecutive_errors, network)
+                msg = f"❌ خطأ في Trade Tracker ({consecutive_errors}): {format_error(e)}"
+                if network:
+                    logger.warning(msg)
+                else:
+                    logger.error(msg)
+                if consecutive_errors >= alert_threshold(network):
                     await send_alert(
-                        f"Trade Tracker فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
+                        f"Trade Tracker فشل {consecutive_errors} مرات متتالية\nالخطأ: {format_error(e)[:200]}",
                         level='critical', component='TradeTracker'
                     )
                 await asyncio.sleep(wait)

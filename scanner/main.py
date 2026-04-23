@@ -11,6 +11,7 @@ from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
+from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from scanner_logic import BinanceScanner
 
 logger = setup_logger('scanner')
@@ -38,12 +39,17 @@ async def main():
 
             except Exception as e:
                 consecutive_errors += 1
-                wait = min(60 * consecutive_errors, 300)  # backoff: 60s, 120s, 180s... max 5 دقائق
-                logger.error(f"❌ خطأ في دورة المسح ({consecutive_errors}): {e}")
+                network = is_network_error(e)
+                wait = compute_backoff(consecutive_errors, network)
+                msg = f"❌ خطأ في دورة المسح ({consecutive_errors}): {format_error(e)}"
+                if network:
+                    logger.warning(msg)
+                else:
+                    logger.error(msg)
 
-                if consecutive_errors >= 3:
+                if consecutive_errors >= alert_threshold(network):
                     await send_alert(
-                        f"Scanner فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
+                        f"Scanner فشل {consecutive_errors} مرات متتالية\nالخطأ: {format_error(e)[:200]}",
                         level='critical', component='Scanner'
                     )
                 await asyncio.sleep(wait)

@@ -12,6 +12,8 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.alerts import send_alert
+from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
@@ -91,6 +93,7 @@ async def main():
 async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                       approval_mgr: ApprovalManager):
     """حلقة مستمرة تراقب الإشارات الجديدة"""
+    consecutive_errors = 0
     while True:
         try:
             # تنظيف الطلبات المنتهية
@@ -122,11 +125,24 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
 
                 await asyncio.sleep(2)
 
+            consecutive_errors = 0
             await asyncio.sleep(15)
 
         except Exception as e:
-            logger.error(f"❌ خطأ في signal_loop: {e}")
-            await asyncio.sleep(30)
+            consecutive_errors += 1
+            network = is_network_error(e)
+            wait = compute_backoff(consecutive_errors, network)
+            msg = f"❌ خطأ في signal_loop ({consecutive_errors}): {format_error(e)}"
+            if network:
+                logger.warning(msg)
+            else:
+                logger.error(msg)
+            if consecutive_errors >= alert_threshold(network):
+                await send_alert(
+                    f"Telegram signal_loop فشل {consecutive_errors} مرات متتالية\nالخطأ: {format_error(e)[:200]}",
+                    level='critical', component='Telegram'
+                )
+            await asyncio.sleep(wait)
 
 
 async def send_signal_direct(bot: Bot, signal: dict):

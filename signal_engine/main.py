@@ -10,6 +10,8 @@ sys.path.append('/app')
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.alerts import send_alert
+from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from signal_logic import SignalEngine
 
 logger = setup_logger('signal_engine')
@@ -34,6 +36,8 @@ async def main():
         ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'
     """)
 
+    consecutive_errors = 0
+
     try:
         while True:
             try:
@@ -52,6 +56,8 @@ async def main():
                     ORDER BY symbol, (analysis_data->>'total_score')::float DESC
                     LIMIT 200
                 """)
+
+                consecutive_errors = 0
 
                 if not results:
                     await asyncio.sleep(30)
@@ -82,8 +88,20 @@ async def main():
                 await asyncio.sleep(60)
 
             except Exception as e:
-                logger.error(f"❌ خطأ في Signal Engine: {e}")
-                await asyncio.sleep(30)
+                consecutive_errors += 1
+                network = is_network_error(e)
+                wait = compute_backoff(consecutive_errors, network)
+                msg = f"❌ خطأ في Signal Engine ({consecutive_errors}): {format_error(e)}"
+                if network:
+                    logger.warning(msg)
+                else:
+                    logger.error(msg)
+                if consecutive_errors >= alert_threshold(network):
+                    await send_alert(
+                        f"Signal Engine فشل {consecutive_errors} مرات متتالية\nالخطأ: {format_error(e)[:200]}",
+                        level='critical', component='SignalEngine'
+                    )
+                await asyncio.sleep(wait)
 
     finally:
         await Database.disconnect()
