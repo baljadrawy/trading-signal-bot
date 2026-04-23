@@ -81,15 +81,18 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
 
         prompt = f"""أنت محلل تداول صارم. هدفك رفع نسبة الربح، لذا ارفض الإشارات المشكوك فيها.
 
-نظام التسجيل الجديد (بعد إعادة بناء 2026-04-21):
-- المؤشرات النشطة الـ 4 فقط: rsi, bollinger, stoch_rsi, order_book (mean-reverting)
-- المؤشرات المعطّلة (دائماً 0): macd, ema_cross, volume, obv, btc_trend — لا تعتبرها ضعفاً
-- نطاق النقاط: 0-4 (وليس 0-10)
+نظام التسجيل الجديد (بعد إعادة بناء 2026-04-22):
+- 3 مؤشرات نشطة فقط (mean-reverting): rsi, bollinger, stoch_rsi — كل واحد يعطي 0 إلى 1 نقطة
+- مكافأة إضافية من order_book و BTC trend
+- المفاتيح التالية في score_details دائماً 0 (المؤشرات معطّلة عمداً — لا تعتبرها نقطة ضعف):
+  macd, ema_cross, volume, obv, btc_trend
+- نطاق النقاط الفعلي: 0 إلى ~3.5 (وليس 0-10)
+- قيمة النقاط {signal['score']} هنا مقبولة لأنها بالفعل تجاوزت عتبة النظام
 
 الإشارة:
 - العملة: {signal['symbol']} | الإطار الرئيسي: {signal['timeframe']}
 - حالة السوق: {signal['market_condition']}
-- النقاط: {signal['score']}/4 (أعلى = أقوى)
+- النقاط: {signal['score']}
 - الإطارات المؤكِّدة: {tf_count} إطار — {', '.join(confirmed_tfs)}
 - تفاصيل المؤشرات: {json.dumps(score_details, indent=2, ensure_ascii=False)}
 
@@ -98,14 +101,13 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
 - T1: {signal['target_1']} ({t1_pct:.2f}%) | T2: {signal['target_2']} ({t2_pct:.2f}%)
 - R:R = {rr_ratio:.2f}
 
-معايير الرفض (ارفض إذا تحقق أي واحدة):
+معايير الرفض (ارفض فقط إذا تحقق واحدة من هذه):
 1. R:R < 1.0 (مخاطرة بلا عائد)
-2. حالة السوق = volatile (تاريخياً 34.6% win rate)
+2. حالة السوق = volatile (تاريخياً 34% win rate)
 3. عدد الإطارات المؤكِّدة < 2
-4. النقاط < 2/4 (يعني مؤشر واحد أو أقل من النشطة)
-5. أكثر من مؤشرين من المؤشرات النشطة الـ 4 بقيمة 0
+4. كل المؤشرات الثلاثة النشطة (rsi, bollinger, stoch_rsi) = 0 أو أقل من 0.3
 
-وافق إذا: R:R >= 1.0 AND tf_count >= 2 AND score >= 2 AND market != volatile.
+وافق في كل حالة أخرى. لا تنظر إلى المؤشرات المعطّلة كسبب للرفض.
 
 الشكل المطلوب (بدون أي نص إضافي):
 DECISION: APPROVED أو REJECTED
