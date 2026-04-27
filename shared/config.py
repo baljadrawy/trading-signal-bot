@@ -67,7 +67,7 @@ class Config:
     STOCH_D: int = 3
     
     # فلاتر Scanner
-    MIN_VOLUME_USDT: float = 1_000_000  # حجم تداول يومي أدنى 1M USDT
+    MIN_VOLUME_USDT: float = float(os.getenv('MIN_VOLUME_USDT', '10000000'))  # حجم تداول يومي أدنى — افتراضي 10M USDT (رُفع من 1M في 2026-04-27)
     MIN_PRICE_CHANGE_PERCENT: float = 2.0  # حركة سعرية أدنى 2%
     CANDLES_TO_FETCH: int = 200  # عدد الشموع للتحليل
     

@@ -4,6 +4,57 @@
 
 ---
 
+## 2026-04-27
+
+### 🎯 6 تعديلات استراتيجية بناءً على بيانات 168 صفقة
+
+**السياق:** بعد 5 أيام من rebuild (2026-04-22)، 168 صفقة مغلقة، WR=35.7%، Net=-$21.
+
+**التحليل أظهر:**
+- bullish regime يفشل تماماً (18 صفقة، 100% فشل، WR 27.8%)
+- T3 = 3R لم يتحقق ولا مرة (0/168) → بعيد جداً
+- 53% من الصفقات خرجت بدون لمس أي هدف → إشارات خاملة كثيرة
+- Claude approved 168/168 → غير فعّال كفلتر
+- R:R المتحقق 1.38 < 1.5 المصمم → يُفقد ربحية هامشية
+
+**التعديلات:**
+
+1. **`.env` + `shared/config.py`**: `MIN_VOLUME_USDT` رُفع من 1M → **10M**
+   - أثر فوري: من 134 إلى 22 عملة مؤهلة (84% تخفيض)
+   - السبب: تقليل ضوضاء العملات منخفضة السيولة المتلاعب بها
+
+2. **`signal_engine/signal_logic.py`**: تخطي bullish regime
+   - رفض إذا أغلب الـ timeframes = bullish
+   - السبب: استراتيجية mean-reverting لا تجد dips للشراء في صعود قوي
+
+3. **`signal_engine/signal_logic.py`**: BTC Crash Pause
+   - `_is_btc_crashing()` يقرأ تحليل BTC 4h من analysis_results
+   - لو market_condition='bearish' → إيقاف كل الإشارات
+   - السبب: في انهيار BTC، الـ alts تتبعه، mean-reverting يفشل
+
+4. **`analyzer/technical_analyzer.py`**: T3 من 3R → **2.2R**
+   - السبب: 0/168 لمست 3R، تقليل الهدف يجعله قابلاً للتحقق
+
+5. **`analyzer/technical_analyzer.py`**: إضافة **RSI Bullish Divergence**
+   - دالة `_detect_rsi_divergence(lookback=14)`
+   - bullish divergence = price LL + RSI HL
+   - مكون scoring جديد بوزن 1.0 (افتراضي)
+
+6. **`analyzer/technical_analyzer.py`**: إضافة **Fibonacci Retracement Proximity**
+   - دالة `_calculate_fibonacci_score(lookback=50)`
+   - يحسب القرب من 38.2%/50%/61.8% من swing high → low
+   - 1% قرب = 1.0 نقاط، 2% = 0.5 نقاط
+   - مكون scoring جديد بوزن 1.0 (افتراضي)
+
+**قاعدة البيانات:**
+- 8 صفوف جديدة في `indicator_weights` للـ rsi_divergence و fibonacci في كل regime
+
+**ملاحظة مهمة:**
+هذه التعديلات قد تكسر التوازن المُثبَت من 2158 صفقة باكتست سابقة.
+سنراقب 100+ صفقة جديدة ونقارن قبل/بعد قبل قبول التعديلات نهائياً.
+
+---
+
 ## 2026-04-14
 
 ### 🔒 تحسينات الموثوقية (من مراجعة البنية)

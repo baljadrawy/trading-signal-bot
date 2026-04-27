@@ -139,6 +139,67 @@ class TechnicalAnalyzer:
 
         return df
 
+    def _detect_rsi_divergence(self, df: pd.DataFrame, lookback: int = 14) -> bool:
+        """
+        Bullish divergence: السعر يصنع low أدنى لكن RSI يصنع low أعلى
+        على آخر شمعتين low في النوافذ الأخيرة.
+        يعكس ضعف الزخم الهابط — إشارة محتملة لانعكاس صاعد.
+        """
+        if len(df) < lookback * 2:
+            return False
+        try:
+            recent = df.iloc[-lookback:]
+            older  = df.iloc[-lookback*2:-lookback]
+            recent_low_idx = recent['low'].idxmin()
+            older_low_idx  = older['low'].idxmin()
+
+            recent_price_low = float(recent.loc[recent_low_idx, 'low'])
+            older_price_low  = float(older.loc[older_low_idx, 'low'])
+            recent_rsi_at_low = float(recent.loc[recent_low_idx, 'rsi'])
+            older_rsi_at_low  = float(older.loc[older_low_idx, 'rsi'])
+
+            if pd.isna(recent_rsi_at_low) or pd.isna(older_rsi_at_low):
+                return False
+
+            # Bullish divergence: price made a LOWER low, but RSI made a HIGHER low
+            return recent_price_low < older_price_low and recent_rsi_at_low > older_rsi_at_low
+        except Exception:
+            return False
+
+    def _calculate_fibonacci_score(self, df: pd.DataFrame, lookback: int = 50) -> float:
+        """
+        يحسب القرب من مستويات Fibonacci الرئيسية (38.2%, 50%, 61.8%) من
+        swing high → swing low في آخر `lookback` شمعة.
+        يعطي 1.0 لو السعر ضمن 1% من أي مستوى، 0.5 لو ضمن 2%، وإلا 0.
+        """
+        if len(df) < lookback:
+            return 0.0
+        try:
+            recent     = df.iloc[-lookback:]
+            swing_high = float(recent['high'].max())
+            swing_low  = float(recent['low'].min())
+            if swing_high <= swing_low:
+                return 0.0
+            diff = swing_high - swing_low
+            fib_levels = (
+                swing_high - 0.382 * diff,
+                swing_high - 0.500 * diff,
+                swing_high - 0.618 * diff,
+            )
+            current_price = float(df.iloc[-1]['close'])
+            best = 0.0
+            for level in fib_levels:
+                if level <= 0:
+                    continue
+                proximity = abs(current_price - level) / level
+                if proximity <= 0.01:
+                    return 1.0
+                if proximity <= 0.02 and best < 0.5:
+                    best = 0.5
+            return best
+        except Exception:
+            return 0.0
+
     def _detect_market_condition(self, df: pd.DataFrame) -> str:
         close  = df['close'].iloc[-1]
         ema20  = df['ema20'].iloc[-1]
@@ -200,6 +261,20 @@ class TechnicalAnalyzer:
         details['stoch_rsi'] = round(stoch_score, 2)
         total += stoch_score
 
+        # 4. RSI Bullish Divergence (إضافة 2026-04-27)
+        # السعر يصنع low أدنى لكن RSI أعلى → إشارة انعكاس
+        div_score = 0
+        if self._detect_rsi_divergence(df):
+            div_score = weights.get('rsi_divergence', 1.0)
+        details['rsi_divergence'] = round(div_score, 2)
+        total += div_score
+
+        # 5. Fibonacci Retracement Proximity (إضافة 2026-04-27)
+        # القرب من مستويات 38.2%/50%/61.8% — مناطق دعم محتملة
+        fib_score = self._calculate_fibonacci_score(df) * weights.get('fibonacci', 1.0)
+        details['fibonacci'] = round(fib_score, 2)
+        total += fib_score
+
         # Disabled indicators kept in details for backward compatibility
         # and so the optimizer can still measure them if re-enabled later.
         details['macd']      = 0
@@ -229,16 +304,17 @@ class TechnicalAnalyzer:
 
         risk = entry - stop_loss
 
-        # R:R tuned for mean-reverting strategy (historical R:R=1.5 → 36.4% win rate).
-        # T1 quick bounce, T2 extended move, T3 full reversal.
+        # R:R tuned for mean-reverting strategy.
+        # T3 خُفّض من 3.0R إلى 2.2R (2026-04-27) — البيانات: 0/168 لمست 3R
+        # T1 quick bounce, T2 extended move, T3 reversal end.
         target_1 = entry + (risk * 1.0)
         target_2 = entry + (risk * 1.8)
-        target_3 = entry + (risk * 3.0)
+        target_3 = entry + (risk * 2.2)
 
         if target_2 <= target_1:
             target_2 = entry + (risk * 1.8)
         if target_3 <= target_2:
-            target_3 = entry + (risk * 3.0)
+            target_3 = entry + (risk * 2.2)
 
         # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول
         if target_1 > resistance and resistance > entry:

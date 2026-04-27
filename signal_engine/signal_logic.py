@@ -26,6 +26,28 @@ class SignalEngine:
         except Exception:
             return config.MIN_SCORE_TO_SIGNAL, config.MIN_TIMEFRAME_CONFIRMATIONS
 
+    async def _is_btc_crashing(self) -> bool:
+        """
+        تحقق من حالة BTC على إطار 4h:
+        - إذا market_condition='bearish' → نعتبر السوق في انهيار → إيقاف الإشارات
+        مرجع: استراتيجية mean-reverting لا تعمل في هبوط قوي للسوق ككل.
+        """
+        try:
+            row = await Database.fetchrow(
+                """SELECT analysis_data FROM analysis_results
+                   WHERE symbol='BTCUSDT' AND timeframe='4h'
+                   ORDER BY analyzed_at DESC LIMIT 1"""
+            )
+            if not row:
+                return False
+            data = row['analysis_data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            return data.get('market_condition') == 'bearish'
+        except Exception as e:
+            logger.warning(f"BTC crash check failed: {e}")
+            return False
+
     async def find_best_signal(self, results: List) -> Optional[Dict]:
         """
         يجمع نتائج كل الـ Timeframes لكل عملة،
@@ -34,6 +56,13 @@ class SignalEngine:
 
         # إعدادات حيّة (يحدّثها Optimizer في DB)
         min_score, min_tf = await self._get_live_thresholds()
+
+        # ─── BTC Crash Pause ───────────────────────────────────────
+        # لو BTC 4h في bearish → إيقاف توليد الإشارات
+        # (mean-reverting لا يعمل في انهيار السوق ككل)
+        if await self._is_btc_crashing():
+            logger.warning("⏸️ BTC 4h bearish — إيقاف الإشارات حماية لرأس المال")
+            return None
 
         # التحقق من حدود الإشارات اليومية
         signals_today = await Database.fetchval(
@@ -79,6 +108,13 @@ class SignalEngine:
             volatile_count = sum(1 for d in tf_results if d.get('market_condition') == 'volatile')
             if volatile_count >= len(tf_results) / 2:
                 logger.debug(f"⏭️ تخطي {symbol} - أغلب الإطارات volatile")
+                continue
+
+            # فلتر bullish regime — البيانات (2026-04-22+): 18 صفقة، 100% فشل، -$4
+            # mean-reverting لا يعمل في صعود قوي (لا dips للشراء)
+            bullish_count = sum(1 for d in tf_results if d.get('market_condition') == 'bullish')
+            if bullish_count >= len(tf_results) / 2:
+                logger.debug(f"⏭️ تخطي {symbol} - أغلب الإطارات bullish (mean-reverting يفشل)")
                 continue
 
             # فلتر الاتجاه: رفض إذا لا يوجد إطار واحد على الأقل فوق ema200
