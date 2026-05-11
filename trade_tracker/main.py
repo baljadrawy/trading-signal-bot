@@ -93,39 +93,53 @@ async def close_blacklisted_trades():
 
 
 async def enforce_max_open_trades():
-    """إذا الصفقات المفتوحة تجاوزت الحد الأقصى، أغلق الأقدم حتى نصل للحد"""
+    """إذا الصفقات المفتوحة تجاوزت الحد الأقصى، أغلق الأكثر خسارة حتى نصل للحد.
+    المنطق: نتخلص من الصفقات الخاسرة أولاً (يحرر رأس المال ويقطع النزيف)،
+    بدلاً من إغلاق الأقدم التي قد تكون على وشك تحقيق هدف.
+    """
     if config.MAX_OPEN_TRADES <= 0:
         return
 
     open_trades = await Database.fetch("""
-        SELECT id, symbol, opened_at
+        SELECT id, symbol, entry_price, opened_at
         FROM active_trades
         WHERE status = 'open'
-        ORDER BY opened_at ASC
     """)
 
     excess = len(open_trades) - config.MAX_OPEN_TRADES
     if excess <= 0:
         return
 
-    logger.warning(f"⚠️ {len(open_trades)} صفقة مفتوحة تتجاوز الحد {config.MAX_OPEN_TRADES} — إغلاق {excess} قديمة")
+    logger.warning(f"⚠️ {len(open_trades)} صفقة مفتوحة تتجاوز الحد {config.MAX_OPEN_TRADES} — إغلاق {excess} الأكثر خسارة")
 
-    for trade in open_trades[:excess]:
+    # جلب الأسعار الحالية وترتيب الصفقات من الأكثر خسارة للأقل
+    trades_with_pnl = []
+    for trade in open_trades:
         current_price = await get_current_price(trade['symbol'])
         if current_price:
+            entry = float(trade['entry_price'])
+            pnl_pct = ((current_price - entry) / entry) * 100
+            trades_with_pnl.append((pnl_pct, dict(trade), current_price))
+        else:
+            # إذا لم نجد السعر نضعه كأسوأ حالة (يُغلق أولاً)
+            trades_with_pnl.append((float('-inf'), dict(trade), None))
+
+    # ترتيب من الأكثر خسارة (أدنى pnl) للأقل
+    trades_with_pnl.sort(key=lambda x: x[0])
+
+    for pnl_pct, trade_info, current_price in trades_with_pnl[:excess]:
+        if current_price:
             trade_dict = dict(await Database.fetchrow(
-                "SELECT * FROM active_trades WHERE id = $1", trade['id']
+                "SELECT * FROM active_trades WHERE id = $1", trade_info['id']
             ))
-            entry = float(trade_dict['entry_price'])
-            profit_pct = ((current_price - entry) / entry) * 100
-            result = 'WIN' if current_price > entry else 'LOSS'
-            await close_trade(trade_dict, result, profit_pct, current_price,
-                              f"إغلاق تلقائي - تجاوز حد MAX_OPEN_TRADES={config.MAX_OPEN_TRADES}")
+            result = 'WIN' if pnl_pct > 0 else 'LOSS'
+            await close_trade(trade_dict, result, pnl_pct, current_price,
+                              f"إغلاق تلقائي - تجاوز حد MAX_OPEN_TRADES={config.MAX_OPEN_TRADES} (خسارة: {pnl_pct:.2f}%)")
         else:
             await Database.execute(
-                "UPDATE active_trades SET status = 'closed' WHERE id = $1", trade['id']
+                "UPDATE active_trades SET status = 'closed' WHERE id = $1", trade_info['id']
             )
-            logger.info(f"🚫 إغلاق {trade['symbol']} (بدون سعر) - تجاوز الحد الأقصى")
+            logger.info(f"🚫 إغلاق {trade_info['symbol']} (بدون سعر) - تجاوز الحد الأقصى")
 
 
 async def register_new_signals():

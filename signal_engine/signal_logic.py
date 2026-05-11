@@ -3,7 +3,7 @@
 """
 import json
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
@@ -29,24 +29,67 @@ class SignalEngine:
     async def _is_btc_crashing(self) -> bool:
         """
         تحقق من حالة BTC على إطار 4h:
-        - إذا market_condition='bearish' → نعتبر السوق في انهيار → إيقاف الإشارات
+        - يقرأ btc_trend من آخر scan_candidate (Scanner يحدّثه كل 5min)
+        - bearish أو strong_bearish → السوق في انهيار → إيقاف الإشارات
         مرجع: استراتيجية mean-reverting لا تعمل في هبوط قوي للسوق ككل.
         """
         try:
             row = await Database.fetchrow(
-                """SELECT analysis_data FROM analysis_results
-                   WHERE symbol='BTCUSDT' AND timeframe='4h'
-                   ORDER BY analyzed_at DESC LIMIT 1"""
+                """SELECT data FROM scan_candidates
+                   ORDER BY scan_time DESC LIMIT 1"""
             )
             if not row:
                 return False
-            data = row['analysis_data']
+            data = row['data']
             if isinstance(data, str):
                 data = json.loads(data)
-            return data.get('market_condition') == 'bearish'
+            trend = (data.get('btc_trend') or '').lower()
+            return trend in ('bearish', 'strong_bearish')
         except Exception as e:
             logger.warning(f"BTC crash check failed: {e}")
             return False
+
+    async def _is_global_loss_cooldown(self) -> bool:
+        """
+        Cooldown 6 ساعات بعد أي خسارة:
+        إذا أُغلقت صفقة بـ LOSS في آخر 6 ساعات → لا نولّد إشارة جديدة.
+        الهدف: منع الدخول في سلسلة خسائر خلال نفس الشروط السوقية السيئة.
+        ملاحظة: نستخدم NOW() - INTERVAL في SQL مباشرة لتجنب مشكلة timezone مع PostgreSQL.
+        """
+        try:
+            row = await Database.fetchrow(
+                """SELECT id FROM trade_results
+                   WHERE result = 'LOSS'
+                   AND exit_time > NOW() - INTERVAL '6 hours'
+                   LIMIT 1"""
+            )
+            if row:
+                logger.info("⏸️ Cooldown نشط: خسارة في آخر 6 ساعات — إيقاف الإشارات مؤقتاً")
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"فشل فحص global loss cooldown: {e}")
+            return False
+
+    async def _get_symbol_cooldown_set(self) -> set:
+        """
+        Cooldown 2 ساعات لكل عملة:
+        أي عملة صدرت لها إشارة في آخر 2 ساعة → لا إشارة جديدة لها.
+        الهدف: منع تكرار نفس العملة المتعثرة مراراً (كحادثة PROMUSDT -$16).
+        ملاحظة: نستخدم NOW() - INTERVAL في SQL مباشرة لتجنب مشكلة timezone مع PostgreSQL.
+        """
+        try:
+            rows = await Database.fetch(
+                """SELECT DISTINCT symbol FROM signals
+                   WHERE signal_time > NOW() - INTERVAL '2 hours'"""
+            )
+            symbols = {r['symbol'] for r in rows}
+            if symbols:
+                logger.info(f"⏳ عملات في cooldown (2h): {len(symbols)} — {', '.join(sorted(symbols))}")
+            return symbols
+        except Exception as e:
+            logger.warning(f"فشل جلب symbol cooldown: {e}")
+            return set()
 
     async def find_best_signal(self, results: List) -> Optional[Dict]:
         """
@@ -64,6 +107,15 @@ class SignalEngine:
             logger.warning("⏸️ BTC 4h bearish — إيقاف الإشارات حماية لرأس المال")
             return None
 
+        # ─── Global Loss Cooldown (6h) ─────────────────────────────
+        # بعد أي خسارة → توقف 6 ساعات قبل إشارة جديدة
+        if await self._is_global_loss_cooldown():
+            return None
+
+        # ─── Per-Symbol Cooldown (2h) ──────────────────────────────
+        # عملات صدرت لها إشارة في آخر 2 ساعة → محظورة
+        cooldown_symbols = await self._get_symbol_cooldown_set()
+
         # التحقق من حدود الإشارات اليومية
         signals_today = await Database.fetchval(
             "SELECT signals_sent FROM risk_management WHERE date = CURRENT_DATE"
@@ -73,17 +125,21 @@ class SignalEngine:
             logger.info(f"⏸️ وصلنا للحد الأقصى اليومي: {signals_today} إشارات")
             return None
 
-        # جلب العملات المحظورة (صفقة مفتوحة أو مرفوضة)
+        # جلب العملات المحظورة (صفقة مفتوحة أو مرفوضة أو في cooldown)
         open_symbols = set(r['symbol'] for r in await Database.fetch(
             "SELECT DISTINCT symbol FROM active_trades WHERE status = 'open'"
         ))
         rejected_symbols = set(r['symbol'] for r in await Database.fetch(
             "SELECT DISTINCT symbol FROM approval_requests WHERE status = 'rejected'"
         ))
-        blocked_symbols = open_symbols | rejected_symbols
+        blocked_symbols = open_symbols | rejected_symbols | cooldown_symbols
 
         if blocked_symbols:
-            logger.info(f"🚫 عملات محظورة: {len(blocked_symbols)} (مفتوحة: {len(open_symbols)}, مرفوضة: {len(rejected_symbols)})")
+            logger.info(
+                f"🚫 عملات محظورة: {len(blocked_symbols)} "
+                f"(مفتوحة: {len(open_symbols)}, مرفوضة: {len(rejected_symbols)}, "
+                f"cooldown: {len(cooldown_symbols)})"
+            )
 
         # تجميع النتائج حسب العملة
         by_symbol: Dict[str, List[Dict]] = {}

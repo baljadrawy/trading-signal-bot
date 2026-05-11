@@ -226,14 +226,20 @@ class TechnicalAnalyzer:
         total   = 0.0
         last    = df.iloc[-1]
 
-        # 1. RSI (oversold zones)
+        # 1. RSI (oversold zones) — مضيّق لتركيز الإشارات على oversold حقيقي
+        # المنطق: RSI 20-30 oversold قوي (x1.5)، 30-40 oversold معتدل (x1.0)،
+        # 40-50 ضعيف (x0.3)، فوق 50 لا نعطي نقاط (إلغاء — لا يتوافق مع mean-revert).
+        # البيانات: RSI >1.2 أقوى مؤشر إيجابي في تحليل 240 صفقة (2026-05-11).
         rsi = last['rsi']
-        if 30 <= rsi <= 50:
-            rsi_score = weights.get('rsi', 1.0)
-        elif 50 < rsi <= 60:
-            rsi_score = weights.get('rsi', 1.0) * 0.5
+        base_rsi_weight = weights.get('rsi', 1.0)
+        if 20 <= rsi < 30:
+            rsi_score = base_rsi_weight * 1.5   # oversold قوي — تعزيز
+        elif 30 <= rsi < 40:
+            rsi_score = base_rsi_weight * 1.0   # oversold معتدل — بدون تغيير
+        elif 40 <= rsi < 50:
+            rsi_score = base_rsi_weight * 0.3   # حافة oversold — تخفيض كبير
         else:
-            rsi_score = 0
+            rsi_score = 0                        # RSI >= 50 — لا إشارة mean-revert
         details['rsi'] = round(rsi_score, 2)
         total += rsi_score
 
@@ -250,14 +256,21 @@ class TechnicalAnalyzer:
         total += bb_score
 
         # 3. Stochastic RSI (oversold + crossing up)
+        # تخفيض وزن القيم >= 0.9 (stoch مرتفع جداً = زخم مفرط ≠ oversold حقيقي)
+        # القيم < 0.2 مع تقاطع صاعد = إشارة oversold حقيقية → نقاط كاملة
+        # القيم >= 0.9 = مشبع شراءً → تخفيض 70% (خطر انعكاس ضد الإشارة)
         stoch_score = 0
         if not pd.isna(last['stoch_k']):
             stoch_k = last['stoch_k']
-            stoch_d = last['stoch_d']
-            if stoch_k < 0.2 and stoch_k > stoch_d:
-                stoch_score = weights.get('stoch_rsi', 1.0)
+            stoch_d = last['stoch_d'] if not pd.isna(last['stoch_d']) else stoch_k
+            base_stoch = weights.get('stoch_rsi', 1.0)
+            if stoch_k >= 0.9:
+                # مشبع شراءً — تخفيض قوي (يحمي من الدخول في قمة)
+                stoch_score = base_stoch * 0.3
+            elif stoch_k < 0.2 and stoch_k > stoch_d:
+                stoch_score = base_stoch          # oversold مع تقاطع صاعد — ممتاز
             elif stoch_k < 0.3:
-                stoch_score = weights.get('stoch_rsi', 1.0) * 0.5
+                stoch_score = base_stoch * 0.5   # oversold بدون تقاطع — معتدل
         details['stoch_rsi'] = round(stoch_score, 2)
         total += stoch_score
 
