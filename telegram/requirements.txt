@@ -1,4 +1,4 @@
 asyncpg==0.29.0
 python-telegram-bot==20.7
-aiohttp==3.9.5    # security patch — CVE-2024-27306, CVE-2024-30251
-tornado>=6.3.5,<6.4    # security patch — CVE-2024-52804
+aiohttp==3.12.14    # Option 2 — حل CVE-2024-52304 + 9 CVEs
+# tornado: ابقى transitive (patch في 6.4.1+ يخالف conservative)
