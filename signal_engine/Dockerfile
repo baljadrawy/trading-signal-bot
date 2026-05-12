@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY signal_engine/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip install --no-cache-dir -r requirements.txt
 
 # نسخ الكود
 COPY shared/ ./shared/
