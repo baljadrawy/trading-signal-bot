@@ -91,6 +91,28 @@ class SignalEngine:
             logger.warning(f"فشل جلب symbol cooldown: {e}")
             return set()
 
+    async def _is_inter_signal_cooldown(self) -> bool:
+        """
+        Cooldown 30 دقيقة بين أي إشارتين (بغض النظر عن العملة):
+        الهدف: منع burst فتح 10 صفقات في 33 دقيقة (حادثة 2026-05-12 21:27-22:00 UTC).
+        تركيز المخاطر في نافذة زمنية ضيقة يعني نفس ظروف السوق = correlation عالي.
+        """
+        try:
+            row = await Database.fetchrow(
+                """SELECT signal_time FROM signals
+                   WHERE telegram_sent = true
+                   AND signal_time > NOW() - INTERVAL '30 minutes'
+                   ORDER BY signal_time DESC
+                   LIMIT 1"""
+            )
+            if row:
+                logger.info("⏳ Inter-signal cooldown نشط: إشارة صدرت منذ أقل من 30 دقيقة")
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"فشل فحص inter-signal cooldown: {e}")
+            return False
+
     async def find_best_signal(self, results: List) -> Optional[Dict]:
         """
         يجمع نتائج كل الـ Timeframes لكل عملة،
@@ -110,6 +132,12 @@ class SignalEngine:
         # ─── Global Loss Cooldown (6h) ─────────────────────────────
         # بعد أي خسارة → توقف 6 ساعات قبل إشارة جديدة
         if await self._is_global_loss_cooldown():
+            return None
+
+        # ─── Inter-Signal Cooldown (30min) ─────────────────────────
+        # إشارة صدرت في آخر 30 دقيقة (لأي عملة) → توقف
+        # يمنع burst: فتح 10 صفقات في 33 دقيقة = تركيز مخاطر عالي
+        if await self._is_inter_signal_cooldown():
             return None
 
         # ─── Per-Symbol Cooldown (2h) ──────────────────────────────
