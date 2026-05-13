@@ -11,6 +11,12 @@ volumes:
   models_data:
   logs_data:
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ==================== Scanner ====================
@@ -20,6 +26,7 @@ services:
       dockerfile: scanner/Dockerfile
     container_name: trading_scanner
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -47,6 +54,7 @@ services:
       dockerfile: analyzer/Dockerfile
     container_name: trading_analyzer
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -75,6 +83,7 @@ services:
       dockerfile: signal_engine/Dockerfile
     container_name: trading_signal_engine
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -103,6 +112,7 @@ services:
       dockerfile: claude_review/Dockerfile
     container_name: trading_claude_review
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -129,6 +139,7 @@ services:
       dockerfile: trade_tracker/Dockerfile
     container_name: trading_tracker
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -155,6 +166,7 @@ services:
       dockerfile: optimizer/Dockerfile
     container_name: trading_optimizer
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
@@ -181,6 +193,7 @@ services:
       dockerfile: telegram/Dockerfile
     container_name: trading_telegram
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
