@@ -239,15 +239,25 @@ class SignalEngine:
             qualifying.sort(key=lambda x: x[0], reverse=True)
             top_score, top_data = qualifying[0]
 
-            # فلتر: رفض إذا كان الإطار الرئيسي للإشارة نفسه bullish
-            # البيانات (2026-04-22+): 18 إشارة 4h/bullish → 0% WR، -$13
-            # السبب: الفلتر الشامل (bullish_count >= half) يمرر العملة إذا 4h=bullish
-            # لكن 1h=sideways. يجب رفض الإشارة إذا الإطار الرئيسي نفسه bullish.
+            # فلتر: رفض إذا كان الإطار الرئيسي للإشارة نفسه bullish أو volatile
+            # البيانات (2026-04-22→2026-05-14، 2433 صفقة):
+            #   4h+bullish:  255 → WR 35%، -$107.64
+            #   1d+volatile:  81 → WR 30%، -$102.60
+            #   4h+volatile: 103 → WR 40% لكن avg_loss > avg_win، -$72.46
+            # السبب: mean-reverting لا يعمل في bullish (لا dips كافية)
+            #         و volatile يعني SL واسع + تحركات حادة تضرب الـ stop قبل الـ target
             top_mc = top_data.get('market_condition', '')
+            top_tf = top_data.get('timeframe', '?')
             if top_mc in ('bullish', 'strong_bullish'):
                 logger.debug(
-                    f"⏭️ رفض {symbol} - الإطار الرئيسي ({top_data.get('timeframe','?')}) "
+                    f"⏭️ رفض {symbol} - الإطار الرئيسي ({top_tf}) "
                     f"في {top_mc} (mean-reverting لا يعمل)"
+                )
+                continue
+            if top_mc == 'volatile':
+                logger.debug(
+                    f"⏭️ رفض {symbol} - الإطار الرئيسي ({top_tf}) volatile "
+                    f"(بيانات: 1d+vol=-102$، 4h+vol=-72$، SL واسع + تحركات حادة)"
                 )
                 continue
 
