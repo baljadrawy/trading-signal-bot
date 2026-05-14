@@ -114,10 +114,15 @@ services:
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
+    environment:
+      # نلغي ANTHROPIC_API_KEY حتى يستخدم claude CLI الـ OAuth token من .credentials.json
+      ANTHROPIC_API_KEY: ""
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./claude_review:/app
+      - /home/tradmin/.claude:/root/.claude:ro
+      - /home/tradmin/.claude.json:/root/.claude.json:ro
     networks:
       - trading_network
       - shared_db_net
@@ -130,7 +135,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          memory: 512m
 
   # ==================== Trade Tracker ====================
   trade_tracker:

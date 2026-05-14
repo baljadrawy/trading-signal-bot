@@ -1,12 +1,13 @@
 """
 Claude Review - يراجع الإشارات قبل إرسالها
+يستخدم claude CLI (اشتراك Claude Code) بدلاً من Anthropic SDK المباشر
 """
 import asyncio
 import json
+import subprocess
 import sys
 sys.path.append('/app')
 
-import anthropic
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
@@ -15,12 +16,12 @@ from shared.retry_utils import format_error, is_network_error, compute_backoff, 
 
 logger = setup_logger('claude_review')
 
+CLAUDE_BIN = '/usr/bin/claude'
+
 async def main():
-    logger.info("🚀 بدء تشغيل Claude Review...")
+    logger.info("بدء تشغيل Claude Review (via claude CLI)...")
     await Database.connect()
 
-    claude_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    
     consecutive_errors = 0
 
     try:
@@ -38,7 +39,7 @@ async def main():
                 """)
 
                 for signal in signals:
-                    await review_signal(claude_client, dict(signal))
+                    await review_signal(dict(signal))
 
                 consecutive_errors = 0
                 await asyncio.sleep(15)
@@ -62,13 +63,13 @@ async def main():
     finally:
         await Database.disconnect()
 
-async def review_signal(client: anthropic.Anthropic, signal: dict):
-    """مراجعة إشارة واحدة بواسطة Claude"""
+async def review_signal(signal: dict):
+    """مراجعة إشارة واحدة بواسطة claude CLI"""
     try:
         score_details = signal['score_details']
         if isinstance(score_details, str):
             score_details = json.loads(score_details)
-        
+
         # حساب نسبة المخاطرة/المكافأة
         entry = float(signal['entry_price'])
         stop = float(signal['stop_loss'])
@@ -76,7 +77,7 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
         risk = entry - stop
         reward = t1 - entry
         rr_ratio = reward / risk if risk > 0 else 0
-        
+
         # جلب عدد Timeframes المؤكدة من score_details
         confirmed_tfs = score_details.get('confirmed_timeframes', [signal['timeframe']])
         tf_count = score_details.get('timeframe_confirmations', 1)
@@ -119,40 +120,49 @@ async def review_signal(client: anthropic.Anthropic, signal: dict):
 DECISION: APPROVED أو REJECTED
 REASON: [سبب محدد بجملة واحدة، اذكر الرقم إذا رفضت]"""
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",  # Haiku أسرع وأرخص للمراجعة
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}]
+        # تشغيل claude CLI عبر stdin لتجنب حدود argument length
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [CLAUDE_BIN, '-p', '--output-format', 'text'],
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=90
+            )
         )
-        
-        response_text = response.content[0].text
+
+        if result.returncode != 0:
+            raise RuntimeError(f"claude CLI exit {result.returncode}: {result.stderr[:200]}")
+
+        response_text = result.stdout.strip()
         approved = "APPROVED" in response_text
         reason = ""
-        
+
         if "REASON:" in response_text:
             reason = response_text.split("REASON:")[-1].strip()
-        
+
         # تحديث قاعدة البيانات
         await Database.execute("""
             UPDATE signals
             SET claude_approved = $1, claude_comment = $2
             WHERE id = $3
         """, approved, reason, signal['id'])
-        
-        status = "✅ موافق" if approved else "❌ مرفوض"
+
+        status = "موافق" if approved else "مرفوض"
         logger.info(f"{status} على إشارة {signal['symbol']} - {reason[:50]}")
-        
+
     except Exception as e:
         logger.error(f"خطأ في مراجعة الإشارة {signal['id']}: {e}")
-        # fail-open: عند فشل API نوافق على الإشارة (لتجنب توقف البوت)
-        # البيانات أثبتت أن claude_review لم يحسّن النتائج تاريخياً (37.8% win rate)
+        # fail-open: عند فشل CLI نوافق على الإشارة (لتجنب توقف البوت)
         await Database.execute(
             "UPDATE signals SET claude_approved = true, claude_comment = $1 WHERE id = $2",
-            f'موافقة تلقائية - فشل API: {str(e)[:100]}',
+            f'موافقة تلقائية - فشل CLI: {str(e)[:100]}',
             signal['id']
         )
         await send_alert(
-            f"Claude Review API failure — موافقة تلقائية على {signal['symbol']}\nالخطأ: {str(e)[:150]}",
+            f"Claude Review CLI failure — موافقة تلقائية على {signal['symbol']}\nالخطأ: {str(e)[:150]}",
             level='warning', component='ClaudeReview'
         )
 
