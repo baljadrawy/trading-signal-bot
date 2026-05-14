@@ -244,9 +244,13 @@ class TechnicalAnalyzer:
         total += rsi_score
 
         # 2. Bollinger Bands (price near lower band)
+        # تحليل 262 صفقة (2026-05-14): bollinger بدون RSI oversold حقيقي (RSI>=40)
+        # يعطي WR=16-25% وخسارة -50 USDT. المنطق: السعر قرب band السفلي لكن
+        # RSI ليس في منطقة oversold = سقوط قوي يستمر (مومنتوم هابط) وليس انعكاساً.
+        # الحل: bollinger يُحتسب فقط عندما RSI في منطقة oversold (rsi_score >= 1.0 = RSI < 40).
         bb_score = 0
         bb_range = last['bb_upper'] - last['bb_lower']
-        if bb_range > 0:
+        if bb_range > 0 and rsi_score >= 1.0:  # اشتراط RSI oversold (RSI < 40)
             bb_pos = (last['close'] - last['bb_lower']) / bb_range
             if bb_pos <= 0.3:
                 bb_score = weights.get('bollinger', 1.0)
