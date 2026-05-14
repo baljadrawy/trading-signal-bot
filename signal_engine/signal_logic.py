@@ -236,6 +236,18 @@ class SignalEngine:
             qualifying.sort(key=lambda x: x[0], reverse=True)
             top_score, top_data = qualifying[0]
 
+            # فلتر: رفض إذا كان الإطار الرئيسي للإشارة نفسه bullish
+            # البيانات (2026-04-22+): 18 إشارة 4h/bullish → 0% WR، -$13
+            # السبب: الفلتر الشامل (bullish_count >= half) يمرر العملة إذا 4h=bullish
+            # لكن 1h=sideways. يجب رفض الإشارة إذا الإطار الرئيسي نفسه bullish.
+            top_mc = top_data.get('market_condition', '')
+            if top_mc in ('bullish', 'strong_bullish'):
+                logger.debug(
+                    f"⏭️ رفض {symbol} - الإطار الرئيسي ({top_data.get('timeframe','?')}) "
+                    f"في {top_mc} (mean-reverting لا يعمل)"
+                )
+                continue
+
             # جمع الـ Timeframes المؤكِّدة للعرض في الرسالة
             confirmed_tfs = [d.get('timeframe', '?') for _, d in qualifying]
 
