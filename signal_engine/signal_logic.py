@@ -51,20 +51,23 @@ class SignalEngine:
 
     async def _is_global_loss_cooldown(self) -> bool:
         """
-        Cooldown 6 ساعات بعد أي خسارة:
-        إذا أُغلقت صفقة بـ LOSS في آخر 6 ساعات → لا نولّد إشارة جديدة.
-        الهدف: منع الدخول في سلسلة خسائر خلال نفس الشروط السوقية السيئة.
+        Cooldown 6 ساعات — يُطلق فقط عند stop_hit=true (ضربة SL حقيقية):
+        - stop_hit=true  → السوق أسقط الـ SL → خطر فعلي → freeze 6h
+        - stop_hit=false → expire 48h أو forced close → ليست إشارة انعكاس سوقي حاد
+        الهدف: منع الدخول في سلسلة SL خلال نفس الشروط السوقية السيئة،
+               دون تجميد البوت بعد خسارة expire رمزية كـ -$0.91 (حادثة SPKUSDT 2026-05-14).
         ملاحظة: نستخدم NOW() - INTERVAL في SQL مباشرة لتجنب مشكلة timezone مع PostgreSQL.
         """
         try:
             row = await Database.fetchrow(
                 """SELECT id FROM trade_results
                    WHERE result = 'LOSS'
+                   AND stop_hit = true
                    AND exit_time > NOW() - INTERVAL '6 hours'
                    LIMIT 1"""
             )
             if row:
-                logger.info("⏸️ Cooldown نشط: خسارة في آخر 6 ساعات — إيقاف الإشارات مؤقتاً")
+                logger.info("⏸️ Cooldown نشط: SL hit في آخر 6 ساعات — إيقاف الإشارات مؤقتاً")
                 return True
             return False
         except Exception as e:
