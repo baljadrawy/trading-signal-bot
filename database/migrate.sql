@@ -55,3 +55,16 @@ CREATE INDEX IF NOT EXISTS idx_blacklist_symbol ON symbol_blacklist(symbol);
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public'
 ORDER BY table_name;
+
+-- 2026-05-14: إضافة عملات مدمرة للقائمة السوداء بناءً على بيانات 22 أبريل – 14 مايو
+-- المعيار: 4+ صفقات + WR<20% + صافي خسارة حادة أو avg_loss >> avg_win
+INSERT INTO symbol_blacklist (symbol, rejected_at, reason)
+VALUES
+  ('BTTCUSDT',  NOW(), 'بلاك ليست تلقائي: 45 صفقة، WR 4%، خسارة -48.39 USDT، 42 SL hit — أسوأ أداء كلي'),
+  ('PARTIUSDT', NOW(), 'بلاك ليست تلقائي: 7 صفقات، WR 14%، خسارة -53.62 USDT، avg_loss -18% — مدمر لرأس المال'),
+  ('FFUSDT',    NOW(), 'بلاك ليست تلقائي: 8 صفقات، WR 13%، خسارة -30.61 USDT، avg_loss -11%'),
+  ('FIOUSDT',   NOW(), 'بلاك ليست تلقائي: 20 صفقة، WR 15%، خسارة -29.09 USDT، 12 SL hit'),
+  ('DEGOUSDT',  NOW(), 'بلاك ليست تلقائي: 6 صفقات، WR 0%، خسارة -10.96 USDT'),
+  ('NOTUSDT',   NOW(), 'بلاك ليست تلقائي: 4 صفقات، WR 0%، خسارة -8.15 USDT، 3 SL hit'),
+  ('FUNUSDT',   NOW(), 'بلاك ليست تلقائي: 16 صفقة، WR 31% لكن avg_loss -11.53% >> avg_win +10.22%، صافي -37.83 USDT')
+ON CONFLICT (symbol) DO NOTHING;
