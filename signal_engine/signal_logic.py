@@ -261,6 +261,18 @@ class SignalEngine:
                 )
                 continue
 
+            # فلتر: رفض الإشارة إذا إطارها الرئيسي 4h
+            # البيانات (post-rebuild 2026-04-22→2026-05-16، 275 صفقة):
+            #   4h: 66 صفقة، WR 34.8%، -$27.38 ← 73% من إجمالي الخسارة
+            #   1h: 205 صفقة، WR 36.6%، -$5.45 ← الإطار المقبول
+            # SL على 4h واسع جداً ويُضرب قبل بلوغ الـ target.
+            if top_tf == '4h':
+                logger.debug(
+                    f"⏭️ رفض {symbol} - الإطار الرئيسي 4h "
+                    f"(محظور: مسؤول عن 73% من خسائر post-rebuild)"
+                )
+                continue
+
             # جمع الـ Timeframes المؤكِّدة للعرض في الرسالة
             confirmed_tfs = [d.get('timeframe', '?') for _, d in qualifying]
 
