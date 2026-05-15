@@ -260,9 +260,11 @@ class TechnicalAnalyzer:
         total += bb_score
 
         # 3. Stochastic RSI (oversold + crossing up)
-        # تخفيض وزن القيم >= 0.9 (stoch مرتفع جداً = زخم مفرط ≠ oversold حقيقي)
-        # القيم < 0.2 مع تقاطع صاعد = إشارة oversold حقيقية → نقاط كاملة
-        # القيم >= 0.9 = مشبع شراءً → تخفيض 70% (خطر انعكاس ضد الإشارة)
+        # البيانات (275 صفقة، 2026-04-22→2026-05-15):
+        #   stoch_k < 0.2 مع تقاطع صاعد → WR=44%، Expectancy=+0.62% → ممتاز
+        #   stoch_k < 0.3 بدون تقاطع   → WR=41%، Expectancy=-0.64% → ضار (100 صفقة)
+        #   stoch_k >= 0.9               → WR=44%، لكن يحدث في قمة  → تخفيض
+        # القرار: حذف حالة "oversold بدون تقاطع" — الاشتراط أن يكون stoch_k < 0.2 مع تقاطع.
         stoch_score = 0
         if not pd.isna(last['stoch_k']):
             stoch_k = last['stoch_k']
@@ -273,8 +275,7 @@ class TechnicalAnalyzer:
                 stoch_score = base_stoch * 0.3
             elif stoch_k < 0.2 and stoch_k > stoch_d:
                 stoch_score = base_stoch          # oversold مع تقاطع صاعد — ممتاز
-            elif stoch_k < 0.3:
-                stoch_score = base_stoch * 0.5   # oversold بدون تقاطع — معتدل
+            # حالة stoch_k < 0.3 بدون تقاطع مُحذوفة: expectancy سالب على 100 صفقة
         details['stoch_rsi'] = round(stoch_score, 2)
         total += stoch_score
 
