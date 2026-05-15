@@ -20,6 +20,9 @@ logger = setup_logger('trade_tracker')
 # مدة انتهاء الصفقة بالساعات
 TRADE_EXPIRY_HOURS = 48
 
+# نسبة الـ trailing stop تحت أعلى سعر — يُفعَّل بعد تحقق T2
+TRAIL_STOP_PCT = 2.5
+
 
 async def main():
     logger.info("🚀 بدء تشغيل Trade Tracker...")
@@ -43,6 +46,11 @@ async def main():
             status VARCHAR(20) DEFAULT 'open'
         )
     """)
+
+    # ترقية: عمود peak_price لتتبع أعلى سعر (أساس الـ trailing stop)
+    await Database.execute(
+        "ALTER TABLE active_trades ADD COLUMN IF NOT EXISTS peak_price DECIMAL(20,8)"
+    )
 
     consecutive_errors = 0
 
@@ -213,14 +221,22 @@ async def track_open_trades():
 
 
 async def evaluate_trade(trade: dict, current_price: float):
-    """تقييم صفقة واحدة وتسجيل نتيجتها"""
-    entry  = float(trade['entry_price'])
-    stop   = float(trade['stop_loss'])
-    t1     = float(trade['target_1'])
-    t2     = float(trade['target_2'])
-    t3     = float(trade['target_3'])
-    symbol = trade['symbol']
-    opened = trade['opened_at']
+    """تقييم صفقة واحدة وتسجيل نتيجتها — مع break-even و trailing stop
+
+    منطق الستوب الديناميكي (المرحلة 1، 2026-05-16):
+      - SL الأصلي قبل أي هدف
+      - بعد T1 → الستوب يرتفع لنقطة الدخول (break-even): يلغي خسارة
+        الصفقات التي تحقق T1 ثم ترتد (كانت -2.89% وسطياً على 17 صفقة)
+      - بعد T2 → trailing stop تحت القمة (أرضيته T1): يقفل الربح ويترك
+        الفائز يركض بدل انتظار T3 (الذي لم يتحقق ولا مرة في 275 صفقة)
+    """
+    entry     = float(trade['entry_price'])
+    orig_stop = float(trade['stop_loss'])
+    t1        = float(trade['target_1'])
+    t2        = float(trade['target_2'])
+    t3        = float(trade['target_3'])
+    symbol    = trade['symbol']
+    opened    = trade['opened_at']
 
     # حساب مدة الصفقة
     now = datetime.now(timezone.utc)
@@ -228,43 +244,61 @@ async def evaluate_trade(trade: dict, current_price: float):
         opened = opened.replace(tzinfo=timezone.utc)
     hours_open = (now - opened).total_seconds() / 3600
 
+    # تتبع أعلى سعر بلغته الصفقة — أساس الـ trailing stop
+    peak = max(float(trade.get('peak_price') or entry), current_price)
+    if peak > float(trade.get('peak_price') or 0):
+        await Database.execute(
+            "UPDATE active_trades SET peak_price = $1 WHERE id = $2",
+            peak, trade['id']
+        )
+
     # تحقق من الأهداف
     target_hit = 0
-    profit_pct = 0
-
     if current_price >= t3:
         target_hit = 3
-        profit_pct = ((t3 - entry) / entry) * 100
     elif current_price >= t2:
         target_hit = 2
-        profit_pct = ((t2 - entry) / entry) * 100
     elif current_price >= t1:
         target_hit = 1
-        profit_pct = ((t1 - entry) / entry) * 100
 
-    # تحديث أعلى هدف محقق
-    if target_hit > trade['highest_target_hit']:
+    highest = max(trade['highest_target_hit'] or 0, target_hit)
+    if target_hit > (trade['highest_target_hit'] or 0):
         await Database.execute(
             "UPDATE active_trades SET highest_target_hit = $1 WHERE id = $2",
             target_hit, trade['id']
         )
         logger.info(f"🎯 {symbol} وصل T{target_hit}! السعر: {current_price:.6f}")
 
-    # تحقق من وقف الخسارة
-    if current_price <= stop:
-        loss_pct = ((current_price - entry) / entry) * 100
-        await close_trade(trade, 'LOSS', loss_pct, current_price, f"ضرب Stop Loss عند {current_price:.6f}")
-        return
+    # ── الستوب الديناميكي ────────────────────────────────────
+    effective_stop = orig_stop
+    stop_label     = f"SL الأصلي {orig_stop:.6f}"
+    if highest >= 1:
+        effective_stop = entry
+        stop_label     = f"نقطة التعادل {entry:.6f} (بعد T1)"
+    if highest >= 2:
+        trail          = peak * (1 - TRAIL_STOP_PCT / 100)
+        effective_stop = max(t1, trail)
+        stop_label     = f"trailing {effective_stop:.6f} (بعد T2، قمة {peak:.6f})"
 
-    # إغلاق عند T3
+    # إغلاق عند T3 — سقف الربح
     if current_price >= t3:
-        await close_trade(trade, 'WIN', profit_pct, current_price, f"وصل الهدف T3 🎯🎯🎯")
+        profit_pct = ((t3 - entry) / entry) * 100
+        await close_trade(trade, 'WIN', profit_pct, current_price, "وصل الهدف T3 🎯🎯🎯")
         return
 
-    # إغلاق بربح عند T1 بعد 24 ساعة
-    if hours_open >= 24 and target_hit >= 1:
-        await close_trade(trade, 'WIN', profit_pct, current_price,
-                         f"انتهت 24 ساعة مع تحقيق T{target_hit}")
+    # ضرب الستوب الديناميكي
+    if current_price <= effective_stop:
+        pnl_pct = ((current_price - entry) / entry) * 100
+        result  = 'WIN' if current_price > entry else 'LOSS'
+        await close_trade(trade, result, pnl_pct, current_price, f"إغلاق عند {stop_label}")
+        return
+
+    # صفقة عالقة عند T1 فقط بعد 24 ساعة → تحرير رأس المال
+    # (إذا بلغت T2 نتركها للـ trailing تلتقط المزيد)
+    if hours_open >= 24 and highest == 1:
+        pnl_pct = ((current_price - entry) / entry) * 100
+        await close_trade(trade, 'WIN' if current_price > entry else 'LOSS',
+                         pnl_pct, current_price, "انتهت 24 ساعة عند T1 — تحرير رأس المال")
         return
 
     # انتهاء الصلاحية بدون نتيجة
