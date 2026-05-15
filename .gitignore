@@ -44,3 +44,6 @@ Thumbs.db
 # Colab credentials
 colab/credentials.json
 colab/token.json
+
+# Claude CLI agent working dir (local state, not code)
+.claude/
