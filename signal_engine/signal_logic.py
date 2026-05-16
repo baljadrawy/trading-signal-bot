@@ -30,8 +30,9 @@ class SignalEngine:
         """
         تحقق من حالة BTC على إطار 4h:
         - يقرأ btc_trend من آخر scan_candidate (Scanner يحدّثه كل 5min)
-        - bearish أو strong_bearish → السوق في انهيار → إيقاف الإشارات
-        مرجع: استراتيجية mean-reverting لا تعمل في هبوط قوي للسوق ككل.
+        - strong_bearish فقط (هبوط > 3% في 40 ساعة) → السوق في انهيار → إيقاف الإشارات
+        - bearish (-1% إلى -3%) → تصحيح عادي → لا نوقف الإشارات (mean-reverting يعمل هنا)
+        مرجع: البيانات تُظهر أن bearish ≠ انهيار؛ صمّت البوت 3+ أيام دون مبرر (2026-05-13→16).
         """
         try:
             row = await Database.fetchrow(
@@ -44,7 +45,7 @@ class SignalEngine:
             if isinstance(data, str):
                 data = json.loads(data)
             trend = (data.get('btc_trend') or '').lower()
-            return trend in ('bearish', 'strong_bearish')
+            return trend in ('strong_bearish',)
         except Exception as e:
             logger.warning(f"BTC crash check failed: {e}")
             return False
@@ -156,20 +157,18 @@ class SignalEngine:
             logger.info(f"⏸️ وصلنا للحد الأقصى اليومي: {signals_today} إشارات")
             return None
 
-        # جلب العملات المحظورة (صفقة مفتوحة أو مرفوضة أو في cooldown)
+        # جلب العملات المحظورة (صفقة مفتوحة أو في cooldown)
+        # ملاحظة: approval_requests المرفوضة محذوفة من هنا — كل العملات المرفوضة
+        # مُضافة الآن لـ symbol_blacklist ويحجبها Scanner من المصدر، فلا داعي لإعادة القراءة.
         open_symbols = set(r['symbol'] for r in await Database.fetch(
             "SELECT DISTINCT symbol FROM active_trades WHERE status = 'open'"
         ))
-        rejected_symbols = set(r['symbol'] for r in await Database.fetch(
-            "SELECT DISTINCT symbol FROM approval_requests WHERE status = 'rejected'"
-        ))
-        blocked_symbols = open_symbols | rejected_symbols | cooldown_symbols
+        blocked_symbols = open_symbols | cooldown_symbols
 
         if blocked_symbols:
             logger.info(
                 f"🚫 عملات محظورة: {len(blocked_symbols)} "
-                f"(مفتوحة: {len(open_symbols)}, مرفوضة: {len(rejected_symbols)}, "
-                f"cooldown: {len(cooldown_symbols)})"
+                f"(مفتوحة: {len(open_symbols)}, cooldown: {len(cooldown_symbols)})"
             )
 
         # تجميع النتائج حسب العملة

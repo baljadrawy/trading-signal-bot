@@ -9,8 +9,9 @@ from shared.logger import setup_logger
 logger = setup_logger('optimizer.tuner')
 
 # حدود الإعدادات (حماية من التطرف)
-# السقف 3.5 لأن النظام الجديد ينتج نقاط من 3 مؤشرات mean-reverting (rsi/bollinger/stoch_rsi)
-# + order_book bonus صغير. أقصى نقاط فعلياً ≈ 3.17 حالياً. رفع السقف أعلى = صمت البوت.
+# البيانات (2433 صفقة): score=3 → WR 37.7%، avg_win +4.33%، net +$8.96 (الوحيد إيجابي)
+#                        score=4 → WR 37.8%، avg_win +3.04%، net -$356 (أسوأ بكثير)
+# الحد الأقصى 3.5 لأن رفعه يُصمت البوت (نقاط 1h sideways نادراً تتجاوز 3.5).
 MIN_SCORE_LIMIT    = 1.5
 MAX_SCORE_LIMIT    = 3.5
 MIN_TF_CONFIRM     = 1

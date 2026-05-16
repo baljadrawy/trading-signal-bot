@@ -16,6 +16,13 @@ MAX_WEIGHT = 2.5
 # الحد الأدنى للصفقات لحساب وزن مؤشر معين
 MIN_SAMPLES_PER_INDICATOR = 20
 
+# أوزان محمية — الأوبتيمايزر لا يلمسها بغض النظر عن البيانات.
+# rsi_divergence في sideways ثبت بحافة حقيقية (WR 60%، expectancy +3.67%)
+# لكنه نادر التفعيل (<20 عينة) فيُصفَّر تلقائياً — هذا يحميه.
+PROTECTED_WEIGHTS: dict = {
+    ('rsi_divergence', 'sideways'): 2.0,
+}
+
 # فاصل زمني: أي صفقة قبل هذا التاريخ تستخدم نظام تسجيل قديم
 # ولا يجب استخدامها لضبط الإعدادات الحالية.
 # عدّلها عبر env var عند أي rebuild كبير للاستراتيجية.
@@ -188,6 +195,16 @@ class PerformanceAnalyzer:
 
             new_weight = max(MIN_WEIGHT, min(MAX_WEIGHT, new_weight))
             new_weight = round(new_weight, 4)
+
+            # تحقق من الحماية — لا تُعدّل الأوزان المثبّتة يدوياً
+            protected_val = PROTECTED_WEIGHTS.get((indicator, condition))
+            if protected_val is not None:
+                if new_weight != protected_val:
+                    logger.info(
+                        f"🔒 وزن محمي: {indicator}/{condition} "
+                        f"(محسوب={new_weight} → مثبّت={protected_val})"
+                    )
+                new_weight = protected_val
 
             await Database.execute("""
                 UPDATE indicator_weights
