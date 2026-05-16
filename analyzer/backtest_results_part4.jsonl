@@ -1,0 +1,62 @@
+{
+  "run_date": "2026-05-16T13:32:52.902617",
+  "n_bootstrap": 1000,
+  "alpha": 0.05,
+  "wr_null": 0.33,
+  "wr_target": 0.45,
+  "all_trades": {
+    "n": 30,
+    "wr": 0.3333,
+    "wr_ci_lo": 0.1667,
+    "wr_ci_hi": 0.5,
+    "expectancy_pct": 0.2778,
+    "exp_ci_lo": -0.3151,
+    "exp_ci_hi": 0.9583,
+    "avg_win_pct": 2.3831,
+    "avg_loss_pct": -0.7749,
+    "p_value": 1.0,
+    "significant": false,
+    "n_needed_for_wr_target": 99
+  },
+  "high_score_trades": {
+    "min_score": 3.4,
+    "n": 12,
+    "wr": 0.4167,
+    "wr_ci_lo": 0.1667,
+    "wr_ci_hi": 0.6667,
+    "expectancy_pct": 0.5782,
+    "exp_ci_lo": -0.5584,
+    "exp_ci_hi": 1.6496,
+    "p_value": 0.531,
+    "significant": false,
+    "n_needed": 99
+  },
+  "outcome_distribution": {
+    "wins": 10,
+    "sl_hits": 20,
+    "breakeven_saved": 0,
+    "total": 30
+  },
+  "by_market_condition": {
+    "sideways": {
+      "n": 30,
+      "wr": 0.3333,
+      "exp": 0.2778,
+      "p_value": 1.0,
+      "wr_ci_lo": 0.1667,
+      "wr_ci_hi": 0.5
+    }
+  },
+  "power_analysis": {
+    "current_n": 30,
+    "n_for_wr_40pct": 288,
+    "n_for_wr_45pct": 99,
+    "n_for_wr_50pct": 50
+  },
+  "key_conclusions": [
+    "WR=33.3% is NOT significant (p=1.0) — need more data (n=30)",
+    "Expectancy positive (0.278%) — promising direction",
+    "score>=3.4 shows better E (0.578% vs 0.278%) — but n=12 insufficient (need 99 for significance)",
+    "Need 99 trades to detect WR=45% reliably (currently 30)"
+  ]
+}
