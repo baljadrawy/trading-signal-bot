@@ -25,10 +25,10 @@ logger = setup_logger('backtester.part1')
 
 # إعدادات الباكتيستر
 TIMEFRAME         = '1h'            # الإطار المدروس (1h هو الأفضل تاريخياً)
-CANDLES_COUNT     = 500             # 500 شمعة 1h ≈ 20 يوم (RAM-safe)
+CANDLES_COUNT     = 720             # 720 شمعة 1h ≈ 30 يوم (RAM-safe بالمعالجة المتدفّقة)
 MIN_CANDLES       = 200             # حد أدنى للتحليل الموثوق
-# المعايير الزمنية: نُنتج إشارات افتراضية كل 24 شمعة (≈ يوم) للتنوع
-STEP_CANDLES      = 24
+# المعايير الزمنية: نُنتج إشارات افتراضية كل 12 شمعة (≈ نصف يوم) للتنوع
+STEP_CANDLES      = 12
 
 # ملف النتائج — JSON بسيط، عملة-عملة متدفّق
 OUTPUT_FILE = '/app/backtest_results_part1.jsonl'
@@ -128,16 +128,26 @@ class HistoricalScorer:
 
 async def get_symbols_to_backtest() -> List[str]:
     """
-    يجلب العملات الموجودة في trade_results (عملات فعلية تداول البوت بها).
-    مُقيّد بـ 30 عملة فقط للحفاظ على الذاكرة.
+    يجلب العملات من trade_results + symbol_whitelist (عملات معروفة جيداً للبوت).
+    مُقيّد بـ 50 عملة للحفاظ على الذاكرة.
+    الغاية: توسيع العينة لتوليد إشارات كافية للجزء الثاني.
     """
-    rows = await Database.fetch("""
+    # من trade_results
+    rows_tr = await Database.fetch("""
         SELECT DISTINCT symbol FROM trade_results
-        WHERE exit_time > NOW() - INTERVAL '30 days'
+        WHERE exit_time > NOW() - INTERVAL '60 days'
         ORDER BY symbol
-        LIMIT 30
+        LIMIT 40
     """)
-    return [r['symbol'] for r in rows]
+    # من whitelist
+    rows_wl = await Database.fetch("""
+        SELECT DISTINCT symbol FROM symbol_whitelist
+        ORDER BY symbol
+        LIMIT 20
+    """)
+    symbols = list({r['symbol'] for r in rows_tr} | {r['symbol'] for r in rows_wl})
+    symbols.sort()
+    return symbols[:50]
 
 
 async def run_part1():

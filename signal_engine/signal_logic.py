@@ -130,7 +130,7 @@ class SignalEngine:
         # لو BTC 4h في bearish → إيقاف توليد الإشارات
         # (mean-reverting لا يعمل في انهيار السوق ككل)
         if await self._is_btc_crashing():
-            logger.warning("⏸️ BTC 4h bearish — إيقاف الإشارات حماية لرأس المال")
+            logger.warning("⏸️ BTC 4h strong_bearish — إيقاف الإشارات حماية رأس المال")
             return None
 
         # ─── Global Loss Cooldown (6h) ─────────────────────────────

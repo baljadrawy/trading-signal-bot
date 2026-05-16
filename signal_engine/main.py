@@ -5,6 +5,7 @@ Signal Engine - يقرر أي العملات تستحق إشارة
 import asyncio
 import json
 import sys
+import time
 sys.path.append('/app')
 
 from shared.config import config
@@ -37,6 +38,7 @@ async def main():
     """)
 
     consecutive_errors = 0
+    _last_heartbeat = 0.0  # لوج دوري كل 10 دقائق
 
     try:
         while True:
@@ -59,11 +61,35 @@ async def main():
                 consecutive_errors = 0
 
                 if not results:
+                    now = time.time()
+                    if now - _last_heartbeat >= 600:  # كل 10 دقائق
+                        logger.info("💤 لا نتائج تحليل طازجة — البوت ينتظر")
+                        _last_heartbeat = now
                     await asyncio.sleep(30)
                     continue
 
                 # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
                 best_signal = await engine.find_best_signal(results)
+
+                # لوج دوري كل 10 دقائق حتى لو لا توجد إشارة
+                now = time.time()
+                if now - _last_heartbeat >= 600:
+                    def _get_score(row):
+                        try:
+                            d = row['analysis_data']
+                            if isinstance(d, str):
+                                import json as _json
+                                d = _json.loads(d)
+                            return float(d.get('total_score', 0))
+                        except Exception:
+                            return 0.0
+                    top_scores = sorted(
+                        [(r['symbol'], _get_score(r)) for r in results],
+                        key=lambda x: -x[1]
+                    )[:3]
+                    top_str = ', '.join(f"{s}({sc:.1f})" for s, sc in top_scores)
+                    logger.info(f"💤 لا إشارة — أعلى النقاط: {top_str} | نتائج مفحوصة: {len(results)}")
+                    _last_heartbeat = now
 
                 if best_signal:
                     tfs = ', '.join(best_signal.get('confirmed_timeframes', []))
