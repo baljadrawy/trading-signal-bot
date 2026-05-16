@@ -1,0 +1,323 @@
+{
+  "run_date": "2026-05-16T20:07:54.395477",
+  "preliminary": true,
+  "n_total": 30,
+  "n_train": 18,
+  "n_test": 12,
+  "max_trials": 300,
+  "valid_trials": 198,
+  "skipped_small_sample": 102,
+  "min_oos_sample": 5,
+  "baseline": {
+    "weights": {
+      "rsi": 1.0,
+      "bollinger": 1.0,
+      "stoch_rsi": 1.0,
+      "rsi_divergence": 1.0,
+      "fibonacci": 1.0,
+      "macd": 1.0,
+      "ema_cross": 1.0,
+      "volume": 1.0,
+      "obv": 1.0,
+      "btc_trend": 1.0
+    },
+    "min_score": 3.0,
+    "train_exp": 0.39294,
+    "oos_exp": 0.10499,
+    "oos_wr": 0.25,
+    "oos_n": 12
+  },
+  "top_results": [
+    {
+      "trial": 17,
+      "weights": {
+        "rsi": 2.0,
+        "bollinger": 0.75,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 0.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.75,
+        "volume": 0.25,
+        "obv": 0.0,
+        "btc_trend": 1.25
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.22666,
+      "overfit_gap": -0.45313
+    },
+    {
+      "trial": 19,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 0.75,
+        "stoch_rsi": 0.25,
+        "rsi_divergence": 0.0,
+        "fibonacci": 1.5,
+        "macd": 1.25,
+        "ema_cross": 1.5,
+        "volume": 1.5,
+        "obv": 1.75,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.22666,
+      "overfit_gap": -0.45313
+    },
+    {
+      "trial": 29,
+      "weights": {
+        "rsi": 2.0,
+        "bollinger": 1.0,
+        "stoch_rsi": 2.0,
+        "rsi_divergence": 0.0,
+        "fibonacci": 2.0,
+        "macd": 1.0,
+        "ema_cross": 0.25,
+        "volume": 0.5,
+        "obv": 1.0,
+        "btc_trend": 0.25
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.12998,
+      "overfit_gap": -0.5498
+    },
+    {
+      "trial": 41,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 2.0,
+        "stoch_rsi": 0.5,
+        "rsi_divergence": 0.5,
+        "fibonacci": 1.5,
+        "macd": 1.5,
+        "ema_cross": 0.5,
+        "volume": 1.0,
+        "obv": 1.5,
+        "btc_trend": 2.0
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.12998,
+      "overfit_gap": -0.5498
+    },
+    {
+      "trial": 50,
+      "weights": {
+        "rsi": 2.0,
+        "bollinger": 1.75,
+        "stoch_rsi": 1.5,
+        "rsi_divergence": 0.0,
+        "fibonacci": 0.75,
+        "macd": 1.5,
+        "ema_cross": 1.5,
+        "volume": 0.0,
+        "obv": 1.5,
+        "btc_trend": 1.75
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.12998,
+      "overfit_gap": -0.5498
+    },
+    {
+      "trial": 78,
+      "weights": {
+        "rsi": 0.5,
+        "bollinger": 1.5,
+        "stoch_rsi": 1.75,
+        "rsi_divergence": 0.0,
+        "fibonacci": 1.75,
+        "macd": 1.25,
+        "ema_cross": 1.5,
+        "volume": 1.25,
+        "obv": 1.25,
+        "btc_trend": 0.25
+      },
+      "min_score": 3.5,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": -0.0217,
+      "overfit_gap": -0.70149
+    },
+    {
+      "trial": 92,
+      "weights": {
+        "rsi": 1.25,
+        "bollinger": 1.25,
+        "stoch_rsi": 1.5,
+        "rsi_divergence": 0.5,
+        "fibonacci": 0.75,
+        "macd": 2.0,
+        "ema_cross": 1.5,
+        "volume": 0.5,
+        "obv": 0.5,
+        "btc_trend": 0.5
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.12998,
+      "overfit_gap": -0.5498
+    },
+    {
+      "trial": 100,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 2.0,
+        "stoch_rsi": 1.25,
+        "rsi_divergence": 0.0,
+        "fibonacci": 1.5,
+        "macd": 0.0,
+        "ema_cross": 1.0,
+        "volume": 2.0,
+        "obv": 0.25,
+        "btc_trend": 1.75
+      },
+      "min_score": 4.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.22666,
+      "overfit_gap": -0.45313
+    },
+    {
+      "trial": 101,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.5,
+        "stoch_rsi": 1.25,
+        "rsi_divergence": 0.0,
+        "fibonacci": 0.75,
+        "macd": 1.75,
+        "ema_cross": 0.0,
+        "volume": 2.0,
+        "obv": 1.25,
+        "btc_trend": 0.75
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.22666,
+      "overfit_gap": -0.45313
+    },
+    {
+      "trial": 102,
+      "weights": {
+        "rsi": 1.75,
+        "bollinger": 1.0,
+        "stoch_rsi": 1.5,
+        "rsi_divergence": 0.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 1.0,
+        "obv": 1.75,
+        "btc_trend": 0.25
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.67979,
+      "oos_wr": 0.4286,
+      "oos_n": 7,
+      "n_rejected": 5,
+      "train_exp": 0.22666,
+      "overfit_gap": -0.45313
+    }
+  ],
+  "indicator_importance": {
+    "rsi": {
+      "avg_top25_weight": 1.408,
+      "avg_bottom25_weight": 0.765,
+      "delta": 0.643
+    },
+    "bollinger": {
+      "avg_top25_weight": 1.316,
+      "avg_bottom25_weight": 0.76,
+      "delta": 0.556
+    },
+    "stoch_rsi": {
+      "avg_top25_weight": 1.214,
+      "avg_bottom25_weight": 0.648,
+      "delta": 0.566
+    },
+    "rsi_divergence": {
+      "avg_top25_weight": 0.939,
+      "avg_bottom25_weight": 2.551,
+      "delta": -1.612
+    },
+    "fibonacci": {
+      "avg_top25_weight": 1.173,
+      "avg_bottom25_weight": 0.786,
+      "delta": 0.388
+    },
+    "macd": {
+      "avg_top25_weight": 1.031,
+      "avg_bottom25_weight": 0.99,
+      "delta": 0.041
+    },
+    "ema_cross": {
+      "avg_top25_weight": 1.066,
+      "avg_bottom25_weight": 0.985,
+      "delta": 0.082
+    },
+    "volume": {
+      "avg_top25_weight": 1.158,
+      "avg_bottom25_weight": 1.051,
+      "delta": 0.107
+    },
+    "obv": {
+      "avg_top25_weight": 0.98,
+      "avg_bottom25_weight": 1.122,
+      "delta": -0.143
+    },
+    "btc_trend": {
+      "avg_top25_weight": 0.954,
+      "avg_bottom25_weight": 1.092,
+      "delta": -0.138
+    }
+  },
+  "recommendation": {
+    "action": "worth_testing",
+    "reason": "أفضل تجربة تتفوق على baseline بـ +0.575% OOS — لكن n=7 صغيرة. ابنِ عيّنة أكبر قبل التطبيق.",
+    "suggested_min_score": 3.0,
+    "suggested_weights": {
+      "rsi": 2.0,
+      "bollinger": 0.75,
+      "stoch_rsi": 0.75,
+      "rsi_divergence": 0.0,
+      "fibonacci": 0.25,
+      "macd": 0.0,
+      "ema_cross": 0.75,
+      "volume": 0.25,
+      "obv": 0.0,
+      "btc_trend": 1.25
+    }
+  },
+  "min_n_to_apply": 99,
+  "warning": "نتائج أولية (preliminary). n=30 صغيرة جداً للثقة الإحصائية. لا تُطبَّق على الإعدادات الحيّة قبل 99+ صفقة OOS مستقلة."
+}
