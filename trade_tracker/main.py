@@ -1,6 +1,7 @@
 """
 Trade Tracker - يراقب الإشارات المرسلة ويسجل نتائجها تلقائياً
 يتحقق من السعر كل 5 دقائق ويسجل: WIN / LOSS / EXPIRED
+يستخدم shared.triple_barrier كمصدر حقيقة واحد لمنطق الخروج.
 """
 import asyncio
 import sys
@@ -14,13 +15,21 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.triple_barrier import (
+    create_config_from_trade,
+    create_state_from_trade,
+    step_barrier,
+    barrier_status_summary,
+    TripleBarrierConfig,
+    TripleBarrierState,
+)
 
 logger = setup_logger('trade_tracker')
 
-# مدة انتهاء الصفقة بالساعات
+# مدة انتهاء الصفقة بالساعات — يُستخدم في TripleBarrierConfig تلقائياً
 TRADE_EXPIRY_HOURS = 48
 
-# نسبة الـ trailing stop تحت أعلى سعر — يُفعَّل بعد تحقق T2
+# نسبة الـ trailing stop — يُستخدم في TripleBarrierConfig تلقائياً
 TRAIL_STOP_PCT = 2.5
 
 
@@ -221,103 +230,118 @@ async def track_open_trades():
 
 
 async def evaluate_trade(trade: dict, current_price: float):
-    """تقييم صفقة واحدة وتسجيل نتيجتها — مع break-even و trailing stop
+    """تقييم صفقة واحدة وتسجيل نتيجتها — يستخدم shared.triple_barrier (مصدر حقيقة واحد)
 
-    منطق الستوب الديناميكي (المرحلة 1، 2026-05-16):
-      - SL الأصلي قبل أي هدف
-      - بعد T1 → الستوب يرتفع لنقطة الدخول (break-even): يلغي خسارة
-        الصفقات التي تحقق T1 ثم ترتد (كانت -2.89% وسطياً على 17 صفقة)
-      - بعد T2 → trailing stop تحت القمة (أرضيته T1): يقفل الربح ويترك
-        الفائز يركض بدل انتظار T3 (الذي لم يتحقق ولا مرة في 275 صفقة)
+    الجزء الخامس من الباكتيستر (2026-05-16): تم نقل منطق الخروج كاملاً إلى
+    shared/triple_barrier.py — trade_tracker والباكتيستر يستوردان نفس الكود.
     """
-    entry     = float(trade['entry_price'])
-    orig_stop = float(trade['stop_loss'])
-    t1        = float(trade['target_1'])
-    t2        = float(trade['target_2'])
-    t3        = float(trade['target_3'])
-    symbol    = trade['symbol']
-    opened    = trade['opened_at']
+    symbol = trade['symbol']
+    entry  = float(trade['entry_price'])
 
     # حساب مدة الصفقة
-    now = datetime.now(timezone.utc)
+    now    = datetime.now(timezone.utc)
+    opened = trade['opened_at']
     if opened.tzinfo is None:
         opened = opened.replace(tzinfo=timezone.utc)
     hours_open = (now - opened).total_seconds() / 3600
 
-    # تتبع أعلى سعر بلغته الصفقة — أساس الـ trailing stop
-    peak = max(float(trade.get('peak_price') or entry), current_price)
-    if peak > float(trade.get('peak_price') or 0):
-        await Database.execute(
-            "UPDATE active_trades SET peak_price = $1 WHERE id = $2",
-            peak, trade['id']
-        )
+    # بناء Config و State من صف DB
+    cfg   = create_config_from_trade(trade, trade_amount=config.TRADE_AMOUNT_USDT)
+    state = create_state_from_trade(trade)
+    # ضبط ساعات الفتح الحالية (تُحسب من DB)
+    state.hours_open = hours_open
 
-    # تحقق من الأهداف
-    target_hit = 0
-    if current_price >= t3:
-        target_hit = 3
-    elif current_price >= t2:
-        target_hit = 2
-    elif current_price >= t1:
-        target_hit = 1
+    # تحديث القمة بالسعر الحالي (فحص نقطة في الزمن — لا شمعة كاملة)
+    if current_price > state.peak:
+        state.peak = current_price
 
-    highest = max(trade['highest_target_hit'] or 0, target_hit)
-    if target_hit > (trade['highest_target_hit'] or 0):
+    # تحديث الأهداف بالسعر الحالي
+    prev_highest = state.highest_target
+    if current_price >= cfg.target_3 and state.highest_target < 3:
+        state.highest_target = 3
+    elif current_price >= cfg.target_2 and state.highest_target < 2:
+        state.highest_target = 2
+    elif current_price >= cfg.target_1 and state.highest_target < 1:
+        state.highest_target = 1
+
+    # تسجيل الأهداف الجديدة في DB
+    if state.highest_target > prev_highest:
         await Database.execute(
             "UPDATE active_trades SET highest_target_hit = $1 WHERE id = $2",
-            target_hit, trade['id']
+            state.highest_target, trade['id']
         )
-        logger.info(f"🎯 {symbol} وصل T{target_hit}! السعر: {current_price:.6f}")
+        logger.info(f"🎯 {symbol} وصل T{state.highest_target}! السعر: {current_price:.6f}")
 
-    # ── الستوب الديناميكي ────────────────────────────────────
-    effective_stop = orig_stop
-    stop_label     = f"SL الأصلي {orig_stop:.6f}"
-    if highest >= 1:
-        effective_stop = entry
-        stop_label     = f"نقطة التعادل {entry:.6f} (بعد T1)"
-    if highest >= 2:
-        trail          = peak * (1 - TRAIL_STOP_PCT / 100)
-        effective_stop = max(t1, trail)
-        stop_label     = f"trailing {effective_stop:.6f} (بعد T2، قمة {peak:.6f})"
+    # تحديث peak_price في DB
+    stored_peak = float(trade.get('peak_price') or entry)
+    if state.peak > stored_peak:
+        await Database.execute(
+            "UPDATE active_trades SET peak_price = $1 WHERE id = $2",
+            state.peak, trade['id']
+        )
 
-    # إغلاق عند T3 — سقف الربح
-    if current_price >= t3:
-        profit_pct = ((t3 - entry) / entry) * 100
-        await close_trade(trade, 'WIN', profit_pct, current_price, "وصل الهدف T3 🎯🎯🎯")
+    # احسب الستوب الفعّال وتحقق منه (المحاكاة الحيّة — نقطة واحدة في الزمن)
+    eff_stop, stop_label = state.effective_stop(cfg)
+
+    # فحص T3 — إغلاق فوري
+    if state.highest_target == 3:
+        profit_pct  = ((cfg.target_3 - entry) / entry) * 100
+        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+        await close_trade_barrier(trade, 'WIN', profit_pct, profit_usdt, cfg.target_3, 'T3', state.highest_target, False)
         return
 
-    # ضرب الستوب الديناميكي
-    if current_price <= effective_stop:
-        pnl_pct = ((current_price - entry) / entry) * 100
-        result  = 'WIN' if current_price > entry else 'LOSS'
-        await close_trade(trade, result, pnl_pct, current_price, f"إغلاق عند {stop_label}")
+    # فحص ضرب الستوب الديناميكي
+    if current_price <= eff_stop:
+        profit_pct  = ((current_price - entry) / entry) * 100
+        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+        is_win      = current_price > entry
+        if state.highest_target >= 2:
+            reason = 'trailing_stop'
+        elif state.highest_target == 1:
+            reason = 'break_even'
+        else:
+            reason = 'stop_loss'
+        original_stop_hit = (not is_win) and (current_price <= cfg.stop_loss)
+        await close_trade_barrier(
+            trade, 'WIN' if is_win else 'LOSS',
+            profit_pct, profit_usdt, current_price,
+            f"{reason} ({stop_label})", state.highest_target, original_stop_hit
+        )
         return
 
-    # صفقة عالقة عند T1 فقط بعد 24 ساعة → تحرير رأس المال
-    # (إذا بلغت T2 نتركها للـ trailing تلتقط المزيد)
-    if hours_open >= 24 and highest == 1:
-        pnl_pct = ((current_price - entry) / entry) * 100
-        await close_trade(trade, 'WIN' if current_price > entry else 'LOSS',
-                         pnl_pct, current_price, "انتهت 24 ساعة عند T1 — تحرير رأس المال")
+    # صفقة عالقة عند T1 فقط بعد 24 ساعة
+    if hours_open >= 24 and state.highest_target == 1:
+        profit_pct  = ((current_price - entry) / entry) * 100
+        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+        is_win      = current_price > entry
+        await close_trade_barrier(
+            trade, 'WIN' if is_win else 'LOSS',
+            profit_pct, profit_usdt, current_price,
+            'T1_expired_24h', state.highest_target, False
+        )
         return
 
-    # انتهاء الصلاحية بدون نتيجة
+    # انتهاء الصلاحية الكلية
     if hours_open >= TRADE_EXPIRY_HOURS:
-        current_pct = ((current_price - entry) / entry) * 100
-        result = 'WIN' if current_price > entry else 'LOSS'
-        await close_trade(trade, result, current_pct, current_price,
-                         f"انتهت {TRADE_EXPIRY_HOURS} ساعة - إغلاق تلقائي")
+        profit_pct  = ((current_price - entry) / entry) * 100
+        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+        is_win      = current_price > entry
+        await close_trade_barrier(
+            trade, 'WIN' if is_win else 'LOSS',
+            profit_pct, profit_usdt, current_price,
+            f'expired_{TRADE_EXPIRY_HOURS}h', state.highest_target, False
+        )
         return
 
 
-async def close_trade(trade: dict, result: str, profit_pct: float,
-                      exit_price: float, reason: str):
-    """إغلاق الصفقة وتسجيل النتيجة"""
+async def close_trade_barrier(
+    trade: dict, result: str, profit_pct: float, profit_usdt: float,
+    exit_price: float, reason: str, target_reached: int, stop_hit: bool
+):
+    """إغلاق الصفقة وتسجيل النتيجة — مع stop_hit الصحيح من TripleBarrier"""
     symbol = trade['symbol']
     entry  = float(trade['entry_price'])
-    profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
 
-    # تسجيل في trade_results
     hours_open = ((datetime.now(timezone.utc) - trade['opened_at'].replace(tzinfo=timezone.utc)
                    if trade['opened_at'].tzinfo is None
                    else datetime.now(timezone.utc) - trade['opened_at'])
@@ -333,17 +357,14 @@ async def close_trade(trade: dict, result: str, profit_pct: float,
         trade['signal_id'], symbol, entry, exit_price,
         round(profit_pct, 4), round(profit_usdt, 4),
         result, reason, round(hours_open, 2),
-        trade['highest_target_hit'],
-        result == 'LOSS' and exit_price <= float(trade['stop_loss'])
+        target_reached, stop_hit
     )
 
-    # تحديث حالة الصفقة
     await Database.execute(
         "UPDATE active_trades SET status = 'closed' WHERE id = $1",
         trade['id']
     )
 
-    # تحديث risk_management
     if result == 'WIN':
         await Database.execute("""
             INSERT INTO risk_management (date, wins)
@@ -363,6 +384,21 @@ async def close_trade(trade: dict, result: str, profit_pct: float,
     logger.info(
         f"{icon} {symbol} | {result} | "
         f"ربح: {profit_pct:.2f}% ({profit_usdt:.2f} USDT) | {reason}"
+    )
+
+
+async def close_trade(trade: dict, result: str, profit_pct: float,
+                      exit_price: float, reason: str):
+    """إغلاق الصفقة — wrapper لـ enforce_max_open_trades و close_blacklisted_trades"""
+    symbol      = trade['symbol']
+    entry       = float(trade['entry_price'])
+    profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+    stop_hit    = result == 'LOSS' and exit_price <= float(trade['stop_loss'])
+    target_hit  = int(trade.get('highest_target_hit') or 0)
+
+    await close_trade_barrier(
+        trade, result, profit_pct, profit_usdt,
+        exit_price, reason, target_hit, stop_hit
     )
 
 
