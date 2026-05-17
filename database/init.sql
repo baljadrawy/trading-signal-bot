@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS signals (
     claude_approved BOOLEAN DEFAULT NULL,
     claude_comment TEXT,
     telegram_sent BOOLEAN DEFAULT false,
-    is_paper_trade BOOLEAN DEFAULT true
+    is_paper_trade BOOLEAN DEFAULT true,
+    volume_usdt NUMERIC(20, 2)  -- حجم تداول العملة (USDT) وقت الإشارة، من scan_candidates
 );
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol, signal_time DESC);
 

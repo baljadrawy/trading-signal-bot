@@ -379,6 +379,23 @@ class SignalEngine:
         }
         return bonuses.get(timeframe, 0.0)
 
+    async def _get_volume_usdt(self, symbol: str) -> float:
+        """يجلب volume_usdt من آخر مسح في scan_candidates للعملة المحددة."""
+        try:
+            row = await Database.fetchrow(
+                """SELECT data->>'volume_usdt' AS volume_usdt
+                   FROM scan_candidates
+                   WHERE symbol = $1
+                   ORDER BY scan_time DESC
+                   LIMIT 1""",
+                symbol
+            )
+            if row and row['volume_usdt']:
+                return float(row['volume_usdt'])
+        except Exception as e:
+            logger.warning(f"فشل جلب volume_usdt لـ {symbol}: {e}")
+        return None
+
     async def save_signal(self, signal: Dict) -> int:
         """حفظ الإشارة في قاعدة البيانات"""
         score_details = signal.get('score_details', {})
@@ -391,12 +408,16 @@ class SignalEngine:
         # confirmed_timeframes تُحفظ كـ string مفصول بفاصلة لتجنب مشاكل float() في التدريب
         score_details['confirmed_timeframes_str'] = ','.join(confirmed_tfs)
 
+        # جلب volume_usdt من آخر مسح في scan_candidates
+        volume_usdt = await self._get_volume_usdt(signal['symbol'])
+
         signal_id = await Database.fetchval("""
             INSERT INTO signals (
                 symbol, timeframe, market_condition,
                 entry_price, target_1, target_2, target_3,
-                stop_loss, score, score_details, is_paper_trade
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                stop_loss, score, score_details, is_paper_trade,
+                volume_usdt
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id
         """,
             signal['symbol'],
@@ -409,7 +430,8 @@ class SignalEngine:
             signal['stop_loss'],
             int(signal['total_score']),
             json.dumps(score_details),
-            config.PAPER_TRADING
+            config.PAPER_TRADING,
+            volume_usdt
         )
 
         # تحديث عداد الإشارات اليومية
