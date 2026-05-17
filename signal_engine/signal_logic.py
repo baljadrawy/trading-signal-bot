@@ -244,10 +244,21 @@ class SignalEngine:
 
             confirmations = len(qualifying)
 
-            if confirmations < min_tf:
+            # في سوق bearish عام، 1d وحده يكفي إذا كانت نقاطه >= 3.0 (حافة مُثبَتة n=66)
+            # المنطق: الإطارات الأقصر (1h/4h) تحت EMA200 جميعها في هذه البيئة،
+            #         لكن 1d+bearish/sideways+score>=3 يُثبت WR=57-58% تاريخياً
+            top_1d_entry = next(
+                (d for _, d in qualifying if d.get('timeframe') == '1d'
+                 and d.get('market_condition') in ('bearish', 'sideways')
+                 and float(d.get('total_score', 0)) >= 3.0),
+                None
+            )
+            effective_min_tf = 1 if top_1d_entry else min_tf
+
+            if confirmations < effective_min_tf:
                 logger.debug(
                     f"رفض {symbol} - تأكيدات: {confirmations}/{len(tf_results)} "
-                    f"(مطلوب {min_tf})"
+                    f"(مطلوب {effective_min_tf})"
                 )
                 continue
 
