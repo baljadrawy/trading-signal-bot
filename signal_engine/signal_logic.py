@@ -204,17 +204,31 @@ class SignalEngine:
                 continue
 
             # فلتر الاتجاه: رفض إذا لا يوجد إطار واحد على الأقل فوق ema200
-            if not any(d.get('trend_ok') for d in tf_results):
+            # استثناء: إذا وُجد إطار 1d في bearish/sideways (بيانات: WR=58%+$31 n=36)
+            # الأساس: mean-reversion من oversold على 1d يعمل حتى في downtrend ممتد
+            has_trend_ok = any(d.get('trend_ok') for d in tf_results)
+            has_1d_bearish_edge = any(
+                d.get('timeframe') == '1d'
+                and d.get('market_condition') in ('bearish', 'sideways')
+                and float(d.get('total_score', 0)) >= 2.5
+                for d in tf_results
+            )
+            if not has_trend_ok and not has_1d_bearish_edge:
                 logger.debug(f"⏭️ تخطي {symbol} - تحت ema200 في كل الإطارات (downtrend)")
                 continue
 
             # احسب عدد الـ Timeframes المتفقة (تجاوزت الحد الأدنى)
             qualifying = []
             for data in tf_results:
-                # تخطي إطار volatile أو downtrend (تحت ema200)
+                # تخطي إطار volatile
                 if data.get('market_condition') == 'volatile':
                     continue
-                if not data.get('trend_ok', True):
+                # تخطي downtrend إلا إذا كان 1d في bearish/sideways (حافة مُثبَتة: WR=58%)
+                is_1d_edge = (
+                    data.get('timeframe') == '1d'
+                    and data.get('market_condition') in ('bearish', 'sideways')
+                )
+                if not data.get('trend_ok', True) and not is_1d_edge:
                     continue
 
                 score = float(data.get('total_score', 0))

@@ -1,0 +1,63 @@
+{
+  "run_date": "2026-05-17T06:10:45.234568",
+  "part": 10,
+  "description": "تقييم تخفيف شرط trend_ok للإطار 1d",
+  "n_total": 265,
+  "groups_1d": [
+    {
+      "label": "1d_sideways_score3",
+      "n": 4,
+      "wins": 0,
+      "losses": 4,
+      "wr": 0.0,
+      "avg_win": 0,
+      "avg_loss": -2.33,
+      "net_pnl": -4.66,
+      "expectancy": -2.329
+    }
+  ],
+  "groups_1h_baseline": [
+    {
+      "label": "1h_sideways_score2",
+      "n": 26,
+      "wins": 11,
+      "losses": 15,
+      "wr": 42.3,
+      "avg_win": 1.85,
+      "avg_loss": -1.37,
+      "net_pnl": -0.07,
+      "expectancy": -0.005
+    },
+    {
+      "label": "1h_sideways_score3",
+      "n": 113,
+      "wins": 39,
+      "losses": 74,
+      "wr": 34.5,
+      "avg_win": 3.68,
+      "avg_loss": -1.93,
+      "net_pnl": 0.2,
+      "expectancy": 0.003
+    },
+    {
+      "label": "1h_sideways_score4",
+      "n": 40,
+      "wins": 16,
+      "losses": 24,
+      "wr": 40.0,
+      "avg_win": 3.3,
+      "avg_loss": -2.31,
+      "net_pnl": -1.31,
+      "expectancy": -0.066
+    }
+  ],
+  "hypothesis": "1d+bearish/sideways يُضاف حتى لو trend_ok=false",
+  "verdict": "يحتاج مزيداً من البيانات",
+  "best_1d_groups": [],
+  "total_1d_bearish_sideways": {
+    "n": 4,
+    "wr_avg": 0.0,
+    "net_pnl": -4.66
+  },
+  "warning": "trend_ok التاريخي غير محفوظ — التحليل يعتمد على النتائج الفعلية."
+}
