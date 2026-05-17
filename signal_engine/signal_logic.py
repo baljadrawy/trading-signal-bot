@@ -220,7 +220,10 @@ class SignalEngine:
                 score = float(data.get('total_score', 0))
                 ob_score = data.get('order_book', {}).get('score', 0) if data.get('order_book') else 0
                 btc_bonus = self._get_btc_bonus(data.get('market_condition', 'sideways'))
-                final = score + ob_score + btc_bonus
+                # timeframe_bonus: 1d يُفضَّل على 1h (بيانات 2433 صفقة: 1d WR=39% vs 1h WR=37%،
+                # وعند score=3: 1d/bearish WR=58%+$30، 1d/sideways WR=50%+$16 — حافة واضحة)
+                tf_bonus = self._get_tf_bonus(data.get('timeframe', ''))
+                final = score + ob_score + btc_bonus + tf_bonus
 
                 if final >= min_score:
                     qualifying.append((final, data))
@@ -308,6 +311,23 @@ class SignalEngine:
             'strong_bearish': -0.5,
         }
         return bonuses.get(market_condition, 0.3)
+
+    def _get_tf_bonus(self, timeframe: str) -> float:
+        """
+        bonus يُفضّل الإطارات ذات الحافة الإيجابية (بيانات 2433 صفقة post-rebuild):
+        - 1d: WR=39.1%، وعند score=3: bearish WR=58.3%+$31، sideways WR=50%+$16
+              إجمالي score=3+1d → +$36.11 على 76 صفقة (الوحيد ذو PnL موجب واضح)
+        - 1h: WR=36.7%، score=3+1h → -$19.75 (أسوأ من 1d)
+        - 4h: محظور كإطار رئيسي (يُرفض لاحقاً بفلتر منفصل)
+        القيمة +0.5 تُقدّم 1d على 1h عند التعادل دون اشتراط نقاط مرتفعة.
+        """
+        bonuses = {
+            '1d': 0.5,
+            '1h': 0.0,
+            '4h': 0.0,   # محظور كإطار رئيسي، لكن قد يكون مؤكِّداً
+            '15m': -0.5, # بيانات قليلة جداً (3 صفقات فقط)
+        }
+        return bonuses.get(timeframe, 0.0)
 
     async def save_signal(self, signal: Dict) -> int:
         """حفظ الإشارة في قاعدة البيانات"""
