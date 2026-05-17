@@ -28,7 +28,7 @@ class TechnicalAnalyzer:
             market_condition = self._detect_market_condition(df)
             weights = await self._get_indicator_weights(market_condition)
             scores = self._calculate_scores(df, weights)
-            levels = self._calculate_levels(df)
+            levels = self._calculate_levels(df, tf)
 
             # فلتر الاتجاه طويل المدى: السعر فوق ema200
             last_close = float(df['close'].iloc[-1])
@@ -303,7 +303,7 @@ class TechnicalAnalyzer:
 
         return {'total': round(total, 2), 'details': details}
 
-    def _calculate_levels(self, df: pd.DataFrame) -> Dict:
+    def _calculate_levels(self, df: pd.DataFrame, timeframe: str = '1h') -> Dict:
         last       = df.iloc[-1]
         atr        = float(last['atr'])
         close      = float(last['close'])
@@ -319,6 +319,15 @@ class TechnicalAnalyzer:
         # تأكد أن stop_loss أقل من entry دائماً
         if stop_loss >= entry:
             stop_loss = entry * 0.97
+
+        # Cap على SL حسب الـ timeframe — البيانات (2433 صفقة):
+        # 1d: avg_sl=10.53% → T1=10.10% بعيد جداً، معظم الخروج بـ expiry 48h
+        # الحل: cap لـ 1d عند 3% و 4h عند 5% لجعل T1 قابلاً للتحقق
+        max_sl_pct = {'1d': 0.03, '4h': 0.05, '1h': 0.04, '15m': 0.02}
+        cap_pct = max_sl_pct.get(timeframe, 0.04)
+        max_risk = entry * cap_pct
+        if (entry - stop_loss) > max_risk:
+            stop_loss = entry - max_risk
 
         risk = entry - stop_loss
 
