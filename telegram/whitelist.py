@@ -97,11 +97,19 @@ class ApprovalManager:
     async def process_signal(self, signal: dict) -> str:
         """
         معالجة الإشارة:
-        - إذا العملة في Whitelist → أرسل مباشرة
-        - إذا جديدة → اطلب موافقة
+        - وضع الفلترة المعطّلة (القائمة البيضاء فارغة) → إرسال تلقائي مباشر بلا طلب موافقة
+        - وإلا: إذا العملة في Whitelist → أرسل مباشرة، وإلا اطلب موافقة
         يرجع: 'sent_direct' / 'awaiting_approval' / 'rejected'
         """
         symbol = signal['symbol']
+
+        # وضع الفلترة المعطّلة (بطلب المستخدم 2026-05-17): قائمة بيضاء فارغة
+        # → تشغيل ذاتي كامل، إرسال مباشر بلا طلب موافقة يدوية.
+        # استعادة جدول symbol_whitelist تُعيد سلوك الموافقة تلقائياً.
+        wl_count = await Database.fetchval("SELECT COUNT(*) FROM symbol_whitelist") or 0
+        if wl_count == 0:
+            logger.info(f"📤 {symbol} - الفلترة معطّلة، إرسال مباشر تلقائي بلا موافقة")
+            return 'sent_direct'
 
         # تحقق من الـ Whitelist
         if await self.whitelist.is_whitelisted(symbol):
