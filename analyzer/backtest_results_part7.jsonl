@@ -1,0 +1,350 @@
+{
+  "run_date": "2026-05-17T12:07:59.033502",
+  "part": 7,
+  "description": "Walk-Forward تحقق فلتر RSI score >= 1.2",
+  "n_total": 265,
+  "n_folds": 5,
+  "rsi_pass_count": 35,
+  "rsi_pass_rate": 0.132,
+  "full_sample": {
+    "baseline": {
+      "n": 265,
+      "n_win": 94,
+      "n_loss": 171,
+      "wr": 0.3547,
+      "avg_win": 1.5981,
+      "avg_loss": -1.0877,
+      "expectancy": -0.135,
+      "net_pnl": -35.77
+    },
+    "filtered": {
+      "n": 35,
+      "n_win": 21,
+      "n_loss": 14,
+      "wr": 0.6,
+      "avg_win": 1.1512,
+      "avg_loss": -0.8679,
+      "expectancy": 0.3436,
+      "net_pnl": 12.03
+    },
+    "rejected": {
+      "n": 230,
+      "n_win": 73,
+      "n_loss": 157,
+      "wr": 0.3174,
+      "avg_win": 1.7267,
+      "avg_loss": -1.1073,
+      "expectancy": -0.2078,
+      "net_pnl": -47.8
+    }
+  },
+  "fold_results": [
+    {
+      "fold": 1,
+      "test_range": "index 0-53",
+      "baseline": {
+        "train": {
+          "n": 212,
+          "n_win": 65,
+          "n_loss": 147,
+          "wr": 0.3066,
+          "avg_win": 1.8388,
+          "avg_loss": -1.1326,
+          "expectancy": -0.2216,
+          "net_pnl": -46.98
+        },
+        "test": {
+          "n": 53,
+          "n_win": 29,
+          "n_loss": 24,
+          "wr": 0.5472,
+          "avg_win": 1.0586,
+          "avg_loss": -0.8123,
+          "expectancy": 0.2114,
+          "net_pnl": 11.2
+        }
+      },
+      "filtered": {
+        "train": {
+          "n": 1,
+          "n_win": 1,
+          "n_loss": 0,
+          "wr": 1.0,
+          "avg_win": 1.9636,
+          "avg_loss": 0.0,
+          "expectancy": 1.9636,
+          "net_pnl": 1.96
+        },
+        "test": {
+          "n": 34,
+          "n_win": 20,
+          "n_loss": 14,
+          "wr": 0.5882,
+          "avg_win": 1.1106,
+          "avg_loss": -0.8679,
+          "expectancy": 0.2959,
+          "net_pnl": 10.06
+        }
+      },
+      "rejected_test": {
+        "n": 19,
+        "n_win": 9,
+        "n_loss": 10,
+        "wr": 0.4737,
+        "avg_win": 0.9431,
+        "avg_loss": -0.7346,
+        "expectancy": 0.0601,
+        "net_pnl": 1.14
+      },
+      "improvement": 0.0845,
+      "filter_pass_rate": 0.642
+    },
+    {
+      "fold": 2,
+      "test_range": "index 53-106",
+      "baseline": {
+        "train": {
+          "n": 212,
+          "n_win": 83,
+          "n_loss": 129,
+          "wr": 0.3915,
+          "avg_win": 1.7469,
+          "avg_loss": -1.2446,
+          "expectancy": -0.0734,
+          "net_pnl": -15.56
+        },
+        "test": {
+          "n": 53,
+          "n_win": 11,
+          "n_loss": 42,
+          "wr": 0.2075,
+          "avg_win": 0.4751,
+          "avg_loss": -0.6057,
+          "expectancy": -0.3814,
+          "net_pnl": -20.21
+        }
+      },
+      "filtered": {
+        "train": {
+          "n": 35,
+          "n_win": 21,
+          "n_loss": 14,
+          "wr": 0.6,
+          "avg_win": 1.1512,
+          "avg_loss": -0.8679,
+          "expectancy": 0.3436,
+          "net_pnl": 12.03
+        },
+        "test": {
+          "n": 0,
+          "wr": 0.0,
+          "avg_win": 0.0,
+          "avg_loss": 0.0,
+          "expectancy": 0.0
+        }
+      },
+      "rejected_test": {
+        "n": 53,
+        "n_win": 11,
+        "n_loss": 42,
+        "wr": 0.2075,
+        "avg_win": 0.4751,
+        "avg_loss": -0.6057,
+        "expectancy": -0.3814,
+        "net_pnl": -20.21
+      },
+      "improvement": 0.3814,
+      "filter_pass_rate": 0.0
+    },
+    {
+      "fold": 3,
+      "test_range": "index 106-159",
+      "baseline": {
+        "train": {
+          "n": 212,
+          "n_win": 75,
+          "n_loss": 137,
+          "wr": 0.3538,
+          "avg_win": 1.6412,
+          "avg_loss": -1.1096,
+          "expectancy": -0.1364,
+          "net_pnl": -28.92
+        },
+        "test": {
+          "n": 53,
+          "n_win": 19,
+          "n_loss": 34,
+          "wr": 0.3585,
+          "avg_win": 1.4278,
+          "avg_loss": -0.9994,
+          "expectancy": -0.1293,
+          "net_pnl": -6.85
+        }
+      },
+      "filtered": {
+        "train": {
+          "n": 35,
+          "n_win": 21,
+          "n_loss": 14,
+          "wr": 0.6,
+          "avg_win": 1.1512,
+          "avg_loss": -0.8679,
+          "expectancy": 0.3436,
+          "net_pnl": 12.03
+        },
+        "test": {
+          "n": 0,
+          "wr": 0.0,
+          "avg_win": 0.0,
+          "avg_loss": 0.0,
+          "expectancy": 0.0
+        }
+      },
+      "rejected_test": {
+        "n": 53,
+        "n_win": 19,
+        "n_loss": 34,
+        "wr": 0.3585,
+        "avg_win": 1.4278,
+        "avg_loss": -0.9994,
+        "expectancy": -0.1293,
+        "net_pnl": -6.85
+      },
+      "improvement": 0.1293,
+      "filter_pass_rate": 0.0
+    },
+    {
+      "fold": 4,
+      "test_range": "index 159-212",
+      "baseline": {
+        "train": {
+          "n": 212,
+          "n_win": 74,
+          "n_loss": 138,
+          "wr": 0.3491,
+          "avg_win": 1.3828,
+          "avg_loss": -1.014,
+          "expectancy": -0.1774,
+          "net_pnl": -37.61
+        },
+        "test": {
+          "n": 53,
+          "n_win": 20,
+          "n_loss": 33,
+          "wr": 0.3774,
+          "avg_win": 2.3946,
+          "avg_loss": -1.3957,
+          "expectancy": 0.0346,
+          "net_pnl": 1.83
+        }
+      },
+      "filtered": {
+        "train": {
+          "n": 35,
+          "n_win": 21,
+          "n_loss": 14,
+          "wr": 0.6,
+          "avg_win": 1.1512,
+          "avg_loss": -0.8679,
+          "expectancy": 0.3436,
+          "net_pnl": 12.03
+        },
+        "test": {
+          "n": 0,
+          "wr": 0.0,
+          "avg_win": 0.0,
+          "avg_loss": 0.0,
+          "expectancy": 0.0
+        }
+      },
+      "rejected_test": {
+        "n": 53,
+        "n_win": 20,
+        "n_loss": 33,
+        "wr": 0.3774,
+        "avg_win": 2.3946,
+        "avg_loss": -1.3957,
+        "expectancy": 0.0346,
+        "net_pnl": 1.83
+      },
+      "improvement": -0.0346,
+      "filter_pass_rate": 0.0
+    },
+    {
+      "fold": 5,
+      "test_range": "index 212-265",
+      "baseline": {
+        "train": {
+          "n": 212,
+          "n_win": 79,
+          "n_loss": 133,
+          "wr": 0.3726,
+          "avg_win": 1.4044,
+          "avg_loss": -0.9396,
+          "expectancy": -0.0662,
+          "net_pnl": -14.03
+        },
+        "test": {
+          "n": 53,
+          "n_win": 15,
+          "n_loss": 38,
+          "wr": 0.283,
+          "avg_win": 2.6183,
+          "avg_loss": -1.6058,
+          "expectancy": -0.4103,
+          "net_pnl": -21.75
+        }
+      },
+      "filtered": {
+        "train": {
+          "n": 34,
+          "n_win": 20,
+          "n_loss": 14,
+          "wr": 0.5882,
+          "avg_win": 1.1106,
+          "avg_loss": -0.8679,
+          "expectancy": 0.2959,
+          "net_pnl": 10.06
+        },
+        "test": {
+          "n": 1,
+          "n_win": 1,
+          "n_loss": 0,
+          "wr": 1.0,
+          "avg_win": 1.9636,
+          "avg_loss": 0.0,
+          "expectancy": 1.9636,
+          "net_pnl": 1.96
+        }
+      },
+      "rejected_test": {
+        "n": 52,
+        "n_win": 14,
+        "n_loss": 38,
+        "wr": 0.2692,
+        "avg_win": 2.6651,
+        "avg_loss": -1.6058,
+        "expectancy": -0.456,
+        "net_pnl": -23.71
+      },
+      "improvement": 2.3739,
+      "filter_pass_rate": 0.019
+    }
+  ],
+  "summary": {
+    "positive_folds": 4,
+    "total_folds": 5,
+    "avg_improvement": 0.5869,
+    "improvements": [
+      0.0845,
+      0.3814,
+      0.1293,
+      -0.0346,
+      2.3739
+    ]
+  },
+  "verdict": "قوي — طبّق فوراً",
+  "action": "apply",
+  "threshold": 1.2,
+  "warning": "فلتر RSI>=1.2 أُضيف لـ signal_logic.py — يُقلّص الإشارات بنسبة 50%. راقب أول 30 إشارة بعد التطبيق. إذا WR<45% أو n<10 في 2 أسابيع → راجع الـ threshold."
+}

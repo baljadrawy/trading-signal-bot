@@ -1,0 +1,284 @@
+{
+  "run_date": "2026-05-17T12:10:21.642880",
+  "part": 9,
+  "description": "Hyperopt على 265 صفقة — K-Fold Walk-Forward",
+  "n_total": 265,
+  "n_folds": 5,
+  "max_trials": 500,
+  "skipped": 118,
+  "baseline": {
+    "weights": {
+      "rsi": 1.0,
+      "bollinger": 1.0,
+      "stoch_rsi": 1.0,
+      "rsi_divergence": 1.0,
+      "fibonacci": 1.0,
+      "macd": 0.0,
+      "ema_cross": 0.0,
+      "volume": 0.0,
+      "obv": 0.0,
+      "btc_trend": 0.0
+    },
+    "min_score": 3.0,
+    "oos_exp": 0.13432730769230758,
+    "oos_wr": 0.5397435897435897,
+    "oos_n": 15
+  },
+  "top_results": [
+    {
+      "trial": 73,
+      "weights": {
+        "rsi": 1.25,
+        "bollinger": 1.25,
+        "stoch_rsi": 1.0,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp": 1.05803,
+      "oos_wr": 0.6846,
+      "oos_n": 9,
+      "train_exp": 0.21661,
+      "overfit_gap": -0.84142
+    },
+    {
+      "trial": 68,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 0.5,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.0,
+      "oos_exp": 1.0338,
+      "oos_wr": 0.6667,
+      "oos_n": 10,
+      "train_exp": 0.72308,
+      "overfit_gap": -0.31072
+    },
+    {
+      "trial": 175,
+      "weights": {
+        "rsi": 0.5,
+        "bollinger": 0.5,
+        "stoch_rsi": 1.5,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 2.5,
+      "oos_exp": 0.58449,
+      "oos_wr": 0.4857,
+      "oos_n": 6,
+      "train_exp": 0.03621,
+      "overfit_gap": -0.54827
+    },
+    {
+      "trial": 415,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 3.0,
+        "fibonacci": 1.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp": 0.55796,
+      "oos_wr": 0.6008,
+      "oos_n": 15,
+      "train_exp": 0.56103,
+      "overfit_gap": 0.00307
+    },
+    {
+      "trial": 37,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.75,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 2.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 4.0,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": -1.0488,
+      "overfit_gap": -1.56408
+    },
+    {
+      "trial": 72,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 0.5,
+        "fibonacci": 0.0,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.0,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": 1.9636,
+      "overfit_gap": 1.44832
+    },
+    {
+      "trial": 179,
+      "weights": {
+        "rsi": 1.75,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 2.5,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 4.0,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": 0.4574,
+      "overfit_gap": -0.05788
+    },
+    {
+      "trial": 232,
+      "weights": {
+        "rsi": 0.75,
+        "bollinger": 1.75,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": 1.85603,
+      "overfit_gap": 1.34076
+    },
+    {
+      "trial": 269,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.5,
+        "stoch_rsi": 0.5,
+        "rsi_divergence": 2.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": -1.0488,
+      "overfit_gap": -1.56408
+    },
+    {
+      "trial": 332,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.25,
+        "rsi_divergence": 1.0,
+        "fibonacci": 0.75,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp": 0.51528,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp": -1.0488,
+      "overfit_gap": -1.56408
+    }
+  ],
+  "indicator_importance": {
+    "rsi": {
+      "top25": 1.375,
+      "bot25": 1.25,
+      "delta": 0.125
+    },
+    "bollinger": {
+      "top25": 0.875,
+      "bot25": 1.0,
+      "delta": -0.125
+    },
+    "stoch_rsi": {
+      "top25": 0.875,
+      "bot25": 0.625,
+      "delta": 0.25
+    },
+    "rsi_divergence": {
+      "top25": 3.0,
+      "bot25": 1.0,
+      "delta": 2.0
+    },
+    "fibonacci": {
+      "top25": 0.375,
+      "bot25": 0.875,
+      "delta": -0.5
+    }
+  },
+  "recommendation": {
+    "action": "worth_testing",
+    "reason": "أفضل trial تتفوق على baseline بـ +0.924 OOS",
+    "best_weights": {
+      "rsi": 1.25,
+      "bollinger": 1.25,
+      "stoch_rsi": 1.0,
+      "rsi_divergence": 3.0,
+      "fibonacci": 0.25,
+      "macd": 0.0,
+      "ema_cross": 0.0,
+      "volume": 0.0,
+      "obv": 0.0,
+      "btc_trend": 0.0
+    },
+    "best_min_score": 3.5
+  },
+  "warning": "الـ Hyperopt تعمل على n=265 صفقة — أكبر بكثير من الجزء 6 (n=30). إذا action=worth_testing وOOS-E إيجابي على 3+ folds، يمكن تجربة الأوزان على الإشارات الجديدة بحذر. min_n_to_apply_live = 50 إشارة جديدة قبل قرار نهائي."
+}
