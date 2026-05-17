@@ -300,6 +300,25 @@ class SignalEngine:
                 )
                 continue
 
+            # فلتر: رفض 1d+bearish/sideways إذا total_score >= 4.0 (overbought filter)
+            # البيانات (2433 صفقة، n=251 للـ 1d+bearish/sideways):
+            #   1d+bearish+score=3: WR=58.3%، PnL=+$30.84 (n=36)
+            #   1d+sideways+score=3: WR=50.0%، PnL=+$15.89 (n=34)
+            #   1d+bearish+score=4: WR=42.9%، PnL=-$8.87 (n=56) ← خاسر
+            #   1d+sideways+score=4: WR=36.8%، PnL=-$13.00 (n=125) ← خاسر
+            #   1d+*+score=5: WR=20-22%، PnL<-$12 ← أسوأ
+            # العلاقة عكسية: كلما ارتفع score في 1d كلما انخفض WR
+            # التفسير: نقاط عالية في 1d = مؤشرات متراكمة تشير لـ overbought
+            # الحل: سقف عند raw_score < 4.0 للحافة الإيجابية
+            if top_tf == '1d' and top_mc in ('bearish', 'sideways'):
+                raw_score_1d = float(top_data.get('total_score', 0))
+                if raw_score_1d >= 4.0:
+                    logger.debug(
+                        f"⏭️ رفض {symbol} - 1d+{top_mc} بـ raw_score={raw_score_1d:.2f} >= 4.0 "
+                        f"(overbought: بيانات n=251 تُظهر WR عكسي في 1d عند score>=4)"
+                    )
+                    continue
+
             # ملاحظة RSI filter (محذوف — 2026-05-17):
             # بيانات: rsi>=1.2 → WR=60% (n=35)، لكن Walk-Forward أثبت أن كل الـ 35 صفقة
             # من أسبوع واحد فقط (Apr-20-27). في الأسابيع اللاحقة: rsi>=1.2 = 0 إشارة.
