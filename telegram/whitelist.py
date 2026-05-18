@@ -97,20 +97,20 @@ class ApprovalManager:
     async def process_signal(self, signal: dict) -> str:
         """
         معالجة الإشارة:
-        - وضع الفلترة المعطّلة (القائمة البيضاء فارغة) → إرسال تلقائي مباشر بلا طلب موافقة
-        - وإلا: إذا العملة في Whitelist → أرسل مباشرة، وإلا اطلب موافقة
+        - أثناء معايرة المشروع (2026-05-17): الموافقة اليدوية معطّلة كلياً —
+          كل إشارة تُرسَل مباشرة تلقائياً. لإعادة الموافقة: احذف سطرَي الإرسال
+          المباشر أدناه (return 'sent_direct').
         يرجع: 'sent_direct' / 'awaiting_approval' / 'rejected'
         """
         symbol = signal['symbol']
 
-        # وضع الفلترة المعطّلة (بطلب المستخدم 2026-05-17): قائمة بيضاء فارغة
-        # → تشغيل ذاتي كامل، إرسال مباشر بلا طلب موافقة يدوية.
-        # استعادة جدول symbol_whitelist تُعيد سلوك الموافقة تلقائياً.
-        wl_count = await Database.fetchval("SELECT COUNT(*) FROM symbol_whitelist") or 0
-        if wl_count == 0:
-            logger.info(f"📤 {symbol} - الفلترة معطّلة، إرسال مباشر تلقائي بلا موافقة")
-            return 'sent_direct'
+        # ══ معايرة 2026-05-17: تعطيل الموافقة اليدوية بلا شرط ══
+        # المستخدم طلب إلغاءها حتى انتهاء معايرة المشروع. لا تعتمد على حالة
+        # symbol_whitelist (إصلاح سابق انكسر حين أُضيفت عملة واحدة للقائمة).
+        logger.info(f"📤 {symbol} - معايرة: إرسال مباشر تلقائي بلا موافقة يدوية")
+        return 'sent_direct'
 
+        # ── الكود الأصلي (معطّل أثناء المعايرة) ──
         # تحقق من الـ Whitelist
         if await self.whitelist.is_whitelisted(symbol):
             logger.info(f"✅ {symbol} في الـ Whitelist - إرسال مباشر")
