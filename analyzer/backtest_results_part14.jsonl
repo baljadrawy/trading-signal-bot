@@ -1,0 +1,312 @@
+{
+  "meta": {
+    "date": "2026-05-18T06:04:18.164296",
+    "n_trades": 267,
+    "fee_pct": 0.003,
+    "max_trials": 500,
+    "n_folds": 5,
+    "skipped": 118,
+    "positive_adj_count": 85
+  },
+  "baseline": {
+    "oos_exp_adj": -0.0494,
+    "oos_exp_raw": 0.1007,
+    "oos_wr": 0.5291,
+    "oos_n": 16
+  },
+  "baseline_live": {
+    "rsi_divergence_w": 2.0,
+    "oos_exp_adj": 0.105,
+    "oos_exp_raw": 0.255,
+    "oos_wr": 0.5542,
+    "oos_n": 17
+  },
+  "edge_slice_live": {
+    "n": 2,
+    "wr": 0.0,
+    "e_adj": -1.6546,
+    "e_raw": -1.5046
+  },
+  "top10": [
+    {
+      "trial": 73,
+      "weights": {
+        "rsi": 1.25,
+        "bollinger": 1.25,
+        "stoch_rsi": 1.0,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp_adj": 0.908,
+      "oos_exp_raw": 1.058,
+      "oos_wr": 0.6846,
+      "oos_n": 9,
+      "train_exp_adj": 0.0666,
+      "overfit_gap": -0.8414,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 68,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 0.5,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.0,
+      "oos_exp_adj": 0.8838,
+      "oos_exp_raw": 1.0338,
+      "oos_wr": 0.6667,
+      "oos_n": 10,
+      "train_exp_adj": 0.5731,
+      "overfit_gap": -0.3107,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 175,
+      "weights": {
+        "rsi": 0.5,
+        "bollinger": 0.5,
+        "stoch_rsi": 1.5,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 2.5,
+      "oos_exp_adj": 0.4345,
+      "oos_exp_raw": 0.5845,
+      "oos_wr": 0.4857,
+      "oos_n": 6,
+      "train_exp_adj": -0.1138,
+      "overfit_gap": -0.5483,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 37,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.75,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 2.0,
+        "fibonacci": 0.5,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 4.0,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": -1.1988,
+      "overfit_gap": -1.5641,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 72,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 0.5,
+        "fibonacci": 0.0,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.0,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": 1.8136,
+      "overfit_gap": 1.4483,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 179,
+      "weights": {
+        "rsi": 1.75,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 2.5,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 4.0,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": 0.3074,
+      "overfit_gap": -0.0579,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 232,
+      "weights": {
+        "rsi": 0.75,
+        "bollinger": 1.75,
+        "stoch_rsi": 0.75,
+        "rsi_divergence": 3.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": 1.706,
+      "overfit_gap": 1.3408,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 269,
+      "weights": {
+        "rsi": 1.0,
+        "bollinger": 1.5,
+        "stoch_rsi": 0.5,
+        "rsi_divergence": 2.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": -1.1988,
+      "overfit_gap": -1.5641,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 332,
+      "weights": {
+        "rsi": 1.5,
+        "bollinger": 1.0,
+        "stoch_rsi": 0.25,
+        "rsi_divergence": 1.0,
+        "fibonacci": 0.75,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": -1.1988,
+      "overfit_gap": -1.5641,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    },
+    {
+      "trial": 450,
+      "weights": {
+        "rsi": 0.75,
+        "bollinger": 1.75,
+        "stoch_rsi": 1.0,
+        "rsi_divergence": 0.0,
+        "fibonacci": 0.25,
+        "macd": 0.0,
+        "ema_cross": 0.0,
+        "volume": 0.0,
+        "obv": 0.0,
+        "btc_trend": 0.0
+      },
+      "min_score": 3.5,
+      "oos_exp_adj": 0.3653,
+      "oos_exp_raw": 0.5153,
+      "oos_wr": 0.7692,
+      "oos_n": 13,
+      "train_exp_adj": -0.7994,
+      "overfit_gap": -1.1646,
+      "edge_slice": {
+        "n": 0,
+        "wr": 0,
+        "e_adj": 0,
+        "e_raw": 0
+      }
+    }
+  ]
+}
