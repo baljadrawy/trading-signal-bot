@@ -1,0 +1,334 @@
+{
+  "meta": {
+    "date": "2026_05_21_ict",
+    "n_symbols": 105,
+    "n_processed": 105,
+    "n_skipped": 0,
+    "total_points": 125190,
+    "fee_pct": 0.3,
+    "fwd_window_h": 48,
+    "fractal_n": 5,
+    "elapsed_seconds": 706
+  },
+  "feature_results": [
+    {
+      "feature": "at_bullish_OB",
+      "n_treat": 5709,
+      "n_ctrl": 119481,
+      "mean_treat": -0.009377,
+      "mean_ctrl": -0.005187,
+      "diff": -0.00419,
+      "t_stat": -4.2272,
+      "p_value": 4.8e-05,
+      "cohen_d": -0.0598,
+      "ci_lo": -0.006132,
+      "ci_hi": -0.002247,
+      "q_value": 0.000432,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "in_FVG_bullish",
+      "n_treat": 25556,
+      "n_ctrl": 99634,
+      "mean_treat": -0.004468,
+      "mean_ctrl": -0.005612,
+      "diff": 0.001143,
+      "t_stat": 2.2197,
+      "p_value": 0.026441,
+      "cohen_d": 0.0163,
+      "ci_lo": 0.000134,
+      "ci_hi": 0.002153,
+      "q_value": 0.059492,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "recent_BOS_up",
+      "n_treat": 11791,
+      "n_ctrl": 113399,
+      "mean_treat": -0.006045,
+      "mean_ctrl": -0.005309,
+      "diff": -0.000736,
+      "t_stat": -1.0454,
+      "p_value": 0.295861,
+      "cohen_d": -0.0105,
+      "ci_lo": -0.002116,
+      "ci_hi": 0.000644,
+      "q_value": 0.380393,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "recent_CHoCH_up",
+      "n_treat": 730,
+      "n_ctrl": 124460,
+      "mean_treat": -0.004577,
+      "mean_ctrl": -0.005383,
+      "diff": 0.000805,
+      "t_stat": 0.3135,
+      "p_value": 1.0,
+      "cohen_d": 0.0115,
+      "ci_lo": -0.004231,
+      "ci_hi": 0.005842,
+      "q_value": 1.0,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "recent_sellside_sweep",
+      "n_treat": 18735,
+      "n_ctrl": 106455,
+      "mean_treat": -0.004586,
+      "mean_ctrl": -0.005518,
+      "diff": 0.000932,
+      "t_stat": 1.6897,
+      "p_value": 0.091088,
+      "cohen_d": 0.0133,
+      "ci_lo": -0.000149,
+      "ci_hi": 0.002013,
+      "q_value": 0.163958,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "in_discount_zone",
+      "n_treat": 67550,
+      "n_ctrl": 57640,
+      "mean_treat": -0.00474,
+      "mean_ctrl": -0.006127,
+      "diff": 0.001387,
+      "t_stat": 3.4794,
+      "p_value": 0.000503,
+      "cohen_d": 0.0198,
+      "ci_lo": 0.000606,
+      "ci_hi": 0.002168,
+      "q_value": 0.001509,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "in_OTE",
+      "n_treat": 17344,
+      "n_ctrl": 107846,
+      "mean_treat": -0.00601,
+      "mean_ctrl": -0.005277,
+      "diff": -0.000733,
+      "t_stat": -1.2977,
+      "p_value": 0.194395,
+      "cohen_d": -0.0105,
+      "ci_lo": -0.00184,
+      "ci_hi": 0.000374,
+      "q_value": 0.291593,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "combo_OB_sweep",
+      "n_treat": 575,
+      "n_ctrl": 124615,
+      "mean_treat": -0.01534,
+      "mean_ctrl": -0.005332,
+      "diff": -0.010007,
+      "t_stat": -3.7264,
+      "p_value": 0.000427,
+      "cohen_d": -0.1429,
+      "ci_lo": -0.015271,
+      "ci_hi": -0.004744,
+      "q_value": 0.001509,
+      "verdict": "REJECTED"
+    },
+    {
+      "feature": "combo_discount_BOS",
+      "n_treat": 801,
+      "n_ctrl": 124389,
+      "mean_treat": -0.006348,
+      "mean_ctrl": -0.005372,
+      "diff": -0.000976,
+      "t_stat": -0.277,
+      "p_value": 1.0,
+      "cohen_d": -0.0139,
+      "ci_lo": -0.007884,
+      "ci_hi": 0.005932,
+      "q_value": 1.0,
+      "verdict": "REJECTED"
+    }
+  ],
+  "walk_forward": {
+    "at_bullish_OB": {
+      "first_half": {
+        "n_treat": 3139,
+        "n_ctrl": 59456,
+        "mean_treat": -0.014281,
+        "mean_ctrl": -0.009418,
+        "diff": -0.004862,
+        "p": 0.000228,
+        "cohen_d": -0.0679
+      },
+      "second_half": {
+        "n_treat": 2570,
+        "n_ctrl": 60025,
+        "mean_treat": -0.003387,
+        "mean_ctrl": -0.000996,
+        "diff": -0.002391,
+        "p": 0.255458,
+        "cohen_d": -0.0351
+      }
+    },
+    "in_FVG_bullish": {
+      "first_half": {
+        "n_treat": 12275,
+        "n_ctrl": 50320,
+        "mean_treat": -0.010586,
+        "mean_ctrl": -0.009437,
+        "diff": -0.001149,
+        "p": 0.117094,
+        "cohen_d": -0.016
+      },
+      "second_half": {
+        "n_treat": 13281,
+        "n_ctrl": 49314,
+        "mean_treat": 0.001186,
+        "mean_ctrl": -0.001708,
+        "diff": 0.002894,
+        "p": 5.7e-05,
+        "cohen_d": 0.0425
+      }
+    },
+    "recent_BOS_up": {
+      "first_half": {
+        "n_treat": 5500,
+        "n_ctrl": 57095,
+        "mean_treat": -0.014289,
+        "mean_ctrl": -0.009216,
+        "diff": -0.005073,
+        "p": 2e-06,
+        "cohen_d": -0.0708
+      },
+      "second_half": {
+        "n_treat": 6291,
+        "n_ctrl": 56304,
+        "mean_treat": 0.001163,
+        "mean_ctrl": -0.001346,
+        "diff": 0.002509,
+        "p": 0.017017,
+        "cohen_d": 0.0368
+      }
+    },
+    "recent_CHoCH_up": {
+      "first_half": {
+        "n_treat": 352,
+        "n_ctrl": 62243,
+        "mean_treat": -0.009738,
+        "mean_ctrl": -0.009662,
+        "diff": -7.6e-05,
+        "p": 1.0,
+        "cohen_d": -0.0011
+      },
+      "second_half": {
+        "n_treat": 378,
+        "n_ctrl": 62217,
+        "mean_treat": 0.000228,
+        "mean_ctrl": -0.001102,
+        "diff": 0.00133,
+        "p": 1.0,
+        "cohen_d": 0.0195
+      }
+    },
+    "recent_sellside_sweep": {
+      "first_half": {
+        "n_treat": 9717,
+        "n_ctrl": 52878,
+        "mean_treat": -0.009755,
+        "mean_ctrl": -0.009645,
+        "diff": -0.00011,
+        "p": 0.892357,
+        "cohen_d": -0.0015
+      },
+      "second_half": {
+        "n_treat": 9018,
+        "n_ctrl": 53577,
+        "mean_treat": 0.000985,
+        "mean_ctrl": -0.001444,
+        "diff": 0.002429,
+        "p": 0.000918,
+        "cohen_d": 0.0356
+      }
+    },
+    "in_discount_zone": {
+      "first_half": {
+        "n_treat": 34374,
+        "n_ctrl": 28221,
+        "mean_treat": -0.007296,
+        "mean_ctrl": -0.012544,
+        "diff": 0.005248,
+        "p": 0.0,
+        "cohen_d": 0.0733
+      },
+      "second_half": {
+        "n_treat": 33176,
+        "n_ctrl": 29419,
+        "mean_treat": -0.002091,
+        "mean_ctrl": 2.9e-05,
+        "diff": -0.00212,
+        "p": 0.000114,
+        "cohen_d": -0.0311
+      }
+    },
+    "in_OTE": {
+      "first_half": {
+        "n_treat": 8726,
+        "n_ctrl": 53869,
+        "mean_treat": -0.008763,
+        "mean_ctrl": -0.009808,
+        "diff": 0.001045,
+        "p": 0.198279,
+        "cohen_d": 0.0146
+      },
+      "second_half": {
+        "n_treat": 8618,
+        "n_ctrl": 53977,
+        "mean_treat": -0.003221,
+        "mean_ctrl": -0.000755,
+        "diff": -0.002467,
+        "p": 0.001637,
+        "cohen_d": -0.0362
+      }
+    },
+    "combo_OB_sweep": {
+      "first_half": {
+        "n_treat": 343,
+        "n_ctrl": 62252,
+        "mean_treat": -0.029435,
+        "mean_ctrl": -0.009553,
+        "diff": -0.019882,
+        "p": 0.0,
+        "cohen_d": -0.2776
+      },
+      "second_half": {
+        "n_treat": 232,
+        "n_ctrl": 62363,
+        "mean_treat": 0.0055,
+        "mean_ctrl": -0.001119,
+        "diff": 0.006619,
+        "p": 0.2746,
+        "cohen_d": 0.0971
+      }
+    },
+    "combo_discount_BOS": {
+      "first_half": {
+        "n_treat": 435,
+        "n_ctrl": 62160,
+        "mean_treat": -0.008067,
+        "mean_ctrl": -0.009673,
+        "diff": 0.001606,
+        "p": 1.0,
+        "cohen_d": 0.0224
+      },
+      "second_half": {
+        "n_treat": 366,
+        "n_ctrl": 62229,
+        "mean_treat": -0.004305,
+        "mean_ctrl": -0.001075,
+        "diff": -0.00323,
+        "p": 1.0,
+        "cohen_d": -0.0474
+      }
+    }
+  },
+  "survivors": [],
+  "verdict": "ICT_NO_CAUSAL_EDGE"
+}
