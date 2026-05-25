@@ -1,0 +1,5 @@
+{"rank_source": "part33_smc", "feature": "target_width", "ic_mean": -0.16366, "delta_e": -1.0244, "q_bh": 0.0, "fdr_survive": true, "n": 981, "source": "part33_smc", "timestamp": "2026-05-25T00:08:38.750939+00:00"}
+{"rank_source": "part33_smc", "feature": "sl_distance_pct", "ic_mean": -0.16318, "delta_e": -1.1449, "q_bh": 0.0, "fdr_survive": true, "n": 981, "source": "part33_smc", "timestamp": "2026-05-25T00:08:38.750939+00:00"}
+{"rank_source": "part33_smc", "feature": "fvg_proxy", "ic_mean": -0.13382, "delta_e": -0.8625, "q_bh": 0.11477, "fdr_survive": false, "n": 197, "source": "part33_smc", "timestamp": "2026-05-25T00:08:38.750939+00:00"}
+{"rank_source": "part33_smc", "feature": "imbalance_proxy", "ic_mean": -0.13217, "delta_e": -0.5096, "q_bh": 0.11477, "fdr_survive": false, "n": 197, "source": "part33_smc", "timestamp": "2026-05-25T00:08:38.750939+00:00"}
+{"rank_source": "part33_smc", "feature": "discount_proxy", "ic_mean": 0.08841, "delta_e": 0.684, "q_bh": 0.02013, "fdr_survive": true, "n": 981, "source": "part33_smc", "timestamp": "2026-05-25T00:08:38.750939+00:00"}
