@@ -221,7 +221,7 @@ COPY service_name/ ./
   بعد T2 → trailing stop (`TRAIL_STOP_PCT=2.5%`) تحت القمة، أرضيته T1. عمود `active_trades.peak_price`.
 - **حظر إطار 4h** كإطار رئيسي في `signal_engine/signal_logic.py` (مسؤول عن 73% من الخسائر).
 - **العتبات الحيّة في قاعدة البيانات** تغلب قيم `.env`:
-  `optimizer_settings.min_score_to_signal` (حالياً 4.0)، و`indicator_weights`
+  `optimizer_settings.min_score_to_signal` (حالياً **3.0** — تم التثبيت 2026-05-16 بعد أن أثبتت البيانات: score=4→net -$356 vs score=3→net +$9 في 2433 صفقة)، و`indicator_weights`
   (`rsi_divergence` في sideways = 2.0). راجع DB لا `.env` لمعرفة القيم الفعلية.
 - **الخادم:** `my-production-bot` — aarch64، نواتان، 3.7GB RAM. يشغّل أيضاً بوت التداول
   الرئيسي وpostgres المشترك. أي مهمة ثقيلة (مثل الباكتيستر) يجب أن تكون دفعية ومنضبطة بالذاكرة.
