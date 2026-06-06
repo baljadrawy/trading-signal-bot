@@ -300,17 +300,12 @@ class SignalEngine:
                 )
                 continue
 
-            # ══ تجميد 2026-05-17 (بطلب المستخدم بعد مراجعة خبير) ══
-            # البوت مُضيَّق للشريحة الوحيدة ذات الحافة المُثبتة بعد الرسوم:
-            #   1d + bearish/sideways + score 3.x  (E=+1.41% على n=36)
-            # كل ما عداها expectancy سالبة بعد رسوم 0.3%. يبقى التضييق ساري
-            # المفعول حتى تتراكم 50 صفقة أمامية ويرفعه المستخدم صراحةً.
-            if top_tf != '1d':
-                logger.debug(f"⏭️ رفض {symbol} - تجميد: الإطار {top_tf} (الحافة على 1d فقط)")
-                continue
-            if top_mc not in ('bearish', 'sideways'):
-                logger.debug(f"⏭️ رفض {symbol} - تجميد: {top_mc} (الحافة على bearish/sideways فقط)")
-                continue
+            # ══ تجميد مرفوع 2026-06-06 ══
+            # البيانات أثبتت أن الحافة المزعومة (1d+bearish/sideways+score=3 → WR=54%)
+            # غير صحيحة: walk-forward على 1924 إشارة يُظهر WR=6.3% فقط (أبريل: 1887 → WR=6%)
+            # استئناف البحث المنهجي عن حافة حقيقية عبر مساري SMC+Wide R:R
+            # التجميد الصارم (1d + bearish/sideways فقط) مُرفوع — جميع timeframes/conditions مقبولة
+            # المرشحات الأخرى (volatility، bullish، 4h) محفوظة كحماية أساسية معتمدة
 
             # فلتر: رفض 1d+bearish/sideways إذا total_score >= 4.0 (overbought filter)
             # البيانات (2433 صفقة، n=251 للـ 1d+bearish/sideways):
