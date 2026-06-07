@@ -15,7 +15,12 @@ logger = setup_logger('optimizer.tuner')
 MIN_SCORE_LIMIT    = 1.5
 MAX_SCORE_LIMIT    = 3.5
 MIN_TF_CONFIRM     = 1
-MAX_TF_CONFIRM     = 4
+# الحد الأقصى 2 — لا 4 — لأن:
+# 1) 4h محظور كإطار رئيسي → أقصى timeframes نشطة = 3 (15m، 1h، 1d)
+# 2) TF Confirmation Paradox (2026-06-02): dual-TF WR=0% vs 1d-alone WR=43.8%
+# 3) min_tf=4 يجعل البوت صامتاً تماماً (رُصد 2026-06-07: 0 إشارة في 34 رمزاً)
+# تم رفعه تلقائياً إلى 4 بسبب WR<30% ← خطأ: العلاج أسوأ من الداء
+MAX_TF_CONFIRM     = 2
 
 # عتبات الأداء لاتخاذ قرار التعديل
 GOOD_WIN_RATE      = 55.0   # % — أداء جيد، لا تغيير
