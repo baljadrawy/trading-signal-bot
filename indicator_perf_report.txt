@@ -1,0 +1,72 @@
+TOTAL closed trades = 2461 | overall WR = 37.4% | net expectancy/trade = -0.3652$ (gross -0.2152$) | fee=0.3% pos=50.0$
+
+========================================================================================================================
+(1) PER-INDICATOR  — conditional/marginal (trades where indicator contribution > 0). NOT standalone.
+========================================================================================================================
+indicator           n    W    L    WR%  avgRet_n%  Exp_net$  PF_net  Sharpe   MaxDD$   durH AUC_bin  AUC_wt
+-----------------------------------------------------------------------------------------------------------
+rsi              1881  716 1165   38.1     -0.579   -0.2897    0.63  -0.138  -542.89   10.2   0.510   0.508
+macd             1258  470  788   37.4     -0.907   -0.4533    0.57  -0.169  -595.95    9.1   0.499   0.497
+ema_cross        1434  549  885   38.3     -0.917   -0.4585    0.54  -0.175  -711.39    7.3   0.511   0.505
+bollinger        1310  491  819   37.5     -0.491   -0.2457    0.67  -0.125  -319.79    9.9   0.501   0.493
+volume           1036  373  663   36.0     -1.079   -0.5393    0.53  -0.183  -619.03    7.0   0.487   0.486
+stoch_rsi        1099  419  680   38.1     -0.628   -0.3139    0.60  -0.155  -346.18    8.1   0.507   0.505
+obv              1928  731 1197   37.9     -0.814   -0.4068    0.56  -0.166  -842.27    7.9   0.508   0.495
+rsi_divergence     23    9   14   39.1      0.443    0.2216    1.30       —    -9.63   16.2       —       —
+fibonacci          93   33   60   35.5     -0.624   -0.3121    0.70  -0.134   -41.46   20.0   0.498   0.498
+order_book       2408  903 1505   37.5     -0.720   -0.3600    0.60  -0.150  -864.96    9.0   0.502   0.503
+btc_trend           0    —    —                  n=0 (never fired live)
+
+AUC_bin = discrimination of binary fired/not (≈standalone view). AUC_wt = weighted magnitude (current-weights view).
+Sharpe/PF/AUC suppressed (—) when n<30. avgRet_n & Exp_net are AFTER 0.3% fee.
+
+========================================================================================================================
+(3) PER-INDICATOR × MARKET CONDITION  — conditional, net. cells show: n / WR% / Exp_net$
+========================================================================================================================
+indicator                         bullish                   bearish                  sideways                  volatile
+rsi                        601/39%/-0.329            198/37%/-0.265           1016/38%/-0.221             66/38%/-1.056
+macd                       531/35%/-0.459            131/45%/+0.046            349/40%/-0.294            247/34%/-0.931
+ema_cross                  858/38%/-0.369                         —            327/41%/-0.344            249/35%/-0.918
+bollinger                  296/41%/-0.355            209/37%/-0.260            798/37%/-0.186              7/14%/-2.067
+volume                     388/36%/-0.336             97/34%/-0.550            309/38%/-0.378            242/34%/-1.067
+stoch_rsi                  367/42%/-0.334             75/27%/-0.728            640/37%/-0.268             17/59%/+0.220
+obv                        843/38%/-0.381            135/40%/-0.148            697/38%/-0.301            253/35%/-0.920
+rsi_divergence              2/100%/+5.196               3/0%/-0.751             18/39%/-0.169                         —
+fibonacci                    8/50%/-0.225                         —             85/34%/-0.320                         —
+order_book                 869/38%/-0.355            209/37%/-0.244           1077/38%/-0.248            253/35%/-0.948
+btc_trend                               —                         —                         —                         —
+
+========================================================================================================================
+(2) TOP INDICATOR COMBINATIONS  — exact set of indicators that fired together (>0). net. min n=20.
+========================================================================================================================
+qualifying combos with n>=20: 22
+  #     n    WR%  Exp_net$     PF  Sharpe   MaxDD$   durH  combo
+----------------------------------------------------------------
+  1    31   45.2    0.4691   1.67   0.167   -12.65   11.3  macd+ema_cross+obv+order_book
+  2    72   50.0    0.2228   1.47   0.148   -13.20   18.2  rsi+macd+bollinger+obv+order_book
+  3    41   36.6   -0.1693   0.81  -0.068   -23.85   15.2  rsi+bollinger+volume+stoch_rsi+order_book
+  4   203   37.4   -0.2184   0.71  -0.135   -44.24   10.7  rsi+bollinger+stoch_rsi+order_book
+  5   170   41.2   -0.2341   0.72  -0.086   -61.21   16.3  rsi+macd+ema_cross+obv+order_book
+  6    26   38.5   -0.2444   0.57       —    -5.57    6.1  rsi+bollinger+volume+stoch_rsi+obv+order_book
+  7    48   35.4   -0.2528   0.67  -0.131   -22.69   12.1  rsi+macd+bollinger+volume+obv+order_book
+  8    78   28.2   -0.2589   0.57  -0.196   -27.07    5.2  rsi+bollinger+order_book
+  9   264   36.0   -0.2766   0.57  -0.198   -89.63    6.0  rsi+bollinger+stoch_rsi+obv+order_book
+ 10    28   32.1   -0.3264   0.70       —   -10.72   20.6  rsi+bollinger+fibonacci+order_book
+ 11    41   31.7   -0.3283   0.40  -0.313   -16.51    8.2  rsi+ema_cross+bollinger+obv+order_book
+ 12   231   44.6   -0.3496   0.45  -0.234   -79.77    3.8  rsi+ema_cross+bollinger+stoch_rsi+obv+order_book
+ 13    42   33.3   -0.3592   0.65  -0.191   -23.11   17.9  rsi+bollinger+stoch_rsi+fibonacci+order_book
+ 14    36   44.4   -0.4273   0.38  -0.301   -12.13    9.6  rsi+ema_cross+stoch_rsi+obv+order_book
+ 15   237   37.1   -0.4666   0.48  -0.186  -108.93    6.9  rsi+macd+ema_cross+volume+obv+order_book
+ 16    37   27.0   -0.6683   0.38  -0.432   -22.83   21.3  rsi+bollinger+obv+order_book
+ 17    25   20.0   -0.7060   0.35       —   -22.20   13.2  rsi+bollinger+volume+order_book
+ 18   455   34.5   -0.7350   0.45  -0.254  -345.03    4.3  macd+ema_cross+volume+obv+order_book
+ 19    45   24.4   -0.9615   0.13  -0.779   -41.60    5.2  rsi+macd+ema_cross+stoch_rsi+obv+order_book
+ 20    22   31.8   -0.9744   0.27       —   -19.77    6.2  rsi+macd+ema_cross+volume+stoch_rsi+obv+order_book
+
+========================================================================================================================
+ZERO-WEIGHT INDICATORS — live evidence (conditional net) behind disabling
+========================================================================================================================
+macd           : n=1258  WR=37.4%  Exp_net=-0.4533$  PF=0.57  (fired historically before optimizer zeroed it; regime-mixed)
+ema_cross      : n=1434  WR=38.3%  Exp_net=-0.4585$  PF=0.54  (fired historically before optimizer zeroed it; regime-mixed)
+volume         : n=1036  WR=36.0%  Exp_net=-0.5393$  PF=0.53  (fired historically before optimizer zeroed it; regime-mixed)
+btc_trend      : n=0 live (weight always 0 → never contributed). No live sample.
