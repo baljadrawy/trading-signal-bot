@@ -1,0 +1,7 @@
+📊 نتائج part34 - Wide R:R Isolation (2026-05-24 17:54)
+
+الخلاصة: R:R الواسع يُفاقِم الأداء بدل تحسينه
+
+{"comparison_part": "baseline", "variant": "baseline", "n": 289, "e_adj_mean": -0.3868, "e_adj_lo": -0.9616, "e_adj_hi": 0.1797, "win_rate": 0.3495, "r_targets": [1.0, 1.8, 2.2], "timestamp": "2026-05-24T17:54:45.260093+00:00"}
+{"comparison_part": "variant_1", "variant": 1, "n": 289, "e_adj_mean": -36.4838, "e_adj_lo": -70.4257, "e_adj_hi": 0.5537, "win_rate": 0.3945, "r_targets": [2.0, 4.0, 6.0], "timestamp": "2026-05-24T17:54:45.260152+00:00"}
+{"comparison_part": "variant_2", "variant": 2, "n": 289, "e_adj_mean": -36.4838, "e_adj_lo": -69.3045, "e_adj_hi": 8.1287, "win_rate": 0.3945, "r_targets": [3.0, 5.0, 8.0], "timestamp": "2026-05-24T17:54:45.260166+00:00"}

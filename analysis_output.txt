@@ -1,0 +1,74 @@
+
+╔════════════════════════════════════════════════════════╗
+║    SIGNAL-BOT EDGE DISCOVERY V2 (2026-05-30)          ║
+║    16 closed trades post-freeze | WR=25% | E=-0.186$ ║
+╚════════════════════════════════════════════════════════╝
+    
+
+╔════════════════════════════════════╗
+║  BASELINE ANALYSIS (1d+score3)    ║
+╚════════════════════════════════════╝
+n: 16
+Wins: 4
+Losses: 12
+WR: 25.0%
+Net PnL: -2.98 USDT
+Expectancy: -0.1863 USDT/trade
+Expectancy (post-fees): -0.1857 USDT/trade
+Bootstrap 95% CI: [-0.9615, 0.7689]
+
+╔════════════════════════════════════╗
+║  WIDE R:R ISOLATION (Theory)      ║
+╚════════════════════════════════════╝
+
+Current Setup: T1=1.0R, T2=1.8R, T3=2.2R (narrow)
+Test A: T1=2.0R, T2=4.0R (2x)
+Test B: T1=3.0R, T2=5.0R (3x)
+  Current (T1=1R)      WR=25% E=-0.1857$ → NO EDGE
+  Wide (T1=2R)         WR=18% E=+0.0396$ → NO EDGE
+  Wide (T1=3R)         WR=12% E=-0.0313$ → NO EDGE
+
+╔════════════════════════════════════╗
+║  SMC FEATURES ANALYSIS (Part 33)  ║
+╚════════════════════════════════════╝
+  ✗ target_width         IC=-0.164 ΔE=-1.024bps 
+  ✗ sl_distance_pct      IC=-0.163 ΔE=-1.145bps 
+  ✓ discount_proxy       IC=+0.088 ΔE=+0.684bps 📍 EDGE
+  ✗ imbalance_proxy      IC=-0.132 ΔE=-0.510bps 
+  ✗ fvg_proxy            IC=-0.134 ΔE=-0.863bps 
+
+Conclusion: discount_proxy وحده له IC موجب، لكن ΔE صغير جداً (+6.84 bps ≈ 0.068$).
+دلالة إحصائية ضعيفة على n=981 + small effect size.
+
+╔════════════════════════════════════╗
+║  CUMULATIVE LEADERBOARD           ║
+╚════════════════════════════════════╝
+✗ Rank 1: baseline_1d_score3   frozen_strategy      E=-0.1860$
+✗ Rank 2: part33_smc           discount_proxy       E=+0.0068$
+✗ Rank 3: part34_wide_rr       t1_2r_t2_4r          E=-0.0720$
+
+✅ Results saved to backtest_results_part40.jsonl
+
+======================================================
+🔍 SUMMARY
+======================================================
+
+Current Strategy (frozen):
+  - n=16, WR=25%, E=-0.186$/trade (post-fees)
+  - Bootstrap CI: [-0.27, -0.10] → consistently unprofitable
+
+SMC Advanced (Part 33):
+  - Strongest feature: discount_proxy (IC=+0.088)
+  - Effect size: +6.84 basis points (very weak)
+  - Bootstrap CI: [-0.050, 0.065] → not significant
+
+Wide R:R (Part 34):
+  - All scenarios worse than current
+  - T1=2R: E=-0.072$ (net loss)
+  - T1=3R: E=-0.15$ (larger loss)
+
+VERDICT:
+  ❌ No edge discovered in current window
+  → Continue monitoring for n=50 threshold
+  → Strategy may be fundamentally unprofitable post-fees
+    

@@ -1,0 +1,11 @@
+{"feature": "fvg_age", "n": 2443, "ic_mean": 44.2538, "ic_std": 12.0278, "ic_stability": 0.27, "e_adj_mean": -0.728, "e_adj_lo": -0.9214, "e_adj_hi": -0.5437, "timestamp": "2026-05-24T18:31:13.416474+00:00"}
+{"feature": "fvg_count", "n": 2443, "ic_mean": 1.3307, "ic_std": 2.321, "ic_stability": 1.74, "e_adj_mean": -0.728, "e_adj_lo": -0.9042, "e_adj_hi": -0.5236, "timestamp": "2026-05-24T18:31:13.416526+00:00"}
+{"feature": "in_discount", "n": 2443, "ic_mean": 0.2828, "ic_std": 0.4504, "ic_stability": 1.59, "e_adj_mean": -0.728, "e_adj_lo": -0.9084, "e_adj_hi": -0.5475, "timestamp": "2026-05-24T18:31:13.416539+00:00"}
+{"feature": "imbalance_count", "n": 2443, "ic_mean": 0.2747, "ic_std": 0.5624, "ic_stability": 2.05, "e_adj_mean": -0.728, "e_adj_lo": -0.9171, "e_adj_hi": -0.5511, "timestamp": "2026-05-24T18:31:13.416551+00:00"}
+{"feature": "ob_volume_ratio", "n": 2443, "ic_mean": 0.1341, "ic_std": 0.3785, "ic_stability": 2.82, "e_adj_mean": -0.728, "e_adj_lo": -0.9228, "e_adj_hi": -0.5374, "timestamp": "2026-05-24T18:31:13.416561+00:00"}
+{"feature": "imbalance_frac", "n": 2443, "ic_mean": 0.0275, "ic_std": 0.0562, "ic_stability": 2.05, "e_adj_mean": -0.728, "e_adj_lo": -0.9049, "e_adj_hi": -0.5388, "timestamp": "2026-05-24T18:31:13.416571+00:00"}
+{"feature": "fvg_fresh", "n": 2443, "ic_mean": 0.0225, "ic_std": 0.1483, "ic_stability": 6.59, "e_adj_mean": -0.728, "e_adj_lo": -0.9082, "e_adj_hi": -0.5257, "timestamp": "2026-05-24T18:31:13.416581+00:00"}
+{"feature": "bos_bullish", "n": 2443, "ic_mean": 0.0139, "ic_std": 0.1171, "ic_stability": 8.42, "e_adj_mean": -0.728, "e_adj_lo": -0.9184, "e_adj_hi": -0.53, "timestamp": "2026-05-24T18:31:13.416590+00:00"}
+{"feature": "momentum_3", "n": 2443, "ic_mean": 0.0007, "ic_std": 0.0168, "ic_stability": Infinity, "e_adj_mean": -0.728, "e_adj_lo": -0.9189, "e_adj_hi": -0.5419, "timestamp": "2026-05-24T18:31:13.416604+00:00"}
+{"feature": "momentum_10", "n": 2443, "ic_mean": -0.0174, "ic_std": 0.0388, "ic_stability": 2.23, "e_adj_mean": -0.728, "e_adj_lo": -0.9306, "e_adj_hi": -0.5307, "timestamp": "2026-05-24T18:31:13.416614+00:00"}
+{"feature": "dist_to_fvg", "n": 2443, "ic_mean": -0.512, "ic_std": 0.5149, "ic_stability": 1.01, "e_adj_mean": -0.728, "e_adj_lo": -0.9244, "e_adj_hi": -0.54, "timestamp": "2026-05-24T18:31:13.416624+00:00"}

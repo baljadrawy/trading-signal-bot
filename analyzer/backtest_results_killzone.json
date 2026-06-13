@@ -1,0 +1,210 @@
+{
+  "run_date": "2026-05-21T10:33:52.738165",
+  "n_total": 2440,
+  "all_trades": {
+    "n": 2440,
+    "n_win": 916,
+    "n_loss": 1524,
+    "wr": 37.54,
+    "e_adj": -0.7268,
+    "pf": 0.737,
+    "avg_win_pct": 3.1838,
+    "avg_loss_pct": 2.5951,
+    "avg_raw_pct": -0.4268
+  },
+  "groups": {
+    "in_killzone": {
+      "n": 498,
+      "n_win": 168,
+      "n_loss": 330,
+      "wr": 33.73,
+      "e_adj": -0.9404,
+      "pf": 0.666,
+      "avg_win_pct": 3.7906,
+      "avg_loss_pct": 2.8954,
+      "avg_raw_pct": -0.6404
+    },
+    "outside_killzone": {
+      "n": 1590,
+      "n_win": 625,
+      "n_loss": 965,
+      "wr": 39.31,
+      "e_adj": -0.7233,
+      "pf": 0.712,
+      "avg_win_pct": 2.6584,
+      "avg_loss_pct": 2.4179,
+      "avg_raw_pct": -0.4233
+    },
+    "sunday": {
+      "n": 352,
+      "n_win": 123,
+      "n_loss": 229,
+      "wr": 34.94,
+      "e_adj": -0.4403,
+      "pf": 0.928,
+      "avg_win_pct": 5.0248,
+      "avg_loss_pct": 2.9093,
+      "avg_raw_pct": -0.1403
+    },
+    "non_sunday_all": {
+      "n": 2088,
+      "n_win": 793,
+      "n_loss": 1295,
+      "wr": 37.98,
+      "e_adj": -0.7751,
+      "pf": 0.699,
+      "avg_win_pct": 2.8983,
+      "avg_loss_pct": 2.5396,
+      "avg_raw_pct": -0.4751
+    }
+  },
+  "t_test_kz_vs_out": {
+    "mean_a": -0.6404,
+    "mean_b": -0.4233,
+    "diff": -0.2171,
+    "se": 0.2641,
+    "t": -0.822,
+    "df": 701.4,
+    "p_two_tailed": 0.4112,
+    "ci95": [
+      -0.7348,
+      0.3007
+    ]
+  },
+  "diff_e_adj_kz_minus_out": -0.21709999999999996,
+  "delta_sunday_removal": -0.04830000000000001,
+  "edge_slice": {
+    "total": {
+      "n": 70,
+      "n_win": 38,
+      "n_loss": 32,
+      "wr": 54.29,
+      "e_adj": 1.0351,
+      "pf": 2.014,
+      "avg_win_pct": 4.9305,
+      "avg_loss_pct": 2.9066,
+      "avg_raw_pct": 1.3351
+    },
+    "in_killzone": {
+      "n": 10,
+      "n_win": 1,
+      "n_loss": 9,
+      "wr": 10.0,
+      "e_adj": -3.168,
+      "pf": 0.078,
+      "avg_win_pct": 2.4286,
+      "avg_loss_pct": 3.4565,
+      "avg_raw_pct": -2.868
+    },
+    "outside_killzone": {
+      "n": 19,
+      "n_win": 11,
+      "n_loss": 8,
+      "wr": 57.89,
+      "e_adj": 1.0213,
+      "pf": 2.268,
+      "avg_win_pct": 4.2278,
+      "avg_loss_pct": 2.5634,
+      "avg_raw_pct": 1.3213
+    },
+    "sunday": {
+      "n": 41,
+      "n_win": 26,
+      "n_loss": 15,
+      "wr": 63.41,
+      "e_adj": 2.0667,
+      "pf": 3.344,
+      "avg_win_pct": 5.3241,
+      "avg_loss_pct": 2.7596,
+      "avg_raw_pct": 2.3667
+    },
+    "diff_e_adj": -4.1893
+  },
+  "walk_forward": {
+    "IS": {
+      "n_total": 1464,
+      "date_range": [
+        "2026-04-08",
+        "2026-04-17"
+      ],
+      "in_killzone": {
+        "n": 276,
+        "n_win": 105,
+        "n_loss": 171,
+        "wr": 38.04,
+        "e_adj": -0.8044,
+        "pf": 0.753,
+        "avg_win_pct": 4.0249,
+        "avg_loss_pct": 3.2842,
+        "avg_raw_pct": -0.5044
+      },
+      "outside_killzone": {
+        "n": 942,
+        "n_win": 364,
+        "n_loss": 578,
+        "wr": 38.64,
+        "e_adj": -0.7843,
+        "pf": 0.722,
+        "avg_win_pct": 3.2451,
+        "avg_loss_pct": 2.8307,
+        "avg_raw_pct": -0.4843
+      },
+      "kz_edge": -0.0201
+    },
+    "OOS": {
+      "n_total": 976,
+      "date_range": [
+        "2026-04-17",
+        "2026-05-18"
+      ],
+      "in_killzone": {
+        "n": 222,
+        "n_win": 63,
+        "n_loss": 159,
+        "wr": 28.38,
+        "e_adj": -1.1095,
+        "pf": 0.544,
+        "avg_win_pct": 3.4,
+        "avg_loss_pct": 2.4773,
+        "avg_raw_pct": -0.8095
+      },
+      "outside_killzone": {
+        "n": 648,
+        "n_win": 261,
+        "n_loss": 387,
+        "wr": 40.28,
+        "e_adj": -0.6346,
+        "pf": 0.689,
+        "avg_win_pct": 1.8402,
+        "avg_loss_pct": 1.8013,
+        "avg_raw_pct": -0.3346
+      },
+      "kz_edge": -0.4749
+    }
+  },
+  "sessions": {
+    "london_07_10": {
+      "n": 293,
+      "n_win": 87,
+      "n_loss": 206,
+      "wr": 29.69,
+      "e_adj": -1.0617,
+      "pf": 0.583,
+      "avg_win_pct": 3.5839,
+      "avg_loss_pct": 2.597,
+      "avg_raw_pct": -0.7617
+    },
+    "ny_am_12_15": {
+      "n": 205,
+      "n_win": 81,
+      "n_loss": 124,
+      "wr": 39.51,
+      "e_adj": -0.7669,
+      "pf": 0.773,
+      "avg_win_pct": 4.0126,
+      "avg_loss_pct": 3.3911,
+      "avg_raw_pct": -0.4669
+    }
+  },
+  "verdict": "NEGATIVE_NOT_SIGNIFICANT"
+}

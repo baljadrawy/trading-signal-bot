@@ -1,0 +1,135 @@
+{
+  "generated_at_utc": "2026-05-30T18:05:23.698759+00:00",
+  "config": {
+    "top_n": 30,
+    "months": 12,
+    "ema_15m": 23,
+    "ema_1d": 28,
+    "rsi_period": 14,
+    "rsi_thresh": 55.0,
+    "fee_pct": 0.003,
+    "volume_filter": true
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "XLMUSDT",
+    "XRPUSDT",
+    "SOLUSDT",
+    "ZECUSDT",
+    "HBARUSDT",
+    "NEARUSDT",
+    "ALLOUSDT",
+    "FETUSDT",
+    "HEIUSDT",
+    "WLDUSDT",
+    "TRXUSDT",
+    "DOGEUSDT",
+    "MEMEUSDT",
+    "INJUSDT",
+    "SUIUSDT",
+    "RLUSDUSDT",
+    "OPGUSDT",
+    "IDUSDT",
+    "ADAUSDT",
+    "GENIUSUSDT",
+    "PORTALUSDT",
+    "ALGOUSDT",
+    "TAOUSDT",
+    "LINKUSDT",
+    "ASTERUSDT",
+    "NFPUSDT",
+    "UUSDT"
+  ],
+  "overall": {
+    "label": "الإجمالي",
+    "n": 3202,
+    "win_rate_pct": 34.98,
+    "avg_win_pct": 4.502,
+    "avg_loss_pct": -2.688,
+    "profit_factor": 0.901,
+    "E_net_per_trade_pct": -0.1731,
+    "E_ci95": [
+      -0.7054,
+      0.7317
+    ],
+    "median_net_pct": -0.6264,
+    "compounded_return_pct": -100.0,
+    "avg_hold_hours": 37.84,
+    "best_pct": 1175.603,
+    "worst_pct": -46.306
+  },
+  "daily_cond_at_entry_yes": {
+    "label": "الشرط اليومي محقّق عند الدخول (قابل للتداول)",
+    "n": 45,
+    "win_rate_pct": 22.22,
+    "avg_win_pct": 18.551,
+    "avg_loss_pct": -7.761,
+    "profit_factor": 0.683,
+    "E_net_per_trade_pct": -1.9143,
+    "E_ci95": [
+      -5.5788,
+      2.1393
+    ],
+    "median_net_pct": -5.8742,
+    "compounded_return_pct": -70.61,
+    "avg_hold_hours": 237.38,
+    "best_pct": 43.957,
+    "worst_pct": -15.71
+  },
+  "daily_cond_at_entry_no": {
+    "label": "الشرط اليومي غير محقّق عند الدخول",
+    "n": 3157,
+    "win_rate_pct": 35.16,
+    "avg_win_pct": 4.375,
+    "avg_loss_pct": -2.601,
+    "profit_factor": 0.912,
+    "E_net_per_trade_pct": -0.1483,
+    "E_ci95": [
+      -0.6806,
+      0.7137
+    ],
+    "median_net_pct": -0.6114,
+    "compounded_return_pct": -100.0,
+    "avg_hold_hours": 35.0,
+    "best_pct": 1175.603,
+    "worst_pct": -46.306
+  },
+  "with_daily_cond_during_hold_CONTAMINATED": {
+    "label": "تحقق الشرط اليومي أثناء الاحتفاظ [وصفي/ملوَّث]",
+    "n": 241,
+    "win_rate_pct": 51.04,
+    "avg_win_pct": 22.999,
+    "avg_loss_pct": -4.002,
+    "profit_factor": 5.99,
+    "E_net_per_trade_pct": 9.7785,
+    "E_ci95": [
+      3.3018,
+      20.8444
+    ],
+    "median_net_pct": 0.2469,
+    "compounded_return_pct": 10639577.78,
+    "avg_hold_hours": 277.57,
+    "best_pct": 1175.603,
+    "worst_pct": -21.971
+  },
+  "without_daily_cond_during_hold_CONTAMINATED": {
+    "label": "لم يتحقق أثناء الاحتفاظ [وصفي/ملوَّث]",
+    "n": 2961,
+    "win_rate_pct": 33.67,
+    "avg_win_pct": 2.22,
+    "avg_loss_pct": -2.609,
+    "profit_factor": 0.432,
+    "E_net_per_trade_pct": -0.9831,
+    "E_ci95": [
+      -1.1131,
+      -0.8484
+    ],
+    "median_net_pct": -0.6984,
+    "compounded_return_pct": -100.0,
+    "avg_hold_hours": 18.33,
+    "best_pct": 23.673,
+    "worst_pct": -46.306
+  }
+}

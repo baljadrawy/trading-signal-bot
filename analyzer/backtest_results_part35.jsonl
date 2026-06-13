@@ -1,0 +1,15 @@
+{"rank_source": "part35_advanced", "feature": "macd_positive", "ic_mean": 0.11519, "ic_std": 0.1483, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 0.7, "timestamp": "2026-05-25T12:03:01.453262+00:00"}
+{"rank_source": "part35_advanced", "feature": "macd_signal_cross", "ic_mean": 0.11519, "ic_std": 0.1483, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 0.7, "timestamp": "2026-05-25T12:03:01.454622+00:00"}
+{"rank_source": "part35_advanced", "feature": "atr_high_volatility", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.447776+00:00"}
+{"rank_source": "part35_advanced", "feature": "atr_low_volatility", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.448481+00:00"}
+{"rank_source": "part35_advanced", "feature": "bb_middle_normalization", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.449046+00:00"}
+{"rank_source": "part35_advanced", "feature": "consensus_overbought", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.449636+00:00"}
+{"rank_source": "part35_advanced", "feature": "consensus_oversold", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.450209+00:00"}
+{"rank_source": "part35_advanced", "feature": "ema_cross_bullish", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.450765+00:00"}
+{"rank_source": "part35_advanced", "feature": "ichimoku_cloud_width", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.451322+00:00"}
+{"rank_source": "part35_advanced", "feature": "ichimoku_tenkan_above_kijun", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.451885+00:00"}
+{"rank_source": "part35_advanced", "feature": "momentum_positive", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.455199+00:00"}
+{"rank_source": "part35_advanced", "feature": "momentum_strength", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.455800+00:00"}
+{"rank_source": "part35_advanced", "feature": "rsi_near_50", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.456316+00:00"}
+{"rank_source": "part35_advanced", "feature": "rsi_oversold_extreme", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.456892+00:00"}
+{"rank_source": "part35_advanced", "feature": "rsi_stoch_divergence", "ic_mean": 0.0, "ic_std": 0.0, "n": 290, "ic_stable": 0.0, "delta_e": 8.6769, "p_avg": 1.0, "timestamp": "2026-05-25T12:03:01.457423+00:00"}

@@ -1,0 +1,557 @@
+{
+  "generated_at": "2026-05-25T03:17:53.838238",
+  "params": {
+    "days": 500,
+    "top_n": 80,
+    "vol_mult": 1.5,
+    "vol_window": 20
+  },
+  "totals": {
+    "bull_raw": 2599,
+    "bear_raw": 3347,
+    "bull_filt": 951,
+    "bear_filt": 698,
+    "candles": 33342
+  },
+  "per_symbol": {
+    "USDCUSDT": {
+      "candles": 500,
+      "bull_raw": 9,
+      "bear_raw": 7,
+      "bull_filt": 3,
+      "bear_filt": 3
+    },
+    "BTCUSDT": {
+      "candles": 500,
+      "bull_raw": 51,
+      "bear_raw": 50,
+      "bull_filt": 14,
+      "bear_filt": 15
+    },
+    "ETHUSDT": {
+      "candles": 500,
+      "bull_raw": 48,
+      "bear_raw": 47,
+      "bull_filt": 16,
+      "bear_filt": 17
+    },
+    "SOLUSDT": {
+      "candles": 500,
+      "bull_raw": 47,
+      "bear_raw": 52,
+      "bull_filt": 10,
+      "bear_filt": 13
+    },
+    "ZECUSDT": {
+      "candles": 500,
+      "bull_raw": 56,
+      "bear_raw": 47,
+      "bull_filt": 19,
+      "bear_filt": 6
+    },
+    "USD1USDT": {
+      "candles": 369,
+      "bull_raw": 10,
+      "bear_raw": 16,
+      "bull_filt": 4,
+      "bear_filt": 5
+    },
+    "NEARUSDT": {
+      "candles": 500,
+      "bull_raw": 50,
+      "bear_raw": 59,
+      "bull_filt": 16,
+      "bear_filt": 13
+    },
+    "XRPUSDT": {
+      "candles": 500,
+      "bull_raw": 44,
+      "bear_raw": 43,
+      "bull_filt": 16,
+      "bear_filt": 10
+    },
+    "SUIUSDT": {
+      "candles": 500,
+      "bull_raw": 41,
+      "bear_raw": 57,
+      "bull_filt": 14,
+      "bear_filt": 14
+    },
+    "BNBUSDT": {
+      "candles": 500,
+      "bull_raw": 56,
+      "bear_raw": 42,
+      "bull_filt": 19,
+      "bear_filt": 11
+    },
+    "EURUSDT": {
+      "candles": 500,
+      "bull_raw": 63,
+      "bear_raw": 47,
+      "bull_filt": 13,
+      "bear_filt": 16
+    },
+    "ONDOUSDT": {
+      "candles": 410,
+      "bull_raw": 39,
+      "bear_raw": 51,
+      "bull_filt": 14,
+      "bear_filt": 14
+    },
+    "DOGEUSDT": {
+      "candles": 500,
+      "bull_raw": 45,
+      "bear_raw": 53,
+      "bull_filt": 15,
+      "bear_filt": 11
+    },
+    "FDUSDUSDT": {
+      "candles": 500,
+      "bull_raw": 12,
+      "bear_raw": 17,
+      "bull_filt": 4,
+      "bear_filt": 2
+    },
+    "MEGAUSDT": {
+      "candles": 26,
+      "bull_raw": 0,
+      "bear_raw": 0,
+      "bull_filt": 0,
+      "bear_filt": 0
+    },
+    "TRXUSDT": {
+      "candles": 500,
+      "bull_raw": 63,
+      "bear_raw": 33,
+      "bull_filt": 7,
+      "bear_filt": 10
+    },
+    "RLUSDUSDT": {
+      "candles": 124,
+      "bull_raw": 2,
+      "bear_raw": 1,
+      "bull_filt": 0,
+      "bear_filt": 1
+    },
+    "WLDUSDT": {
+      "candles": 500,
+      "bull_raw": 40,
+      "bear_raw": 59,
+      "bull_filt": 19,
+      "bear_filt": 12
+    },
+    "ASTERUSDT": {
+      "candles": 232,
+      "bull_raw": 10,
+      "bear_raw": 14,
+      "bull_filt": 2,
+      "bear_filt": 5
+    },
+    "XAUTUSDT": {
+      "candles": 61,
+      "bull_raw": 2,
+      "bear_raw": 4,
+      "bull_filt": 1,
+      "bear_filt": 1
+    },
+    "NILUSDT": {
+      "candles": 428,
+      "bull_raw": 29,
+      "bear_raw": 45,
+      "bull_filt": 18,
+      "bear_filt": 8
+    },
+    "TAOUSDT": {
+      "candles": 500,
+      "bull_raw": 41,
+      "bear_raw": 52,
+      "bull_filt": 14,
+      "bear_filt": 14
+    },
+    "FIDAUSDT": {
+      "candles": 500,
+      "bull_raw": 23,
+      "bear_raw": 55,
+      "bull_filt": 14,
+      "bear_filt": 12
+    },
+    "TONUSDT": {
+      "candles": 500,
+      "bull_raw": 34,
+      "bear_raw": 50,
+      "bull_filt": 11,
+      "bear_filt": 12
+    },
+    "UUSDT": {
+      "candles": 133,
+      "bull_raw": 3,
+      "bear_raw": 2,
+      "bull_filt": 2,
+      "bear_filt": 1
+    },
+    "LINKUSDT": {
+      "candles": 500,
+      "bull_raw": 44,
+      "bear_raw": 52,
+      "bull_filt": 21,
+      "bear_filt": 15
+    },
+    "SAHARAUSDT": {
+      "candles": 334,
+      "bull_raw": 19,
+      "bear_raw": 33,
+      "bull_filt": 6,
+      "bear_filt": 3
+    },
+    "ADAUSDT": {
+      "candles": 500,
+      "bull_raw": 38,
+      "bear_raw": 48,
+      "bull_filt": 14,
+      "bear_filt": 12
+    },
+    "DASHUSDT": {
+      "candles": 500,
+      "bull_raw": 50,
+      "bear_raw": 62,
+      "bull_filt": 23,
+      "bear_filt": 5
+    },
+    "PAXGUSDT": {
+      "candles": 500,
+      "bull_raw": 77,
+      "bear_raw": 36,
+      "bull_filt": 31,
+      "bear_filt": 15
+    },
+    "EDENUSDT": {
+      "candles": 238,
+      "bull_raw": 16,
+      "bear_raw": 22,
+      "bull_filt": 8,
+      "bear_filt": 3
+    },
+    "PEPEUSDT": {
+      "candles": 500,
+      "bull_raw": 37,
+      "bear_raw": 49,
+      "bull_filt": 14,
+      "bear_filt": 11
+    },
+    "PLUMEUSDT": {
+      "candles": 281,
+      "bull_raw": 18,
+      "bear_raw": 39,
+      "bull_filt": 9,
+      "bear_filt": 6
+    },
+    "LTCUSDT": {
+      "candles": 500,
+      "bull_raw": 36,
+      "bear_raw": 41,
+      "bull_filt": 11,
+      "bear_filt": 9
+    },
+    "FETUSDT": {
+      "candles": 500,
+      "bull_raw": 42,
+      "bear_raw": 64,
+      "bull_filt": 15,
+      "bear_filt": 11
+    },
+    "AVAXUSDT": {
+      "candles": 500,
+      "bull_raw": 40,
+      "bear_raw": 57,
+      "bull_filt": 14,
+      "bear_filt": 12
+    },
+    "UTKUSDT": {
+      "candles": 500,
+      "bull_raw": 22,
+      "bear_raw": 47,
+      "bull_filt": 8,
+      "bear_filt": 3
+    },
+    "PENGUUSDT": {
+      "candles": 500,
+      "bull_raw": 44,
+      "bear_raw": 53,
+      "bull_filt": 24,
+      "bear_filt": 7
+    },
+    "RENDERUSDT": {
+      "candles": 500,
+      "bull_raw": 39,
+      "bear_raw": 52,
+      "bull_filt": 13,
+      "bear_filt": 9
+    },
+    "INJUSDT": {
+      "candles": 500,
+      "bull_raw": 49,
+      "bear_raw": 51,
+      "bull_filt": 18,
+      "bear_filt": 10
+    },
+    "AAVEUSDT": {
+      "candles": 500,
+      "bull_raw": 36,
+      "bear_raw": 52,
+      "bull_filt": 8,
+      "bear_filt": 14
+    },
+    "DOTUSDT": {
+      "candles": 500,
+      "bull_raw": 38,
+      "bear_raw": 51,
+      "bull_filt": 14,
+      "bear_filt": 14
+    },
+    "BCHUSDT": {
+      "candles": 500,
+      "bull_raw": 37,
+      "bear_raw": 46,
+      "bull_filt": 18,
+      "bear_filt": 10
+    },
+    "\u5e01\u5b89\u4eba\u751fUSDT": {
+      "candles": 139,
+      "bull_raw": 11,
+      "bear_raw": 8,
+      "bull_filt": 7,
+      "bear_filt": 2
+    },
+    "CHZUSDT": {
+      "candles": 500,
+      "bull_raw": 43,
+      "bear_raw": 54,
+      "bull_filt": 17,
+      "bear_filt": 12
+    },
+    "ENAUSDT": {
+      "candles": 500,
+      "bull_raw": 43,
+      "bear_raw": 67,
+      "bull_filt": 13,
+      "bear_filt": 10
+    },
+    "VIRTUALUSDT": {
+      "candles": 410,
+      "bull_raw": 37,
+      "bear_raw": 44,
+      "bull_filt": 15,
+      "bear_filt": 8
+    },
+    "ALTUSDT": {
+      "candles": 500,
+      "bull_raw": 33,
+      "bear_raw": 54,
+      "bull_filt": 11,
+      "bear_filt": 9
+    },
+    "HBARUSDT": {
+      "candles": 500,
+      "bull_raw": 44,
+      "bear_raw": 57,
+      "bull_filt": 14,
+      "bear_filt": 7
+    },
+    "DEXEUSDT": {
+      "candles": 500,
+      "bull_raw": 43,
+      "bear_raw": 50,
+      "bull_filt": 20,
+      "bear_filt": 11
+    },
+    "ALLOUSDT": {
+      "candles": 196,
+      "bull_raw": 10,
+      "bear_raw": 20,
+      "bull_filt": 3,
+      "bear_filt": 2
+    },
+    "FOGOUSDT": {
+      "candles": 131,
+      "bull_raw": 9,
+      "bear_raw": 13,
+      "bull_filt": 2,
+      "bear_filt": 1
+    },
+    "DYMUSDT": {
+      "candles": 500,
+      "bull_raw": 31,
+      "bear_raw": 65,
+      "bull_filt": 13,
+      "bear_filt": 14
+    },
+    "ICPUSDT": {
+      "candles": 500,
+      "bull_raw": 38,
+      "bear_raw": 56,
+      "bull_filt": 19,
+      "bear_filt": 12
+    },
+    "EIGENUSDT": {
+      "candles": 500,
+      "bull_raw": 32,
+      "bear_raw": 56,
+      "bull_filt": 15,
+      "bear_filt": 13
+    },
+    "UNIUSDT": {
+      "candles": 500,
+      "bull_raw": 35,
+      "bear_raw": 57,
+      "bull_filt": 16,
+      "bear_filt": 15
+    },
+    "CHIPUSDT": {
+      "candles": 35,
+      "bull_raw": 0,
+      "bear_raw": 2,
+      "bull_filt": 0,
+      "bear_filt": 0
+    },
+    "ARBUSDT": {
+      "candles": 500,
+      "bull_raw": 46,
+      "bear_raw": 58,
+      "bull_filt": 16,
+      "bear_filt": 15
+    },
+    "FILUSDT": {
+      "candles": 500,
+      "bull_raw": 40,
+      "bear_raw": 58,
+      "bull_filt": 15,
+      "bear_filt": 17
+    },
+    "JTOUSDT": {
+      "candles": 500,
+      "bull_raw": 53,
+      "bear_raw": 62,
+      "bull_filt": 20,
+      "bear_filt": 10
+    },
+    "LUNCUSDT": {
+      "candles": 500,
+      "bull_raw": 32,
+      "bear_raw": 43,
+      "bull_filt": 13,
+      "bear_filt": 5
+    },
+    "XLMUSDT": {
+      "candles": 500,
+      "bull_raw": 49,
+      "bear_raw": 57,
+      "bull_filt": 15,
+      "bear_filt": 13
+    },
+    "GMTUSDT": {
+      "candles": 500,
+      "bull_raw": 33,
+      "bear_raw": 58,
+      "bull_filt": 11,
+      "bear_filt": 13
+    },
+    "TRUMPUSDT": {
+      "candles": 492,
+      "bull_raw": 30,
+      "bear_raw": 54,
+      "bull_filt": 14,
+      "bear_filt": 7
+    },
+    "APTUSDT": {
+      "candles": 500,
+      "bull_raw": 34,
+      "bear_raw": 57,
+      "bull_filt": 12,
+      "bear_filt": 15
+    },
+    "MITOUSDT": {
+      "candles": 270,
+      "bull_raw": 11,
+      "bear_raw": 27,
+      "bull_filt": 6,
+      "bear_filt": 1
+    },
+    "ZENUSDT": {
+      "candles": 500,
+      "bull_raw": 43,
+      "bear_raw": 63,
+      "bull_filt": 23,
+      "bear_filt": 7
+    },
+    "XUSDUSDT": {
+      "candles": 433,
+      "bull_raw": 3,
+      "bear_raw": 3,
+      "bull_filt": 1,
+      "bear_filt": 1
+    },
+    "TIAUSDT": {
+      "candles": 500,
+      "bull_raw": 38,
+      "bear_raw": 57,
+      "bull_filt": 16,
+      "bear_filt": 13
+    },
+    "VICUSDT": {
+      "candles": 500,
+      "bull_raw": 27,
+      "bear_raw": 48,
+      "bull_filt": 10,
+      "bear_filt": 6
+    },
+    "WBETHUSDT": {
+      "candles": 500,
+      "bull_raw": 51,
+      "bear_raw": 48,
+      "bull_filt": 14,
+      "bear_filt": 18
+    },
+    "LPTUSDT": {
+      "candles": 500,
+      "bull_raw": 35,
+      "bear_raw": 56,
+      "bull_filt": 12,
+      "bear_filt": 8
+    },
+    "SHIBUSDT": {
+      "candles": 500,
+      "bull_raw": 35,
+      "bear_raw": 50,
+      "bull_filt": 11,
+      "bear_filt": 13
+    },
+    "PHAUSDT": {
+      "candles": 500,
+      "bull_raw": 37,
+      "bear_raw": 57,
+      "bull_filt": 16,
+      "bear_filt": 8
+    },
+    "MEUSDT": {
+      "candles": 500,
+      "bull_raw": 40,
+      "bear_raw": 67,
+      "bull_filt": 14,
+      "bear_filt": 8
+    },
+    "HUMAUSDT": {
+      "candles": 365,
+      "bull_raw": 30,
+      "bear_raw": 37,
+      "bull_filt": 7,
+      "bear_filt": 5
+    },
+    "MORPHOUSDT": {
+      "candles": 235,
+      "bull_raw": 23,
+      "bear_raw": 26,
+      "bull_filt": 6,
+      "bear_filt": 4
+    }
+  }
+}

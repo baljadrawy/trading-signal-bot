@@ -47,3 +47,6 @@ colab/token.json
 
 # Claude CLI agent working dir (local state, not code)
 .claude/
+analyzer/bt_data/
+analyzer/bt_symbols.txt
+bt_data/
