@@ -165,7 +165,12 @@ services:
           memory: 256m
 
   # ==================== Optimizer Agent ====================
+  # DISABLED 2026-06-19 أثناء تجميد الاستراتيجية (منذ 2026-05-17).
+  # المحسن كان يعدّل indicator_weights/optimizer_settings حياً كل ساعة — مخالف لبند التجميد.
+  # profiles=["disabled"] يمنع `docker compose up -d` من إعادة تشغيله.
+  # لإعادة تفعيله بعد رفع التجميد: احذف سطر profiles ثم `docker compose up -d optimizer`.
   optimizer:
+    profiles: ["disabled"]
     build:
       context: .
       dockerfile: optimizer/Dockerfile
