@@ -44,7 +44,8 @@ async def main():
                 consecutive_errors += 1
                 wait = min(60 * consecutive_errors, 300)
                 logger.error(f"❌ خطأ في Optimizer ({consecutive_errors}): {e}")
-                if consecutive_errors >= 3:
+                # تنبيه عند بلوغ العتبة، ثم إعادة تنبيه كل 12 دورة فاشلة فقط (تفادي عاصفة تنبيهات)
+                if consecutive_errors == 3 or (consecutive_errors > 3 and consecutive_errors % 12 == 0):
                     await send_alert(
                         f"Optimizer فشل {consecutive_errors} مرات متتالية\nالخطأ: {str(e)[:200]}",
                         level='critical', component='Optimizer'
@@ -142,14 +143,18 @@ async def send_optimization_report(stats: dict, weights_updated: int, changes: l
         import aiohttp
         url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
         async with aiohttp.ClientSession() as session:
-            await session.post(url, json={
+            async with session.post(url, json={
                 'chat_id': config.TELEGRAM_CHAT_ID,
                 'text': message,
                 'parse_mode': 'Markdown'
-            }, timeout=aiohttp.ClientTimeout(total=10))
+            }, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    logger.error(f"تقرير Telegram فشل: HTTP {resp.status}")
+                    return
         logger.info("📱 تم إرسال تقرير Optimizer على Telegram")
     except Exception as e:
-        logger.error(f"خطأ في إرسال تقرير Telegram: {e}")
+        # لا نطبع الاستثناء الخام تفادياً لتسريب توكن البوت المُضمَّن في الـURL
+        logger.error(f"خطأ في إرسال تقرير Telegram: {type(e).__name__}")
 
 
 if __name__ == "__main__":

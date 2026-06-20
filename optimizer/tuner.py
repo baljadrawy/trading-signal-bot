@@ -31,6 +31,9 @@ GOOD_AVG_PROFIT    = 1.5    # % — متوسط ربح جيد
 
 class ParameterTuner:
 
+    def __init__(self):
+        self._table_ensured = False
+
     async def auto_tune(self, stats: Dict) -> List[str]:
         """
         يحلل الإحصائيات ويعدّل الإعدادات إذا لزم.
@@ -141,7 +144,9 @@ class ParameterTuner:
         """, key, value)
 
     async def _ensure_settings_table(self):
-        """إنشاء جدول الإعدادات إذا لم يوجد"""
+        """إنشاء جدول الإعدادات إذا لم يوجد (مرة واحدة لكل نسخة tuner)"""
+        if self._table_ensured:
+            return
         await Database.execute("""
             CREATE TABLE IF NOT EXISTS optimizer_settings (
                 id         SERIAL PRIMARY KEY,
@@ -159,3 +164,4 @@ class ParameterTuner:
                 ('min_timeframe_confirmations', '2')
             ON CONFLICT (key) DO NOTHING
         """)
+        self._table_ensured = True

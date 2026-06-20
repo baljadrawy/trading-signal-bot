@@ -15,6 +15,10 @@ MIN_WEIGHT = 0.0
 MAX_WEIGHT = 2.5
 # الحد الأدنى للصفقات لحساب وزن مؤشر معين
 MIN_SAMPLES_PER_INDICATOR = 20
+# الحد الأدنى لعيّنة حالة السوق قبل اعتبارها "أفضل حالة" في التقرير
+MIN_CONDITION_SAMPLES = 10
+# مفاتيح في score_details ليست مؤشرات (تُحقَن لأغراض أخرى) — تُستبعَد من حساب الأوزان
+NON_INDICATOR_KEYS = {'timeframe_confirmations'}
 
 # أوزان محمية — الأوبتيمايزر لا يلمسها بغض النظر عن البيانات.
 # rsi_divergence في sideways ثبت بحافة حقيقية (WR 60%، expectancy +3.67%)
@@ -50,8 +54,10 @@ class PerformanceAnalyzer:
             AND s.signal_time >= $1
         """, STRATEGY_REBUILD_AT)
 
-        total = int(row['total_trades'] or 0)
-        wins  = int(row['wins'] or 0)
+        total   = int(row['total_trades'] or 0)
+        wins    = int(row['wins'] or 0)
+        losses  = int(row['losses'] or 0)
+        decided = wins + losses
 
         # أفضل حالة سوق
         best_row = await Database.fetchrow("""
@@ -64,15 +70,16 @@ class PerformanceAnalyzer:
             AND tr.exit_time > NOW() - INTERVAL '30 days'
             AND s.signal_time >= $1
             GROUP BY s.market_condition
+            HAVING COUNT(*) >= $2
             ORDER BY wr DESC
             LIMIT 1
-        """, STRATEGY_REBUILD_AT)
+        """, STRATEGY_REBUILD_AT, MIN_CONDITION_SAMPLES)
 
         return {
             'total_trades': total,
             'wins': wins,
-            'losses': int(row['losses'] or 0),
-            'win_rate': (wins / total * 100) if total > 0 else 0,
+            'losses': losses,
+            'win_rate': (wins / decided * 100) if decided > 0 else 0,
             'avg_profit': float(row['avg_profit'] or 0),
             'avg_win': float(row['avg_win'] or 0),
             'avg_loss': float(row['avg_loss'] or 0),
@@ -144,6 +151,8 @@ class PerformanceAnalyzer:
                 continue
 
             for indicator, value in details.items():
+                if indicator in NON_INDICATOR_KEYS:
+                    continue
                 if isinstance(value, (list, str)):
                     continue
                 try:
@@ -206,20 +215,28 @@ class PerformanceAnalyzer:
                     )
                 new_weight = protected_val
 
-            await Database.execute("""
+            status = await Database.execute("""
                 UPDATE indicator_weights
                 SET weight       = $1,
                     success_rate = $2,
                     last_updated = NOW()
                 WHERE indicator_name    = $3
                 AND   market_condition  = $4
+                AND   (weight IS DISTINCT FROM $1 OR success_rate IS DISTINCT FROM $2)
             """, new_weight, round(success_when_active, 4), indicator, condition)
 
-            logger.debug(
-                f"⚖️ {indicator}/{condition}: "
-                f"PnL_active={pnl_active:.2f}% وزن={new_weight}"
-            )
-            updated += 1
+            # asyncpg يُعيد حالة مثل "UPDATE 1"؛ نَعُدّ الأوزان المتغيّرة فعلاً فقط (لا إعادات
+            # كتابة بنفس القيمة) حتى لا يُرسَل تقرير تيليغرام في دورة بلا أي تغيير حقيقي.
+            try:
+                changed = int(str(status).split()[-1])
+            except (ValueError, IndexError):
+                changed = 0
+            if changed:
+                logger.debug(
+                    f"⚖️ {indicator}/{condition}: "
+                    f"PnL_active={pnl_active:.2f}% وزن={new_weight}"
+                )
+                updated += changed
 
         return updated
 
