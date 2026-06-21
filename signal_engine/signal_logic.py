@@ -52,23 +52,29 @@ class SignalEngine:
 
     async def _is_global_loss_cooldown(self) -> bool:
         """
-        Cooldown 6 ساعات — يُطلق فقط عند stop_hit=true (ضربة SL حقيقية):
-        - stop_hit=true  → السوق أسقط الـ SL → خطر فعلي → freeze 6h
+        Cooldown بعد ضربة SL حقيقية (المدّة = config.GLOBAL_LOSS_COOLDOWN_HOURS ساعة):
+        - stop_hit=true  → السوق أسقط الـ SL → خطر فعلي → freeze
         - stop_hit=false → expire 48h أو forced close → ليست إشارة انعكاس سوقي حاد
         الهدف: منع الدخول في سلسلة SL خلال نفس الشروط السوقية السيئة،
                دون تجميد البوت بعد خسارة expire رمزية كـ -$0.91 (حادثة SPKUSDT 2026-05-14).
-        ملاحظة: نستخدم NOW() - INTERVAL في SQL مباشرة لتجنب مشكلة timezone مع PostgreSQL.
+        تعطيل: GLOBAL_LOSS_COOLDOWN_HOURS=0 (عُطّل 2026-06-20 في paper لزيادة الإشارات
+               وإزالة تحيّز انتقاء البيانات — الكول داون كان يحجب ~25% من الوقت).
+        ملاحظة: make_interval لتمرير المدّة بأمان وتجنب مشكلة timezone مع PostgreSQL.
         """
+        hours = config.GLOBAL_LOSS_COOLDOWN_HOURS
+        if hours <= 0:
+            return False
         try:
             row = await Database.fetchrow(
                 """SELECT id FROM trade_results
                    WHERE result = 'LOSS'
                    AND stop_hit = true
-                   AND exit_time > NOW() - INTERVAL '6 hours'
-                   LIMIT 1"""
+                   AND exit_time > NOW() - make_interval(hours => $1)
+                   LIMIT 1""",
+                hours
             )
             if row:
-                logger.info("⏸️ Cooldown نشط: SL hit في آخر 6 ساعات — إيقاف الإشارات مؤقتاً")
+                logger.info(f"⏸️ Cooldown نشط: SL hit في آخر {hours} ساعات — إيقاف الإشارات مؤقتاً")
                 return True
             return False
         except Exception as e:
@@ -325,6 +331,16 @@ class SignalEngine:
                         f"(overbought: بيانات n=251 تُظهر WR عكسي في 1d عند score>=4)"
                     )
                     continue
+
+            # ══ بوابة stoch>0 — رُفع التجميد جزئياً لهذا التغيير (2026-06-20، بطلب المستخدم) ══
+            # البيانات (n=80 post-freeze): stoch>0 → n=28 WR=46.4% +5.25% (gross)
+            #                              stoch=0 → n=52 WR=21.2% -55.67% ← ~كل النزيف
+            #   منه div>0 & stoch=0 = 45 صفقة -54.39% (إشارات divergence بلا تأكيد stoch)
+            # الحافة الناجية من الرسوم = COMBO (stoch>0 & div>0): WR=71% +2.7%/صفقة
+            stoch_contrib = float(top_data.get('score_details', {}).get('stoch_rsi', 0) or 0)
+            if stoch_contrib <= 0:
+                logger.debug(f"⏭️ رفض {symbol} - بوابة stoch>0 (تاريخياً stoch=0 → WR=21% -55%)")
+                continue
 
             # ملاحظة RSI filter (محذوف — 2026-05-17):
             # بيانات: rsi>=1.2 → WR=60% (n=35)، لكن Walk-Forward أثبت أن كل الـ 35 صفقة

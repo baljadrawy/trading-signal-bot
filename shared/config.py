@@ -49,6 +49,9 @@ class Config:
     MAX_DAILY_LOSS_PERCENT: float = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '3'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '3'))
     MAX_OPEN_TRADES: int = int(os.getenv('MAX_OPEN_TRADES', '10'))  # 0 = بلا حد
+    # Cooldown عام بعد ضربة SL حقيقية (ساعات). 0 = معطّل.
+    # عُطّل 2026-06-20 (paper trading) لزيادة عدد الإشارات وإزالة تحيّز انتقاء البيانات.
+    GLOBAL_LOSS_COOLDOWN_HOURS: int = int(os.getenv('GLOBAL_LOSS_COOLDOWN_HOURS', '6'))
 
     # المؤشرات
     RSI_PERIOD: int = 14
