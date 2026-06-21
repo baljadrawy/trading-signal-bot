@@ -155,14 +155,15 @@ REASON: [سبب محدد بجملة واحدة، اذكر الرقم إذا رف
 
     except Exception as e:
         logger.error(f"خطأ في مراجعة الإشارة {signal['id']}: {e}")
-        # fail-open: عند فشل CLI نوافق على الإشارة (لتجنب توقف البوت)
+        # fail-closed: عند فشل CLI نرفض الإشارة (الأمان أولاً — لا تداول على إشارة غير مُراجَعة).
+        # كتابة claude_comment تمنع إعادة التقاطها في الـloop؛ claude_approved=false يمنع إرسالها.
         await Database.execute(
-            "UPDATE signals SET claude_approved = true, claude_comment = $1 WHERE id = $2",
-            f'موافقة تلقائية - فشل CLI: {str(e)[:100]}',
+            "UPDATE signals SET claude_approved = false, claude_comment = $1 WHERE id = $2",
+            f'رفض تلقائي - فشل المراجعة (fail-closed): {str(e)[:100]}',
             signal['id']
         )
         await send_alert(
-            f"Claude Review CLI failure — موافقة تلقائية على {signal['symbol']}\nالخطأ: {str(e)[:150]}",
+            f"Claude Review CLI failure — رفض تلقائي (fail-closed) على {signal['symbol']}\nالخطأ: {str(e)[:150]}",
             level='warning', component='ClaudeReview'
         )
 

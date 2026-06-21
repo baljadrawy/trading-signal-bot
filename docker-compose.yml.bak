@@ -1,0 +1,224 @@
+# يعمل على: Raspberry Pi 4 (arm64) و Hetzner VPS (amd64)
+# ملاحظة: postgres يعمل كخدمة مشتركة في /home/tradmin/shared-postgres
+
+networks:
+  trading_network:
+    driver: bridge
+  shared_db_net:
+    external: true
+
+volumes:
+  models_data:
+  logs_data:
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ==================== Scanner ====================
+  scanner:
+    build:
+      context: .
+      dockerfile: scanner/Dockerfile
+    container_name: trading_scanner
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./scanner:/app
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import asyncpg' && grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+
+  # ==================== Analyzer ====================
+  analyzer:
+    build:
+      context: .
+      dockerfile: analyzer/Dockerfile
+    container_name: trading_analyzer
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./analyzer:/app
+      - models_data:/app/models
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.5'
+
+  # ==================== Signal Engine ====================
+  signal_engine:
+    build:
+      context: .
+      dockerfile: signal_engine/Dockerfile
+    container_name: trading_signal_engine
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./signal_engine:/app
+      - models_data:/app/models
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+
+  # ==================== Claude Review ====================
+  claude_review:
+    build:
+      context: .
+      dockerfile: claude_review/Dockerfile
+    container_name: trading_claude_review
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    environment:
+      # نلغي ANTHROPIC_API_KEY حتى يستخدم claude CLI الـ OAuth token من .credentials.json
+      ANTHROPIC_API_KEY: ""
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./claude_review:/app
+      - /home/tradmin/.claude:/root/.claude:ro
+      - /home/tradmin/.claude.json:/root/.claude.json:ro
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ==================== Trade Tracker ====================
+  trade_tracker:
+    build:
+      context: .
+      dockerfile: trade_tracker/Dockerfile
+    container_name: trading_tracker
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./trade_tracker:/app
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ==================== Optimizer Agent ====================
+  # DISABLED 2026-06-19 أثناء تجميد الاستراتيجية (منذ 2026-05-17).
+  # المحسن كان يعدّل indicator_weights/optimizer_settings حياً كل ساعة — مخالف لبند التجميد.
+  # profiles=["disabled"] يمنع `docker compose up -d` من إعادة تشغيله.
+  # لإعادة تفعيله بعد رفع التجميد: احذف سطر profiles ثم `docker compose up -d optimizer`.
+  optimizer:
+    profiles: ["disabled"]
+    build:
+      context: .
+      dockerfile: optimizer/Dockerfile
+    container_name: trading_optimizer
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./optimizer:/app/optimizer
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # ==================== Telegram ====================
+  telegram:
+    build:
+      context: .
+      dockerfile: telegram/Dockerfile
+    container_name: trading_telegram
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: .env
+    volumes:
+      - logs_data:/app/logs
+      - ./shared:/app/shared
+      - ./telegram:/app
+    networks:
+      - trading_network
+      - shared_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m

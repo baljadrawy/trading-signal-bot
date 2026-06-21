@@ -5,6 +5,7 @@ import asyncio
 import sys
 import json
 from datetime import datetime
+from functools import wraps
 sys.path.append('/app')
 
 from telegram import Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,6 +18,29 @@ from shared.retry_utils import format_error, is_network_error, compute_backoff, 
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
+
+
+def restricted(func):
+    """حارس صلاحيات: يرفض أي أمر/زر من غير صاحب البوت (TELEGRAM_CHAT_ID).
+
+    يتجاهل الدخيل بصمت (لا يردّ عليه حتى لا يكشف وجود البوت) ويسجّل المحاولة.
+    """
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        chat_id = str(chat.id) if chat else None
+        if not config.TELEGRAM_CHAT_ID or chat_id != str(config.TELEGRAM_CHAT_ID):
+            user = update.effective_user
+            uname = f"@{user.username}" if user and user.username else (
+                str(user.id) if user else "?")
+            logger.warning(
+                f"🚫 محاولة وصول غير مصرّح بها — chat_id={chat_id} user={uname} "
+                f"handler={func.__name__}"
+            )
+            return
+        return await func(update, context)
+    return wrapper
+
 
 MARKET_CONDITION_AR = {
     'bullish': 'صاعد 📈',
@@ -198,6 +222,7 @@ async def send_approval_request(bot: Bot, signal: dict):
         logger.error(f"❌ خطأ في إرسال طلب الموافقة: {e}")
 
 
+@restricted
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة ضغط أزرار الموافقة/الرفض"""
     query = update.callback_query
@@ -287,6 +312,7 @@ async def get_current_price(symbol: str) -> float:
 
 # ==================== أوامر التحكم ====================
 
+@restricted
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Trading Signal Bot\n\n"
@@ -298,6 +324,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/resume   - استئناف"
     )
 
+@restricted
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     risk = await Database.fetchrow(
         "SELECT * FROM risk_management WHERE date = CURRENT_DATE"
@@ -332,6 +359,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏳ طلبات معلّقة: {pending}"
     )
 
+@restricted
 async def cmd_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mgr = WhitelistManager()
     symbols = await mgr.get_all()
@@ -345,6 +373,7 @@ async def cmd_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines)
     )
 
+@restricted
 async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mgr = BlacklistManager()
     symbols = await mgr.get_all()
@@ -359,6 +388,7 @@ async def cmd_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\n\nللإزالة: /remove_blacklist SYMBOL"
     )
 
+@restricted
 async def cmd_remove_blacklist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إزالة عملة من القائمة السوداء — /remove_blacklist BTCUSDT"""
     if not context.args:
@@ -377,6 +407,7 @@ async def cmd_remove_blacklist(update: Update, context: ContextTypes.DEFAULT_TYP
         f"سيبدأ البوت بتحليلها مجدداً في الدورة القادمة"
     )
 
+@restricted
 async def cmd_remove_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إزالة عملة من القائمة البيضاء ونقلها للسوداء — /remove_whitelist BTCUSDT"""
     if not context.args:
@@ -399,6 +430,7 @@ async def cmd_remove_whitelist(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+@restricted
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await Database.execute("""
         UPDATE risk_management SET is_trading_paused = true, pause_reason = 'إيقاف يدوي'
@@ -406,6 +438,7 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """)
     await update.message.reply_text("⏸️ تم إيقاف البوت مؤقتاً")
 
+@restricted
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await Database.execute("""
         UPDATE risk_management SET is_trading_paused = false, pause_reason = NULL
@@ -413,6 +446,7 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """)
     await update.message.reply_text("▶️ تم استئناف البوت")
 
+@restricted
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = await Database.fetchrow("""
         SELECT
@@ -434,6 +468,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== بناء الرسائل ====================
 
+@restricted
 async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نتائج آخر الصفقات المسجلة"""
     # الصفقات المغلقة
@@ -542,6 +577,7 @@ def build_approval_message(signal: dict) -> str:
         f"{'─'*30}"
     )
 
+@restricted
 async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """أداء Claude ونسبة القبول/الرفض"""
     total = await Database.fetchval("SELECT COUNT(*) FROM signals") or 0
@@ -577,6 +613,7 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@restricted
 async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """آخر 5 إشارات مع حالتها"""
     signals = await Database.fetch("""
@@ -605,6 +642,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+@restricted
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ملخص يومي كامل"""
     risk = await Database.fetchrow(

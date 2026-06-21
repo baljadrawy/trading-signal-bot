@@ -50,3 +50,5 @@ colab/token.json
 analyzer/bt_data/
 analyzer/bt_symbols.txt
 bt_data/
+.env.binance
+.env.bak.*

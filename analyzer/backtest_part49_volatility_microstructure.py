@@ -47,15 +47,15 @@ async def analyze_volatility_patterns():
     for row in rows:
         try:
             # Get candles around entry time
-            candle_rows = await Database.fetch(f"""
+            candle_rows = await Database.fetch("""
                 SELECT open, high, low, close, volume
                 FROM candles
-                WHERE symbol = '{row['symbol']}'
-                AND timeframe = '{row['timeframe']}'
-                AND open_time <= '{row['signal_time']}'
+                WHERE symbol = $1
+                AND timeframe = $2
+                AND open_time <= $3
                 ORDER BY open_time DESC
                 LIMIT 20
-            """)
+            """, row['symbol'], row['timeframe'], row['signal_time'])
 
             if len(candle_rows) < 2:
                 continue

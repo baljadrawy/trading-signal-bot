@@ -23,10 +23,10 @@ async def get_recent_trades(days=14):
         id, symbol, entry_price, exit_price, result, profit_usdt,
         duration_hours, stop_hit, exit_time, target_reached
     FROM trade_results
-    WHERE exit_time > NOW() - INTERVAL '%s days'
+    WHERE exit_time > NOW() - ($1 * INTERVAL '1 day')
     ORDER BY exit_time DESC
     """
-    return await Database.fetch(query % days)
+    return await Database.fetch(query, days)
 
 
 async def get_all_trades_since_freeze():

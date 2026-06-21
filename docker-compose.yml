@@ -27,7 +27,9 @@ services:
     container_name: trading_scanner
     restart: unless-stopped
     logging: *default-logging
-    env_file: .env
+    env_file:
+      - .env
+      - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -55,7 +57,9 @@ services:
     container_name: trading_analyzer
     restart: unless-stopped
     logging: *default-logging
-    env_file: .env
+    env_file:
+      - .env
+      - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -121,8 +125,8 @@ services:
       - logs_data:/app/logs
       - ./shared:/app/shared
       - ./claude_review:/app
-      - /home/tradmin/.claude:/root/.claude:ro
-      - /home/tradmin/.claude.json:/root/.claude.json:ro
+      - /home/tradmin/.claude:/home/appuser/.claude:ro
+      - /home/tradmin/.claude.json:/home/appuser/.claude.json:ro
     networks:
       - trading_network
       - shared_db_net

@@ -14,4 +14,10 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 COPY shared/ ./shared/
 COPY signal_engine/ ./
 
+# مستخدم غير-root (uid 1000 يطابق tradmin على المضيف لصلاحيات الـ bind mounts)
+RUN useradd -u 1000 -m appuser \
+    && mkdir -p /app/logs /app/models \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "-u", "main.py"]

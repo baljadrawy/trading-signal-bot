@@ -40,7 +40,7 @@ async def check_available_tables():
     # Audit each table for relevant columns
     for table in tables:
         try:
-            cols_result = await Database.fetch(f"SELECT column_name FROM information_schema.columns WHERE table_name='{table}'")
+            cols_result = await Database.fetch("SELECT column_name FROM information_schema.columns WHERE table_name=$1", table)
             cols = [c['column_name'] for c in cols_result]
             logger.info(f"\n{table}: {', '.join(cols[:10])}" + ("..." if len(cols) > 10 else ""))
         except:

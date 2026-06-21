@@ -26,4 +26,11 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 COPY shared/ ./shared/
 COPY claude_review/ ./
 
+# مستخدم غير-root + HOME لأجل اعتمادات claude CLI (.claude مركّبة على /home/appuser)
+RUN useradd -u 1000 -m appuser \
+    && mkdir -p /app/logs \
+    && chown -R appuser:appuser /app
+ENV HOME=/home/appuser
+USER appuser
+
 CMD ["python", "-u", "main.py"]
