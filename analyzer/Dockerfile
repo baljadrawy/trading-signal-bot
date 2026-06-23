@@ -1,5 +1,6 @@
 # يدعم: linux/amd64 (Hetzner VPS) و linux/arm64 (Raspberry Pi 4)
-FROM python:3.11-slim
+# ⬆️ 2026-06-23: رُقّي لـ3.12 (الأنلايزر فقط) لدعم pandas_ta 0.4.71b0 (يتطلب py>=3.12، pandas>=3، numpy>=2)
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -1,0 +1,95 @@
+{
+  "coverage": {
+    "total_trades": 2518,
+    "covered_1h_intrabar": 298,
+    "pct_covered": 11.8,
+    "n_no_ohlc": 2192,
+    "n_signal_after_data": 28,
+    "n_too_few_bars": 0,
+    "covered_WR_%": 38.59,
+    "symbols": 37,
+    "months": {
+      "2026-04": 278,
+      "2026-05": 20
+    }
+  },
+  "sanity_replay_fixed_vs_recorded": {
+    "net_corr": 0.504,
+    "win_agreement": 0.792,
+    "note": "fixed-replay uses scaled 1/3 exits + BE ratchet, so it is NOT identical to the bot's recorded dynamic policy; corr/agreement gauge replay fidelity."
+  },
+  "rules": {
+    "fixed": {
+      "n": 298,
+      "net_exp": 0.0568,
+      "gross_exp": 0.2068,
+      "WR_%": 43.29,
+      "PF_net": 1.071,
+      "total_net": 16.94,
+      "sl_before_t1_%": 29.87
+    },
+    "atr2.0": {
+      "n": 298,
+      "net_exp": 0.0747,
+      "gross_exp": 0.2247,
+      "WR_%": 47.32,
+      "PF_net": 1.094,
+      "total_net": 22.26,
+      "sl_before_t1_%": 18.79
+    },
+    "atr2.5": {
+      "n": 298,
+      "net_exp": 0.0506,
+      "gross_exp": 0.2006,
+      "WR_%": 48.32,
+      "PF_net": 1.062,
+      "total_net": 15.08,
+      "sl_before_t1_%": 13.09
+    },
+    "atr3.0": {
+      "n": 298,
+      "net_exp": 0.1052,
+      "gross_exp": 0.2552,
+      "WR_%": 50.0,
+      "PF_net": 1.132,
+      "total_net": 31.35,
+      "sl_before_t1_%": 9.73
+    },
+    "atr2.0_d4": {
+      "n": 298,
+      "net_exp": 0.1088,
+      "gross_exp": 0.2588,
+      "WR_%": 47.99,
+      "PF_net": 1.14,
+      "total_net": 32.41,
+      "sl_before_t1_%": 15.44
+    },
+    "atr2.5_d4": {
+      "n": 298,
+      "net_exp": 0.0718,
+      "gross_exp": 0.2218,
+      "WR_%": 48.66,
+      "PF_net": 1.088,
+      "total_net": 21.39,
+      "sl_before_t1_%": 11.74
+    },
+    "atr3.0_d4": {
+      "n": 298,
+      "net_exp": 0.1286,
+      "gross_exp": 0.2786,
+      "WR_%": 50.34,
+      "PF_net": 1.162,
+      "total_net": 38.32,
+      "sl_before_t1_%": 9.06
+    },
+    "RECORDED(baseline)": {
+      "n": 298,
+      "net_exp": -0.211,
+      "gross_exp": -0.061,
+      "WR_%": 38.59,
+      "PF_net": 0.694,
+      "total_net": -62.87,
+      "sl_before_t1_%": null
+    }
+  }
+}

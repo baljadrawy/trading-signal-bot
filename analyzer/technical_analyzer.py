@@ -5,6 +5,10 @@
 import pandas as pd
 import numpy as np
 import ta
+try:
+    import pandas_ta as pta  # المحرك الأساسي للمؤشرات الإضافية (feature store)؛ fallback إلى ta لو فشل
+except Exception:
+    pta = None
 from typing import Dict, Optional
 from binance import AsyncClient
 from shared.config import config
@@ -35,12 +39,17 @@ class TechnicalAnalyzer:
             ema200_val = df['ema200'].iloc[-1]
             trend_ok = bool(not pd.isna(ema200_val) and last_close > float(ema200_val))
 
+            # لقطة الميزات الخام (feature store — تدقيق 2026-06-23): قيم المؤشرات الفعلية وقت الإشارة،
+            # لا النقاط المبوّبة. تُمكّن بحث ML نزيهاً لاحقاً على ميزات خام (score_details المبوّبة AUC=0.50).
+            features = self._raw_features(df)
+
             return {
                 'symbol': symbol,
                 'timeframe': tf,
                 'market_condition': market_condition,
                 'total_score': scores['total'],
                 'score_details': scores['details'],
+                'features': features,
                 'entry_price': levels['entry'],
                 'target_1': levels['t1'],
                 'target_2': levels['t2'],
@@ -62,8 +71,13 @@ class TechnicalAnalyzer:
             klines = await self.client.get_klines(
                 symbol=symbol,
                 interval=tf,
-                limit=config.CANDLES_TO_FETCH
+                limit=config.CANDLES_TO_FETCH + 1  # +1: نجلب شمعة إضافية لنُسقط الجارية ونُبقي العدد المغلق
             )
+            # ⚠️ إصلاح look-ahead/repaint (تدقيق 2026-06-23): آخر شمعة من get_klines هي الشمعة
+            # الجارية غير المكتملة. حساب المؤشرات عليها يجعل RSI/Stoch/ATR تتغيّر كل لحظة ويخالف
+            # الباكتيست الذي يستخدم شموعاً مغلقة (مصدر فجوة sim/live). نُسقطها لمطابقة الحيّ بالباكتيست.
+            if len(klines) > 1:
+                klines = klines[:-1]
             df = pd.DataFrame(klines, columns=[
                 'open_time', 'open', 'high', 'low', 'close', 'volume',
                 'close_time', 'quote_volume', 'trades', 'taker_buy_base',
@@ -138,6 +152,68 @@ class TechnicalAnalyzer:
         df['volume_ratio'] = df['volume'] / df['volume_ma']
 
         return df
+
+    def _raw_features(self, df: pd.DataFrame) -> Dict:
+        """قيم المؤشرات الخام في آخر شمعة مغلقة — للتخزين كـ feature store (بحث ML مستقبلي)."""
+        last = df.iloc[-1]
+        def f(v):
+            try:
+                v = float(v)
+                return v if v == v else None  # NaN-safe
+            except Exception:
+                return None
+        close = f(last['close'])
+        bb_rng = f(last['bb_upper']) - f(last['bb_lower']) if f(last['bb_upper']) is not None and f(last['bb_lower']) is not None else None
+        feats = {
+            'rsi':         f(last['rsi']),
+            'stoch_k':     f(last['stoch_k']),
+            'stoch_d':     f(last['stoch_d']),
+            'macd_hist':   f(last['macd_hist']),
+            'bb_pos':      (f(last['close']) - f(last['bb_lower'])) / bb_rng if bb_rng and bb_rng > 0 else None,
+            'bb_width':    f(last['bb_width']),
+            'atr_pct':     (f(last['atr']) / close) if close else None,
+            'volume_ratio': f(last['volume_ratio']),
+            'dist_ema20':  ((close - f(last['ema20'])) / close) if close and f(last['ema20']) is not None else None,
+            'dist_ema50':  ((close - f(last['ema50'])) / close) if close and f(last['ema50']) is not None else None,
+            'dist_ema200': ((close - f(last['ema200'])) / close) if close and f(last['ema200']) is not None else None,
+            'obv_vs_ema':  (f(last['obv']) - f(last['obv_ema'])) if f(last['obv']) is not None and f(last['obv_ema']) is not None else None,
+        }
+
+        # مؤشرات خام إضافية للـ feature store فقط (لا تُستخدم في الانتقاء/النقاط).
+        # المحرك الأساسي pandas_ta (مكتبة 150+ مؤشراً)، مع fallback إلى ta لكل مؤشر إن فشل/غاب.
+        # دفاعي بالكامل: أي inf/NaN/خطأ → None؛ وCCI |v|>1000 (سوق مسطّح) → None.
+        def clean(x, bound=None):
+            try:
+                v = float(x.iloc[-1])
+                if not np.isfinite(v):
+                    return None
+                if bound is not None and abs(v) > bound:
+                    return None
+                return round(v, 6)
+            except Exception:
+                return None
+        h, l, c, vol = df['high'], df['low'], df['close'], df['volume']
+        def _adx_pta():
+            r = pta.adx(h, l, c, length=14)
+            return r['ADX_14'] if r is not None and 'ADX_14' in getattr(r, 'columns', []) else None
+        specs = (
+            ('adx14',   _adx_pta,                                  lambda: ta.trend.ADXIndicator(h, l, c, window=14).adx(),                          None),
+            ('cci20',   lambda: pta.cci(h, l, c, length=20),       lambda: ta.trend.CCIIndicator(h, l, c, window=20).cci(),                          1000),
+            ('willr14', lambda: pta.willr(h, l, c, length=14),     lambda: ta.momentum.WilliamsRIndicator(h, l, c, lbp=14).williams_r(),             None),
+            ('roc10',   lambda: pta.roc(c, length=10),             lambda: ta.momentum.ROCIndicator(c, window=10).roc(),                            None),
+            ('mfi14',   lambda: pta.mfi(h, l, c, vol, length=14),  lambda: ta.volume.MFIIndicator(h, l, c, vol, window=14).money_flow_index(),       None),
+            ('cmf20',   lambda: pta.cmf(h, l, c, vol, length=20),  lambda: ta.volume.ChaikinMoneyFlowIndicator(h, l, c, vol, window=20).chaikin_money_flow(), None),
+        )
+        for key, pfn, tfn, bound in specs:
+            val = None
+            if pta is not None:
+                try: val = clean(pfn(), bound)
+                except Exception: val = None
+            if val is None:  # fallback إلى ta
+                try: val = clean(tfn(), bound)
+                except Exception: val = None
+            feats[key] = val
+        return feats
 
     def _detect_rsi_divergence(self, df: pd.DataFrame, lookback: int = 14) -> bool:
         """

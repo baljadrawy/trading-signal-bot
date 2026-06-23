@@ -1,0 +1,139 @@
+{
+  "combo_n": 7,
+  "combo_wr": 0.7142857142857143,
+  "combo_net_exp": 1.1976285714285715,
+  "combo_gross_exp": 1.3476285714285712,
+  "combo_net_total": 8.3834,
+  "combo_pf_net": 3.2956269339248068,
+  "combo_pf_gross": 3.814344103344371,
+  "base_n": 2518,
+  "base_wr": 0.37410643367752183,
+  "base_net_exp": -0.364650357426529,
+  "combo_by_month": [
+    {
+      "month": "2026-05",
+      "n": 5,
+      "wins": 4,
+      "net": 8.7003
+    },
+    {
+      "month": "2026-06",
+      "n": 2,
+      "wins": 1,
+      "net": -0.31689999999999996
+    }
+  ],
+  "combo_by_symbol": [
+    {
+      "symbol": "OPENUSDT",
+      "n": 3,
+      "wins": 2,
+      "net": 4.374
+    },
+    {
+      "symbol": "HBARUSDT",
+      "n": 2,
+      "wins": 2,
+      "net": 4.3263
+    },
+    {
+      "symbol": "BABYUSDT",
+      "n": 1,
+      "wins": 0,
+      "net": -1.7259
+    },
+    {
+      "symbol": "MEGAUSDT",
+      "n": 1,
+      "wins": 1,
+      "net": 1.409
+    }
+  ],
+  "combo_unique_symbols": 4,
+  "loo_drop_biggest_win_net_exp": 0.8722333333333333,
+  "loo_drop_biggest_win_wr": 0.6666666666666666,
+  "loo_drop_top2_net_exp": 0.41668000000000005,
+  "loo_drop_top2_wr": 0.6,
+  "IS_n": 5,
+  "OOS_n": 2,
+  "IS_wr": 0.8,
+  "OOS_wr": 0.5,
+  "IS_net_exp": 1.7400600000000002,
+  "OOS_net_exp": -0.15844999999999998,
+  "OOS_net_total": -0.31689999999999996,
+  "combo_wr_vs_base_binom_p_onesided": 0.07331948744488033,
+  "combo_net_pos_t_p_onesided": 0.10240836089812824,
+  "combo_net_t_stat": 1.422171117020921,
+  "n_pairwise_filters_tested": 37,
+  "combo_rank_by_net_exp_among_pairs": 1,
+  "top5_pairs_by_net_exp": [
+    {
+      "pair": "stoch_rsi&rsi_divergence",
+      "n": 7,
+      "wr": 0.7142857142857143,
+      "net_exp": 1.1976285714285715,
+      "net_total": 8.3834
+    },
+    {
+      "pair": "macd&bollinger",
+      "n": 211,
+      "wr": 0.4218009478672986,
+      "net_exp": 0.09286445497630333,
+      "net_total": 19.594400000000004
+    },
+    {
+      "pair": "fibonacci&rsi_divergence",
+      "n": 29,
+      "wr": 0.3793103448275862,
+      "net_exp": 0.0038137931034483152,
+      "net_total": 0.11060000000000114
+    },
+    {
+      "pair": "rsi&rsi_divergence",
+      "n": 40,
+      "wr": 0.4,
+      "net_exp": -0.04244000000000001,
+      "net_total": -1.6976000000000004
+    },
+    {
+      "pair": "volume&bollinger",
+      "n": 225,
+      "wr": 0.37333333333333335,
+      "net_exp": -0.20369066666666666,
+      "net_total": -45.8304
+    }
+  ],
+  "n_pairs_with_positive_net_exp": 3,
+  "combo_DSR_runnable": false,
+  "combo_DSR_note": "n=7 < 10: DSR cannot run (insufficient backtest length)",
+  "sens_stoch_only": {
+    "n": 1108,
+    "wr": 0.38086642599277976,
+    "net_exp": -0.3220319494584838
+  },
+  "sens_div_only": {
+    "n": 55,
+    "wr": 0.2909090909090909,
+    "net_exp": -0.37575454545454545
+  },
+  "sens_div_any": {
+    "n": 62,
+    "wr": 0.3387096774193548,
+    "net_exp": -0.19811451612903233
+  },
+  "sens_stoch_any": {
+    "n": 1115,
+    "wr": 0.3829596412556054,
+    "net_exp": -0.3124914798206278
+  },
+  "sens_neither": {
+    "n": 1348,
+    "wr": 0.3701780415430267,
+    "net_exp": -0.4073405786350148
+  },
+  "combo_wr_wilson_ci": [
+    0.35892909014821267,
+    0.9177828342909844
+  ],
+  "combo_wr_ci_lower_above_base": false
+}

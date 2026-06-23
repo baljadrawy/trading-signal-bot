@@ -1,0 +1,198 @@
+{
+  "combo_n": 7,
+  "combo_wr": 0.7142857142857143,
+  "combo_gross_exp": 1.3476285714285712,
+  "combo_net_exp": 1.1976285714285715,
+  "combo_pf_net": 3.2956269339248068,
+  "combo_net_total": 8.3834,
+  "combo_trades": [
+    {
+      "date": "2026-05-18 10:29:50.479204+00:00",
+      "symbol": "OPENUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": 3.3,
+      "net_usdt": 3.15,
+      "result": "WIN",
+      "month": "2026-05"
+    },
+    {
+      "date": "2026-05-18 13:05:56.439472+00:00",
+      "symbol": "OPENUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": 3.3,
+      "net_usdt": 3.15,
+      "result": "WIN",
+      "month": "2026-05"
+    },
+    {
+      "date": "2026-05-18 19:28:14.225597+00:00",
+      "symbol": "OPENUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": -1.776,
+      "net_usdt": -1.926,
+      "result": "LOSS",
+      "month": "2026-05"
+    },
+    {
+      "date": "2026-05-28 20:53:49.077669+00:00",
+      "symbol": "HBARUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": 1.3263,
+      "net_usdt": 1.1763,
+      "result": "WIN",
+      "month": "2026-05"
+    },
+    {
+      "date": "2026-05-29 11:44:05.892616+00:00",
+      "symbol": "HBARUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": 3.3,
+      "net_usdt": 3.15,
+      "result": "WIN",
+      "month": "2026-05"
+    },
+    {
+      "date": "2026-06-05 21:01:35.762975+00:00",
+      "symbol": "BABYUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": -1.5759,
+      "net_usdt": -1.7259,
+      "result": "LOSS",
+      "month": "2026-06"
+    },
+    {
+      "date": "2026-06-20 11:11:28.268061+00:00",
+      "symbol": "MEGAUSDT",
+      "market_condition": "sideways",
+      "timeframe": "1d",
+      "profit_usdt": 1.559,
+      "net_usdt": 1.409,
+      "result": "WIN",
+      "month": "2026-06"
+    }
+  ],
+  "combo_by_month": {
+    "2026-05": {
+      "n": 5,
+      "wins": 4,
+      "wr": 0.8,
+      "net_exp": 1.7400600000000002,
+      "net_total": 8.7003
+    },
+    "2026-06": {
+      "n": 2,
+      "wins": 1,
+      "wr": 0.5,
+      "net_exp": -0.15844999999999998,
+      "net_total": -0.31689999999999996
+    }
+  },
+  "combo_month_hhi": 0.5918367346938775,
+  "combo_month_effective_n": 1.6896551724137931,
+  "combo_n_months": 2,
+  "combo_months_present": [
+    "2026-05",
+    "2026-06"
+  ],
+  "combo_IS_firstmonth": "2026-05",
+  "combo_IS": {
+    "n": 5,
+    "wins": 4,
+    "wr": 0.8,
+    "net_exp": 1.7400600000000002,
+    "net_total": 8.7003
+  },
+  "combo_OOS_latermonths": {
+    "n": 2,
+    "wins": 1,
+    "wr": 0.5,
+    "net_exp": -0.15844999999999998,
+    "net_total": -0.31689999999999996
+  },
+  "combo_dominant_month": "2026-05",
+  "combo_dominant_month_share": 0.7142857142857143,
+  "combo_excluding_dominant_month": {
+    "n": 2,
+    "wins": 1,
+    "wr": 0.5,
+    "net_exp": -0.15844999999999998,
+    "net_total": -0.31689999999999996
+  },
+  "combo_net_exp_boot_mean": 1.1874083657142855,
+  "combo_net_exp_ci95": [
+    -0.41854285714285716,
+    2.6193285714285715
+  ],
+  "combo_net_exp_ci_crosses_zero": true,
+  "combo_gross_exp_ci95": [
+    -0.23995714285714295,
+    2.7693285714285714
+  ],
+  "combo_gross_exp_ci_crosses_zero": true,
+  "combo_binom_k_wins": 5,
+  "combo_binom_n": 7,
+  "combo_binom_base_rate": 0.374,
+  "combo_binom_p_greater": 0.07323376850887088,
+  "combo_binom_significant_p05": false,
+  "combo_binom_p_twosided": 0.1109059120721115,
+  "combo_best_trade": {
+    "date": "2026-05-18 10:29:50.479204+00:00",
+    "symbol": "OPENUSDT",
+    "net_usdt": 3.15,
+    "result": "WIN",
+    "month": "2026-05"
+  },
+  "combo_net_exp_LOO": 0.8722333333333333,
+  "combo_net_exp_LOO_positive": true,
+  "combo_net_total_LOO": 5.2334,
+  "combo_net_exp_LOO_ci95": [
+    -0.7864166666666668,
+    2.530883333333333
+  ],
+  "stoch_pos_n": 1115,
+  "stoch_zero_n": 1403,
+  "stoch_pos_wr": 0.3829596412556054,
+  "stoch_zero_wr": 0.3670705630791162,
+  "stoch_pos_net_exp": -0.3124914798206278,
+  "stoch_zero_net_exp": -0.40610235210263723,
+  "stoch_pos_gross_exp": -0.16249147982062784,
+  "stoch_zero_gross_exp": -0.2561023521026372,
+  "stoch_net_exp_diff": 0.09361087228200943,
+  "stoch_diff_net_exp_ci95": [
+    -0.08451936593430487,
+    0.2740867807117354
+  ],
+  "stoch_diff_ci_crosses_zero": true,
+  "stoch_diff_boot_mean": 0.09327566491589132,
+  "stoch_pos_net_exp_ci95": [
+    -0.4269862713004484,
+    -0.1931344439461884
+  ],
+  "stoch_pos_net_exp_positive": false,
+  "april_n": 2350,
+  "april_stoch_pos_n": 1032,
+  "april_stoch_zero_n": 1318,
+  "april_stoch_pos_wr": 0.3856589147286822,
+  "april_stoch_zero_wr": 0.37025796661608495,
+  "april_stoch_pos_net_exp": -0.3032114341085271,
+  "april_stoch_zero_net_exp": -0.4087338391502276,
+  "april_stoch_diff_net_exp": 0.10552240504170052,
+  "april_stoch_diff_ci95": [
+    -0.07943966823778695,
+    0.2959983290360952
+  ],
+  "april_stoch_diff_ci_crosses_zero": true,
+  "april_combo_n": 0,
+  "april_combo_wr": null,
+  "april_combo_net_exp": null,
+  "verdict_OOS_positive": false,
+  "verdict_LOO_positive": true,
+  "verdict_binom_p05": false,
+  "verdict_all_pass": false
+}

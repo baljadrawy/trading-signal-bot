@@ -1,0 +1,237 @@
+{
+  "FULL_system": {
+    "name": "FULL_system",
+    "n": 2518,
+    "WR": 0.3741,
+    "net_exp_usd": -0.3647,
+    "net_std_usd": 2.379,
+    "PF_net": 0.5978,
+    "sharpe_per_trade": -0.15328,
+    "avg_duration_h": 9.205,
+    "trades_per_year": 951.6,
+    "annualization_factor": 30.849,
+    "sharpe_annualized": -4.7285,
+    "skew": 1.2219,
+    "kurtosis_nonexcess": 23.3047,
+    "p_naive_SR_gt0": 1.0,
+    "PSR_prob_SR_gt0": 0.0,
+    "minTRL_obs_for_p05": null,
+    "minTRL_vs_have": null,
+    "dsr_by_num_trials": {
+      "1": {
+        "expected_max_sr_pt": 0.0,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "10": {
+        "expected_max_sr_pt": 1.5746,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "20": {
+        "expected_max_sr_pt": 1.90071,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "30": {
+        "expected_max_sr_pt": 2.07339,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "40": {
+        "expected_max_sr_pt": 2.18948,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      }
+    }
+  },
+  "stoch_gate_>0": {
+    "name": "stoch_gate_>0",
+    "n": 1115,
+    "WR": 0.383,
+    "net_exp_usd": -0.3125,
+    "net_std_usd": 2.0158,
+    "PF_net": 0.6052,
+    "sharpe_per_trade": -0.15502,
+    "avg_duration_h": 8.176,
+    "trades_per_year": 1071.4,
+    "annualization_factor": 32.732,
+    "sharpe_annualized": -5.0742,
+    "skew": 2.1507,
+    "kurtosis_nonexcess": 24.5884,
+    "p_naive_SR_gt0": 0.99999,
+    "PSR_prob_SR_gt0": 1e-05,
+    "minTRL_obs_for_p05": null,
+    "minTRL_vs_have": null,
+    "dsr_by_num_trials": {
+      "1": {
+        "expected_max_sr_pt": 0.0,
+        "dsr_prob_real": 1e-05,
+        "p_value": 0.99999,
+        "significant_p05": false
+      },
+      "10": {
+        "expected_max_sr_pt": 1.5746,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "20": {
+        "expected_max_sr_pt": 1.90071,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "30": {
+        "expected_max_sr_pt": 2.07339,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      },
+      "40": {
+        "expected_max_sr_pt": 2.18948,
+        "dsr_prob_real": 0.0,
+        "p_value": 1.0,
+        "significant_p05": false
+      }
+    }
+  },
+  "COMBO_stoch&div": {
+    "name": "COMBO_stoch&div",
+    "n": 7,
+    "WR": 0.7143,
+    "net_exp_usd": 1.1976,
+    "net_std_usd": 2.228,
+    "PF_net": 3.2956,
+    "sharpe_per_trade": 0.53753,
+    "avg_duration_h": 6.177,
+    "trades_per_year": 1418.1,
+    "annualization_factor": 37.658,
+    "sharpe_annualized": 20.2424,
+    "skew": -0.5392,
+    "kurtosis_nonexcess": 1.6716,
+    "p_naive_SR_gt0": 0.12753,
+    "PSR_prob_SR_gt0": 0.87247,
+    "minTRL_obs_for_p05": 13.5,
+    "minTRL_vs_have": 1.93,
+    "dsr_by_num_trials": {
+      "1": {
+        "expected_max_sr_pt": 0.0,
+        "dsr_prob_real": 0.91833,
+        "p_value": 0.08167,
+        "significant_p05": false
+      },
+      "10": {
+        "expected_max_sr_pt": 1.5746,
+        "dsr_prob_real": 0.00358,
+        "p_value": 0.99642,
+        "significant_p05": false
+      },
+      "20": {
+        "expected_max_sr_pt": 1.90071,
+        "dsr_prob_real": 0.0002,
+        "p_value": 0.9998,
+        "significant_p05": false
+      },
+      "30": {
+        "expected_max_sr_pt": 2.07339,
+        "dsr_prob_real": 3e-05,
+        "p_value": 0.99997,
+        "significant_p05": false
+      },
+      "40": {
+        "expected_max_sr_pt": 2.18948,
+        "dsr_prob_real": 1e-05,
+        "p_value": 0.99999,
+        "significant_p05": false
+      }
+    }
+  },
+  "_single_gate_family": {
+    "obv": {
+      "n": 1928,
+      "WR": 0.3791,
+      "net_exp": -0.4068,
+      "sharpe_pt": -0.16625
+    },
+    "rsi": {
+      "n": 1923,
+      "WR": 0.3822,
+      "net_exp": -0.2862,
+      "sharpe_pt": -0.13656
+    },
+    "macd": {
+      "n": 1258,
+      "WR": 0.3736,
+      "net_exp": -0.4533,
+      "sharpe_pt": -0.16866
+    },
+    "volume": {
+      "n": 1036,
+      "WR": 0.36,
+      "net_exp": -0.5393,
+      "sharpe_pt": -0.18291
+    },
+    "bollinger": {
+      "n": 1337,
+      "WR": 0.3762,
+      "net_exp": -0.2431,
+      "sharpe_pt": -0.12358
+    },
+    "ema_cross": {
+      "n": 1434,
+      "WR": 0.3828,
+      "net_exp": -0.4585,
+      "sharpe_pt": -0.17447
+    },
+    "fibonacci": {
+      "n": 120,
+      "WR": 0.3417,
+      "net_exp": -0.3632,
+      "sharpe_pt": -0.16621
+    },
+    "stoch_rsi": {
+      "n": 1115,
+      "WR": 0.383,
+      "net_exp": -0.3125,
+      "sharpe_pt": -0.15502
+    },
+    "order_book": {
+      "n": 2462,
+      "WR": 0.3745,
+      "net_exp": -0.361,
+      "sharpe_pt": -0.15162
+    },
+    "rsi_divergence": {
+      "n": 62,
+      "WR": 0.3387,
+      "net_exp": -0.1981,
+      "sharpe_pt": -0.09258
+    }
+  },
+  "_family_size_observed": 10,
+  "_family_positive_sharpe_gates": [],
+  "_verdict": {
+    "combo_sharpe_pt": 0.53753,
+    "combo_sharpe_ann": 20.2424,
+    "combo_DSR_p_at_N20": 0.9998,
+    "combo_significant_at_N20_p05": false,
+    "combo_minTRL_obs": 13.5,
+    "combo_have_n": 7
+  },
+  "_robustness_combo": {
+    "bootstrap_p_mean_net_gt0_onesided": 0.0557,
+    "binom_5of7_vs_baseWR0.374": 0.0732,
+    "binom_5of7_vs_0.5": 0.2266,
+    "PSR_prob_SR_gt0": 0.87247,
+    "p_naive_SR_gt0": 0.12753,
+    "deflated_minTRL_N1_obs": 13.5,
+    "deflated_minTRL_N10plus": "INFEASIBLE: SR_pt 0.538 < E[max under null] 1.575 (N=10) .. 2.19 (N=40)",
+    "note": "COMBO SR fails alpha=0.05 even un-deflated; INFEASIBLE to ever clear deflation hurdle for N>=10"
+  }
+}

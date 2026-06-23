@@ -1,0 +1,118 @@
+{
+  "task": "X_ATR exit re-simulation",
+  "coverage": {
+    "total": 2518,
+    "covered_1h_intrabar": 298,
+    "pct": 11.8,
+    "symbols": 37,
+    "months": {
+      "2026-04": 278,
+      "2026-05": 20
+    },
+    "WARNING": "50.6% of covered trades closed <1h, 40% <15min; 1h bars CANNOT replay these"
+  },
+  "optimistic_high_touch_fill": {
+    "fixed": {
+      "net_exp": 0.0568,
+      "WR": 43.29,
+      "PF": 1.071,
+      "sl_before_t1": 29.87
+    },
+    "atr2.0": {
+      "net_exp": 0.0747,
+      "WR": 47.32,
+      "PF": 1.094,
+      "sl_before_t1": 18.79
+    },
+    "atr2.5": {
+      "net_exp": 0.0506,
+      "WR": 48.32,
+      "PF": 1.062,
+      "sl_before_t1": 13.09
+    },
+    "atr3.0": {
+      "net_exp": 0.1052,
+      "WR": 50.0,
+      "PF": 1.132,
+      "sl_before_t1": 9.73
+    },
+    "atr3.0_d4": {
+      "net_exp": 0.1286,
+      "WR": 50.34,
+      "PF": 1.162,
+      "sl_before_t1": 9.06
+    },
+    "RECORDED": {
+      "net_exp": -0.211,
+      "WR": 38.59,
+      "PF": 0.694
+    }
+  },
+  "pessimistic_close_only_fill_FULL_n298": {
+    "fixed": {
+      "net_exp": 0.038,
+      "PF": 1.045
+    },
+    "atr2.0": {
+      "net_exp": -0.0777,
+      "PF": 0.91
+    },
+    "atr2.5": {
+      "net_exp": -0.1038,
+      "PF": 0.885
+    },
+    "atr3.0": {
+      "net_exp": -0.0492,
+      "PF": 0.944
+    },
+    "RECORDED": {
+      "net_exp": -0.211,
+      "PF": 0.694
+    }
+  },
+  "faithful_subset_dur_ge_2h_n123_close_fill": {
+    "fixed": {
+      "net_exp": 0.1818,
+      "WR": 55.3,
+      "PF": 1.266
+    },
+    "atr2.0": {
+      "net_exp": 0.2124,
+      "PF": 1.346
+    },
+    "atr3.0": {
+      "net_exp": 0.2337,
+      "WR": 58.5,
+      "PF": 1.361
+    },
+    "RECORDED": {
+      "net_exp": 0.272,
+      "WR": 52.8,
+      "PF": 1.367
+    }
+  },
+  "duration_attribution_atr3_d4_opt_vs_recorded": {
+    "<1h_n165": {
+      "atr": -0.045,
+      "rec": -0.54,
+      "note": "UNFAITHFUL - source of fake edge"
+    },
+    "1-2h_n10": {
+      "atr": -0.695,
+      "rec": -0.72
+    },
+    "2-6h_n17": {
+      "atr": -0.12,
+      "rec": -0.601
+    },
+    "6-24h_n48": {
+      "atr": 0.565,
+      "rec": 0.654
+    },
+    "24-48h_n58": {
+      "atr": 0.476,
+      "rec": 0.212
+    }
+  },
+  "verdict": "NO fee-surviving ATR edge. Apparent net_exp>0 is a 1h-bar granularity + optimistic-fill artifact concentrated in <1h trades that cannot be replayed. Under pessimistic fills ATR variants go negative (PF<1). On the faithful >=2h subset the RECORDED fixed stop already matches/beats ATR."
+}

@@ -1,0 +1,257 @@
+{
+  "n": 2518,
+  "n_features": 19,
+  "dropped_constant": [
+    "st_btc_trend"
+  ],
+  "WR_all": 0.3741,
+  "net_exp_all": -0.3647,
+  "PF_net_all": 0.598,
+  "embargo_hours": 48.0,
+  "n_folds_run": 5,
+  "models": {
+    "xgboost": {
+      "model": "xgboost",
+      "mean_fold_auc": 0.4873,
+      "pooled_oos_auc": 0.469,
+      "brier": 0.2601,
+      "n_pooled_oos": 1679,
+      "strategy": {
+        "n_taken": 51,
+        "frac_taken": 0.0304,
+        "net_exp": -0.2962,
+        "pf_net": 0.596,
+        "wr": 0.3725,
+        "total_net": -15.11
+      },
+      "folds": [
+        {
+          "fold": 1,
+          "n_train": 0,
+          "n_test": 419,
+          "auc": null,
+          "skipped": true
+        },
+        {
+          "fold": 2,
+          "n_train": 467,
+          "n_test": 420,
+          "auc": 0.5059,
+          "thr": 0.6,
+          "n_taken": 13,
+          "taken_net_exp": 0.5047,
+          "taken_wr": 0.6154,
+          "skipped": false
+        },
+        {
+          "fold": 3,
+          "n_train": 935,
+          "n_test": 420,
+          "auc": 0.4266,
+          "thr": 0.67,
+          "n_taken": 2,
+          "taken_net_exp": -1.7883,
+          "taken_wr": 0.0,
+          "skipped": false
+        },
+        {
+          "fold": 4,
+          "n_train": 971,
+          "n_test": 419,
+          "auc": 0.4701,
+          "thr": 0.68,
+          "n_taken": 6,
+          "taken_net_exp": -0.3159,
+          "taken_wr": 0.1667,
+          "skipped": false
+        },
+        {
+          "fold": 5,
+          "n_train": 1045,
+          "n_test": 420,
+          "auc": 0.5464,
+          "thr": 0.59,
+          "n_taken": 30,
+          "taken_net_exp": -0.5398,
+          "taken_wr": 0.3333,
+          "skipped": false
+        }
+      ],
+      "top_importance": [
+        [
+          "mc_sideways",
+          0.0939
+        ],
+        [
+          "mc_volatile",
+          0.0768
+        ],
+        [
+          "score",
+          0.0678
+        ],
+        [
+          "st_tf_conf",
+          0.0638
+        ],
+        [
+          "tf_1d",
+          0.0632
+        ],
+        [
+          "tf_1h",
+          0.0591
+        ],
+        [
+          "st_bollinger",
+          0.058
+        ],
+        [
+          "st_rsi",
+          0.0567
+        ],
+        [
+          "st_stoch_rsi",
+          0.0565
+        ],
+        [
+          "st_order_book",
+          0.0541
+        ],
+        [
+          "st_macd",
+          0.0539
+        ],
+        [
+          "st_obv",
+          0.0538
+        ]
+      ]
+    },
+    "logistic": {
+      "model": "logistic",
+      "mean_fold_auc": 0.4692,
+      "pooled_oos_auc": 0.4578,
+      "brier": 0.2519,
+      "n_pooled_oos": 1679,
+      "strategy": {
+        "n_taken": 294,
+        "frac_taken": 0.1751,
+        "net_exp": -0.4245,
+        "pf_net": 0.368,
+        "wr": 0.3265,
+        "total_net": -124.8
+      },
+      "folds": [
+        {
+          "fold": 1,
+          "n_train": 0,
+          "n_test": 419,
+          "auc": null,
+          "skipped": true
+        },
+        {
+          "fold": 2,
+          "n_train": 467,
+          "n_test": 420,
+          "auc": 0.4992,
+          "thr": 0.42,
+          "n_taken": 101,
+          "taken_net_exp": -0.1017,
+          "taken_wr": 0.396,
+          "skipped": false
+        },
+        {
+          "fold": 3,
+          "n_train": 935,
+          "n_test": 420,
+          "auc": 0.4457,
+          "thr": 0.4,
+          "n_taken": 95,
+          "taken_net_exp": -0.3225,
+          "taken_wr": 0.4,
+          "skipped": false
+        },
+        {
+          "fold": 4,
+          "n_train": 971,
+          "n_test": 419,
+          "auc": 0.4087,
+          "thr": 0.43,
+          "n_taken": 97,
+          "taken_net_exp": -0.8755,
+          "taken_wr": 0.1753,
+          "skipped": false
+        },
+        {
+          "fold": 5,
+          "n_train": 1045,
+          "n_test": 420,
+          "auc": 0.5233,
+          "thr": 0.62,
+          "n_taken": 1,
+          "taken_net_exp": 1.0278,
+          "taken_wr": 1.0,
+          "skipped": false
+        }
+      ],
+      "top_importance": [
+        [
+          "st_macd",
+          0.1846
+        ],
+        [
+          "st_order_book",
+          0.1812
+        ],
+        [
+          "mc_sideways",
+          0.1732
+        ],
+        [
+          "mc_volatile",
+          0.161
+        ],
+        [
+          "st_rsi",
+          0.1485
+        ],
+        [
+          "st_obv",
+          0.1408
+        ],
+        [
+          "st_tf_conf",
+          0.1264
+        ],
+        [
+          "st_stoch_rsi",
+          0.1096
+        ],
+        [
+          "st_ema_cross",
+          0.1045
+        ],
+        [
+          "score",
+          0.1025
+        ],
+        [
+          "tf_1d",
+          0.0951
+        ],
+        [
+          "tf_1h",
+          0.0884
+        ]
+      ]
+    }
+  },
+  "perm_null": {
+    "mean": 0.5008,
+    "sd": 0.0144,
+    "q95": 0.5254,
+    "real_logit_auc": 0.4578,
+    "p_perm": 1.0
+  }
+}

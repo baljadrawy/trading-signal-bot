@@ -117,8 +117,10 @@ class BinanceScanner:
             klines = await self.client.get_klines(
                 symbol='BTCUSDT',
                 interval='4h',
-                limit=10
+                limit=11  # +1 لإسقاط الشمعة 4h الجارية (تدقيق 2026-06-23: تجنّب اتجاه يعيد الرسم)
             )
+            if len(klines) > 1:
+                klines = klines[:-1]  # نُبقي 10 شموع مغلقة (≈40 ساعة)
             closes = [float(k[4]) for k in klines]
             
             # حساب التغير

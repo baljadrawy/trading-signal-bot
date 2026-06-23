@@ -333,13 +333,25 @@ class SignalEngine:
                     continue
 
             # ══ بوابة stoch>0 — رُفع التجميد جزئياً لهذا التغيير (2026-06-20، بطلب المستخدم) ══
-            # البيانات (n=80 post-freeze): stoch>0 → n=28 WR=46.4% +5.25% (gross)
-            #                              stoch=0 → n=52 WR=21.2% -55.67% ← ~كل النزيف
-            #   منه div>0 & stoch=0 = 45 صفقة -54.39% (إشارات divergence بلا تأكيد stoch)
-            # الحافة الناجية من الرسوم = COMBO (stoch>0 & div>0): WR=71% +2.7%/صفقة
+            # ⚠️ تصحيح تدقيق 2026-06-23 (على كامل DB الحيّ، n=2518 — حلّ محل أرقام n=80 المضلِّلة):
+            #   stoch>0: n=1115 WR=38.3% gross -0.162$/صفقة  |  stoch=0: n=1403 WR=36.7% gross -0.256$
+            #   (الادعاء القديم «stoch=0 → WR=21%» كان أثر نافذة n=52 فقط — خاطئ على البيانات الكاملة)
+            #   البوابة مُخفِّف-خسارة حقيقي ومتكرر (يصمد في أبريل وحده) لكنه لا يخلق ربحاً:
+            #   stoch>0 يبقى سالباً بعد الرسوم (net ≈ -0.32$/صفقة) → النظام «أقل خسارة» لا رابح.
+            #   COMBO (stoch>0 & div>0): n=7 WR=71% لكن 5/7 في مايو وحده، يتعادل OOS في يونيو → لا يُعتمد كبوابة.
             stoch_contrib = float(top_data.get('score_details', {}).get('stoch_rsi', 0) or 0)
             if stoch_contrib <= 0:
-                logger.debug(f"⏭️ رفض {symbol} - بوابة stoch>0 (تاريخياً stoch=0 → WR=21% -55%)")
+                logger.debug(f"⏭️ رفض {symbol} - بوابة stoch>0 (stoch=0 gross -0.26$ vs stoch>0 -0.16$؛ مُخفِّف خسارة لا حافة)")
+                continue
+
+            # ══ بوابة السبريد — واقعية التنفيذ (تدقيق 2026-06-23) ══
+            # الانزلاق يلتهم أي حافة في التنفيذ الحقيقي؛ والسبريد محسوب أصلاً في order_book.spread_pct
+            # (نسبة مئوية، توزيع حيّ 0.0002–0.36%). نرفض المرشحين عاليي السبريد (غير قابلين للتنفيذ واقعياً).
+            # ليست فلتر «حافة» (لا يدّعي تحسين WR) بل فلتر جدوى تنفيذ. الحدّ قابل للضبط بـ MAX_SPREAD_PCT.
+            _ob = top_data.get('order_book') or {}
+            _spread = _ob.get('spread_pct')
+            if _spread is not None and float(_spread) > config.MAX_SPREAD_PCT:
+                logger.debug(f"⏭️ رفض {symbol} - سبريد {float(_spread):.3f}% > {config.MAX_SPREAD_PCT}% (انزلاق يلتهم الحافة)")
                 continue
 
             # ملاحظة RSI filter (محذوف — 2026-05-17):
@@ -434,13 +446,28 @@ class SignalEngine:
         # جلب volume_usdt من آخر مسح في scan_candidates
         volume_usdt = await self._get_volume_usdt(signal['symbol'])
 
+        # لقطة الميزات الخام (feature store — تدقيق 2026-06-23): قيم المؤشرات الفعلية + سياق دفتر الأوامر
+        # وقت الإشارة، مرتبطة لاحقاً بالنتيجة عبر trade_results.signal_id → بحث ML نزيه على ميزات خام.
+        _ob = signal.get('order_book') or {}
+        features_snapshot = dict(signal.get('features') or {})
+        features_snapshot.update({
+            'spread_pct': _ob.get('spread_pct'),
+            'bid_ask_ratio': _ob.get('bid_ask_ratio'),
+            'ob_score': _ob.get('score'),
+            'market_condition': signal.get('market_condition'),
+            'timeframe': signal.get('timeframe'),
+            'total_score': signal.get('total_score'),
+            'trend_ok': signal.get('trend_ok'),
+            'volume_usdt': volume_usdt,
+        })
+
         signal_id = await Database.fetchval("""
             INSERT INTO signals (
                 symbol, timeframe, market_condition,
                 entry_price, target_1, target_2, target_3,
                 stop_loss, score, score_details, is_paper_trade,
-                volume_usdt
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                volume_usdt, features_snapshot
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
         """,
             signal['symbol'],
@@ -454,7 +481,8 @@ class SignalEngine:
             int(signal['total_score']),
             json.dumps(score_details),
             config.PAPER_TRADING,
-            volume_usdt
+            volume_usdt,
+            json.dumps(features_snapshot)
         )
 
         # تحديث عداد الإشارات اليومية

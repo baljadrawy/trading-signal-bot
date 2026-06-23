@@ -52,3 +52,8 @@ analyzer/bt_symbols.txt
 bt_data/
 .env.binance
 .env.bak.*
+
+# بيئة البحث المعزولة + المستودع المستنسخ + تفريغات البيانات (2026-06-23) — لا تُلتزم
+research/skill_application/.venv/
+research/skill_application/data/
+research/external_skills/

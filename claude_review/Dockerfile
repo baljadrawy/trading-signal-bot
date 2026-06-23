@@ -1,5 +1,5 @@
 # يدعم: linux/amd64 (Hetzner VPS) و linux/arm64 (Raspberry Pi 4)
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
