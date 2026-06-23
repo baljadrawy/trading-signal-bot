@@ -9,7 +9,8 @@
 بوت تداول تلقائي على Binance يعمل بـ **Paper Trading** (تداول افتراضي للتدريب).  
 يمسح العملات → يحللها → يراجعها Claude → يرسل إشارات عبر Telegram → يتتبع النتائج.
 
-**المستخدم**: Basim | **السيرفر**: Hetzner VPS (amd64) | **بيئة التشغيل**: Docker Compose
+**المستخدم**: Basim | **السيرفر**: `89.58.35.49` (aarch64، 12 نواة، 23GB — خادم وحيد بعد ترحيل 2026-06-21) | **بيئة التشغيل**: Docker Compose
+**Python**: 3.12 (كل الحاويات منذ 2026-06-23؛ الأنلايزر pandas 3.0.3 + numpy 2.2.6 + pandas_ta 0.4.71b0 + ta)
 
 ---
 
@@ -45,7 +46,10 @@ Scanner → scan_candidates → Analyzer → analysis_results
 
 ## 3. قاعدة البيانات
 
-**الاتصال**: `postgresql://trading_bot:PASSWORD@postgres:5432/trading_signals`
+**الاتصال**: `postgresql://trading_signal_bot:PASSWORD@postgres:5432/trading_signals`
+> ⚠️ الدور الفعلي **`trading_signal_bot`** (وليس `trading_bot`). وصول مباشر للفحص:
+> `docker exec -i postgres psql -U trading_signal_bot -d trading_signals -c "..."`
+> postgres نمط مشترك (شبكة `shared_db_net`، حاوية اسمها `postgres`، صورة postgres:16-alpine).
 
 ### الجداول الرئيسية
 | الجدول | الوصف |
@@ -258,3 +262,22 @@ COPY service_name/ ./
 - [DEV_LOG.md](DEV_LOG.md) — سجل كل التحديثات مع التواريخ
 - [SETUP_GUIDE.md](SETUP_GUIDE.md) — إعداد المشروع من الصفر
 - **GitHub**: https://github.com/baljadrawy/trading-signal-bot
+
+---
+
+## 13. تحديثات 2026-06-23 (تدقيق + feature store + ترقية بيئة)
+
+**نتيجة التدقيق (حاسمة):** على 2518 صفقة حيّة — **لا حافة بعد الرسوم**. `PF_gross=0.735` (خاسر قبل الرسوم)،
+AUC≈0.50 لكل مؤشر، كل شهر/حالة/إطار خاسر، 93% من الصفقات في أبريل. ادعاءا COMBO وبوابة stoch
+دُحضا (COMBO = 5 صفقات مايو من 7). **الإبقاء على التجميد + paper.** التقرير: `research/skill_application/out/REPORT.md`.
+
+**تغييرات الكود (نزاهة/بنية — لا تصنع حافة):**
+- **الشمعة المغلقة:** `technical_analyzer._get_candles` يجلب `CANDLES_TO_FETCH+1` ويُسقط الشمعة الجارية
+  (`klines[:-1]`) — إصلاح repaint/look-ahead، يطابق الحيّ بالباكتيست. السكانر مثله لاتجاه BTC.
+- **بوابة السبريد:** `signal_logic` يرفض `order_book.spread_pct > config.MAX_SPREAD_PCT` (=0.15%).
+- **Feature Store:** `analyze()` يُصدِر 18 ميزة خام في `analysis_data` → عمود `signals.features_snapshot` (JSONB).
+  ترحيل: `database/migrate_features_snapshot_2026_06_23.sql`. الغرض: بحث ML نزيه على ميزات خام لاحقاً.
+
+**ترقية البيئة:** كل الحاويات Python **3.12**. الأنلايزر وحده يستخدم pandas → **pandas 3.0.3 + numpy 2.2.6 +
+pandas_ta 0.4.71b0** (المؤشرات الإضافية adx/cci/willr/roc/mfi/cmf بمحرّك pandas_ta، fallback إلى `ta`).
+الـoptimizer يبقى معطّلاً (التجميد). أداة حارسة: `research/walk_forward_audit.sh` (cron كل 12h، حُكم PASS/FAIL).

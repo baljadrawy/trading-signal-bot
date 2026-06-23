@@ -4,6 +4,40 @@
 
 ---
 
+## 2026-06-23
+
+### 🔍 تدقيق نزاهة كمّي — لا حافة (مؤكَّد على 2518 صفقة حيّة)
+تدقيق على كامل DB: `PF_gross=0.735` (خاسر قبل الرسوم)، `net=-0.365$/صفقة`، AUC≈0.50 لكل مؤشر،
+كل شهر/حالة/إطار خاسر، 93% من الصفقات في أبريل وحده. الادعاءان (بوابة stoch، وCOMBO)
+دُحضا بتحقّق عدائي متعدّد الوكلاء (0 ادعاء نجا): COMBO = أثر 5-صفقات-مايو (n=7، يتعادل OOS)،
+وstoch>0 «مُخفِّف خسارة لا حافة» (تعليق الكود القديم «stoch=0→21%» خاطئ؛ الواقع 36.7%).
+الأدوات: `research/skill_application/` (workflow + نتائج)، و`research/walk_forward_audit.sh` (cron كل 12h، حُكم PASS/FAIL).
+
+### 🕯️ إصلاح الشمعة الجارية غير المكتملة (look-ahead/repaint)
+**الملف:** `analyzer/technical_analyzer.py` + `scanner/scanner_logic.py`
+كانت المؤشرات تُحسب على الشمعة الحالية المكوّنة (`iloc[-1]`) → RSI/Stoch/ATR تُعيد الرسم وتخالف
+الباكتيست (مصدر فجوة sim/live). الحل: جلب `CANDLES_TO_FETCH+1` وإسقاط الأخيرة (`klines[:-1]`).
+مثبَت: انزياح RSI حتى 2.58 نقطة. (BTC trend في السكانر أُصلح بالمثل: 11 شمعة 4h، إسقاط الجارية.)
+
+### 🚪 بوابة السبريد (واقعية تنفيذ)
+**الملفات:** `signal_engine/signal_logic.py` + `shared/config.py` (`MAX_SPREAD_PCT=0.15`)
+رفض المرشّح إذا `order_book.spread_pct > MAX_SPREAD_PCT` (الرقم محسوب أصلاً). فلتر جدوى تنفيذ لا حافة.
+
+### 🗃️ Feature Store — 18 ميزة خام
+**الملفات:** `technical_analyzer.py` (`_raw_features`) + `signal_logic.py` + `database/migrate_features_snapshot_2026_06_23.sql`
+`analyze()` يُصدِر قيم المؤشرات الخام (rsi,stoch_k/d,macd_hist,bb_pos,bb_width,atr_pct,volume_ratio,
+dist_ema20/50/200,obv_vs_ema + adx14,cci20,willr14,roc10,mfi14,cmf20) → تُخزَّن في `analysis_data`
+وتُلتقط في عمود جديد `signals.features_snapshot` (JSONB). الهدف: بحث ML نزيه لاحقاً على ميزات خام.
+
+### ⬆️ ترقية Python 3.12 + pandas 3 + pandas_ta (الأنلايزر)
+**الملفات:** كل الـ`Dockerfile`s السبعة (3.11→3.12) + `analyzer/requirements.txt`
+الأنلايزر وحده يستخدم pandas → رُقّي إلى `pandas==3.0.3` + `numpy==2.2.6` + `pandas_ta==0.4.71b0`
+(يتطلب py≥3.12). المؤشرات الإضافية تُحسب بـpandas_ta (مع fallback إلى `ta`). تحقّق كامل لمسار
+كود الأنلايزر على pandas 3 قبل النشر؛ كل الحاويات Python 3.12.13، صفر أخطاء.
+**ملاحظة:** scanner/signal_engine كانا يثبّتان pandas بلا استخدام → رُفعا للتوحيد فقط.
+
+---
+
 ## 2026-05-16
 
 ### 🚫 حظر إطار 4h كإطار رئيسي (`1ab9ccb`)
