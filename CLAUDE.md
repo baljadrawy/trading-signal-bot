@@ -281,3 +281,9 @@ AUC≈0.50 لكل مؤشر، كل شهر/حالة/إطار خاسر، 93% من �
 **ترقية البيئة:** كل الحاويات Python **3.12**. الأنلايزر وحده يستخدم pandas → **pandas 3.0.3 + numpy 2.2.6 +
 pandas_ta 0.4.71b0** (المؤشرات الإضافية adx/cci/willr/roc/mfi/cmf بمحرّك pandas_ta، fallback إلى `ta`).
 الـoptimizer يبقى معطّلاً (التجميد). أداة حارسة: `research/walk_forward_audit.sh` (cron كل 12h، حُكم PASS/FAIL).
+
+**⚠️ للكرون/البحث (مهم بعد ترقية 2026-06-23):** حاوية الأنلايزر الآن **pandas 3.0 / numpy 2.2** (لا `np.NaN` —
+استخدم `np.nan`). الـ74 سكربت باكتيست قديم في `analyzer/` كُتبت لـpandas 2.2 وقد تتعطّل بفروق pandas 3
+وقت التشغيل. **للبحث الثقيل (إحصاء/ML) استخدم البيئة المعزولة الجاهزة** `research/skill_application/.venv`
+(numpy/pandas/scipy/statsmodels/sklearn/xgboost/pandas_ta + المكتبة المشتركة `scripts/lib.py`) لا حاوية
+الأنلايزر. **حكم التدقيق: لا حافة بعد الرسوم → الإبقاء على التجميد + مراقبة فقط، لا إضافة مؤشرات/فلاتر.**
