@@ -24,10 +24,9 @@ async def main():
 
     await Database.connect()
 
-    client = await AsyncClient.create(
-        api_key=config.BINANCE_API_KEY,
-        api_secret=config.BINANCE_API_SECRET
-    )
+    # MacroContext only calls public klines (BTC/ETH 4h) — no auth needed.
+    # Using empty keys avoids exposing live trading credentials to this container.
+    client = await AsyncClient.create('', '')
     macro_ctx = MacroContext(client)
 
     engine = SignalEngine()
