@@ -29,12 +29,15 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    log_dir = Path('/app/logs')
-    log_dir.mkdir(exist_ok=True)
-    file_handler = logging.FileHandler(
-        log_dir / f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    try:
+        log_dir = Path('/app/logs')
+        log_dir.mkdir(exist_ok=True)
+        file_handler = logging.FileHandler(
+            log_dir / f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError:
+        pass  # خارج Docker: الـ console handler يكفي
 
     return logger
