@@ -38,6 +38,20 @@ class Config:
     # الحد الأدنى لعدد Timeframes المتفقة لإصدار إشارة (من أصل 4)
     MIN_TIMEFRAME_CONFIRMATIONS: int = int(os.getenv('MIN_TIMEFRAME_CONFIRMATIONS', '2'))
 
+    # ── Live-Learning mode ──────────────────────────────────────────────
+    LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'
+    TIMEFRAMES_LL: list = field(default_factory=lambda: os.getenv('TIMEFRAMES_LL', '15m,4h,1d').split(','))
+    MOM_BREAKOUT_N: int = int(os.getenv('MOM_BREAKOUT_N', '20'))
+    MOM_VOL_MULT: float = float(os.getenv('MOM_VOL_MULT', '1.2'))
+    REV_RSI: float = float(os.getenv('REV_RSI', '35'))
+    USDTD_SPIKE_PP: float = float(os.getenv('USDTD_SPIKE_PP', '0.5'))
+    MACRO_CACHE_HOURS: int = int(os.getenv('MACRO_CACHE_HOURS', '1'))
+    WARMUP_N: int = int(os.getenv('WARMUP_N', '100'))
+    ROLL_N: int = int(os.getenv('ROLL_N', '150'))
+    MIN_CELL_N: int = int(os.getenv('MIN_CELL_N', '10'))
+    THROTTLE_EXPECTANCY: float = float(os.getenv('THROTTLE_EXPECTANCY', '0'))
+    LEARN_CRON_HOURS: int = int(os.getenv('LEARN_CRON_HOURS', '12'))
+
     # حجم الصفقة
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
 
