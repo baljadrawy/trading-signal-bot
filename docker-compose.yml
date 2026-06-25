@@ -88,7 +88,9 @@ services:
     container_name: trading_signal_engine
     restart: unless-stopped
     logging: *default-logging
-    env_file: .env
+    env_file:
+      - .env
+      - .env.binance   # مفاتيح Binance — للـ MacroContext (BTC/ETH klines)
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared

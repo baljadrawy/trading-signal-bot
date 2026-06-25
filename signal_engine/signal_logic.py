@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.macro_context import MacroContext
 
 logger = setup_logger('signal_logic')
 
@@ -386,6 +387,44 @@ class SignalEngine:
 
         return best_signal
 
+    async def find_best_signal_live(self, results, macro: 'MacroContext'):
+        """وضع التعلّم الحي: مرشّحون من المؤشرات البسيطة + بوابة ماكرو خفيفة + learned_gates."""
+        if await macro.should_block_now():
+            logger.warning("⏸️ Macro block (BTC strong_bearish أو USDT.D rising_fast)")
+            return None
+        macro_state = macro.macro_state_key()
+        # خلايا متعلَّمة مخنوقة
+        throttled = set()
+        for r in await Database.fetch(
+                "SELECT trade_type, timeframe FROM learned_gates "
+                "WHERE macro_state=$1 AND n>=$2 AND weight<=0", macro_state, config.MIN_CELL_N):
+            throttled.add((r['trade_type'], r['timeframe']))
+
+        open_symbols = set(x['symbol'] for x in await Database.fetch(
+            "SELECT DISTINCT symbol FROM active_trades WHERE status='open'"))
+        cooldown = await self._get_symbol_cooldown_set()
+        blocked = open_symbols | cooldown
+
+        best = None
+        for row in results:
+            data = row['analysis_data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            symbol = data.get('symbol') or row['symbol']
+            tt = data.get('trade_type')
+            if not tt or symbol in blocked:
+                continue
+            if (tt, data.get('timeframe')) in throttled:
+                logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (learned loser)")
+                continue
+            # أول مرشّح صالح يكفي (paper، جمع عيّنة)؛ تفضيل momentum
+            if best is None or (tt == 'momentum' and best.get('trade_type') != 'momentum'):
+                best = {**data, 'macro_snapshot': {**macro.snapshot(), **macro.state()},
+                        'macro_state': macro_state}
+        if best:
+            logger.info(f"🏆 live signal: {best['symbol']} | {best.get('trade_type')} | {best.get('timeframe')} | {macro_state}")
+        return best
+
     def _get_btc_bonus(self, market_condition: str) -> float:
         bonuses = {
             'strong_bullish': 1.0,
@@ -466,24 +505,16 @@ class SignalEngine:
                 symbol, timeframe, market_condition,
                 entry_price, target_1, target_2, target_3,
                 stop_loss, score, score_details, is_paper_trade,
-                volume_usdt, features_snapshot
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                volume_usdt, features_snapshot, trade_type, macro_snapshot
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             RETURNING id
         """,
-            signal['symbol'],
-            signal.get('timeframe', config.TIMEFRAME),
+            signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
             signal.get('market_condition', 'unknown'),
-            signal['entry_price'],
-            signal['target_1'],
-            signal['target_2'],
-            signal['target_3'],
-            signal['stop_loss'],
-            int(signal['total_score']),
-            json.dumps(score_details),
-            config.PAPER_TRADING,
-            volume_usdt,
-            json.dumps(features_snapshot)
-        )
+            signal['entry_price'], signal['target_1'], signal['target_2'], signal['target_3'],
+            signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
+            config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
+            signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}))
 
         # تحديث عداد الإشارات اليومية
         await Database.execute("""

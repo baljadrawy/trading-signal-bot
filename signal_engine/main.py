@@ -8,11 +8,13 @@ import sys
 import time
 sys.path.append('/app')
 
+from binance import AsyncClient
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.macro_context import MacroContext
 from signal_logic import SignalEngine
 
 logger = setup_logger('signal_engine')
@@ -22,13 +24,20 @@ async def main():
 
     await Database.connect()
 
+    client = await AsyncClient.create(
+        api_key=config.BINANCE_API_KEY,
+        api_secret=config.BINANCE_API_SECRET
+    )
+    macro_ctx = MacroContext(client)
+
     engine = SignalEngine()
 
     # اطبع العتبات الحيّة من DB بدل قيم الـ env الافتراضية
     live_score, live_tf = await engine._get_live_thresholds()
     logger.info(
         f"📊 Timeframes: {', '.join(config.TIMEFRAMES)} | "
-        f"تأكيد مطلوب: {live_tf} | الحد الأدنى للنقاط: {live_score}"
+        f"تأكيد مطلوب: {live_tf} | الحد الأدنى للنقاط: {live_score} | "
+        f"LIVE_LEARNING_MODE: {config.LIVE_LEARNING_MODE}"
     )
 
     # تأكد من وجود عمود timeframe في الجدول
@@ -69,7 +78,10 @@ async def main():
                     continue
 
                 # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
-                best_signal = await engine.find_best_signal(results)
+                if config.LIVE_LEARNING_MODE:
+                    best_signal = await engine.find_best_signal_live(results, macro_ctx)
+                else:
+                    best_signal = await engine.find_best_signal(results)
 
                 # لوج دوري كل 10 دقائق حتى لو لا توجد إشارة
                 now = time.time()
@@ -129,6 +141,7 @@ async def main():
                 await asyncio.sleep(wait)
 
     finally:
+        await client.close_connection()
         await Database.disconnect()
 
 if __name__ == "__main__":
