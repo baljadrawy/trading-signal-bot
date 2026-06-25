@@ -14,6 +14,7 @@ from binance import AsyncClient
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from simple_entry import detect_trade_type
 
 logger = setup_logger('technical_analyzer')
 
@@ -43,6 +44,12 @@ class TechnicalAnalyzer:
             # لا النقاط المبوّبة. تُمكّن بحث ML نزيهاً لاحقاً على ميزات خام (score_details المبوّبة AUC=0.50).
             features = self._raw_features(df)
 
+            trade_type = None
+            if config.LIVE_LEARNING_MODE:
+                trade_type = detect_trade_type(
+                    df, breakout_n=config.MOM_BREAKOUT_N,
+                    vol_mult=config.MOM_VOL_MULT, rev_rsi=config.REV_RSI)
+
             return {
                 'symbol': symbol,
                 'timeframe': tf,
@@ -60,6 +67,7 @@ class TechnicalAnalyzer:
                 'macd_signal': scores['details'].get('macd', 0),
                 'volume_ratio': float(df['volume_ratio'].iloc[-1]),
                 'trend_ok': trend_ok,
+                'trade_type': trade_type,
             }
         except Exception as e:
             logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {e}")
