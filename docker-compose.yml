@@ -201,6 +201,28 @@ services:
         limits:
           memory: 256m
 
+  # ==================== Continuous Learner ====================
+  continuous_learner:
+    build:
+      context: .
+      dockerfile: signal_engine/Dockerfile
+    container_name: trading_continuous_learner
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      - LIVE_LEARNING_MODE=${LIVE_LEARNING_MODE}
+    command: >
+      sh -c "while true; do PYTHONPATH=/app python research/continuous_learner.py || true;
+             sleep $$(( ${LEARN_CRON_HOURS:-12} * 3600 )); done"
+    networks:
+      - shared_db_net
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
   # ==================== Telegram ====================
   telegram:
     build:

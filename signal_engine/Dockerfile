@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 # نسخ الكود
 COPY shared/ ./shared/
 COPY signal_engine/ ./
+COPY research/continuous_learner.py ./research/continuous_learner.py
 
 # مستخدم غير-root (uid 1000 يطابق tradmin على المضيف لصلاحيات الـ bind mounts)
 RUN useradd -u 1000 -m appuser \
