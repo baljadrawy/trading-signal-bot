@@ -19,7 +19,7 @@ def detect_trade_type(df: pd.DataFrame, *, breakout_n: int = 20,
                 and close > prior_high
                 and float(last['volume']) > vol_mult * vol_ma):
             return 'momentum'
-    except Exception:
+    except (KeyError, ValueError, TypeError, IndexError):
         pass
 
     # reversion: RSI متشبّع + ارتداد (إغلاق>سابقه) + قرب الباند السفلي
@@ -28,6 +28,6 @@ def detect_trade_type(df: pd.DataFrame, *, breakout_n: int = 20,
                 and close > float(prev['close'])
                 and close < float(last['bb_lower']) * 1.01):
             return 'reversion'
-    except Exception:
+    except (KeyError, ValueError, TypeError, IndexError):
         pass
     return None

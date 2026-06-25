@@ -1,4 +1,4 @@
-import pandas as pd, numpy as np
+import pandas as pd
 import sys; sys.path.insert(0, '.')
 from analyzer.simple_entry import detect_trade_type
 

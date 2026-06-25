@@ -32,7 +32,7 @@ def compute_cells(trades, min_cell_n: int, throttle_expectancy: float):
 
 
 async def run():
-    closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results")
+    closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id = s.id WHERE s.trade_type IS NOT NULL")
     if (closed or 0) < config.WARMUP_N:
         logger.info(f"warm-up: {closed}/{config.WARMUP_N} closed trades; skipping learning")
         return
