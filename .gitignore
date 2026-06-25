@@ -57,3 +57,11 @@ bt_data/
 research/skill_application/.venv/
 research/skill_application/data/
 research/external_skills/
+
+# live-learning research scratch (large, regenerable)
+research/skill_application/out/
+research/skill_application/data/bt_data/
+research/skill_application/data/*.parquet
+research/skill_application/data/*.log
+research/skill_application/data/*.done
+*.joblib
