@@ -498,6 +498,7 @@ class SignalEngine:
             'total_score': signal.get('total_score'),
             'trend_ok': signal.get('trend_ok'),
             'volume_usdt': volume_usdt,
+            'trade_type': signal.get('trade_type'),
         })
 
         signal_id = await Database.fetchval("""
