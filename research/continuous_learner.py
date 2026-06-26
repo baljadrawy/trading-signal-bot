@@ -23,6 +23,14 @@ async def send_status_digest():
     # ── الماكرو ──
     mrows = await Database.fetch(
         "SELECT date, usdt_d, btc_d, btc_trend, eth_trend FROM macro_history ORDER BY date DESC LIMIT 4")
+    # خرائط ترجمة لصيغة بسيطة ومفهومة
+    TR = {'strong_bearish': 'هابط بقوة 🔻', 'bearish': 'هابط 🔴', 'neutral': 'محايد ⚪',
+          'sideways': 'عرضي ⚪', 'bullish': 'صاعد 🟢', 'strong_bullish': 'صاعد بقوة 🟢'}
+    UD = {'flat': 'مستقرّة', 'rising': 'ترتفع', 'rising_fast': 'ترتفع بسرعة ⚠️',
+          'falling': 'تنخفض', 'n/a': '—'}
+    TF = {'15m': '15 دقيقة', '1h': 'ساعة', '4h': '4 ساعات', '1d': 'يومي'}
+    TT = {'momentum': 'زخم (شراء قوة)', 'reversion': 'ارتداد (شراء تشبّع)'}
+
     if mrows:
         latest = mrows[0]
         usdt_now = float(latest['usdt_d'] or 0)
@@ -32,35 +40,49 @@ async def send_status_digest():
                        if classify_usdtd_trend else 'n/a')
         blocking = (should_block((latest['btc_trend'] or 'neutral'), usdtd_trend)
                     if should_block else False)
-        macro_line = (f"🌍 BTC={latest['btc_trend']} ETH={latest['eth_trend']} "
-                      f"USDT.D={usdt_now:.2f}({usdtd_trend}) BTC.D={float(latest['btc_d'] or 0):.1f}"
-                      f" | البوابة: {'🔴 تحجب' if blocking else '🟢 مفتوحة'}")
+        gate = ("🔴 متوقّف مؤقتاً — السوق هابط بقوة" if blocking
+                else "🟢 يلتقط الإشارات الآن")
+        macro_line = (f"🌍 حالة السوق:\n"
+                      f"• بيتكوين: {TR.get(latest['btc_trend'], latest['btc_trend'])}  |  "
+                      f"إيثيريم: {TR.get(latest['eth_trend'], latest['eth_trend'])}\n"
+                      f"• هيمنة USDT: {usdt_now:.2f}% ({UD.get(usdtd_trend, usdtd_trend)})\n"
+                      f"• البوت: {gate}")
     else:
-        macro_line = "🌍 لا بيانات ماكرو بعد"
-    # ── جمع الإشارات الموسومة ──
+        macro_line = "🌍 حالة السوق: لا بيانات بعد"
+    # ── جمع الإشارات ──
     total_tagged = await Database.fetchval(
         "SELECT COUNT(*) FROM signals WHERE trade_type IS NOT NULL") or 0
     byrows = await Database.fetch(
-        "SELECT trade_type, timeframe, COUNT(*) c FROM signals WHERE trade_type IS NOT NULL "
-        "GROUP BY 1,2 ORDER BY 1,2")
-    by_line = ", ".join(f"{r['trade_type'][:3]}/{r['timeframe']}={r['c']}" for r in byrows) or "—"
+        "SELECT trade_type, timeframe, COUNT(*) c FROM signals WHERE trade_type IS NOT NULL GROUP BY 1,2")
+    by_type, by_tf = {}, {}
+    for r in byrows:
+        by_type[r['trade_type']] = by_type.get(r['trade_type'], 0) + r['c']
+        by_tf[r['timeframe']] = by_tf.get(r['timeframe'], 0) + r['c']
+    type_line = " | ".join(f"{TT.get(k, k)}: {v}" for k, v in by_type.items()) or "—"
+    tf_line = " | ".join(f"{TF.get(k, k)}: {v}" for k, v in by_tf.items()) or "—"
     closed = await Database.fetchval(
         "SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id=s.id "
         "WHERE s.trade_type IS NOT NULL") or 0
-    warm_line = (f"🎯 موسومة: {total_tagged} ({by_line}) | مغلقة: {closed}/{config.WARMUP_N} للإحماء")
-    # ── خلايا التعلّم ──
+    collect_line = (f"🎯 الإشارات المجموعة: {total_tagged} صفقة\n"
+                    f"• النوع: {type_line}\n• الأطر: {tf_line}")
+    # ── التعلّم ──
     lg = await Database.fetch(
         "SELECT trade_type, macro_state, timeframe, n, wr, expectancy, weight FROM learned_gates "
         "WHERE n>=$1 ORDER BY expectancy DESC", config.MIN_CELL_N)
     if lg:
         throttled = sum(1 for r in lg if float(r['weight'] or 0) <= 0)
         t = lg[0]
-        lg_line = (f"🏆 خلايا: {len(lg)} (مخنوقة {throttled}). الأفضل: "
-                   f"{t['trade_type']}/{t['macro_state']}/{t['timeframe']} "
-                   f"E={float(t['expectancy']):.3f} WR={float(t['wr']):.0f}% n={t['n']}")
+        ud_key = (t['macro_state'] or '').replace('usdtd_', '')
+        lg_line = (f"🧠 التعلّم: يعمل ({len(lg)} تركيبة، أوقف {throttled} خاسرة)\n"
+                   f"🏆 الأفضل: {TT.get(t['trade_type'], t['trade_type'])} + هيمنة USDT {UD.get(ud_key, ud_key)} "
+                   f"+ {TF.get(t['timeframe'], t['timeframe'])}\n"
+                   f"   ربح {float(t['expectancy']):+.2f}%/صفقة، نجاح {float(t['wr']):.0f}% ({t['n']} صفقة)")
     else:
-        lg_line = "🏆 المتعلّم: لا خلايا مؤكَّدة بعد (إحماء)"
-    msg = "📊 ملخّص التعلّم الحي (يومي)\n" + macro_line + "\n" + warm_line + "\n" + lg_line
+        remaining = max(0, config.WARMUP_N - closed)
+        lg_line = (f"🧠 التعلّم: لم يبدأ بعد\n"
+                   f"• أُغلقت {closed} من {config.WARMUP_N} صفقة (باقٍ {remaining} ليبدأ)")
+    msg = ("📊 تقرير البوت اليومي (تداول ورقي)\n\n"
+           + macro_line + "\n\n" + collect_line + "\n\n" + lg_line)
     logger.info(msg)
     if send_alert:
         try:
