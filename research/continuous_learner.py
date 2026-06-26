@@ -8,8 +8,65 @@ try:
     from shared.alerts import send_alert
 except Exception:
     send_alert = None
+try:
+    from shared.macro_context import classify_usdtd_trend, should_block
+except Exception:
+    classify_usdtd_trend = None
+    should_block = None
 
 logger = setup_logger('continuous_learner')
+
+
+async def send_status_digest():
+    """ملخّص حالة يومي إلى Telegram: ماكرو + جمع الإشارات + تقدّم الإحماء + خلايا التعلّم.
+    يُرسَل دائماً (حتى أثناء الإحماء) قبل منطق التعلّم."""
+    # ── الماكرو ──
+    mrows = await Database.fetch(
+        "SELECT date, usdt_d, btc_d, btc_trend, eth_trend FROM macro_history ORDER BY date DESC LIMIT 4")
+    if mrows:
+        latest = mrows[0]
+        usdt_now = float(latest['usdt_d'] or 0)
+        prior = [float(r['usdt_d']) for r in mrows[1:] if r['usdt_d'] is not None]
+        avg_3d = (sum(prior) / len(prior)) if prior else usdt_now
+        usdtd_trend = (classify_usdtd_trend(usdt_now, avg_3d, config.USDTD_SPIKE_PP)
+                       if classify_usdtd_trend else 'n/a')
+        blocking = (should_block((latest['btc_trend'] or 'neutral'), usdtd_trend)
+                    if should_block else False)
+        macro_line = (f"🌍 BTC={latest['btc_trend']} ETH={latest['eth_trend']} "
+                      f"USDT.D={usdt_now:.2f}({usdtd_trend}) BTC.D={float(latest['btc_d'] or 0):.1f}"
+                      f" | البوابة: {'🔴 تحجب' if blocking else '🟢 مفتوحة'}")
+    else:
+        macro_line = "🌍 لا بيانات ماكرو بعد"
+    # ── جمع الإشارات الموسومة ──
+    total_tagged = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals WHERE trade_type IS NOT NULL") or 0
+    byrows = await Database.fetch(
+        "SELECT trade_type, timeframe, COUNT(*) c FROM signals WHERE trade_type IS NOT NULL "
+        "GROUP BY 1,2 ORDER BY 1,2")
+    by_line = ", ".join(f"{r['trade_type'][:3]}/{r['timeframe']}={r['c']}" for r in byrows) or "—"
+    closed = await Database.fetchval(
+        "SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id=s.id "
+        "WHERE s.trade_type IS NOT NULL") or 0
+    warm_line = (f"🎯 موسومة: {total_tagged} ({by_line}) | مغلقة: {closed}/{config.WARMUP_N} للإحماء")
+    # ── خلايا التعلّم ──
+    lg = await Database.fetch(
+        "SELECT trade_type, macro_state, timeframe, n, wr, expectancy, weight FROM learned_gates "
+        "WHERE n>=$1 ORDER BY expectancy DESC", config.MIN_CELL_N)
+    if lg:
+        throttled = sum(1 for r in lg if float(r['weight'] or 0) <= 0)
+        t = lg[0]
+        lg_line = (f"🏆 خلايا: {len(lg)} (مخنوقة {throttled}). الأفضل: "
+                   f"{t['trade_type']}/{t['macro_state']}/{t['timeframe']} "
+                   f"E={float(t['expectancy']):.3f} WR={float(t['wr']):.0f}% n={t['n']}")
+    else:
+        lg_line = "🏆 المتعلّم: لا خلايا مؤكَّدة بعد (إحماء)"
+    msg = "📊 ملخّص التعلّم الحي (يومي)\n" + macro_line + "\n" + warm_line + "\n" + lg_line
+    logger.info(msg)
+    if send_alert:
+        try:
+            await send_alert(msg, level='info', component='LiveLearning')
+        except Exception as e:
+            logger.warning(f"digest send failed: {e}")
 
 
 def compute_cells(trades, min_cell_n: int, throttle_expectancy: float):
@@ -32,6 +89,11 @@ def compute_cells(trades, min_cell_n: int, throttle_expectancy: float):
 
 
 async def run():
+    # ملخّص الحالة اليومي يُرسَل دائماً (حتى أثناء الإحماء) قبل منطق التعلّم
+    try:
+        await send_status_digest()
+    except Exception as e:
+        logger.warning(f"status digest failed: {e}")
     closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id = s.id WHERE s.trade_type IS NOT NULL")
     if (closed or 0) < config.WARMUP_N:
         logger.info(f"warm-up: {closed}/{config.WARMUP_N} closed trades; skipping learning")
