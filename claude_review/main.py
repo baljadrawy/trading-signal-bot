@@ -66,6 +66,17 @@ async def main():
 async def review_signal(signal: dict):
     """مراجعة إشارة واحدة بواسطة claude CLI"""
     try:
+        # ── وضع التعلّم الحي: موافقة تلقائية (المحرّك البسيط + بوابة الماكرو هما قرار الدخول) ──
+        # نتجاوز معايير claude القديمة (الانعكاسية) لأنها ترفض إشارات الزخم وتُحيّز جمع البيانات.
+        if config.LIVE_LEARNING_MODE:
+            await Database.execute(
+                "UPDATE signals SET claude_approved = true, "
+                "claude_comment = 'live-learning: auto-approved (bypass)' WHERE id = $1",
+                signal['id'])
+            logger.info(f"✅ {signal['symbol']} [{signal.get('trade_type')}/{signal.get('timeframe')}] "
+                        f"— موافقة تلقائية (وضع التعلّم الحي)")
+            return
+
         score_details = signal['score_details']
         if isinstance(score_details, str):
             score_details = json.loads(score_details)
