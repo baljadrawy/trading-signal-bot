@@ -195,6 +195,14 @@ async def register_new_signals():
     """)
 
     for sig in new_signals:
+        if config.MAX_OPEN_TRADES > 0:
+            open_count = await Database.fetchval(
+                "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
+            ) or 0
+            if open_count >= config.MAX_OPEN_TRADES:
+                logger.info(f"⏸️ توقف تسجيل إشارات جديدة — وصلنا الحد: {open_count}/{config.MAX_OPEN_TRADES}")
+                break
+
         await Database.execute("""
             INSERT INTO active_trades
             (signal_id, symbol, entry_price, target_1, target_2, target_3,
@@ -318,6 +326,18 @@ async def evaluate_trade(trade: dict, current_price: float):
             trade, 'WIN' if is_win else 'LOSS',
             profit_pct, profit_usdt, current_price,
             'T1_expired_24h', state.highest_target, False
+        )
+        return
+
+    # صفقة لم تصل حتى T1 بعد 24 ساعة — أغلقها
+    if hours_open >= 24 and state.highest_target == 0:
+        profit_pct  = ((current_price - entry) / entry) * 100
+        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
+        is_win      = current_price > entry
+        await close_trade_barrier(
+            trade, 'WIN' if is_win else 'LOSS',
+            profit_pct, profit_usdt, current_price,
+            'no_T1_expired_24h', state.highest_target, False
         )
         return
 
