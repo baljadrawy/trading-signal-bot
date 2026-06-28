@@ -38,6 +38,14 @@ class Config:
     # الحد الأدنى لعدد Timeframes المتفقة لإصدار إشارة (من أصل 4)
     MIN_TIMEFRAME_CONFIRMATIONS: int = int(os.getenv('MIN_TIMEFRAME_CONFIRMATIONS', '2'))
 
+    # ── Evidence flight-recorder (PR #3c) ───────────────────────────────
+    # مُسجِّل أدلة معزول: يلتقط snapshot لحظة القرار إلى طابور محلي ثم flush غير متزامن.
+    # معطّل افتراضياً. لا يلمس قرارات التداول/DB/المراقب؛ أي فشل فيه يُدفن ولا يصل لمحرك الإشارة.
+    ENABLE_EVIDENCE_RECORDER: bool = os.getenv('ENABLE_EVIDENCE_RECORDER', 'false').lower() == 'true'
+    EVIDENCE_BATCH_SIZE: int = int(os.getenv('EVIDENCE_BATCH_SIZE', '100'))
+    EVIDENCE_FLUSH_INTERVAL_S: float = float(os.getenv('EVIDENCE_FLUSH_INTERVAL_S', '5'))
+    EVIDENCE_MAX_QUEUE: int = int(os.getenv('EVIDENCE_MAX_QUEUE', '10000'))
+
     # ── Live-Learning mode ──────────────────────────────────────────────
     LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'
     TIMEFRAMES_LL: list = field(default_factory=lambda: os.getenv('TIMEFRAMES_LL', '15m,4h,1d').split(','))
