@@ -10,8 +10,11 @@ improvised after seeing numbers. Branch: `integration/research-pipeline`.
   recorder silently degrades to a no-op and collects ZERO evidence — a false "success".
   Verify: `docker compose exec signal_engine python -c "import research.null_a.recorder"`.
 - Full test suite green (61 passed): `research/skill_application/.venv/bin/python -m pytest tests/ -q`.
-- Telemetry is exposed by the flusher to `${EVIDENCE_DIR}/_telemetry.json`
-  (default `data/evidence/_telemetry.json`), read by `monitor_canary.py`.
+- Telemetry is exposed by the flusher to `${EVIDENCE_DIR}/_telemetry.json` (default
+  `data/evidence/_telemetry.json`) as a ring buffer of the last `EVIDENCE_TELEMETRY_HISTORY`
+  (default 500) snapshots, read by `monitor_canary.py`. The monitor evaluates the WORST case
+  across the window, so a one-cycle spike (e.g. a transient dropped/latency blip) is not lost
+  between reads.
 
 ---
 

@@ -14,15 +14,25 @@ def _cap(r, sym="BTCUSDT", tf="1h", src="live"):
 
 
 # ---------------- telemetry exposure ----------------
-def test_dump_telemetry_writes_json(tmp_path):
+def test_dump_telemetry_writes_history_array(tmp_path):
     p = tmp_path / "_telemetry.json"
     r = EvidenceRecorder(sink=NullSink(), enabled=True, telemetry_path=str(p))
     _cap(r)
     r.dump_telemetry()
     data = json.loads(p.read_text())
-    assert data["evidence_captured_total"] == 1
-    assert "evidence_capture_latency_ms_p95" in data
-    assert "evidence_write_success_rate" in data
+    assert isinstance(data, list) and len(data) == 1     # array of snapshots, not one object
+    assert data[-1]["evidence_captured_total"] == 1
+    assert "ts" in data[-1] and "evidence_capture_latency_ms_p95" in data[-1]
+
+
+def test_dump_telemetry_ring_buffer_capped(tmp_path):
+    p = tmp_path / "_telemetry.json"
+    r = EvidenceRecorder(sink=NullSink(), enabled=True, telemetry_path=str(p),
+                         telemetry_history_size=3)
+    for _ in range(5):
+        _cap(r); r.dump_telemetry()
+    data = json.loads(p.read_text())
+    assert len(data) == 3                                 # oldest snapshots evicted
 
 
 # ---------------- decision logic ----------------
@@ -62,4 +72,24 @@ def test_evaluate_canary_latency_fail_without_rollback():
 def test_evaluate_canary_pending_fail_without_rollback():
     tel = _green(); tel["evidence_pending_records_on_shutdown"] = 5
     v = mc.evaluate_canary(tel)
+    assert v["status"] == "FAIL" and v["rollback_recommended"] is False
+
+
+# ---------------- history window (no short spike lost) ----------------
+def test_evaluate_canary_history_all_clean_passes():
+    v = mc.evaluate_canary([_green(), _green(), _green()])
+    assert v["status"] == "PASS" and v["health"] == "GREEN"
+
+
+def test_evaluate_canary_catches_transient_spike():
+    # latest snapshot is clean, but a mid-window snapshot had a dropped spike -> must FAIL
+    hist = [_green(), {**_green(), "evidence_dropped_records": 3}, _green()]
+    v = mc.evaluate_canary(hist)
+    assert v["status"] == "FAIL" and v["rollback_recommended"] is True
+    assert any("dropped" in r for r in v["reasons"])
+
+
+def test_evaluate_canary_catches_transient_latency_spike():
+    hist = [_green(), {**_green(), "evidence_capture_latency_ms_p95": 3.0}, _green()]
+    v = mc.evaluate_canary(hist)
     assert v["status"] == "FAIL" and v["rollback_recommended"] is False

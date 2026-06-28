@@ -62,11 +62,12 @@ class EvidenceRecorder:
                  batch_size: int = 100, flush_interval_s: float = 5.0,
                  flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
                  shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None,
-                 telemetry_path=None):
+                 telemetry_path=None, telemetry_history_size: int = 500):
         self.sink = sink
         self.enabled = enabled
         self.capture_filter = capture_filter
-        self.telemetry_path = telemetry_path   # if set, flusher dumps telemetry() here as JSON
+        self.telemetry_path = telemetry_path   # if set, flusher dumps telemetry history here
+        self._tel_history = deque(maxlen=telemetry_history_size)   # ring buffer of snapshots
         self.filtered = 0                      # intentional exclusions (NOT technical drops)
         self.max_queue = max_queue
         self.batch_size = batch_size
@@ -165,15 +166,18 @@ class EvidenceRecorder:
         return self.pending_on_shutdown
 
     def dump_telemetry(self) -> None:
-        """Write telemetry() to telemetry_path atomically (read by monitor_canary.py).
-        Off the hot path (flusher/shutdown only); failures are buried."""
+        """Append a timestamped telemetry snapshot to the ring buffer and write the whole
+        history to telemetry_path atomically (read by monitor_canary.py). Keeping a window
+        of snapshots means a short spike (e.g. a one-cycle dropped/latency blip) is not lost
+        between reads. Off the hot path (flusher/shutdown only); failures are buried."""
+        self._tel_history.append({"ts": time.time(), **self.telemetry()})
         if not self.telemetry_path:
             return
         try:
             os.makedirs(os.path.dirname(self.telemetry_path) or ".", exist_ok=True)
             tmp = self.telemetry_path + ".tmp"
             with open(tmp, "w") as f:
-                json.dump(self.telemetry(), f)
+                json.dump(list(self._tel_history), f)
             os.replace(tmp, self.telemetry_path)      # atomic
         except Exception:
             logger.warning("telemetry dump failed", exc_info=True)
