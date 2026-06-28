@@ -50,6 +50,11 @@ class Config:
     EVIDENCE_FLUSH_RETRY_COUNT: int = int(os.getenv('EVIDENCE_FLUSH_RETRY_COUNT', '3'))
     EVIDENCE_FLUSH_BACKOFF_MS: float = float(os.getenv('EVIDENCE_FLUSH_BACKOFF_MS', '50'))
     EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS: float = float(os.getenv('EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS', '2000'))
+    # Capture filter (canary scoping). Empty list = allow all; max/hour 0 = unlimited.
+    EVIDENCE_FILTER_SYMBOLS: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_SYMBOLS', '').split(',') if s])
+    EVIDENCE_FILTER_TIMEFRAMES: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_TIMEFRAMES', '').split(',') if s])
+    EVIDENCE_FILTER_SOURCES: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_SOURCES', '').split(',') if s])
+    EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR: int = int(os.getenv('EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR', '0'))
 
     # ── Live-Learning mode ──────────────────────────────────────────────
     LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'

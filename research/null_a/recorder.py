@@ -15,13 +15,55 @@ from collections import deque
 logger = logging.getLogger("evidence_recorder")
 
 
+class RateLimiter:
+    """Sliding 1-hour window. max_per_hour <= 0 => unlimited. Clock injectable for tests."""
+    def __init__(self, max_per_hour: int = 0, clock=time.monotonic):
+        self.max = max_per_hour
+        self.clock = clock
+        self._events = deque()
+
+    def allow(self) -> bool:
+        if self.max <= 0:
+            return True
+        now = self.clock()
+        cutoff = now - 3600.0
+        while self._events and self._events[0] < cutoff:
+            self._events.popleft()
+        if len(self._events) >= self.max:
+            return False
+        self._events.append(now)
+        return True
+
+
+class CaptureFilter:
+    """Simple capture rules layer: symbol/timeframe/source allow-lists (empty = allow all)
+    + a per-hour rate cap so a scanner burst can never turn the recorder into a load source."""
+    def __init__(self, symbols=None, timeframes=None, sources=None,
+                 max_per_hour: int = 0, clock=time.monotonic):
+        self.symbols = set(symbols) if symbols else None
+        self.timeframes = set(timeframes) if timeframes else None
+        self.sources = set(sources) if sources else None
+        self.rate = RateLimiter(max_per_hour, clock)
+
+    def allow(self, symbol, timeframe, source) -> bool:
+        if self.symbols is not None and symbol not in self.symbols:
+            return False
+        if self.timeframes is not None and timeframe not in self.timeframes:
+            return False
+        if self.sources is not None and source not in self.sources:
+            return False
+        return self.rate.allow()
+
+
 class EvidenceRecorder:
     def __init__(self, sink, enabled: bool = False, max_queue: int = 10000,
                  batch_size: int = 100, flush_interval_s: float = 5.0,
                  flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
-                 shutdown_flush_timeout_ms: float = 2000.0):
+                 shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None):
         self.sink = sink
         self.enabled = enabled
+        self.capture_filter = capture_filter
+        self.filtered = 0                      # intentional exclusions (NOT technical drops)
         self.max_queue = max_queue
         self.batch_size = batch_size
         self.flush_interval_s = flush_interval_s
@@ -47,7 +89,10 @@ class EvidenceRecorder:
         t0 = time.perf_counter()
         ok = False
         try:
-            if len(self._q) >= self.max_queue:
+            if self.capture_filter is not None and not self.capture_filter.allow(
+                    fields.get("symbol"), fields.get("timeframe"), fields.get("source")):
+                self.filtered += 1            # intentional exclusion, not a failure
+            elif len(self._q) >= self.max_queue:
                 self.dropped += 1
             else:
                 fields["_captured_at"] = time.time()
@@ -147,6 +192,7 @@ class EvidenceRecorder:
             if self.batches_attempted else 1.0,
             "evidence_flush_duration_ms": float(self.last_flush_ms),
             "evidence_pending_records_on_shutdown": self.pending_on_shutdown,
+            "evidence_filtered_records": self.filtered,
         }
 
 
