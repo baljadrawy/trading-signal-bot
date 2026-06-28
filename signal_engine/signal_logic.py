@@ -25,8 +25,10 @@ def get_evidence_recorder():
         return None
     if _evidence_recorder is None:
         try:
+            import os as _os
             from research.null_a.recorder import EvidenceRecorder, CaptureFilter
             from research.null_a.sinks import JsonlSink
+            _tel_path = _os.path.join(_os.path.abspath(config.EVIDENCE_DIR), "_telemetry.json")
             cap_filter = CaptureFilter(
                 symbols=config.EVIDENCE_FILTER_SYMBOLS or None,
                 timeframes=config.EVIDENCE_FILTER_TIMEFRAMES or None,
@@ -34,6 +36,7 @@ def get_evidence_recorder():
                 max_per_hour=config.EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR)
             _evidence_recorder = EvidenceRecorder(
                 sink=JsonlSink(config.EVIDENCE_DIR), enabled=True, capture_filter=cap_filter,
+                telemetry_path=_tel_path,
                 max_queue=config.EVIDENCE_MAX_QUEUE, batch_size=config.EVIDENCE_BATCH_SIZE,
                 flush_interval_s=config.EVIDENCE_FLUSH_INTERVAL_S,
                 flush_retry_count=config.EVIDENCE_FLUSH_RETRY_COUNT,

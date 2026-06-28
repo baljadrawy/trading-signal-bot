@@ -8,7 +8,9 @@ it asynchronously in batches via an injected sink. It must be:
   - impossible to crash the caller (every failure is buried).
 It does NOT touch trading decisions, the DB, the health monitor, or RESEARCH_MODE.
 """
+import json
 import logging
+import os
 import time
 from collections import deque
 
@@ -59,10 +61,12 @@ class EvidenceRecorder:
     def __init__(self, sink, enabled: bool = False, max_queue: int = 10000,
                  batch_size: int = 100, flush_interval_s: float = 5.0,
                  flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
-                 shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None):
+                 shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None,
+                 telemetry_path=None):
         self.sink = sink
         self.enabled = enabled
         self.capture_filter = capture_filter
+        self.telemetry_path = telemetry_path   # if set, flusher dumps telemetry() here as JSON
         self.filtered = 0                      # intentional exclusions (NOT technical drops)
         self.max_queue = max_queue
         self.batch_size = batch_size
@@ -157,7 +161,22 @@ class EvidenceRecorder:
         except Exception:
             logger.warning("evidence shutdown flush error", exc_info=True)
         self.pending_on_shutdown = len(self._q)
+        self.dump_telemetry()
         return self.pending_on_shutdown
+
+    def dump_telemetry(self) -> None:
+        """Write telemetry() to telemetry_path atomically (read by monitor_canary.py).
+        Off the hot path (flusher/shutdown only); failures are buried."""
+        if not self.telemetry_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.telemetry_path) or ".", exist_ok=True)
+            tmp = self.telemetry_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(self.telemetry(), f)
+            os.replace(tmp, self.telemetry_path)      # atomic
+        except Exception:
+            logger.warning("telemetry dump failed", exc_info=True)
 
     async def run_flusher(self):
         """Background loop: flush on the time trigger. Buries all errors."""
@@ -168,6 +187,7 @@ class EvidenceRecorder:
                 while self._q:
                     if self.flush_now() == 0 and self._q:
                         break
+                self.dump_telemetry()              # expose metrics for monitor_canary.py
             except asyncio.CancelledError:
                 self.shutdown()                    # bounded drain of remaining records
                 raise
