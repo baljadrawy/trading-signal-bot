@@ -17,19 +17,28 @@ logger = logging.getLogger("evidence_recorder")
 
 class EvidenceRecorder:
     def __init__(self, sink, enabled: bool = False, max_queue: int = 10000,
-                 batch_size: int = 100, flush_interval_s: float = 5.0):
+                 batch_size: int = 100, flush_interval_s: float = 5.0,
+                 flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
+                 shutdown_flush_timeout_ms: float = 2000.0):
         self.sink = sink
         self.enabled = enabled
         self.max_queue = max_queue
         self.batch_size = batch_size
         self.flush_interval_s = flush_interval_s
+        self.flush_retry_count = flush_retry_count
+        self.flush_backoff_ms = flush_backoff_ms
+        self.shutdown_flush_timeout_ms = shutdown_flush_timeout_ms
         self._q = deque()
         self._lat = deque(maxlen=2000)        # recent capture latencies (ms)
         self.captured = 0
         self.dropped = 0
         self.flushed = 0
         self.capture_errors = 0
-        self.flush_failures = 0
+        self.flush_failures = 0               # individual write attempt failures
+        self.batches_attempted = 0
+        self.batches_succeeded = 0
+        self.last_flush_ms = 0.0
+        self.pending_on_shutdown = 0
 
     # ---- hot path: must be fast and never raise on the caller's behalf ----
     def capture(self, **fields) -> bool:
@@ -56,20 +65,54 @@ class EvidenceRecorder:
         return len(self._q) >= self.batch_size
 
     # ---- async-friendly batch flush (off the hot path) ----
+    def _write_with_retry(self, batch) -> bool:
+        """Write a batch, retrying transient sink failures with short backoff. Records
+        flush duration. Returns True iff the batch was persisted."""
+        self.batches_attempted += 1
+        attempts = self.flush_retry_count + 1
+        t0 = time.perf_counter()
+        ok = False
+        for a in range(attempts):
+            try:
+                self.sink.write(batch)
+                self.batches_succeeded += 1
+                ok = True
+                break
+            except Exception:
+                self.flush_failures += 1
+                logger.warning("evidence flush attempt %d/%d failed", a + 1, attempts, exc_info=True)
+                if a < attempts - 1 and self.flush_backoff_ms > 0:
+                    time.sleep(self.flush_backoff_ms / 1000.0)
+        self.last_flush_ms = (time.perf_counter() - t0) * 1000.0
+        return ok
+
     def flush_now(self) -> int:
-        batch = []
-        while self._q and len(batch) < self.batch_size:
-            batch.append(self._q.popleft())
-        if not batch:
+        if not self._q:
             return 0
+        # PEEK (do not pop) so a failed write never loses records — they stay queued.
+        import itertools
+        n = min(self.batch_size, len(self._q))
+        batch = list(itertools.islice(self._q, 0, n))
+        if self._write_with_retry(batch):
+            for _ in range(n):
+                self._q.popleft()
+            self.flushed += n
+            return n
+        return 0      # persistent failure: batch remains in the queue for a later attempt
+
+    def shutdown(self, timeout_ms: float = None) -> int:
+        """Drain remaining records within a deadline. Returns the count still pending
+        (records that could not be flushed in time). Never hangs, never raises."""
+        deadline = time.monotonic() + (timeout_ms or self.shutdown_flush_timeout_ms) / 1000.0
         try:
-            self.sink.write(batch)
-            self.flushed += len(batch)
-            return len(batch)
+            while self._q and time.monotonic() < deadline:
+                if self.flush_now() == 0:        # persistent failure within this attempt
+                    if time.monotonic() >= deadline:
+                        break
         except Exception:
-            self.flush_failures += 1
-            logger.warning("evidence flush failed (batch dropped)", exc_info=True)
-            return 0
+            logger.warning("evidence shutdown flush error", exc_info=True)
+        self.pending_on_shutdown = len(self._q)
+        return self.pending_on_shutdown
 
     async def run_flusher(self):
         """Background loop: flush on the time trigger. Buries all errors."""
@@ -81,9 +124,7 @@ class EvidenceRecorder:
                     if self.flush_now() == 0 and self._q:
                         break
             except asyncio.CancelledError:
-                while self._q:                     # drain fully on shutdown (not one batch)
-                    if self.flush_now() == 0:
-                        break
+                self.shutdown()                    # bounded drain of remaining records
                 raise
             except Exception:
                 logger.warning("evidence flusher loop error", exc_info=True)
@@ -102,6 +143,10 @@ class EvidenceRecorder:
             "evidence_flush_failures": self.flush_failures,
             "evidence_captured_total": self.captured,
             "evidence_flushed_total": self.flushed,
+            "evidence_write_success_rate": (self.batches_succeeded / self.batches_attempted)
+            if self.batches_attempted else 1.0,
+            "evidence_flush_duration_ms": float(self.last_flush_ms),
+            "evidence_pending_records_on_shutdown": self.pending_on_shutdown,
         }
 
 

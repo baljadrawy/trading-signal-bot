@@ -33,12 +33,14 @@ async def main():
 
     # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
     # failure is buried and the engine continues unaffected).
+    _evidence_rec = None
+    _evidence_flusher = None
     if config.ENABLE_EVIDENCE_RECORDER:
         try:
             from signal_logic import get_evidence_recorder
-            _rec = get_evidence_recorder()
-            if _rec is not None:
-                asyncio.create_task(_rec.run_flusher())
+            _evidence_rec = get_evidence_recorder()
+            if _evidence_rec is not None:
+                _evidence_flusher = asyncio.create_task(_evidence_rec.run_flusher())
                 logger.info("🛫 Evidence flight-recorder ON (shadow; async flush)")
         except Exception:
             logger.warning("evidence flusher start failed; continuing without it", exc_info=True)
@@ -152,6 +154,19 @@ async def main():
                 await asyncio.sleep(wait)
 
     finally:
+        # bounded drain of evidence on shutdown (guarded; never blocks teardown unduly)
+        if _evidence_flusher is not None:
+            _evidence_flusher.cancel()
+            try:
+                await _evidence_flusher
+            except (asyncio.CancelledError, Exception):
+                pass
+        if _evidence_rec is not None:
+            try:
+                pending = _evidence_rec.shutdown()
+                logger.info("🛬 Evidence recorder drained on shutdown (pending=%d)", pending)
+            except Exception:
+                logger.warning("evidence shutdown drain failed", exc_info=True)
         await client.close_connection()
         await Database.disconnect()
 

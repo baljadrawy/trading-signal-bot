@@ -47,6 +47,9 @@ class Config:
     EVIDENCE_BATCH_SIZE: int = int(os.getenv('EVIDENCE_BATCH_SIZE', '100'))
     EVIDENCE_FLUSH_INTERVAL_S: float = float(os.getenv('EVIDENCE_FLUSH_INTERVAL_S', '5'))
     EVIDENCE_MAX_QUEUE: int = int(os.getenv('EVIDENCE_MAX_QUEUE', '10000'))
+    EVIDENCE_FLUSH_RETRY_COUNT: int = int(os.getenv('EVIDENCE_FLUSH_RETRY_COUNT', '3'))
+    EVIDENCE_FLUSH_BACKOFF_MS: float = float(os.getenv('EVIDENCE_FLUSH_BACKOFF_MS', '50'))
+    EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS: float = float(os.getenv('EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS', '2000'))
 
     # ── Live-Learning mode ──────────────────────────────────────────────
     LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'

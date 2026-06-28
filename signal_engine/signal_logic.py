@@ -30,7 +30,10 @@ def get_evidence_recorder():
             _evidence_recorder = EvidenceRecorder(
                 sink=JsonlSink(config.EVIDENCE_DIR), enabled=True,
                 max_queue=config.EVIDENCE_MAX_QUEUE, batch_size=config.EVIDENCE_BATCH_SIZE,
-                flush_interval_s=config.EVIDENCE_FLUSH_INTERVAL_S)
+                flush_interval_s=config.EVIDENCE_FLUSH_INTERVAL_S,
+                flush_retry_count=config.EVIDENCE_FLUSH_RETRY_COUNT,
+                flush_backoff_ms=config.EVIDENCE_FLUSH_BACKOFF_MS,
+                shutdown_flush_timeout_ms=config.EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS)
         except Exception:
             _evidence_unavailable = True
             try:

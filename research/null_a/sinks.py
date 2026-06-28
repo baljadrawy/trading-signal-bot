@@ -34,7 +34,9 @@ class JsonlSink:
     """Append-only JSON Lines, one file per UTC day under `directory`. No DB, no I/O on
     the signal hot path (only the async flusher calls write)."""
     def __init__(self, directory: str):
-        self.directory = directory   # no I/O here; mkdir happens lazily in write() (flusher only)
+        # absolute at boot so writes can't land in an unintended cwd; no I/O here
+        # (mkdir is deferred to write(), which runs only in the async flusher).
+        self.directory = os.path.abspath(directory)
 
     def _path_for(self, rec: dict) -> str:
         import datetime
