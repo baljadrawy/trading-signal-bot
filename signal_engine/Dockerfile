@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 COPY shared/ ./shared/
 COPY signal_engine/ ./
 COPY research/continuous_learner.py ./research/continuous_learner.py
+# Evidence flight-recorder package (PR #3c). Required for the recorder to collect anything
+# when ENABLE_EVIDENCE_RECORDER=true; if absent, the lazy import degrades to a no-op safely.
+COPY research/null_a/ ./research/null_a/
 
 # مستخدم غير-root (uid 1000 يطابق tradmin على المضيف لصلاحيات الـ bind mounts)
 RUN useradd -u 1000 -m appuser \
