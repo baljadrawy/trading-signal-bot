@@ -7,9 +7,15 @@ Mandatory properties (a monitoring system must never become a source of risk):
 - bounded queue: overflow drops gracefully and is counted
 - telemetry from day one (success rate, latency, queue depth, dropped)
 """
-import sys, time; sys.path.insert(0, '.')
+import sys, time, copy; sys.path.insert(0, '.')
 import numpy as np
-from research.null_a.recorder import EvidenceRecorder, maybe_capture
+from research.null_a.recorder import EvidenceRecorder, maybe_capture, capture_signal
+from research.null_a.sinks import NullSink, ListSink
+
+
+class RaisingSink:
+    def write(self, batch):
+        raise IOError("disk full")
 
 
 def _fields(i=0):
@@ -20,11 +26,11 @@ def _fields(i=0):
 
 
 def test_recorder_disabled_is_true_noop():
-    sink_calls = []
-    r = EvidenceRecorder(sink=lambda b: sink_calls.append(b), enabled=False)
+    sink = ListSink()
+    r = EvidenceRecorder(sink=sink, enabled=False)
     assert r.capture(**_fields()) is False
     r.flush_now()
-    assert sink_calls == []
+    assert sink.records == []
     assert r.telemetry()["evidence_queue_depth"] == 0
 
 
@@ -32,7 +38,7 @@ def test_signal_pipeline_works_if_recorder_crashes():
     class Boom(EvidenceRecorder):
         def capture(self, **k):
             raise RuntimeError("boom")
-    r = Boom(sink=lambda b: None, enabled=True)
+    r = Boom(sink=NullSink(), enabled=True)
 
     def signal_pipeline():
         signal = "SIGNAL"
@@ -43,7 +49,7 @@ def test_signal_pipeline_works_if_recorder_crashes():
 
 
 def test_capture_latency_under_budget():
-    r = EvidenceRecorder(sink=lambda b: None, enabled=True, max_queue=200000)
+    r = EvidenceRecorder(sink=NullSink(), enabled=True, max_queue=200000)
     lat = []
     for i in range(2000):
         t = time.perf_counter()
@@ -54,7 +60,7 @@ def test_capture_latency_under_budget():
 
 
 def test_queue_overflow_drops_gracefully():
-    r = EvidenceRecorder(sink=lambda b: None, enabled=True, max_queue=10)
+    r = EvidenceRecorder(sink=NullSink(), enabled=True, max_queue=10)
     for i in range(100):
         r.capture(**_fields(i))           # must never raise
     t = r.telemetry()
@@ -63,22 +69,53 @@ def test_queue_overflow_drops_gracefully():
 
 
 def test_batch_flush_and_telemetry():
-    got = []
-    r = EvidenceRecorder(sink=lambda b: got.extend(b), enabled=True,
-                         max_queue=1000, batch_size=50)
+    sink = ListSink()
+    r = EvidenceRecorder(sink=sink, enabled=True, max_queue=1000, batch_size=50)
     for i in range(120):
         r.capture(**_fields(i))
     while r.telemetry()["evidence_queue_depth"] > 0:
         r.flush_now()
-    assert len(got) == 120
+    assert len(sink.records) == 120
     assert r.telemetry()["evidence_capture_success_rate"] == 1.0
     assert r.telemetry()["evidence_capture_latency_ms_p95"] < 5.0
 
 
 def test_flush_failure_does_not_raise():
-    def bad_sink(batch):
-        raise IOError("disk full")
-    r = EvidenceRecorder(sink=bad_sink, enabled=True)
+    r = EvidenceRecorder(sink=RaisingSink(), enabled=True)
     r.capture(**_fields())
     r.flush_now()                         # must swallow the sink error
     assert r.telemetry()["evidence_flush_failures"] >= 1
+
+
+def test_recorder_never_changes_signal_output():
+    """THE critical guarantee (first touch on the live signal line): capturing evidence
+    must never alter the signal object — recorder enabled, disabled, or sink crashing."""
+    signal = {"symbol": "BTCUSDT", "timeframe": "15m", "trade_type": "momentum",
+              "features": {"rsi": 28.0, "stoch": 0.7}, "score": 3.1,
+              "macro_state": "usdtd_falling"}
+    baseline = copy.deepcopy(signal)
+
+    for rec in (EvidenceRecorder(sink=ListSink(), enabled=True),
+                EvidenceRecorder(sink=ListSink(), enabled=False),
+                EvidenceRecorder(sink=RaisingSink(), enabled=True)):
+        out = capture_signal(rec, signal, source="live", model_version="v1")
+        assert out is None                       # hook returns nothing
+        assert signal == baseline                # signal object is byte-identical
+        # captured copy must not alias the signal's mutable members
+        if rec.enabled and rec._q:
+            rec_features = rec._q[-1]["features"]
+            rec_features["rsi"] = -999
+            assert signal["features"]["rsi"] == 28.0
+
+
+def test_capture_signal_tags_source_and_deferred_ohlcv():
+    sink = ListSink()
+    r = EvidenceRecorder(sink=sink, enabled=True)
+    sig = {"symbol": "ETHUSDT", "timeframe": "1d", "features": {"rsi": 30.0},
+           "trade_type": "reversion", "macro_state": "usdtd_flat", "score": 2.5}
+    capture_signal(r, sig, source="paper", model_version="sb-2026.06")
+    r.flush_now()
+    rec = sink.records[0]
+    assert rec["source"] == "paper" and rec["ohlcv_status"] == "deferred"
+    assert rec["model_version"] == "sb-2026.06" and "signal_id" in rec
+    assert rec["symbol"] == "ETHUSDT"

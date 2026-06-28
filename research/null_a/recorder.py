@@ -63,7 +63,7 @@ class EvidenceRecorder:
         if not batch:
             return 0
         try:
-            self.sink(batch)
+            self.sink.write(batch)
             self.flushed += len(batch)
             return len(batch)
         except Exception:
@@ -81,7 +81,9 @@ class EvidenceRecorder:
                     if self.flush_now() == 0 and self._q:
                         break
             except asyncio.CancelledError:
-                self.flush_now()
+                while self._q:                     # drain fully on shutdown (not one batch)
+                    if self.flush_now() == 0:
+                        break
                 raise
             except Exception:
                 logger.warning("evidence flusher loop error", exc_info=True)
@@ -111,3 +113,32 @@ def maybe_capture(recorder, **fields) -> None:
         recorder.capture(**fields)
     except Exception:
         logger.warning("Evidence capture failed", exc_info=True)
+
+
+def capture_signal(recorder, signal: dict, source: str, model_version: str,
+                   decision: str = "signal_generated") -> None:
+    """Build evidence fields from a signal dict and capture them. Guarantees: it READS
+    the signal (never mutates it) and NEVER raises into the caller. OHLCV is deferred
+    (window not in scope at the hook) and explicitly tagged ohlcv_status='deferred'."""
+    if recorder is None or not getattr(recorder, "enabled", False):
+        return
+    try:
+        from uuid import uuid4
+        maybe_capture(
+            recorder,
+            timestamp=time.time(),
+            signal_id=uuid4().hex,
+            source=source,
+            symbol=signal.get("symbol"),
+            timeframe=signal.get("timeframe"),
+            features=dict(signal.get("features") or {}),
+            confidence=signal.get("score"),
+            signal_score=signal.get("total_score", signal.get("score")),
+            market_regime=signal.get("macro_state") or signal.get("market_condition"),
+            trade_type=signal.get("trade_type"),
+            entry_decision=decision,
+            model_version=model_version,
+            ohlcv_status="deferred",
+        )
+    except Exception:
+        logger.warning("capture_signal failed", exc_info=True)

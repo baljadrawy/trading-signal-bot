@@ -31,6 +31,18 @@ async def main():
 
     engine = SignalEngine()
 
+    # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
+    # failure is buried and the engine continues unaffected).
+    if config.ENABLE_EVIDENCE_RECORDER:
+        try:
+            from signal_logic import get_evidence_recorder
+            _rec = get_evidence_recorder()
+            if _rec is not None:
+                asyncio.create_task(_rec.run_flusher())
+                logger.info("🛫 Evidence flight-recorder ON (shadow; async flush)")
+        except Exception:
+            logger.warning("evidence flusher start failed; continuing without it", exc_info=True)
+
     # اطبع العتبات الحيّة من DB بدل قيم الـ env الافتراضية
     live_score, live_tf = await engine._get_live_thresholds()
     logger.info(

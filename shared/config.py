@@ -42,6 +42,8 @@ class Config:
     # مُسجِّل أدلة معزول: يلتقط snapshot لحظة القرار إلى طابور محلي ثم flush غير متزامن.
     # معطّل افتراضياً. لا يلمس قرارات التداول/DB/المراقب؛ أي فشل فيه يُدفن ولا يصل لمحرك الإشارة.
     ENABLE_EVIDENCE_RECORDER: bool = os.getenv('ENABLE_EVIDENCE_RECORDER', 'false').lower() == 'true'
+    APP_VERSION: str = os.getenv('APP_VERSION', 'sb-2026.06')   # tag evidence by system version
+    EVIDENCE_DIR: str = os.getenv('EVIDENCE_DIR', 'data/evidence')
     EVIDENCE_BATCH_SIZE: int = int(os.getenv('EVIDENCE_BATCH_SIZE', '100'))
     EVIDENCE_FLUSH_INTERVAL_S: float = float(os.getenv('EVIDENCE_FLUSH_INTERVAL_S', '5'))
     EVIDENCE_MAX_QUEUE: int = int(os.getenv('EVIDENCE_MAX_QUEUE', '10000'))

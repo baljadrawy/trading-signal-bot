@@ -11,6 +11,52 @@ from shared.macro_context import MacroContext
 
 logger = setup_logger('signal_logic')
 
+# ── Evidence flight-recorder (PR #3c) — shadow, default-off, fully isolated ──────────
+# ALL imports are lazy and guarded: with the flag off, signal_logic loads and behaves
+# byte-identically. With the flag on but the recorder unavailable, failures are buried —
+# the signal path is NEVER affected.
+_evidence_recorder = None
+_evidence_unavailable = False
+
+
+def get_evidence_recorder():
+    global _evidence_recorder, _evidence_unavailable
+    if not config.ENABLE_EVIDENCE_RECORDER or _evidence_unavailable:
+        return None
+    if _evidence_recorder is None:
+        try:
+            from research.null_a.recorder import EvidenceRecorder
+            from research.null_a.sinks import JsonlSink
+            _evidence_recorder = EvidenceRecorder(
+                sink=JsonlSink(config.EVIDENCE_DIR), enabled=True,
+                max_queue=config.EVIDENCE_MAX_QUEUE, batch_size=config.EVIDENCE_BATCH_SIZE,
+                flush_interval_s=config.EVIDENCE_FLUSH_INTERVAL_S)
+        except Exception:
+            _evidence_unavailable = True
+            try:
+                logger.warning("evidence recorder unavailable; continuing without it", exc_info=True)
+            except Exception:
+                pass
+            return None
+    return _evidence_recorder
+
+
+def _record_evidence(signal, source):
+    """Fail-safe evidence hook. Reads the signal, never mutates it, never raises —
+    even if logging itself fails (the except-handler's own log is guarded)."""
+    if not config.ENABLE_EVIDENCE_RECORDER or not signal:
+        return
+    try:
+        from research.null_a.recorder import capture_signal
+        capture_signal(get_evidence_recorder(), signal, source=source,
+                       model_version=config.APP_VERSION)
+    except Exception:
+        try:
+            logger.warning("evidence hook failed", exc_info=True)
+        except Exception:
+            pass
+
+
 class SignalEngine:
 
     async def _get_live_thresholds(self) -> tuple:
@@ -385,6 +431,7 @@ class SignalEngine:
                 f"تأكيد: {best_signal['timeframe_confirmations']} Timeframes ({tfs})"
             )
 
+        _record_evidence(best_signal, source="paper")
         return best_signal
 
     async def find_best_signal_live(self, results, macro: 'MacroContext'):
@@ -423,6 +470,7 @@ class SignalEngine:
                         'macro_state': macro_state}
         if best:
             logger.info(f"🏆 live signal: {best['symbol']} | {best.get('trade_type')} | {best.get('timeframe')} | {macro_state}")
+        _record_evidence(best, source="live")
         return best
 
     def _get_btc_bonus(self, market_condition: str) -> float:
