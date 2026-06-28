@@ -38,6 +38,13 @@ class Config:
     # الحد الأدنى لعدد Timeframes المتفقة لإصدار إشارة (من أصل 4)
     MIN_TIMEFRAME_CONFIRMATIONS: int = int(os.getenv('MIN_TIMEFRAME_CONFIRMATIONS', '2'))
 
+    # ── ضبط تلقائي للعتبات (auto-tuner) ─────────────────────────────────
+    # مفتاح إيقاف: عند False يُجمَّد المُوتِّن (لا يعدّل min_score/min_tf من أداء آخر
+    # الصفقات). معطّل افتراضياً: المطاردة على آخر الصفقات صمّتت البوت مرتين
+    # (2026-06-07: min_tf=4 → 0 إشارة؛ TF Confirmation Paradox 2026-06-02). الكود
+    # محفوظ ويُعاد تفعيله فقط عبر إعادة تدريب walk-forward لاحقاً.
+    ENABLE_AUTO_TUNE: bool = os.getenv('ENABLE_AUTO_TUNE', 'false').lower() == 'true'
+
     # ── Live-Learning mode ──────────────────────────────────────────────
     LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'
     TIMEFRAMES_LL: list = field(default_factory=lambda: os.getenv('TIMEFRAMES_LL', '15m,4h,1d').split(','))

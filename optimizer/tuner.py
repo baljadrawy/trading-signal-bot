@@ -2,11 +2,27 @@
 Parameter Tuner - يضبط إعدادات البوت تلقائياً بناءً على الأداء
 يعدّل MIN_SCORE_TO_SIGNAL و MIN_TIMEFRAME_CONFIRMATIONS في DB
 """
+from datetime import datetime, timezone
 from typing import Dict, List
+from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 
 logger = setup_logger('optimizer.tuner')
+
+# عدّاد مراقبة: كم مرة استُدعي auto_tune بينما هو معطّل (لكشف أي استدعاء غير متوقع لاحقاً)
+AUTO_TUNE_BYPASS_COUNT = 0
+
+
+def _bypass_record(min_score, min_tf, count) -> Dict:
+    """سجلّ مُهيكَل يُكتب عند كل تجاوز للمُوتِّن المعطّل."""
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "reason": "ENABLE_AUTO_TUNE=False",
+        "bypass_count": count,
+        "current_min_score": min_score,
+        "current_min_tf": min_tf,
+    }
 
 # حدود الإعدادات (حماية من التطرف)
 # البيانات (2433 صفقة): score=3 → WR 37.7%، avg_win +4.33%، net +$8.96 (الوحيد إيجابي)
@@ -39,6 +55,17 @@ class ParameterTuner:
         يحلل الإحصائيات ويعدّل الإعدادات إذا لزم.
         يعيد قائمة بالتغييرات التي حدثت.
         """
+        # ── مفتاح إيقاف: لا ضبط تلقائي من أداء آخر الصفقات ──────────────
+        # العتبات تبقى ثابتة (constants) حتى يُعاد التفعيل عبر walk-forward.
+        # قراءة فقط للعتبات الحالية + سجلّ مُهيكَل + عدّاد (لا كتابة/ضبط).
+        if not config.ENABLE_AUTO_TUNE:
+            global AUTO_TUNE_BYPASS_COUNT
+            AUTO_TUNE_BYPASS_COUNT += 1
+            cur_score, cur_tf = await self._current_settings_for_log()
+            logger.info("⏸️ Tuner bypass (auto-tune disabled): %s",
+                        _bypass_record(cur_score, cur_tf, AUTO_TUNE_BYPASS_COUNT))
+            return []
+
         changes = []
         win_rate   = stats['win_rate']
         avg_profit = stats['avg_profit']
@@ -118,6 +145,22 @@ class ParameterTuner:
                 logger.info("✅ Tuner: الإعدادات مناسبة، لا تغييرات مطلوبة")
 
         return changes
+
+    async def _current_settings_for_log(self):
+        """قراءة فقط (SELECT) لقيم العتبات الحالية لأغراض السجل — لا إنشاء جدول ولا كتابة.
+        يرجع (min_score, min_tf) ويسقط إلى قيم config عند أي خطأ/غياب."""
+        try:
+            rows = await Database.fetch(
+                "SELECT key, value FROM optimizer_settings "
+                "WHERE key IN ('min_score_to_signal', 'min_timeframe_confirmations')"
+            )
+            s = {row['key']: row['value'] for row in rows}
+            return (
+                float(s.get('min_score_to_signal', config.MIN_SCORE_TO_SIGNAL)),
+                int(s.get('min_timeframe_confirmations', config.MIN_TIMEFRAME_CONFIRMATIONS)),
+            )
+        except Exception:
+            return (float(config.MIN_SCORE_TO_SIGNAL), int(config.MIN_TIMEFRAME_CONFIRMATIONS))
 
     async def _get_current_settings(self) -> Dict:
         """جلب الإعدادات الحالية من جدول optimizer_settings"""
