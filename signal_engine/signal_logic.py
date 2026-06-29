@@ -476,8 +476,8 @@ class SignalEngine:
             if (tt, data.get('timeframe')) in throttled:
                 logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (learned loser)")
                 continue
-            # أول مرشّح صالح يكفي (paper، جمع عيّنة)؛ تفضيل momentum
-            if best is None or (tt == 'momentum' and best.get('trade_type') != 'momentum'):
+            # أول مرشّح صالح يكفي (paper، جمع عيّنة)؛ تفضيل reversion (36.96% WR vs momentum 11.36%)
+            if best is None or (tt == 'reversion' and best.get('trade_type') != 'reversion'):
                 best = {**data, 'macro_snapshot': {**macro.snapshot(), **macro.state()},
                         'macro_state': macro_state}
         if best:
