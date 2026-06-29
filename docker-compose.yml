@@ -95,6 +95,10 @@ services:
       - ./shared:/app/shared
       - ./signal_engine:/app
       - models_data:/app/models
+      # Canary Phase A: research/null_a importable despite the /app bind-mount; evidence dir
+      # aligned with monitor_canary.py (host ./data/evidence). research mounted read-only.
+      - ./research:/app/research:ro
+      - ./data/evidence:/app/data/evidence
     networks:
       - trading_network
       - shared_db_net

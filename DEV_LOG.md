@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-06-29
+
+### 🛫 إعادة هندسة robustness + Canary حيّ (فرع `integration/research-pipeline`، غير مدموج في main)
+تحوّل البوت من «جامع إشارات» نحو «محرك قرار احتمالي» بمنهج falsify-first، shadow-first، TDD. سلّم PR على فروع معزولة:
+- **PR#1** (فرع `safety/disable-auto-tune`): تعطيل auto_tune خلف `ENABLE_AUTO_TUNE=False` (المُوتِّن صمّت البوت مرتين سابقاً) + telemetry تجاوز. **غير مدموج.**
+- **PR#2–#3c** (فرع `integration/research-pipeline`، 11 commit): بطارية تفنيد `research/falsification/` + مراقب صحّة `research/monitoring/` + Null-A المشروط وEvidence Store `research/null_a/` + **Evidence Flight Recorder** (مُسجِّل معزول، off-by-default، لا يمسّ مسار الإشارة — مُدقَّق عدائياً) + تصليب (لا فقدان بيانات/shutdown متدرّج) + capture filter + telemetry ring buffer + phase_id. الحزمة 72/72.
+- **أدوات تشغيل:** `docs/canary_runbook.md` (العقد التشغيلي)، `monitor_canary.py` (تقييم PASS/FAIL)، `research/ops/canary_watchdog.py` (تنبيه تلقرام عند RED/INVALID/VALIDATED، يعمل عبر cron؛ النسخة التشغيلية في `/home/tradmin/canary_watchdog.py`).
+- **الحالة الحيّة:** Canary Phase A-R2 مُفعّل (`ENABLE_EVIDENCE_RECORDER=true`، كل الرموز/15m,4h,1d/live/max20). A-R1 (BTC-only) كان GREEN لكن captured=0 (سوق هادئ) → غير حاسم؛ A-R2 حقّق captured>0 (مسار الكتابة عُبر فعلياً)، البوت صحّي 0 أخطاء. تفاصيل كاملة + التراجع في `docs/canary_state.md`.
+- **قيد مهم:** الدليل المُجمَّع = «ما تنتقيه سياسة البوت» (post-filter + learned_gates يتكيّف)، لا الكون الخام — يُحلَّل بهذه الصفة، لا كأساس لـedge. تحليل الـedge (PR#4) مؤجَّل حتى أسبوع paper.
+
+---
+
 ## 2026-06-23
 
 ### 🔍 تدقيق نزاهة كمّي — لا حافة (مؤكَّد على 2518 صفقة حيّة)
