@@ -108,6 +108,19 @@ def test_recorder_never_changes_signal_output():
             assert signal["features"]["rsi"] == 28.0
 
 
+def test_phase_id_tags_records_and_telemetry(tmp_path):
+    p = tmp_path / "_telemetry.json"
+    sink = ListSink()
+    r = EvidenceRecorder(sink=sink, enabled=True, telemetry_path=str(p), phase_id="PhaseA-R2")
+    r.capture(**_fields())
+    r.flush_now()
+    assert sink.records[0]["phase_id"] == "PhaseA-R2"          # captured record tagged
+    r.dump_telemetry()
+    import json as _json
+    snap = _json.loads(p.read_text())[-1]
+    assert snap["phase_id"] == "PhaseA-R2"                     # telemetry snapshot tagged
+
+
 def test_capture_signal_tags_source_and_deferred_ohlcv():
     sink = ListSink()
     r = EvidenceRecorder(sink=sink, enabled=True)

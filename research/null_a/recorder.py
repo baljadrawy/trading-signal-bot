@@ -62,10 +62,11 @@ class EvidenceRecorder:
                  batch_size: int = 100, flush_interval_s: float = 5.0,
                  flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
                  shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None,
-                 telemetry_path=None, telemetry_history_size: int = 500):
+                 telemetry_path=None, telemetry_history_size: int = 500, phase_id: str = ""):
         self.sink = sink
         self.enabled = enabled
         self.capture_filter = capture_filter
+        self.phase_id = phase_id                # tags records + telemetry (separates canary runs)
         self.telemetry_path = telemetry_path   # if set, flusher dumps telemetry history here
         self._tel_history = deque(maxlen=telemetry_history_size)   # ring buffer of snapshots
         self.filtered = 0                      # intentional exclusions (NOT technical drops)
@@ -101,6 +102,8 @@ class EvidenceRecorder:
                 self.dropped += 1
             else:
                 fields["_captured_at"] = time.time()
+                if self.phase_id:
+                    fields["phase_id"] = self.phase_id
                 self._q.append(fields)
                 self.captured += 1
                 ok = True
@@ -170,7 +173,7 @@ class EvidenceRecorder:
         history to telemetry_path atomically (read by monitor_canary.py). Keeping a window
         of snapshots means a short spike (e.g. a one-cycle dropped/latency blip) is not lost
         between reads. Off the hot path (flusher/shutdown only); failures are buried."""
-        self._tel_history.append({"ts": time.time(), **self.telemetry()})
+        self._tel_history.append({"ts": time.time(), "phase_id": self.phase_id, **self.telemetry()})
         if not self.telemetry_path:
             return
         try:
