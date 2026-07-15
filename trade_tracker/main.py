@@ -15,6 +15,7 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.candle import candle_interval_case_sql
 from shared.triple_barrier import (
     create_config_from_trade,
     create_state_from_trade,
@@ -171,7 +172,8 @@ async def register_new_signals():
             logger.info(f"⏸️ وصلنا للحد الأقصى للصفقات المفتوحة: {open_count}/{config.MAX_OPEN_TRADES}")
             return
 
-    new_signals = await Database.fetch("""
+    candle_case = candle_interval_case_sql('s.timeframe')
+    new_signals = await Database.fetch(f"""
         SELECT DISTINCT ON (s.symbol)
                s.id, s.symbol, s.entry_price, s.target_1, s.target_2, s.target_3,
                s.stop_loss, s.timeframe, s.is_paper_trade
@@ -184,6 +186,13 @@ async def register_new_signals():
         AND NOT EXISTS (
             SELECT 1 FROM active_trades at2
             WHERE at2.symbol = s.symbol AND at2.status = 'open'
+        )
+        AND NOT EXISTS (
+            -- صفقة واحدة لكل (رمز، إطار) خلال فترة الشمعة — يمنع عدّ نفس الإعداد المُعاد إطلاقه مراراً
+            SELECT 1 FROM active_trades at3
+            WHERE at3.symbol = s.symbol
+              AND at3.timeframe = s.timeframe
+              AND at3.opened_at > NOW() - ({candle_case})
         )
         AND NOT EXISTS (
             SELECT 1 FROM approval_requests ar
