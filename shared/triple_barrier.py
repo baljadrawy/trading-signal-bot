@@ -182,6 +182,7 @@ def step_barrier(
 
     if low <= eff_stop:
         # خروج عند الستوب الديناميكي
+        # NOTE: this backtest path books stops at the exact stop (no slippage). The LIVE tracker (trade_tracker) and the measurement oracle apply STOP_SLIPPAGE via modeled_stop_exit(). This asymmetry is deliberate and left for a future unify-slippage decision — do not "fix" silently.
         exit_price  = eff_stop
         profit_pct  = ((exit_price - cfg.entry) / cfg.entry) * 100
         profit_usdt = (profit_pct / 100) * cfg.trade_amount
@@ -264,7 +265,7 @@ def modeled_stop_exit(entry: float, eff_stop: float, slippage: float) -> tuple:
     Returns (fill_price, profit_pct). Slippage is subtracted so the fill is
     slightly worse than the stop, never better. When eff_stop is above entry
     (a trailing stop in profit), the result is still a win — the sign is
-    carried by fill_price vs entry, computed by the caller.
+    carried by fill_price vs entry (the win/loss determination is done by the caller).
     """
     fill_price = eff_stop * (1 - slippage)
     profit_pct = ((fill_price - entry) / entry) * 100

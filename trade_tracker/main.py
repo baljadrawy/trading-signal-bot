@@ -162,7 +162,7 @@ async def enforce_max_open_trades():
 
 
 async def register_new_signals():
-    """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل عملة"""
+    """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل (عملة، إطار) لكل شمعة"""
     # تحقق من حد الصفقات المفتوحة
     if config.MAX_OPEN_TRADES > 0:
         open_count = await Database.fetchval(

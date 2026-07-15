@@ -8,7 +8,7 @@ before/after impact. Read-only — never writes to the DB. Run in the venv:
 import subprocess, io, sys
 sys.path.insert(0, '.')
 import pandas as pd
-from shared.candle import candle_seconds, is_within_candle
+from shared.candle import is_within_candle
 from shared.triple_barrier import modeled_stop_exit
 
 FEE_PCT = 0.6          # round-trip fee for net@fee
@@ -51,6 +51,7 @@ def reprice_stops(df):
     for i, r in df.iterrows():
         if not r.stop_hit:
             continue
+        # stop_hit rows are ~all target_reached==0, so this uses the exact stop_loss in the cases that matter; the entry-branch is effectively dead here.
         eff_stop = r.entry if r.target_reached >= 1 else r.stop_loss  # approx dynamic stop
         _, pct = modeled_stop_exit(r.entry, eff_stop, SLIPPAGE)
         df.at[i, 'profit_percent'] = pct
