@@ -20,6 +20,7 @@ from shared.triple_barrier import (
     create_state_from_trade,
     step_barrier,
     barrier_status_summary,
+    modeled_stop_exit,
     TripleBarrierConfig,
     TripleBarrierState,
 )
@@ -298,21 +299,21 @@ async def evaluate_trade(trade: dict, current_price: float):
         await close_trade_barrier(trade, 'WIN', profit_pct, profit_usdt, cfg.target_3, 'T3', state.highest_target, False)
         return
 
-    # فحص ضرب الستوب الديناميكي
+    # فحص ضرب الستوب الديناميكي — نمذجة التعبئة عند مستوى الستوب لا عند سعر الاستطلاع المتجاوز
     if current_price <= eff_stop:
-        profit_pct  = ((current_price - entry) / entry) * 100
+        fill_price, profit_pct = modeled_stop_exit(entry, eff_stop, config.STOP_SLIPPAGE)
         profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        is_win      = current_price > entry
+        is_win      = fill_price > entry
         if state.highest_target >= 2:
             reason = 'trailing_stop'
         elif state.highest_target == 1:
             reason = 'break_even'
         else:
             reason = 'stop_loss'
-        original_stop_hit = (not is_win) and (current_price <= cfg.stop_loss)
+        original_stop_hit = (not is_win) and (fill_price <= cfg.stop_loss)
         await close_trade_barrier(
             trade, 'WIN' if is_win else 'LOSS',
-            profit_pct, profit_usdt, current_price,
+            profit_pct, profit_usdt, fill_price,
             f"{reason} ({stop_label})", state.highest_target, original_stop_hit
         )
         return
