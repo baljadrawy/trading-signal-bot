@@ -33,7 +33,9 @@ def load():
         ["docker", "exec", "-i", "postgres", "psql", "-U", "trading_signal_bot",
          "-d", "trading_signals", "-A", "-c", QUERY],
         capture_output=True, text=True, check=True).stdout
-    return pd.read_csv(io.StringIO(out))
+    df = pd.read_csv(io.StringIO(out))
+    df['stop_hit'] = df['stop_hit'].astype(str).str.lower().isin(['t', 'true', '1'])
+    return df
 
 
 def metrics(df, label):
