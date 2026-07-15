@@ -74,6 +74,7 @@ class Config:
 
     # حجم الصفقة
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
+    STOP_SLIPPAGE: float = float(os.getenv('STOP_SLIPPAGE', '0.001'))  # 0.1% modeled stop-fill slippage
 
     # نظام الموافقة والـ Whitelist
     APPROVAL_TIMEOUT_MINUTES: int = int(os.getenv('APPROVAL_TIMEOUT_MINUTES', '30'))

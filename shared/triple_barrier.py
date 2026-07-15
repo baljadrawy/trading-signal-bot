@@ -256,3 +256,16 @@ def barrier_status_summary(cfg: TripleBarrierConfig, state: TripleBarrierState, 
         f"الستوب الفعّال: {stop_label} | "
         f"المدة: {state.hours_open:.1f}h"
     )
+
+
+def modeled_stop_exit(entry: float, eff_stop: float, slippage: float) -> tuple:
+    """Model a stop fill AT the stop level, not at an overshot poll price.
+
+    Returns (fill_price, profit_pct). Slippage is subtracted so the fill is
+    slightly worse than the stop, never better. When eff_stop is above entry
+    (a trailing stop in profit), the result is still a win — the sign is
+    carried by fill_price vs entry, computed by the caller.
+    """
+    fill_price = eff_stop * (1 - slippage)
+    profit_pct = ((fill_price - entry) / entry) * 100
+    return fill_price, profit_pct
