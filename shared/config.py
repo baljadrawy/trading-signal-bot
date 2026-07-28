@@ -70,6 +70,10 @@ class Config:
     ROLL_N: int = int(os.getenv('ROLL_N', '150'))
     MIN_CELL_N: int = int(os.getenv('MIN_CELL_N', '10'))
     THROTTLE_EXPECTANCY: float = float(os.getenv('THROTTLE_EXPECTANCY', '0'))
+    # رسوم الذهاب والإياب (%) التي يجب أن يتجاوزها التوقّع الإجمالي للخلية لتبقى مفعّلة.
+    # 0.3 = 0.1%/جهة رسوم + ~0.1% انزلاق (محاسبة البوت، متسقة مع STOP_SLIPPAGE=0.1%).
+    # المُتعلّم يخنق على التوقّع الصافي (إجمالي − رسوم) لا الإجمالي (إصلاح البوابة العمياء للرسوم).
+    FEE_ROUNDTRIP_PCT: float = float(os.getenv('FEE_ROUNDTRIP_PCT', '0.3'))
     LEARN_CRON_HOURS: int = int(os.getenv('LEARN_CRON_HOURS', '12'))
 
     # حجم الصفقة

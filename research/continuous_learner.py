@@ -76,7 +76,7 @@ async def send_status_digest():
         lg_line = (f"🧠 التعلّم: يعمل ({len(lg)} تركيبة، أوقف {throttled} خاسرة)\n"
                    f"🏆 الأفضل: {TT.get(t['trade_type'], t['trade_type'])} + هيمنة USDT {UD.get(ud_key, ud_key)} "
                    f"+ {TF.get(t['timeframe'], t['timeframe'])}\n"
-                   f"   ربح {float(t['expectancy']):+.2f}%/صفقة، نجاح {float(t['wr']):.0f}% ({t['n']} صفقة)")
+                   f"   ربح صافٍ {float(t['expectancy']):+.2f}%/صفقة (بعد الرسوم)، نجاح {float(t['wr']):.0f}% ({t['n']} صفقة)")
     else:
         remaining = max(0, config.WARMUP_N - closed)
         lg_line = (f"🧠 التعلّم: لم يبدأ بعد\n"
@@ -91,7 +91,12 @@ async def send_status_digest():
             logger.warning(f"digest send failed: {e}")
 
 
-def compute_cells(trades, min_cell_n: int, throttle_expectancy: float):
+def compute_cells(trades, min_cell_n: int, throttle_expectancy: float, fee_roundtrip: float = 0.0):
+    """توقّع الخلية = متوسط الربح الصافي (إجمالي − رسوم الذهاب والإياب).
+    `profit_percent` المخزَّن إجماليٌّ بلا رسوم؛ نطرح fee_roundtrip هنا فالبوابة تخنق
+    على أساس صافٍ لا إجمالي (إصلاح العطب: خلية إجماليها بين 0 والرسوم كانت تبقى weight=1
+    رغم خسارتها صافياً). المخزَّن في learned_gates.expectancy صافٍ أيضاً، فالتقرير اليومي
+    لا يتوّج خلية خاسرة صافياً كـ«رابحة». fee_roundtrip=0.0 يحفظ التوافق الخلفي."""
     groups = defaultdict(list)
     for t in trades:
         groups[(t['trade_type'], t['macro_state'], t['timeframe'])].append(t)
@@ -99,13 +104,13 @@ def compute_cells(trades, min_cell_n: int, throttle_expectancy: float):
     for (tt, ms, tf), items in groups.items():
         n = len(items)
         wins = sum(1 for x in items if x['is_win'])
-        exp = sum(float(x['profit_percent']) for x in items) / n
+        net_exp = sum(float(x['profit_percent']) for x in items) / n - fee_roundtrip
         if n >= min_cell_n:
-            weight = 1.0 if exp > throttle_expectancy else 0.0
+            weight = 1.0 if net_exp > throttle_expectancy else 0.0
         else:
             weight = 1.0
         out.append({'trade_type': tt, 'macro_state': ms, 'timeframe': tf,
-                    'n': n, 'wr': round(wins / n * 100, 1), 'expectancy': round(exp, 4),
+                    'n': n, 'wr': round(wins / n * 100, 1), 'expectancy': round(net_exp, 4),
                     'weight': weight})
     return out
 
@@ -129,7 +134,8 @@ async def run():
                            'macro_state': f"usdtd_{ms.get('usdtd_trend', 'flat')}",
                            'timeframe': r['timeframe'], 'profit_percent': r['profit_percent'],
                            'is_win': r['is_win']})
-        cells = compute_cells(trades, config.MIN_CELL_N, config.THROTTLE_EXPECTANCY)
+        cells = compute_cells(trades, config.MIN_CELL_N, config.THROTTLE_EXPECTANCY,
+                              config.FEE_ROUNDTRIP_PCT)
         for c in cells:
             await Database.execute(
                 """INSERT INTO learned_gates (trade_type, macro_state, timeframe, n, wr, expectancy, weight, updated_at)
