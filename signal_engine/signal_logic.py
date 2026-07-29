@@ -476,8 +476,11 @@ class SignalEngine:
             if (tt, data.get('timeframe')) in throttled:
                 logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (learned loser)")
                 continue
-            # أول مرشّح صالح يكفي (paper، جمع عيّنة)؛ تفضيل reversion (36.96% WR vs momentum 11.36%)
-            if best is None or (tt == 'reversion' and best.get('trade_type') != 'reversion'):
+            # أول مرشّح صالح غير مخنوق يكفي (paper، جمع عيّنة) — بلا تفضيل نوع.
+            # حُيِّد تفضيل reversion (flip 4f84717) 2026-07-29: كلا النوعين بلا حافة صافية
+            # بعد الرسوم (تدقيق 2026-07-29 + دحض canary-close OOS)، والخنق المُتعلَّم
+            # (learned_gates.weight) هو من يقصي الخلايا الخاسرة لا انحياز مبرمَج.
+            if best is None:
                 best = {**data, 'macro_snapshot': {**macro.snapshot(), **macro.state()},
                         'macro_state': macro_state}
         if best:
