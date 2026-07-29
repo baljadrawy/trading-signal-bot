@@ -12,6 +12,7 @@ from telegram import Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from shared.config import config
 from shared.database import Database
+from shared.fees import net_pct, net_usdt, fee_usdt
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
@@ -453,16 +454,22 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             COUNT(*) as total,
             SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
             SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
-            ROUND(AVG(profit_percent)::numeric, 2) as avg_profit
+            ROUND(AVG(profit_percent)::numeric, 2) as avg_profit,
+            COALESCE(SUM(profit_usdt), 0) as sum_usdt
         FROM trade_results
         WHERE exit_time > NOW() - INTERVAL '7 days'
     """)
+    # القيم المخزَّنة إجمالية؛ نعرض الصافي بعد الرسوم (shared.fees، نفس FEE_ROUNDTRIP_PCT للمُتعلّم)
+    total = int(stats['total'] or 0)
+    avg_net = net_pct(float(stats['avg_profit'] or 0))
+    total_net = float(stats['sum_usdt'] or 0) - total * fee_usdt()
     await update.message.reply_text(
-        f"📊 إحصائيات آخر 7 أيام:\n\n"
-        f"  إجمالي الصفقات: {stats['total']}\n"
+        f"📊 إحصائيات آخر 7 أيام (صافٍ بعد الرسوم):\n\n"
+        f"  إجمالي الصفقات: {total}\n"
         f"  أرباح: {stats['wins']}\n"
         f"  خسائر: {stats['losses']}\n"
-        f"  متوسط الربح: {stats['avg_profit']}%"
+        f"  متوسط الربح الصافي: {avg_net:.2f}%\n"
+        f"  إجمالي PnL صافٍ: {total_net:+.2f} USDT"
     )
 
 
@@ -498,11 +505,14 @@ async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"  • {t['symbol']} | T{t['highest_target_hit']} محقق | {hrs:.0f}س")
 
     if closed:
-        lines.append(f"\n📊 آخر النتائج:")
+        lines.append(f"\n📊 آخر النتائج (صافٍ بعد الرسوم):")
         for t in closed:
             icon = "✅" if t['result'] == 'WIN' else "❌"
-            pct  = f"+{t['profit_percent']:.2f}%" if t['profit_percent'] > 0 else f"{t['profit_percent']:.2f}%"
-            usdt = f"{t['profit_usdt']:.2f}" if t['profit_usdt'] else "0.00"
+            # المخزَّن إجمالي؛ نعرض الصافي بعد الرسوم (shared.fees)
+            np_ = net_pct(float(t['profit_percent'] or 0))
+            nu_ = net_usdt(float(t['profit_usdt'] or 0))
+            pct  = f"+{np_:.2f}%" if np_ > 0 else f"{np_:.2f}%"
+            usdt = f"{nu_:.2f}"
             lines.append(f"  {icon} {t['symbol']} | {pct} ({usdt} USDT) | T{t['target_reached']}")
     else:
         lines.append("\nلا توجد نتائج بعد — الصفقات قيد المتابعة")
