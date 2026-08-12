@@ -1,6 +1,7 @@
 """التعلّم الحي المستمرّ: نافذة متحرّكة → أوزان learned_gates لكل (نوع × ماكرو × إطار)."""
 import asyncio
 from collections import defaultdict
+from datetime import timedelta
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
@@ -115,6 +116,20 @@ def compute_cells(trades, min_cell_n: int, throttle_expectancy: float, fee_round
     return out
 
 
+def select_stale_throttles(rows, now, stale_days):
+    """تُعيد مفاتيح (نوع، ماكرو، إطار) للخلايا المخنوقة المتقادمة لحذفها (إعادة فحص دوري).
+
+    خليّة مخنوقة (weight<=0) توقّفت عن إنتاج صفقات → لا يعيد المُتعلّم حسابها →
+    يبقى صفّها يحجب إلى الأبد (حظر ذاتي التحقّق). الحل: أي خليّة مخنوقة لم تُحدَّث
+    منذ `stale_days` تُحذف فتعود إحماءً (لا صفّ = لا حجب) وتُجرَّب بعيّنة جديدة.
+    الخلايا المسموحة (weight>0) لا تُمسّ — لا تحجب أصلاً. المقارنة صارمة (< لا <=)
+    فالعتبة تماماً لا تُحذف. `rows`: dicts فيها weight و updated_at (datetime)."""
+    cutoff = now - timedelta(days=stale_days)
+    return [(r['trade_type'], r['macro_state'], r['timeframe'])
+            for r in rows
+            if r['weight'] is not None and r['weight'] <= 0 and r['updated_at'] < cutoff]
+
+
 async def run():
     closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id = s.id WHERE s.trade_type IS NOT NULL")
     # ── التعلّم أولاً (يحدّث learned_gates) ثم نرسل التقرير ليعكس الخلايا الطازجة ──
@@ -145,6 +160,18 @@ async def run():
                 c['trade_type'], c['macro_state'], c['timeframe'], c['n'], c['wr'], c['expectancy'], c['weight'])
         losers = [c for c in cells if c['weight'] == 0]
         logger.info(f"📚 Learner: {len(cells)} cells, {len(losers)} throttled (تفاصيلها في التقرير اليومي)")
+        # ── إعادة الفحص الدوري: احذف الخلايا المخنوقة المتقادمة فتعود إحماءً ──
+        grows = await Database.fetch(
+            "SELECT trade_type, macro_state, timeframe, weight, updated_at FROM learned_gates")
+        db_now = await Database.fetchval("SELECT NOW()")
+        stale = select_stale_throttles([dict(r) for r in grows], db_now, config.THROTTLE_STALE_DAYS)
+        for tt, ms, tf in stale:
+            await Database.execute(
+                "DELETE FROM learned_gates WHERE trade_type=$1 AND macro_state=$2 AND timeframe=$3",
+                tt, ms, tf)
+        if stale:
+            logger.info(
+                f"♻️ تقادم: حُذفت {len(stale)} خليّة مخنوقة متقادمة (>{config.THROTTLE_STALE_DAYS}ي) → تعود إحماءً")
     else:
         logger.info(f"warm-up: {closed}/{config.WARMUP_N} closed trades; skipping learning")
     # التقرير اليومي يُرسَل أخيراً ليعكس learned_gates المحدّثة (لا رسالة منفصلة مكرّرة)

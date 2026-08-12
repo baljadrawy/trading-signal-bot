@@ -74,6 +74,9 @@ class Config:
     # 0.3 = 0.1%/جهة رسوم + ~0.1% انزلاق (محاسبة البوت، متسقة مع STOP_SLIPPAGE=0.1%).
     # المُتعلّم يخنق على التوقّع الصافي (إجمالي − رسوم) لا الإجمالي (إصلاح البوابة العمياء للرسوم).
     FEE_ROUNDTRIP_PCT: float = float(os.getenv('FEE_ROUNDTRIP_PCT', '0.3'))
+    # إعادة فحص دوري: خليّة مخنوقة (weight<=0) لم تُحدَّث منذ هذا العدد من الأيام تُحذف
+    # فتعود إحماءً وتُجرَّب من جديد — يمنع الحظر الدائم الذاتي التحقّق للخلايا الصامتة.
+    THROTTLE_STALE_DAYS: int = int(os.getenv('THROTTLE_STALE_DAYS', '14'))
     LEARN_CRON_HOURS: int = int(os.getenv('LEARN_CRON_HOURS', '12'))
 
     # حجم الصفقة
