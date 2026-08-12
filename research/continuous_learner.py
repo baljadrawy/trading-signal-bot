@@ -163,7 +163,7 @@ async def run():
         # ── إعادة الفحص الدوري: احذف الخلايا المخنوقة المتقادمة فتعود إحماءً ──
         grows = await Database.fetch(
             "SELECT trade_type, macro_state, timeframe, weight, updated_at FROM learned_gates")
-        db_now = await Database.fetchval("SELECT NOW()")
+        db_now = await Database.fetchval("SELECT NOW()::timestamp")  # naive، يطابق عمود updated_at (بلا منطقة)
         stale = select_stale_throttles([dict(r) for r in grows], db_now, config.THROTTLE_STALE_DAYS)
         for tt, ms, tf in stale:
             await Database.execute(
