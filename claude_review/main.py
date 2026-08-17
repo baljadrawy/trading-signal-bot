@@ -13,6 +13,8 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 
 logger = setup_logger('claude_review')
 
@@ -21,6 +23,8 @@ CLAUDE_BIN = '/usr/bin/claude'
 async def main():
     logger.info("بدء تشغيل Claude Review (via claude CLI)...")
     await Database.connect()
+    await require_schema('claude_review')
+    await mark_started('claude_review')
 
     consecutive_errors = 0
 
@@ -42,10 +46,12 @@ async def main():
                     await review_signal(dict(signal))
 
                 consecutive_errors = 0
+                await mark_success('claude_review', {'signals_reviewed': len(signals)})
                 await asyncio.sleep(15)
 
             except Exception as e:
                 consecutive_errors += 1
+                await mark_failure('claude_review', e)
                 network = is_network_error(e)
                 wait = compute_backoff(consecutive_errors, network)
                 msg = f"❌ خطأ في Claude Review ({consecutive_errors}): {format_error(e)}"

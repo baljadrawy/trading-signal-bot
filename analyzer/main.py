@@ -11,6 +11,8 @@ from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 from technical_analyzer import TechnicalAnalyzer
 from orderbook_analyzer import OrderBookAnalyzer
 
@@ -21,29 +23,8 @@ async def main():
     logger.info(f"📊 Timeframes المفعّلة: {', '.join(config.TIMEFRAMES)}")
 
     await Database.connect()
-
-    # تحديث جدول analysis_results ليدعم timeframe
-    await Database.execute("""
-        ALTER TABLE analysis_results
-        ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'
-    """)
-    await Database.execute("""
-        ALTER TABLE analysis_results
-        DROP CONSTRAINT IF EXISTS analysis_results_pkey
-    """)
-    await Database.execute("""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint
-                WHERE conname = 'analysis_results_symbol_timeframe_key'
-            ) THEN
-                ALTER TABLE analysis_results
-                ADD CONSTRAINT analysis_results_symbol_timeframe_key
-                UNIQUE (symbol, timeframe);
-            END IF;
-        END $$;
-    """)
+    await require_schema('analyzer')
+    await mark_started('analyzer')
 
     client = await AsyncClient.create(
         api_key=config.BINANCE_API_KEY,
@@ -69,6 +50,7 @@ async def main():
                 )
 
                 if not candidates:
+                    await mark_success('analyzer', {'candidates': 0, 'status': 'idle'})
                     await asyncio.sleep(30)
                     continue
 
@@ -89,10 +71,15 @@ async def main():
                         symbol = candidates[i]['symbol']
                         logger.warning(f"⏰ timeout في تحليل {symbol} - تخطي")
 
+                completed = sum(1 for result in results if not isinstance(result, Exception))
+                await mark_success('analyzer', {
+                    'candidates': len(candidates), 'completed': completed})
+
                 await asyncio.sleep(10)
 
             except Exception as e:
                 consecutive_errors += 1
+                await mark_failure('analyzer', e)
                 wait = min(30 * consecutive_errors, 300)
                 logger.error(f"❌ خطأ في دورة التحليل ({consecutive_errors}): {e}")
                 if consecutive_errors >= 3:
@@ -130,7 +117,8 @@ async def analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row):
                 INSERT INTO analysis_results (symbol, timeframe, analysis_data, analyzed_at, signal_generated)
                 VALUES ($1, $2, $3, NOW(), false)
                 ON CONFLICT (symbol, timeframe) DO UPDATE
-                SET analysis_data = $3, analyzed_at = NOW(), signal_generated = false
+                SET analysis_data = $3, analyzed_at = NOW(), signal_generated = false,
+                    processing_status = 'pending', decision_reason = NULL, decision_at = NULL
                 """,
                 symbol, tf, json.dumps(combined)
             )
@@ -144,7 +132,9 @@ async def analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row):
     # تحديث حالة المرشح بعد تحليل جميع الـ Timeframes
     if results:
         await Database.execute(
-            "UPDATE scan_candidates SET analyzed = true WHERE id = $1",
+            """UPDATE scan_candidates
+               SET analyzed=true, processing_status='analyzed', processed_at=NOW(), failure_reason=NULL
+               WHERE id=$1""",
             row['id']
         )
 

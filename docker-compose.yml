@@ -30,6 +30,9 @@ services:
     env_file:
       - .env
       - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
+    environment:
+      SERVICE_NAME: scanner
+      HEALTH_MAX_AGE_SECONDS: "900"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -38,7 +41,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import asyncpg' && grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -60,6 +63,9 @@ services:
     env_file:
       - .env
       - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
+    environment:
+      SERVICE_NAME: analyzer
+      HEALTH_MAX_AGE_SECONDS: "300"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -69,7 +75,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -90,6 +96,9 @@ services:
     logging: *default-logging
     env_file:
       - .env
+    environment:
+      SERVICE_NAME: signal_engine
+      HEALTH_MAX_AGE_SECONDS: "180"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -103,7 +112,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -126,6 +135,8 @@ services:
     environment:
       # نلغي ANTHROPIC_API_KEY حتى يستخدم claude CLI الـ OAuth token من .credentials.json
       ANTHROPIC_API_KEY: ""
+      SERVICE_NAME: claude_review
+      HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -136,7 +147,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -155,6 +166,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
+    environment:
+      SERVICE_NAME: trade_tracker
+      HEALTH_MAX_AGE_SECONDS: "600"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -163,7 +177,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -217,11 +231,19 @@ services:
       - .env
     environment:
       - LIVE_LEARNING_MODE=${LIVE_LEARNING_MODE}
+      - SERVICE_NAME=continuous_learner
+      - HEALTH_MAX_AGE_SECONDS=93600
     command: >
       sh -c "while true; do PYTHONPATH=/app python research/continuous_learner.py || true;
              sleep $$(( ${LEARN_CRON_HOURS:-12} * 3600 )); done"
     networks:
       - shared_db_net
+    healthcheck:
+      test: ["CMD", "python", "-m", "shared.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -236,6 +258,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
+    environment:
+      SERVICE_NAME: telegram
+      HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
       - logs_data:/app/logs
       - ./shared:/app/shared
@@ -244,7 +269,7 @@ services:
       - trading_network
       - shared_db_net
     healthcheck:
-      test: ["CMD-SHELL", "grep -q python /proc/1/cmdline"]
+      test: ["CMD", "python", "-m", "shared.health"]
       interval: 60s
       timeout: 10s
       retries: 3

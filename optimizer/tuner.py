@@ -135,33 +135,9 @@ class ParameterTuner:
 
     async def _save_setting(self, key: str, value: str):
         """حفظ إعداد في DB"""
-        await self._ensure_settings_table()
         await Database.execute("""
             INSERT INTO optimizer_settings (key, value, updated_at)
             VALUES ($1, $2, NOW())
             ON CONFLICT (key) DO UPDATE
             SET value = $2, updated_at = NOW()
         """, key, value)
-
-    async def _ensure_settings_table(self):
-        """إنشاء جدول الإعدادات إذا لم يوجد (مرة واحدة لكل نسخة tuner)"""
-        if self._table_ensured:
-            return
-        await Database.execute("""
-            CREATE TABLE IF NOT EXISTS optimizer_settings (
-                id         SERIAL PRIMARY KEY,
-                key        VARCHAR(100) UNIQUE NOT NULL,
-                value      TEXT NOT NULL,
-                updated_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-
-        # قيم افتراضية
-        await Database.execute("""
-            INSERT INTO optimizer_settings (key, value)
-            VALUES
-                ('min_score_to_signal', '5.0'),
-                ('min_timeframe_confirmations', '2')
-            ON CONFLICT (key) DO NOTHING
-        """)
-        self._table_ensured = True

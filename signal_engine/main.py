@@ -14,6 +14,8 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 from shared.macro_context import MacroContext
 from signal_logic import SignalEngine
 
@@ -23,6 +25,8 @@ async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
 
     await Database.connect()
+    await require_schema('signal_engine')
+    await mark_started('signal_engine')
 
     # MacroContext only calls public klines (BTC/ETH 4h) — no auth needed.
     # Using empty keys avoids exposing live trading credentials to this container.
@@ -53,12 +57,6 @@ async def main():
         f"LIVE_LEARNING_MODE: {config.LIVE_LEARNING_MODE}"
     )
 
-    # تأكد من وجود عمود timeframe في الجدول
-    await Database.execute("""
-        ALTER TABLE analysis_results
-        ADD COLUMN IF NOT EXISTS timeframe VARCHAR(10) DEFAULT '4h'
-    """)
-
     consecutive_errors = 0
     _last_heartbeat = 0.0  # لوج دوري كل 10 دقائق
 
@@ -83,6 +81,7 @@ async def main():
                 consecutive_errors = 0
 
                 if not results:
+                    await mark_success('signal_engine', {'results': 0, 'status': 'idle'})
                     now = time.time()
                     if now - _last_heartbeat >= 600:  # كل 10 دقائق
                         logger.info("💤 لا نتائج تحليل طازجة — البوت ينتظر")
@@ -91,10 +90,21 @@ async def main():
                     continue
 
                 # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
+                engine.last_decisions = {}
                 if config.LIVE_LEARNING_MODE:
                     best_signal = await engine.find_best_signal_live(results, macro_ctx)
                 else:
                     best_signal = await engine.find_best_signal(results)
+
+                decisions = getattr(engine, 'last_decisions', {})
+                evaluated_symbols = sorted({row['symbol'] for row in results})
+                await Database.executemany(
+                    """UPDATE analysis_results
+                       SET processing_status='evaluated', decision_reason=$2, decision_at=NOW()
+                       WHERE symbol=$1 AND signal_generated=false
+                         AND analyzed_at > NOW() - INTERVAL '30 minutes'""",
+                    [(symbol, decisions.get(symbol, 'not_selected_or_blocked'))
+                     for symbol in evaluated_symbols])
 
                 # لوج دوري كل 10 دقائق حتى لو لا توجد إشارة
                 now = time.time()
@@ -129,16 +139,25 @@ async def main():
 
                     # تحديث حالة التحليل لجميع الـ Timeframes لهذه العملة
                     await Database.execute(
-                        "UPDATE analysis_results SET signal_generated = true WHERE symbol = $1",
+                        """UPDATE analysis_results
+                           SET signal_generated=true, processing_status='signal_created',
+                               decision_reason='signal_created', decision_at=NOW()
+                           WHERE symbol=$1""",
                         best_signal['symbol']
                     )
 
                     logger.info(f"✅ تم حفظ الإشارة بـ ID: {signal_id}")
 
+                await mark_success('signal_engine', {
+                    'results': len(results),
+                    'signal_created': bool(best_signal),
+                })
+
                 await asyncio.sleep(60)
 
             except Exception as e:
                 consecutive_errors += 1
+                await mark_failure('signal_engine', e)
                 network = is_network_error(e)
                 wait = compute_backoff(consecutive_errors, network)
                 msg = f"❌ خطأ في Signal Engine ({consecutive_errors}): {format_error(e)}"

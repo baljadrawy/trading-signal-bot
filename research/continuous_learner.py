@@ -5,6 +5,8 @@ from datetime import timedelta
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 try:
     from shared.alerts import send_alert
 except Exception:
@@ -131,6 +133,22 @@ def select_stale_throttles(rows, now, stale_days):
 
 
 async def run():
+    await Database.connect()
+    await require_schema('continuous_learner')
+    await mark_started('continuous_learner')
+    try:
+        await _run_learning_cycle()
+        await mark_success('continuous_learner')
+    except Exception as exc:
+        await mark_failure('continuous_learner', exc)
+        if send_alert:
+            await send_alert(
+                f"Continuous Learner cycle failed\n{type(exc).__name__}: {str(exc)[:200]}",
+                level='critical', component='LiveLearning')
+        raise
+
+
+async def _run_learning_cycle():
     closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id = s.id WHERE s.trade_type IS NOT NULL")
     # ── التعلّم أولاً (يحدّث learned_gates) ثم نرسل التقرير ليعكس الخلايا الطازجة ──
     if (closed or 0) >= config.WARMUP_N:

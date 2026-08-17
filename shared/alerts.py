@@ -36,6 +36,7 @@ async def send_alert(message: str, level: str = 'warning', component: str = ''):
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 if resp.status != 200:
-                    logger.error(f"فشل إرسال التنبيه: {resp.status}")
+                    body = (await resp.text())[:200]
+                    logger.error(f"فشل إرسال التنبيه: HTTP {resp.status}: {body}")
     except Exception as e:
-        logger.error(f"خطأ في إرسال التنبيه: {e}")
+        logger.error(f"خطأ في إرسال التنبيه: {type(e).__name__}: {str(e) or repr(e)}")

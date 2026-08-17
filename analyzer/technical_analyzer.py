@@ -14,6 +14,7 @@ from binance import AsyncClient
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.retry_utils import format_error
 from simple_entry import detect_trade_type
 
 logger = setup_logger('technical_analyzer')
@@ -70,7 +71,7 @@ class TechnicalAnalyzer:
                 'trade_type': trade_type,
             }
         except Exception as e:
-            logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {e}")
+            logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {format_error(e)}")
             return None
 
     async def _get_candles(self, symbol: str, timeframe: str = None) -> Optional[pd.DataFrame]:
@@ -97,7 +98,7 @@ class TechnicalAnalyzer:
             df = df.set_index('open_time')
             return df
         except Exception as e:
-            logger.error(f"خطأ في جلب الشموع لـ {symbol}: {e}")
+            logger.error(f"خطأ في جلب الشموع لـ {symbol} [{tf}]: {format_error(e)}")
             return None
 
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:

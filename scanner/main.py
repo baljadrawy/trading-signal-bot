@@ -12,6 +12,9 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
+from shared.maintenance import maintain_pipeline
 from scanner_logic import BinanceScanner
 
 logger = setup_logger('scanner')
@@ -19,6 +22,8 @@ logger = setup_logger('scanner')
 async def main():
     logger.info("🚀 بدء تشغيل Scanner...")
     await Database.connect()
+    await require_schema('scanner')
+    await mark_started('scanner')
 
     client = await AsyncClient.create(
         api_key=config.BINANCE_API_KEY,
@@ -33,12 +38,16 @@ async def main():
             try:
                 logger.info("🔍 بدء دورة المسح...")
                 candidates = await scanner.scan()
+                maintenance = await maintain_pipeline()
                 logger.info(f"✅ وجدنا {len(candidates)} عملة مؤهلة للتحليل")
                 consecutive_errors = 0  # reset عند النجاح
+                await mark_success('scanner', {
+                    'candidates': len(candidates), 'maintenance': maintenance})
                 await asyncio.sleep(config.SCAN_INTERVAL_SECONDS)
 
             except Exception as e:
                 consecutive_errors += 1
+                await mark_failure('scanner', e)
                 network = is_network_error(e)
                 wait = compute_backoff(consecutive_errors, network)
                 msg = f"❌ خطأ في دورة المسح ({consecutive_errors}): {format_error(e)}"

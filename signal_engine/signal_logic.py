@@ -448,7 +448,9 @@ class SignalEngine:
 
     async def find_best_signal_live(self, results, macro: 'MacroContext'):
         """وضع التعلّم الحي: مرشّحون من المؤشرات البسيطة + بوابة ماكرو خفيفة + learned_gates."""
+        self.last_decisions = {}
         if await macro.should_block_now():
+            self.last_decisions.update({r['symbol']: 'macro_block' for r in results})
             logger.warning("⏸️ Macro block (BTC strong_bearish أو USDT.D rising_fast)")
             return None
         macro_state = macro.macro_state_key()
@@ -471,9 +473,17 @@ class SignalEngine:
                 data = json.loads(data)
             symbol = data.get('symbol') or row['symbol']
             tt = data.get('trade_type')
-            if not tt or symbol in blocked:
+            if not tt:
+                self.last_decisions.setdefault(symbol, 'no_trade_setup')
+                continue
+            if symbol in open_symbols:
+                self.last_decisions[symbol] = 'open_trade_exists'
+                continue
+            if symbol in cooldown:
+                self.last_decisions[symbol] = 'symbol_cooldown'
                 continue
             if (tt, data.get('timeframe')) in throttled:
+                self.last_decisions.setdefault(symbol, 'learned_gate_throttled')
                 logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (learned loser)")
                 continue
             # أول مرشّح صالح غير مخنوق يكفي (paper، جمع عيّنة) — بلا تفضيل نوع.
@@ -483,6 +493,9 @@ class SignalEngine:
             if best is None:
                 best = {**data, 'macro_snapshot': {**macro.snapshot(), **macro.state()},
                         'macro_state': macro_state}
+                self.last_decisions[symbol] = 'selected'
+            else:
+                self.last_decisions.setdefault(symbol, 'not_selected_capacity')
         if best:
             logger.info(f"🏆 live signal: {best['symbol']} | {best.get('trade_type')} | {best.get('timeframe')} | {macro_state}")
         _record_evidence(best, source="live")

@@ -16,6 +16,8 @@ from shared.fees import net_pct, net_usdt, fee_usdt
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
@@ -56,6 +58,8 @@ MARKET_CONDITION_AR = {
 async def main():
     logger.info("🚀 بدء تشغيل Telegram Bot...")
     await Database.connect()
+    await require_schema('telegram')
+    await mark_started('telegram')
 
     whitelist_mgr = WhitelistManager()
     approval_mgr = ApprovalManager()
@@ -151,10 +155,13 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                 await asyncio.sleep(2)
 
             consecutive_errors = 0
+            await mark_success('telegram', {
+                'pending_signals': len(signals), 'expired_requests': len(expired)})
             await asyncio.sleep(15)
 
         except Exception as e:
             consecutive_errors += 1
+            await mark_failure('telegram', e)
             network = is_network_error(e)
             wait = compute_backoff(consecutive_errors, network)
             msg = f"❌ خطأ في signal_loop ({consecutive_errors}): {format_error(e)}"
@@ -184,7 +191,8 @@ async def send_signal_direct(bot: Bot, signal: dict):
         )
         logger.info(f"📤 إرسال مباشر: {signal['symbol']}")
     except Exception as e:
-        logger.error(f"❌ خطأ في الإرسال المباشر: {e}")
+        logger.error(f"❌ خطأ في الإرسال المباشر لـ {signal.get('symbol')}: {format_error(e)}")
+        raise
 
 
 async def send_approval_request(bot: Bot, signal: dict):
@@ -220,7 +228,8 @@ async def send_approval_request(bot: Bot, signal: dict):
         logger.info(f"🔍 طلب موافقة: {signal['symbol']}")
 
     except Exception as e:
-        logger.error(f"❌ خطأ في إرسال طلب الموافقة: {e}")
+        logger.error(f"❌ خطأ في إرسال طلب الموافقة لـ {signal.get('symbol')}: {format_error(e)}")
+        raise
 
 
 @restricted
@@ -292,8 +301,8 @@ async def notify_expired(bot: Bot, symbol: str):
             text=f"⏰ انتهت صلاحية إشارة {symbol} (30 دقيقة)\n"
                  f"🔍 البوت يبحث عن فرصة أخرى..."
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"تعذر إشعار انتهاء {symbol}: {format_error(e)}")
 
 
 async def get_current_price(symbol: str) -> float:
@@ -305,9 +314,15 @@ async def get_current_price(symbol: str) -> float:
                 f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as resp:
+                if resp.status != 200:
+                    body = (await resp.text())[:200]
+                    raise RuntimeError(f"Binance HTTP {resp.status}: {body}")
                 data = await resp.json()
+                if 'price' not in data:
+                    raise ValueError(f"Binance response missing price: {str(data)[:200]}")
                 return float(data['price'])
-    except Exception:
+    except Exception as e:
+        logger.warning(f"تعذر جلب سعر {symbol} للموافقة: {format_error(e)}")
         return None
 
 

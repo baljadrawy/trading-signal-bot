@@ -15,6 +15,8 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
+from shared.health import mark_started, mark_success, mark_failure
+from shared.schema import require_schema
 from shared.candle import candle_interval_case_sql
 from shared.triple_barrier import (
     create_config_from_trade,
@@ -38,30 +40,8 @@ TRAIL_STOP_PCT = 2.5
 async def main():
     logger.info("🚀 بدء تشغيل Trade Tracker...")
     await Database.connect()
-
-    # إنشاء جدول active_trades إذا لم يوجد
-    await Database.execute("""
-        CREATE TABLE IF NOT EXISTS active_trades (
-            id SERIAL PRIMARY KEY,
-            signal_id INTEGER REFERENCES signals(id),
-            symbol VARCHAR(20) NOT NULL,
-            entry_price DECIMAL(20,8) NOT NULL,
-            target_1 DECIMAL(20,8) NOT NULL,
-            target_2 DECIMAL(20,8) NOT NULL,
-            target_3 DECIMAL(20,8) NOT NULL,
-            stop_loss DECIMAL(20,8) NOT NULL,
-            timeframe VARCHAR(10),
-            is_paper_trade BOOLEAN DEFAULT true,
-            opened_at TIMESTAMP DEFAULT NOW(),
-            highest_target_hit INTEGER DEFAULT 0,
-            status VARCHAR(20) DEFAULT 'open'
-        )
-    """)
-
-    # ترقية: عمود peak_price لتتبع أعلى سعر (أساس الـ trailing stop)
-    await Database.execute(
-        "ALTER TABLE active_trades ADD COLUMN IF NOT EXISTS peak_price DECIMAL(20,8)"
-    )
+    await require_schema('trade_tracker')
+    await mark_started('trade_tracker')
 
     consecutive_errors = 0
 
@@ -73,10 +53,12 @@ async def main():
                 await track_open_trades()
                 await register_new_signals()
                 consecutive_errors = 0
+                await mark_success('trade_tracker')
                 await asyncio.sleep(300)  # كل 5 دقائق
 
             except Exception as e:
                 consecutive_errors += 1
+                await mark_failure('trade_tracker', e)
                 network = is_network_error(e)
                 wait = compute_backoff(consecutive_errors, network)
                 msg = f"❌ خطأ في Trade Tracker ({consecutive_errors}): {format_error(e)}"
@@ -440,10 +422,15 @@ async def get_current_price(symbol: str) -> float:
                 f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as resp:
+                if resp.status != 200:
+                    body = (await resp.text())[:200]
+                    raise RuntimeError(f"Binance HTTP {resp.status}: {body}")
                 data = await resp.json()
+                if 'price' not in data:
+                    raise ValueError(f"Binance response missing price: {str(data)[:200]}")
                 return float(data['price'])
     except Exception as e:
-        logger.error(f"خطأ في جلب سعر {symbol}: {e}")
+        logger.error(f"خطأ في جلب سعر {symbol}: {format_error(e)}")
         return None
 
 

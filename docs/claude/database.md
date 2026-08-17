@@ -25,6 +25,22 @@ docker exec -i postgres psql -U trading_signal_bot -d trading_signals -c "..."
 | `indicator_weights` | أوزان المؤشرات حسب market_condition |
 | `macro_history` | لقطة USDT.D/BTC.D + اتجاه BTC/ETH اليومية (وضع التعلّم الحي) |
 | `learned_gates` | أوزان (نوع × usdtd_state × إطار) من المتعلّم المستمر |
+| `schema_migrations` | إصدارات مخطط DB مع checksum لكل migration |
+| `service_heartbeats` | آخر نجاح/فشل تشغيلي لكل خدمة |
+
+## migrations
+
+```bash
+# يطبق الملفات الجديدة فقط ويتحقق من checksum للملفات المطبقة
+python3 database/migrate.py
+```
+
+كل DDL التشغيلي موجود في `database/migrations/`. الخدمات لا تنشئ أو تعدّل الجداول
+عند الإقلاع، وتفشل مبكرًا برسالة واضحة إذا كان إصدار المخطط أقدم من المطلوب.
+
+حالات `analysis_results.processing_status`: `pending` ثم `evaluated` أو
+`signal_created`، وتتحول السجلات القديمة إلى `expired`. يشرح `decision_reason`
+سبب القرار مثل `no_trade_setup` أو `macro_block` أو `learned_gate_throttled`.
 
 ## أوامر psql متكررة
 ```sql

@@ -145,22 +145,6 @@ class BinanceScanner:
 
     async def _save_candidates(self, candidates: List[Dict]):
         """حفظ المرشحين في قاعدة البيانات"""
-        # نحفظ في جدول مؤقت يقرأه الـ Analyzer
-        await Database.execute("""
-            CREATE TABLE IF NOT EXISTS scan_candidates (
-                id SERIAL PRIMARY KEY,
-                symbol VARCHAR(20) NOT NULL,
-                data JSONB NOT NULL,
-                scan_time TIMESTAMP DEFAULT NOW(),
-                analyzed BOOLEAN DEFAULT false
-            )
-        """)
-        
-        # حذف المرشحين القديمة
-        await Database.execute(
-            "DELETE FROM scan_candidates WHERE scan_time < NOW() - INTERVAL '1 hour'"
-        )
-        
         # إدراج المرشحين الجدد
         await Database.executemany(
             """
