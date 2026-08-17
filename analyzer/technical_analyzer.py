@@ -15,9 +15,22 @@ from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.retry_utils import format_error
+from shared.ohlcv import prepare_ohlcv
 from simple_entry import detect_trade_type
 
 logger = setup_logger('technical_analyzer')
+
+
+def indicator_warmup_bars() -> int:
+    """Minimum history required before every production indicator is mature."""
+    return max(
+        config.EMA_LONG,
+        config.MACD_SLOW + config.MACD_SIGNAL,
+        config.RSI_PERIOD + config.STOCH_K + config.STOCH_D,
+        config.BB_PERIOD,
+        config.ATR_PERIOD,
+        50,
+    )
 
 class TechnicalAnalyzer:
     def __init__(self, client: AsyncClient):
@@ -27,7 +40,7 @@ class TechnicalAnalyzer:
         tf = timeframe or config.TIMEFRAME
         try:
             df = await self._get_candles(symbol, tf)
-            if df is None or len(df) < 50:
+            if df is None or len(df) < indicator_warmup_bars():
                 return None
 
             df = self._calculate_indicators(df)
@@ -80,23 +93,11 @@ class TechnicalAnalyzer:
             klines = await self.client.get_klines(
                 symbol=symbol,
                 interval=tf,
-                limit=config.CANDLES_TO_FETCH + 1  # +1: نجلب شمعة إضافية لنُسقط الجارية ونُبقي العدد المغلق
+                limit=config.CANDLES_TO_FETCH + 1  # +1 لاحتمال وجود شمعة جارية؛ الفرز أدناه يعتمد close_time
             )
-            # ⚠️ إصلاح look-ahead/repaint (تدقيق 2026-06-23): آخر شمعة من get_klines هي الشمعة
-            # الجارية غير المكتملة. حساب المؤشرات عليها يجعل RSI/Stoch/ATR تتغيّر كل لحظة ويخالف
-            # الباكتيست الذي يستخدم شموعاً مغلقة (مصدر فجوة sim/live). نُسقطها لمطابقة الحيّ بالباكتيست.
-            if len(klines) > 1:
-                klines = klines[:-1]
-            df = pd.DataFrame(klines, columns=[
-                'open_time', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-                'taker_buy_quote', 'ignore'
-            ])
-            for col in ['open', 'high', 'low', 'close', 'volume', 'quote_volume']:
-                df[col] = pd.to_numeric(df[col])
-            df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
-            df = df.set_index('open_time')
-            return df
+            # نستخدم close_time الفعلي بدل افتراض أن آخر صف هو الجاري، ثم نرفض
+            # التكرار والفجوات والشموع المستحيلة قبل حساب أي مؤشر.
+            return prepare_ohlcv(klines, tf, limit=config.CANDLES_TO_FETCH)
         except Exception as e:
             logger.error(f"خطأ في جلب الشموع لـ {symbol} [{tf}]: {format_error(e)}")
             return None
@@ -430,7 +431,9 @@ class TechnicalAnalyzer:
 
         # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول
         if target_1 > resistance and resistance > entry:
-            target_1 = resistance * 0.99
+            resistance_fill = resistance * 0.99
+            if resistance_fill > entry:
+                target_1 = resistance_fill
 
         return {
             'entry': round(entry, 8),

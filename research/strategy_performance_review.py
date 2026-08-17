@@ -17,7 +17,7 @@ from shared.schema import require_schema
 def metrics(returns):
     values = [float(value) for value in returns if value is not None and math.isfinite(float(value))]
     if not values:
-        return {'n': 0, 'win_rate': None, 'expectancy': None, 'profit_factor': None,
+        return {'n': 0, 'win_rate': None, 'expectancy': None, 'ci_low': None, 'ci_high': None, 'profit_factor': None,
                 'max_drawdown': None, 'total_return': 0.0}
     gross_profit = sum(value for value in values if value > 0)
     gross_loss = -sum(value for value in values if value < 0)
@@ -26,10 +26,14 @@ def metrics(returns):
         equity += value
         peak = max(peak, equity)
         drawdown = max(drawdown, peak - equity)
+    mean = sum(values) / len(values)
+    margin = 1.96 * statistics.stdev(values) / math.sqrt(len(values)) if len(values) >= 2 else math.inf
     return {
         'n': len(values),
         'win_rate': sum(value > 0 for value in values) / len(values) * 100,
-        'expectancy': sum(values) / len(values),
+        'expectancy': mean,
+        'ci_low': mean - margin,
+        'ci_high': mean + margin,
         'profit_factor': gross_profit / gross_loss if gross_loss else (math.inf if gross_profit else None),
         'max_drawdown': drawdown,
         'total_return': sum(values),
@@ -92,6 +96,18 @@ def _fmt(value, digits=2):
     return f'{value:.{digits}f}'
 
 
+def entry_hypothesis_verdict(trade_type, result):
+    """Conservative promotion gate; uncertainty or weak economics means NO-GO."""
+    minimum_win_rate = 55.0 if trade_type == 'reversion' else 35.0
+    passed = (
+        result['n'] >= 100
+        and result['ci_low'] is not None and result['ci_low'] > 0
+        and result['profit_factor'] is not None and result['profit_factor'] >= 1.5
+        and result['win_rate'] is not None and result['win_rate'] >= minimum_win_rate
+    )
+    return 'GO' if passed else 'NO-GO'
+
+
 def render_report(rows, fee_pct, strategy_version):
     net = [float(row['gross_return']) - fee_pct for row in rows]
     gross = metrics([row['gross_return'] for row in rows])
@@ -109,6 +125,7 @@ def render_report(rows, fee_pct, strategy_version):
         f"| Net | {overall['n']} | {_fmt(overall['win_rate'])}% | {_fmt(overall['expectancy'],3)}% | {_fmt(overall['profit_factor'])} | {_fmt(overall['max_drawdown'])}% | {_fmt(overall['total_return'])}% |",
     ]
     for field, title, minimum in [('trade_type', 'Trade type', 1), ('timeframe', 'Timeframe', 1),
+                                   ('market_condition', 'Market condition', 1),
                                    ('macro_state', 'Macro state', 1), ('symbol', 'Pair (n≥5)', 5)]:
         lines += ['', f'## {title}', '',
                   '| Segment | n | Win rate | Net expectancy | PF | Max drawdown |',
@@ -118,6 +135,18 @@ def render_report(rows, fee_pct, strategy_version):
             items = items[:25]
         for key, result in items:
             lines.append(f"| {key} | {result['n']} | {_fmt(result['win_rate'])}% | {_fmt(result['expectancy'],3)}% | {_fmt(result['profit_factor'])} | {_fmt(result['max_drawdown'])}% |")
+
+    lines += ['', '## Entry hypothesis gate', '',
+              'Promotion requires n≥100, net expectancy 95% CI entirely above zero, PF≥1.5, '
+              'and win rate ≥55% for reversion or ≥35% for momentum.', '',
+              '| Hypothesis | n | Net E (95% CI) | PF | Win rate | Verdict |',
+              '|---|---:|---:|---:|---:|---|']
+    for key, result in segment(rows, 'trade_type', fee_pct):
+        lines.append(
+            f"| {key} | {result['n']} | {_fmt(result['expectancy'],3)}% "
+            f"[{_fmt(result['ci_low'],3)}, {_fmt(result['ci_high'],3)}] | "
+            f"{_fmt(result['profit_factor'])} | {_fmt(result['win_rate'])}% | "
+            f"**{entry_hypothesis_verdict(key, result)}** |")
 
     folds = walk_forward(rows, fee_pct)
     lines += ['', '## Expanding walk-forward: learned gates vs fixed baseline', '',

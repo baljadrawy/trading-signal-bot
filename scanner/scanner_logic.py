@@ -9,6 +9,7 @@ from binance import AsyncClient
 from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
+from shared.ohlcv import closed_klines
 
 logger = setup_logger('scanner_logic')
 
@@ -117,10 +118,12 @@ class BinanceScanner:
             klines = await self.client.get_klines(
                 symbol='BTCUSDT',
                 interval='4h',
-                limit=11  # +1 لإسقاط الشمعة 4h الجارية (تدقيق 2026-06-23: تجنّب اتجاه يعيد الرسم)
+                limit=11  # +1 لاحتمال وجود شمعة جارية؛ الفرز أدناه يعتمد close_time
             )
-            if len(klines) > 1:
-                klines = klines[:-1]  # نُبقي 10 شموع مغلقة (≈40 ساعة)
+            klines = closed_klines(klines, limit=10)
+            if len(klines) < 10:
+                self.btc_trend = "neutral"
+                return
             closes = [float(k[4]) for k in klines]
             
             # حساب التغير

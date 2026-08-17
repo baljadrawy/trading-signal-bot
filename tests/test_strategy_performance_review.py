@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 
-from research.strategy_performance_review import metrics, learned_blocked_keys, walk_forward
+from research.strategy_performance_review import (
+    entry_hypothesis_verdict, metrics, learned_blocked_keys, walk_forward,
+)
 
 
 def _row(i, gross, trade_type='momentum'):
@@ -14,6 +16,14 @@ def test_metrics_net_profit_factor_and_drawdown():
     assert result['expectancy'] == 0.5
     assert result['profit_factor'] == 3.0
     assert result['max_drawdown'] == 1.0
+    assert result['ci_low'] < result['expectancy'] < result['ci_high']
+
+
+def test_entry_hypothesis_gate_requires_statistical_and_economic_edge():
+    strong = metrics([1.0] * 60 + [-0.2] * 40)
+    assert entry_hypothesis_verdict('reversion', strong) == 'GO'
+    uncertain = metrics([2.0] * 50 + [-2.0] * 50)
+    assert entry_hypothesis_verdict('momentum', uncertain) == 'NO-GO'
 
 
 def test_training_blocks_only_sufficient_losing_cell():

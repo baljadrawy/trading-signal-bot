@@ -94,8 +94,13 @@ class Config:
     APPROVAL_MAX_PRICE_CHANGE_PCT: float = float(os.getenv('APPROVAL_MAX_PRICE_CHANGE_PCT', '0.5'))
 
     # حماية رأس المال
+    RISK_CAPITAL_USDT: float = float(os.getenv('RISK_CAPITAL_USDT', '500'))
     MAX_DAILY_LOSS_PERCENT: float = float(os.getenv('MAX_DAILY_LOSS_PERCENT', '3'))
-    STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '3'))
+    MAX_WEEKLY_LOSS_PERCENT: float = float(os.getenv('MAX_WEEKLY_LOSS_PERCENT', '10'))
+    MAX_DRAWDOWN_PERCENT: float = float(os.getenv('MAX_DRAWDOWN_PERCENT', '15'))
+    MAX_GROSS_EXPOSURE_PERCENT: float = float(os.getenv('MAX_GROSS_EXPOSURE_PERCENT', '80'))
+    MAX_SYMBOL_EXPOSURE_PERCENT: float = float(os.getenv('MAX_SYMBOL_EXPOSURE_PERCENT', '10'))
+    STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '7'))
     MAX_OPEN_TRADES: int = int(os.getenv('MAX_OPEN_TRADES', '10'))  # 0 = بلا حد
     # Cooldown عام بعد ضربة SL حقيقية (ساعات). 0 = معطّل.
     # عُطّل 2026-06-20 (paper trading) لزيادة عدد الإشارات وإزالة تحيّز انتقاء البيانات.

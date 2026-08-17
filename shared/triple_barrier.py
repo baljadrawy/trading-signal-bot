@@ -30,7 +30,9 @@ from typing import Optional
 TRAIL_STOP_PCT_DEFAULT = 2.5     # % trailing stop تحت القمة (بعد T2)
 TRADE_EXPIRY_H_DEFAULT = 48.0    # ساعة إغلاق إجباري
 T1_EXPIRY_H_DEFAULT    = 24.0    # ساعة إغلاق عند توقف عند T1 فقط
+NO_T1_EXPIRY_H_DEFAULT = 24.0    # ساعة إغلاق إن لم يصل T1
 TRADE_AMOUNT_DEFAULT   = 50.0    # USDT لكل صفقة
+STOP_SLIPPAGE_DEFAULT  = 0.001   # 0.1% تعبئة أسوأ عند أي stop
 
 
 @dataclass
@@ -48,6 +50,8 @@ class TripleBarrierConfig:
     trail_stop_pct:  float = TRAIL_STOP_PCT_DEFAULT
     expiry_h:        float = TRADE_EXPIRY_H_DEFAULT
     t1_expiry_h:     float = T1_EXPIRY_H_DEFAULT
+    no_t1_expiry_h:  float = NO_T1_EXPIRY_H_DEFAULT
+    stop_slippage:   float = STOP_SLIPPAGE_DEFAULT
 
     def validate(self) -> Optional[str]:
         """يعيد رسالة خطأ إن كانت الإعدادات غير صالحة، وإلا None."""
@@ -59,6 +63,12 @@ class TripleBarrierConfig:
             return f"T3 ({self.target_3}) <= entry ({self.entry})"
         if self.stop_loss >= self.entry:
             return f"SL ({self.stop_loss}) >= entry ({self.entry})"
+        if self.stop_loss <= 0:
+            return f"SL ({self.stop_loss}) <= 0"
+        if not self.target_1 < self.target_2 < self.target_3:
+            return "targets must be strictly ordered T1 < T2 < T3"
+        if not 0 <= self.stop_slippage < 1:
+            return f"invalid stop slippage ({self.stop_slippage})"
         return None
 
 
@@ -101,7 +111,10 @@ class TripleBarrierResult:
     stop_hit:       bool   # هل الخروج كان بضرب الستوب (بالمفهوم الأصلي — SL الأصلي)
 
 
-def create_config_from_trade(trade: dict, trade_amount: float = TRADE_AMOUNT_DEFAULT) -> TripleBarrierConfig:
+def create_config_from_trade(
+    trade: dict, trade_amount: float = TRADE_AMOUNT_DEFAULT,
+    stop_slippage: float = STOP_SLIPPAGE_DEFAULT,
+) -> TripleBarrierConfig:
     """
     ينشئ TripleBarrierConfig من صف active_trades (dict).
     يقبل حقول من DB مباشرة.
@@ -114,6 +127,7 @@ def create_config_from_trade(trade: dict, trade_amount: float = TRADE_AMOUNT_DEF
         target_3     = float(trade['target_3']),
         stop_loss    = float(trade['stop_loss']),
         trade_amount = trade_amount,
+        stop_slippage = stop_slippage,
     )
 
 
@@ -144,14 +158,20 @@ def step_barrier(
     يُطبّق منطق TripleBarrier على شمعة/لحظة واحدة.
     يُحدّث state ويعيد TripleBarrierResult عند الإغلاق، وإلا يعيد None.
 
-    ملاحظة الترتيب: نتحقق T3 → trailing/break-even stop → expiry.
-    القمة تُحدَّث أولاً (قبل الفحوصات) لضمان استخدام أعلى قيمة.
+    عند غياب بيانات tick نستخدم ترتيباً محافظاً: الستوب القائم عند بداية الشمعة
+    يسبق أهداف الشمعة، ثم نحدّث الأهداف ونفحص الستوب الديناميكي الجديد، ثم T3
+    والانتهاء. يمنع هذا منح ربح متفائل حين تلمس الشمعة الوقف والهدف معاً.
     """
-    # ── 1. تحديث القمة ─────────────────────────────────────────────────────
+    # ── 1. الستوب القائم قبل أحداث الشمعة (hard-stop priority) ─────────────
+    prior_stop, prior_label = state.effective_stop(cfg)
+    if low <= prior_stop:
+        return _stop_result(cfg, state, prior_stop, prior_label, hours_elapsed)
+
+    # ── 2. تحديث القمة ─────────────────────────────────────────────────────
     if high > state.peak:
         state.peak = high
 
-    # ── 2. تحديث الأهداف ───────────────────────────────────────────────────
+    # ── 3. تحديث الأهداف ───────────────────────────────────────────────────
     if high >= cfg.target_3 and state.highest_target < 3:
         state.highest_target = 3
     elif high >= cfg.target_2 and state.highest_target < 2:
@@ -159,10 +179,10 @@ def step_barrier(
     elif high >= cfg.target_1 and state.highest_target < 1:
         state.highest_target = 1
 
-    # ── 3. تحديث ساعات الفتح ──────────────────────────────────────────────
+    # ── 4. تحديث ساعات الفتح ──────────────────────────────────────────────
     state.hours_open += hours_elapsed
 
-    # ── 4. فحص T3 — إغلاق فوري بالربح الأقصى ───────────────────────────
+    # ── 5. T3: أمر الهدف يُملأ لحظة بلوغه؛ الستوب السابق فُحص أعلاه ───────
     if state.highest_target == 3:
         profit_pct  = ((cfg.target_3 - cfg.entry) / cfg.entry) * 100
         profit_usdt = (profit_pct / 100) * cfg.trade_amount
@@ -177,37 +197,13 @@ def step_barrier(
             stop_hit       = False,
         )
 
-    # ── 5. الستوب الديناميكي ──────────────────────────────────────────────
+    # ── 6. الستوب الديناميكي الناتج عن T1/T2 داخل الشمعة ─────────────────
     eff_stop, stop_label = state.effective_stop(cfg)
 
     if low <= eff_stop:
-        # خروج عند الستوب الديناميكي
-        # NOTE: this backtest path books stops at the exact stop (no slippage). The LIVE tracker (trade_tracker) and the measurement oracle apply STOP_SLIPPAGE via modeled_stop_exit(). This asymmetry is deliberate and left for a future unify-slippage decision — do not "fix" silently.
-        exit_price  = eff_stop
-        profit_pct  = ((exit_price - cfg.entry) / cfg.entry) * 100
-        profit_usdt = (profit_pct / 100) * cfg.trade_amount
-        is_win      = exit_price > cfg.entry
-        # تحديد نوع الإغلاق
-        if state.highest_target >= 2:
-            reason = 'trailing_stop'
-        elif state.highest_target == 1:
-            reason = 'break_even'
-        else:
-            reason = 'stop_loss'
-        # stop_hit = true فقط عند الستوب الأصلي (بخسارة)
-        original_stop_hit = (not is_win) and (exit_price <= cfg.stop_loss)
-        return TripleBarrierResult(
-            result         = 'WIN' if is_win else 'LOSS',
-            exit_price     = round(exit_price, 8),
-            profit_pct     = round(profit_pct, 4),
-            profit_usdt    = round(profit_usdt, 4),
-            duration_h     = round(state.hours_open, 2),
-            exit_reason    = reason,
-            target_reached = state.highest_target,
-            stop_hit       = original_stop_hit,
-        )
+        return _stop_result(cfg, state, eff_stop, stop_label, 0.0)
 
-    # ── 6. انتهاء 24h عند T1 فقط ─────────────────────────────────────────
+    # ── 7. انتهاء 24h عند T1 فقط ─────────────────────────────────────────
     if state.hours_open >= cfg.t1_expiry_h and state.highest_target == 1:
         profit_pct  = ((close - cfg.entry) / cfg.entry) * 100
         profit_usdt = (profit_pct / 100) * cfg.trade_amount
@@ -223,24 +219,38 @@ def step_barrier(
             stop_hit       = False,
         )
 
-    # ── 7. انتهاء الصلاحية الكلية ─────────────────────────────────────────
+    if state.hours_open >= cfg.no_t1_expiry_h and state.highest_target == 0:
+        return _expiry_result(cfg, state, close, f'no_T1_expired_{int(cfg.no_t1_expiry_h)}h')
+
+    # ── 8. انتهاء الصلاحية الكلية ─────────────────────────────────────────
     if state.hours_open >= cfg.expiry_h:
-        profit_pct  = ((close - cfg.entry) / cfg.entry) * 100
-        profit_usdt = (profit_pct / 100) * cfg.trade_amount
-        is_win      = close > cfg.entry
-        return TripleBarrierResult(
-            result         = 'WIN' if is_win else 'LOSS',
-            exit_price     = round(close, 8),
-            profit_pct     = round(profit_pct, 4),
-            profit_usdt    = round(profit_usdt, 4),
-            duration_h     = round(state.hours_open, 2),
-            exit_reason    = f'expired_{int(cfg.expiry_h)}h',
-            target_reached = state.highest_target,
-            stop_hit       = False,
-        )
+        return _expiry_result(cfg, state, close, f'expired_{int(cfg.expiry_h)}h')
 
     # الصفقة لا تزال مفتوحة
     return None
+
+
+def _stop_result(cfg, state, stop, _label, hours_elapsed):
+    state.hours_open += hours_elapsed
+    exit_price, profit_pct = modeled_stop_exit(cfg.entry, stop, cfg.stop_slippage)
+    profit_usdt = (profit_pct / 100) * cfg.trade_amount
+    is_win = exit_price > cfg.entry
+    reason = ('trailing_stop' if state.highest_target >= 2
+              else 'break_even' if state.highest_target == 1 else 'stop_loss')
+    return TripleBarrierResult(
+        'WIN' if is_win else 'LOSS', round(exit_price, 8), round(profit_pct, 4),
+        round(profit_usdt, 4), round(state.hours_open, 2), reason,
+        state.highest_target, (not is_win) and exit_price <= cfg.stop_loss,
+    )
+
+
+def _expiry_result(cfg, state, close, reason):
+    profit_pct = ((close - cfg.entry) / cfg.entry) * 100
+    return TripleBarrierResult(
+        'WIN' if close > cfg.entry else 'LOSS', round(close, 8), round(profit_pct, 4),
+        round((profit_pct / 100) * cfg.trade_amount, 4), round(state.hours_open, 2),
+        reason, state.highest_target, False,
+    )
 
 
 def barrier_status_summary(cfg: TripleBarrierConfig, state: TripleBarrierState, current_price: float) -> str:
@@ -267,6 +277,10 @@ def modeled_stop_exit(entry: float, eff_stop: float, slippage: float) -> tuple:
     (a trailing stop in profit), the result is still a win — the sign is
     carried by fill_price vs entry (the win/loss determination is done by the caller).
     """
+    if entry <= 0 or eff_stop <= 0:
+        raise ValueError("entry and stop must be positive")
+    if not 0 <= slippage < 1:
+        raise ValueError("slippage must be in [0, 1)")
     fill_price = eff_stop * (1 - slippage)
     profit_pct = ((fill_price - entry) / entry) * 100
     return fill_price, profit_pct

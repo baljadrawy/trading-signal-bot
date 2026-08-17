@@ -5,6 +5,7 @@ so the SQL cooldown and the Python re-analysis can never drift apart.
 
 CANDLE_SECONDS = {
     '15m': 900,
+    '1h': 3600,
     '4h': 14400,
     '1d': 86400,
 }

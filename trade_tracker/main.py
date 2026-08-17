@@ -19,12 +19,13 @@ from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared.outbox import worker_id, claim, ack, fail
 from shared.candle import candle_interval_case_sql
+from shared.execution import rebase_long_bracket
+from shared.risk_management import RiskLimits, RiskSnapshot, evaluate_new_trade
 from shared.triple_barrier import (
     create_config_from_trade,
     create_state_from_trade,
     step_barrier,
     barrier_status_summary,
-    modeled_stop_exit,
     TripleBarrierConfig,
     TripleBarrierState,
 )
@@ -220,6 +221,30 @@ async def register_new_signals():
                 logger.info(f"⏸️ توقف تسجيل إشارات جديدة — وصلنا الحد: {open_count}/{config.MAX_OPEN_TRADES}")
                 break
 
+        fill_entry = await get_current_price(sig['symbol'])
+        if not fill_entry:
+            logger.warning(f"تعذر تسجيل {sig['symbol']}: لا يوجد سعر تعبئة حالي")
+            continue
+
+        risk_decision = await assess_new_trade_risk(sig['symbol'])
+        await record_risk_decision(risk_decision)
+        if not risk_decision.allowed:
+            logger.warning(
+                f"⛔ رفض صفقة {sig['symbol']} بواسطة حارس المخاطر: "
+                f"{risk_decision.reason} (daily={risk_decision.daily_pnl_pct:.2f}%, "
+                f"weekly={risk_decision.weekly_pnl_pct:.2f}%, "
+                f"drawdown={risk_decision.drawdown_pct:.2f}%)")
+            continue
+        try:
+            bracket = rebase_long_bracket(
+                float(sig['entry_price']), fill_entry,
+                float(sig['target_1']), float(sig['target_2']), float(sig['target_3']),
+                float(sig['stop_loss']),
+            )
+        except ValueError as exc:
+            logger.error(f"رفض bracket غير صالح لـ {sig['symbol']}: {exc}")
+            continue
+
         await Database.execute("""
             INSERT INTO active_trades
             (signal_id, symbol, entry_price, target_1, target_2, target_3,
@@ -228,10 +253,114 @@ async def register_new_signals():
             ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
         """,
             sig['id'], sig['symbol'],
-            sig['entry_price'], sig['target_1'], sig['target_2'], sig['target_3'],
-            sig['stop_loss'], sig['timeframe'], sig['is_paper_trade']
+            bracket['entry_price'], bracket['target_1'], bracket['target_2'], bracket['target_3'],
+            bracket['stop_loss'], sig['timeframe'], sig['is_paper_trade']
         )
-        logger.info(f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {sig['entry_price']}")
+        drift_pct = (fill_entry / float(sig['entry_price']) - 1) * 100
+        logger.info(
+            f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {fill_entry} "
+            f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
+
+
+async def assess_new_trade_risk(symbol: str):
+    """Build a UTC, net-of-cost portfolio snapshot and evaluate one admission."""
+    risk_start = datetime.fromisoformat(config.LEARNING_CLEAN_START.replace('Z', '+00:00'))
+    if risk_start.tzinfo is None:
+        risk_start = risk_start.replace(tzinfo=timezone.utc)
+    results = await Database.fetch("""
+        SELECT profit_usdt, result, exit_time
+        FROM trade_results
+        WHERE exit_time >= $1::timestamptz
+        ORDER BY exit_time, id
+    """, risk_start)
+    open_trades = await Database.fetch("""
+        SELECT symbol, entry_price FROM active_trades WHERE status='open'
+    """)
+    risk_row = await Database.fetchrow("""
+        SELECT is_trading_paused, pause_reason
+        FROM risk_management WHERE date=CURRENT_DATE
+    """)
+
+    now = datetime.now(timezone.utc)
+    week_start = now.date()
+    week_start = week_start.fromordinal(week_start.toordinal() - week_start.weekday())
+    fee_usdt = config.TRADE_AMOUNT_USDT * config.FEE_ROUNDTRIP_PCT / 100.0
+    cumulative = 0.0
+    peak = config.RISK_CAPITAL_USDT
+    daily = weekly = 0.0
+    net_results = []
+    for row in results:
+        net = float(row['profit_usdt']) - fee_usdt
+        cumulative += net
+        peak = max(peak, config.RISK_CAPITAL_USDT + cumulative)
+        exit_time = row['exit_time']
+        if exit_time.tzinfo is None:
+            exit_time = exit_time.replace(tzinfo=timezone.utc)
+        if exit_time.date() == now.date():
+            daily += net
+        if exit_time.date() >= week_start:
+            weekly += net
+        net_results.append(net)
+
+    consecutive_losses = 0
+    for net in reversed(net_results):
+        if net >= 0:
+            break
+        consecutive_losses += 1
+
+    unrealized = 0.0
+    for trade in open_trades:
+        price = await get_current_price(trade['symbol'])
+        if not price:
+            unrealized = float('nan')  # Missing market state must fail closed.
+            break
+        entry = float(trade['entry_price'])
+        unrealized += ((price / entry) - 1.0) * config.TRADE_AMOUNT_USDT - fee_usdt
+
+    limits = RiskLimits(
+        capital_usdt=config.RISK_CAPITAL_USDT,
+        trade_amount_usdt=config.TRADE_AMOUNT_USDT,
+        max_open_trades=config.MAX_OPEN_TRADES,
+        max_gross_exposure_pct=config.MAX_GROSS_EXPOSURE_PERCENT,
+        max_symbol_exposure_pct=config.MAX_SYMBOL_EXPOSURE_PERCENT,
+        max_daily_loss_pct=config.MAX_DAILY_LOSS_PERCENT,
+        max_weekly_loss_pct=config.MAX_WEEKLY_LOSS_PERCENT,
+        max_drawdown_pct=config.MAX_DRAWDOWN_PERCENT,
+        loss_halt_count=config.STOP_ON_CONSECUTIVE_LOSSES,
+    )
+    return evaluate_new_trade(RiskSnapshot(
+        realized_total_usdt=cumulative,
+        daily_pnl_usdt=daily,
+        weekly_pnl_usdt=weekly,
+        unrealized_pnl_usdt=unrealized,
+        peak_equity_usdt=peak,
+        open_count=len(open_trades),
+        symbol_open_count=sum(1 for t in open_trades if t['symbol'] == symbol),
+        consecutive_losses=consecutive_losses,
+        manually_paused=bool(risk_row and risk_row['is_trading_paused']),
+        manual_pause_reason=(risk_row['pause_reason'] if risk_row else None),
+    ), limits)
+
+
+async def record_risk_decision(decision):
+    """Expose the evaluated state to existing scanner/Telegram controls."""
+    hard_halts = {
+        'daily_loss_limit', 'weekly_loss_limit', 'max_drawdown_limit',
+        'loss_streak_halt', 'invalid_risk_state',
+    }
+    paused = decision.reason in hard_halts
+    await Database.execute("""
+        INSERT INTO risk_management
+            (date, daily_pnl_percent, consecutive_losses, is_trading_paused, pause_reason)
+        VALUES (CURRENT_DATE, $1, $2, $3, $4)
+        ON CONFLICT (date) DO UPDATE SET
+            daily_pnl_percent=EXCLUDED.daily_pnl_percent,
+            consecutive_losses=EXCLUDED.consecutive_losses,
+            is_trading_paused=(risk_management.is_trading_paused OR EXCLUDED.is_trading_paused),
+            pause_reason=CASE WHEN EXCLUDED.is_trading_paused THEN EXCLUDED.pause_reason
+                              ELSE risk_management.pause_reason END
+    """, decision.daily_pnl_pct, decision.consecutive_losses, paused,
+         f"risk:{decision.reason}" if paused else None)
 
 
 async def track_open_trades():
@@ -272,23 +401,16 @@ async def evaluate_trade(trade: dict, current_price: float):
     hours_open = (now - opened).total_seconds() / 3600
 
     # بناء Config و State من صف DB
-    cfg   = create_config_from_trade(trade, trade_amount=config.TRADE_AMOUNT_USDT)
+    cfg   = create_config_from_trade(
+        trade, trade_amount=config.TRADE_AMOUNT_USDT,
+        stop_slippage=config.STOP_SLIPPAGE,
+    )
     state = create_state_from_trade(trade)
     # ضبط ساعات الفتح الحالية (تُحسب من DB)
     state.hours_open = hours_open
 
-    # تحديث القمة بالسعر الحالي (فحص نقطة في الزمن — لا شمعة كاملة)
-    if current_price > state.peak:
-        state.peak = current_price
-
-    # تحديث الأهداف بالسعر الحالي
     prev_highest = state.highest_target
-    if current_price >= cfg.target_3 and state.highest_target < 3:
-        state.highest_target = 3
-    elif current_price >= cfg.target_2 and state.highest_target < 2:
-        state.highest_target = 2
-    elif current_price >= cfg.target_1 and state.highest_target < 1:
-        state.highest_target = 1
+    result = step_barrier(cfg, state, current_price, current_price, current_price, 0.0)
 
     # تسجيل الأهداف الجديدة في DB
     if state.highest_target > prev_highest:
@@ -306,68 +428,10 @@ async def evaluate_trade(trade: dict, current_price: float):
             state.peak, trade['id']
         )
 
-    # احسب الستوب الفعّال وتحقق منه (المحاكاة الحيّة — نقطة واحدة في الزمن)
-    eff_stop, stop_label = state.effective_stop(cfg)
-
-    # فحص T3 — إغلاق فوري
-    if state.highest_target == 3:
-        profit_pct  = ((cfg.target_3 - entry) / entry) * 100
-        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        await close_trade_barrier(trade, 'WIN', profit_pct, profit_usdt, cfg.target_3, 'T3', state.highest_target, False)
-        return
-
-    # فحص ضرب الستوب الديناميكي — نمذجة التعبئة عند مستوى الستوب لا عند سعر الاستطلاع المتجاوز
-    if current_price <= eff_stop:
-        fill_price, profit_pct = modeled_stop_exit(entry, eff_stop, config.STOP_SLIPPAGE)
-        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        is_win      = fill_price > entry
-        if state.highest_target >= 2:
-            reason = 'trailing_stop'
-        elif state.highest_target == 1:
-            reason = 'break_even'
-        else:
-            reason = 'stop_loss'
-        original_stop_hit = (not is_win) and (fill_price <= cfg.stop_loss)
+    if result is not None:
         await close_trade_barrier(
-            trade, 'WIN' if is_win else 'LOSS',
-            profit_pct, profit_usdt, fill_price,
-            f"{reason} ({stop_label})", state.highest_target, original_stop_hit
-        )
-        return
-
-    # صفقة عالقة عند T1 فقط بعد 24 ساعة
-    if hours_open >= 24 and state.highest_target == 1:
-        profit_pct  = ((current_price - entry) / entry) * 100
-        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        is_win      = current_price > entry
-        await close_trade_barrier(
-            trade, 'WIN' if is_win else 'LOSS',
-            profit_pct, profit_usdt, current_price,
-            'T1_expired_24h', state.highest_target, False
-        )
-        return
-
-    # صفقة لم تصل حتى T1 بعد 24 ساعة — أغلقها
-    if hours_open >= 24 and state.highest_target == 0:
-        profit_pct  = ((current_price - entry) / entry) * 100
-        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        is_win      = current_price > entry
-        await close_trade_barrier(
-            trade, 'WIN' if is_win else 'LOSS',
-            profit_pct, profit_usdt, current_price,
-            'no_T1_expired_24h', state.highest_target, False
-        )
-        return
-
-    # انتهاء الصلاحية الكلية
-    if hours_open >= TRADE_EXPIRY_HOURS:
-        profit_pct  = ((current_price - entry) / entry) * 100
-        profit_usdt = (profit_pct / 100) * config.TRADE_AMOUNT_USDT
-        is_win      = current_price > entry
-        await close_trade_barrier(
-            trade, 'WIN' if is_win else 'LOSS',
-            profit_pct, profit_usdt, current_price,
-            f'expired_{TRADE_EXPIRY_HOURS}h', state.highest_target, False
+            trade, result.result, result.profit_pct, result.profit_usdt,
+            result.exit_price, result.exit_reason, result.target_reached, result.stop_hit,
         )
         return
 

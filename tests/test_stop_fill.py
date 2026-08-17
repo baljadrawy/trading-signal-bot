@@ -1,4 +1,5 @@
 import sys; sys.path.insert(0, '.')
+import pytest
 from shared.triple_barrier import modeled_stop_exit
 
 
@@ -26,3 +27,11 @@ def test_stop_fill_preserves_profit_when_stop_above_entry():
     # trailing stop locked in above entry → still a WIN
     fill, pct = modeled_stop_exit(100.0, 105.0, 0.001)
     assert fill > 100.0 and pct > 0
+
+
+@pytest.mark.parametrize("entry, stop, slippage", [
+    (0, 97, 0.001), (100, 0, 0.001), (100, 97, -0.1), (100, 97, 1.0),
+])
+def test_stop_fill_rejects_invalid_inputs(entry, stop, slippage):
+    with pytest.raises(ValueError):
+        modeled_stop_exit(entry, stop, slippage)
