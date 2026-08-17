@@ -1,5 +1,8 @@
 """التعلّم الحي المستمرّ: نافذة متحرّكة → أوزان learned_gates لكل (نوع × ماكرو × إطار)."""
 import asyncio
+import json
+import math
+import statistics
 from collections import defaultdict
 from datetime import timedelta
 from shared.config import config
@@ -7,6 +10,7 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
+from shared.learning_governance import validate_cells
 try:
     from shared.alerts import send_alert
 except Exception:
@@ -64,14 +68,16 @@ async def send_status_digest():
     type_line = " | ".join(f"{TT.get(k, k)}: {v}" for k, v in by_type.items()) or "—"
     tf_line = " | ".join(f"{TF.get(k, k)}: {v}" for k, v in by_tf.items()) or "—"
     closed = await Database.fetchval(
-        "SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id=s.id "
-        "WHERE s.trade_type IS NOT NULL") or 0
+        """SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id=s.id
+           WHERE s.trade_type IS NOT NULL AND tr.exit_time >= $1::text::timestamp""",
+        config.LEARNING_CLEAN_START) or 0
     collect_line = (f"🎯 الإشارات المجموعة: {total_tagged} صفقة\n"
                     f"• النوع: {type_line}\n• الأطر: {tf_line}")
     # ── التعلّم ──
     lg = await Database.fetch(
-        "SELECT trade_type, macro_state, timeframe, n, wr, expectancy, weight FROM learned_gates "
-        "WHERE n>=$1 ORDER BY expectancy DESC", config.MIN_CELL_N)
+        "SELECT trade_type, macro_state, timeframe, n, wr, expectancy, weight,ci_low,ci_high FROM learned_gates "
+        "WHERE n>=$1 AND ci_low IS NOT NULL AND ci_high IS NOT NULL ORDER BY expectancy DESC",
+        config.MIN_CELL_N)
     if lg:
         throttled = sum(1 for r in lg if float(r['weight'] or 0) <= 0)
         t = lg[0]
@@ -79,7 +85,9 @@ async def send_status_digest():
         lg_line = (f"🧠 التعلّم: يعمل ({len(lg)} تركيبة، أوقف {throttled} خاسرة)\n"
                    f"🏆 الأفضل: {TT.get(t['trade_type'], t['trade_type'])} + هيمنة USDT {UD.get(ud_key, ud_key)} "
                    f"+ {TF.get(t['timeframe'], t['timeframe'])}\n"
-                   f"   ربح صافٍ {float(t['expectancy']):+.2f}%/صفقة (بعد الرسوم)، نجاح {float(t['wr']):.0f}% ({t['n']} صفقة)")
+                   f"   ربح صافٍ {float(t['expectancy']):+.2f}%/صفقة "
+                   f"(95% CI [{float(t['ci_low']):+.2f}, {float(t['ci_high']):+.2f}])، "
+                   f"نجاح {float(t['wr']):.0f}% ({t['n']} صفقة)")
     else:
         remaining = max(0, config.WARMUP_N - closed)
         lg_line = (f"🧠 التعلّم: لم يبدأ بعد\n"
@@ -94,7 +102,8 @@ async def send_status_digest():
             logger.warning(f"digest send failed: {e}")
 
 
-def compute_cells(trades, min_cell_n: int, throttle_expectancy: float, fee_roundtrip: float = 0.0):
+def compute_cells(trades, min_cell_n: int, throttle_expectancy: float,
+                  fee_roundtrip: float = 0.0, confidence_z: float = 1.96):
     """توقّع الخلية = متوسط الربح الصافي (إجمالي − رسوم الذهاب والإياب).
     `profit_percent` المخزَّن إجماليٌّ بلا رسوم؛ نطرح fee_roundtrip هنا فالبوابة تخنق
     على أساس صافٍ لا إجمالي (إصلاح العطب: خلية إجماليها بين 0 والرسوم كانت تبقى weight=1
@@ -107,13 +116,22 @@ def compute_cells(trades, min_cell_n: int, throttle_expectancy: float, fee_round
     for (tt, ms, tf), items in groups.items():
         n = len(items)
         wins = sum(1 for x in items if x['is_win'])
-        net_exp = sum(float(x['profit_percent']) for x in items) / n - fee_roundtrip
-        if n >= min_cell_n:
-            weight = 1.0 if net_exp > throttle_expectancy else 0.0
+        net_returns = [float(x['profit_percent']) - fee_roundtrip for x in items]
+        net_exp = sum(net_returns) / n
+        if n >= 2:
+            margin = confidence_z * statistics.stdev(net_returns) / math.sqrt(n)
+            ci_low, ci_high = net_exp - margin, net_exp + margin
         else:
-            weight = 1.0
+            ci_low, ci_high = -math.inf, math.inf
+        # Fail open: throttle only when even the optimistic confidence bound is non-positive.
+        weight = 0.0 if n >= min_cell_n and ci_high <= throttle_expectancy else 1.0
+        timestamps = [x.get('exit_time') for x in items if x.get('exit_time') is not None]
         out.append({'trade_type': tt, 'macro_state': ms, 'timeframe': tf,
                     'n': n, 'wr': round(wins / n * 100, 1), 'expectancy': round(net_exp, 4),
+                    'ci_low': round(ci_low, 4) if math.isfinite(ci_low) else None,
+                    'ci_high': round(ci_high, 4) if math.isfinite(ci_high) else None,
+                    'sample_start': min(timestamps) if timestamps else None,
+                    'sample_end': max(timestamps) if timestamps else None,
                     'weight': weight})
     return out
 
@@ -149,33 +167,83 @@ async def run():
 
 
 async def _run_learning_cycle():
-    closed = await Database.fetchval("SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id = s.id WHERE s.trade_type IS NOT NULL")
+    closed = await Database.fetchval(
+        """SELECT COUNT(*) FROM trade_results tr JOIN signals s ON tr.signal_id=s.id
+           WHERE s.trade_type IS NOT NULL AND tr.exit_time >= $1::text::timestamp""",
+        config.LEARNING_CLEAN_START)
     # ── التعلّم أولاً (يحدّث learned_gates) ثم نرسل التقرير ليعكس الخلايا الطازجة ──
     if (closed or 0) >= config.WARMUP_N:
         rows = await Database.fetch(
             """SELECT s.trade_type, s.macro_snapshot, s.timeframe, tr.profit_percent,
-                      (tr.result='WIN') AS is_win
+                      (tr.result='WIN') AS is_win, tr.exit_time
                FROM trade_results tr JOIN signals s ON tr.signal_id = s.id
-               WHERE s.trade_type IS NOT NULL
-               ORDER BY tr.exit_time DESC LIMIT $1""", config.ROLL_N)
+               WHERE s.trade_type IS NOT NULL AND tr.exit_time >= $2::text::timestamp
+               ORDER BY tr.exit_time DESC LIMIT $1""",
+            config.ROLL_N, config.LEARNING_CLEAN_START)
         trades = []
         for r in rows:
             ms = r['macro_snapshot'] or {}
             if isinstance(ms, str):
-                import json; ms = json.loads(ms)
+                ms = json.loads(ms)
             trades.append({'trade_type': r['trade_type'],
                            'macro_state': f"usdtd_{ms.get('usdtd_trend', 'flat')}",
                            'timeframe': r['timeframe'], 'profit_percent': r['profit_percent'],
-                           'is_win': r['is_win']})
+                           'is_win': r['is_win'], 'exit_time': r['exit_time']})
         cells = compute_cells(trades, config.MIN_CELL_N, config.THROTTLE_EXPECTANCY,
-                              config.FEE_ROUNDTRIP_PCT)
-        for c in cells:
+                              config.FEE_ROUNDTRIP_PCT, config.LEARNING_CONFIDENCE_Z)
+        errors = validate_cells(cells, trade_count=len(trades), min_cell_n=config.MIN_CELL_N)
+        parameters = {'roll_n': config.ROLL_N, 'min_cell_n': config.MIN_CELL_N,
+                      'throttle_expectancy': config.THROTTLE_EXPECTANCY,
+                      'fee_roundtrip_pct': config.FEE_ROUNDTRIP_PCT}
+        parameters.update({'clean_start': config.LEARNING_CLEAN_START,
+                           'confidence_z': config.LEARNING_CONFIDENCE_Z,
+                           'exploration_rate': config.LEARNING_EXPLORATION_RATE})
+        if errors:
             await Database.execute(
-                """INSERT INTO learned_gates (trade_type, macro_state, timeframe, n, wr, expectancy, weight, updated_at)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
-                   ON CONFLICT (trade_type, macro_state, timeframe)
-                   DO UPDATE SET n=$4, wr=$5, expectancy=$6, weight=$7, updated_at=NOW()""",
-                c['trade_type'], c['macro_state'], c['timeframe'], c['n'], c['wr'], c['expectancy'], c['weight'])
+                """INSERT INTO learning_runs(strategy_version,status,trade_count,cell_count,parameters,
+                                                validation_errors,completed_at)
+                   VALUES($1,'rejected',$2,$3,$4::jsonb,$5::jsonb,NOW())""",
+                config.APP_VERSION, len(trades), len(cells), json.dumps(parameters), json.dumps(errors))
+            raise ValueError('invalid learning batch: ' + '; '.join(errors[:5]))
+
+        async with Database.acquire() as conn:
+            async with conn.transaction():
+                run_id = await conn.fetchval(
+                    """INSERT INTO learning_runs(strategy_version,status,trade_count,cell_count,parameters)
+                       VALUES($1,'validating',$2,$3,$4::jsonb) RETURNING id""",
+                    config.APP_VERSION, len(trades), len(cells), json.dumps(parameters))
+                for c in cells:
+                    old = await conn.fetchrow(
+                        """SELECT trade_type,macro_state,timeframe,n,wr,expectancy,weight,
+                                  ci_low,ci_high,sample_start,sample_end,
+                                  strategy_version,learning_run_id FROM learned_gates
+                           WHERE trade_type=$1 AND macro_state=$2 AND timeframe=$3 FOR UPDATE""",
+                        c['trade_type'], c['macro_state'], c['timeframe'])
+                    await conn.execute(
+                        """INSERT INTO learned_gates
+                               (trade_type,macro_state,timeframe,n,wr,expectancy,weight,
+                                ci_low,ci_high,sample_start,sample_end,
+                                strategy_version,learning_run_id,updated_at)
+                           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+                           ON CONFLICT (trade_type,macro_state,timeframe) DO UPDATE
+                           SET n=$4,wr=$5,expectancy=$6,weight=$7,ci_low=$8,ci_high=$9,
+                               sample_start=$10,sample_end=$11,strategy_version=$12,
+                               learning_run_id=$13,updated_at=NOW()""",
+                        c['trade_type'], c['macro_state'], c['timeframe'], c['n'], c['wr'],
+                        c['expectancy'], c['weight'], c['ci_low'], c['ci_high'],
+                        c['sample_start'], c['sample_end'], config.APP_VERSION, run_id)
+                    new_value = {**c, 'strategy_version': config.APP_VERSION,
+                                 'learning_run_id': run_id}
+                    await conn.execute(
+                        """INSERT INTO learned_gate_history
+                               (learning_run_id,action,trade_type,macro_state,timeframe,
+                                old_value,new_value,strategy_version)
+                           VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)""",
+                        run_id, 'update' if old else 'insert', c['trade_type'], c['macro_state'],
+                        c['timeframe'], json.dumps(dict(old), default=str) if old else None,
+                        json.dumps(new_value, default=str), config.APP_VERSION)
+                await conn.execute(
+                    "UPDATE learning_runs SET status='applied',completed_at=NOW() WHERE id=$1", run_id)
         losers = [c for c in cells if c['weight'] == 0]
         logger.info(f"📚 Learner: {len(cells)} cells, {len(losers)} throttled (تفاصيلها في التقرير اليومي)")
         # ── إعادة الفحص الدوري: احذف الخلايا المخنوقة المتقادمة فتعود إحماءً ──
@@ -184,9 +252,21 @@ async def _run_learning_cycle():
         db_now = await Database.fetchval("SELECT NOW()::timestamp")  # naive، يطابق عمود updated_at (بلا منطقة)
         stale = select_stale_throttles([dict(r) for r in grows], db_now, config.THROTTLE_STALE_DAYS)
         for tt, ms, tf in stale:
-            await Database.execute(
-                "DELETE FROM learned_gates WHERE trade_type=$1 AND macro_state=$2 AND timeframe=$3",
-                tt, ms, tf)
+            async with Database.acquire() as conn:
+                async with conn.transaction():
+                    old = await conn.fetchrow(
+                        "SELECT * FROM learned_gates WHERE trade_type=$1 AND macro_state=$2 AND timeframe=$3 FOR UPDATE",
+                        tt, ms, tf)
+                    if old:
+                        await conn.execute(
+                            "DELETE FROM learned_gates WHERE trade_type=$1 AND macro_state=$2 AND timeframe=$3",
+                            tt, ms, tf)
+                        await conn.execute(
+                            """INSERT INTO learned_gate_history
+                                   (learning_run_id,action,trade_type,macro_state,timeframe,old_value,strategy_version)
+                               VALUES($1,'expire',$2,$3,$4,$5::jsonb,$6)""",
+                            old['learning_run_id'], tt, ms, tf,
+                            json.dumps(dict(old), default=str), config.APP_VERSION)
         if stale:
             logger.info(
                 f"♻️ تقادم: حُذفت {len(stale)} خليّة مخنوقة متقادمة (>{config.THROTTLE_STALE_DAYS}ي) → تعود إحماءً")

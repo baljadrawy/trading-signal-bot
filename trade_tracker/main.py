@@ -17,6 +17,7 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
+from shared.outbox import worker_id, claim, ack, fail
 from shared.candle import candle_interval_case_sql
 from shared.triple_barrier import (
     create_config_from_trade,
@@ -44,6 +45,7 @@ async def main():
     await mark_started('trade_tracker')
 
     consecutive_errors = 0
+    owner = worker_id('trade_tracker')
 
     try:
         while True:
@@ -51,9 +53,32 @@ async def main():
                 await close_blacklisted_trades()
                 await enforce_max_open_trades()
                 await track_open_trades()
+                delivery_events = await claim('signal.delivered', owner, limit=50)
                 await register_new_signals()
+                for event in delivery_events:
+                    active = await Database.fetchval(
+                        "SELECT 1 FROM active_trades WHERE signal_id=$1",
+                        event['aggregate_id'])
+                    if active:
+                        await ack(event['id'], owner)
+                        continue
+                    terminal = await Database.fetchval("""
+                        SELECT 1 FROM signals s
+                        WHERE s.id=$1 AND (
+                            NOT s.telegram_sent OR NOT s.claude_approved
+                            OR s.signal_time <= NOW()-INTERVAL '2 hours'
+                            OR EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol)
+                            OR EXISTS (SELECT 1 FROM approval_requests ar
+                                       WHERE ar.signal_id=s.id AND ar.status='rejected'))
+                        """, event['aggregate_id'])
+                    if terminal:
+                        await ack(event['id'], owner)
+                    else:
+                        await fail(event['id'], owner,
+                                   RuntimeError('trade registration deferred'), 300)
                 consecutive_errors = 0
-                await mark_success('trade_tracker')
+                await mark_success('trade_tracker', {
+                    'delivery_events': len(delivery_events)})
                 await asyncio.sleep(300)  # كل 5 دقائق
 
             except Exception as e:
@@ -200,6 +225,7 @@ async def register_new_signals():
             (signal_id, symbol, entry_price, target_1, target_2, target_3,
              stop_loss, timeframe, is_paper_trade)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
         """,
             sig['id'], sig['symbol'],
             sig['entry_price'], sig['target_1'], sig['target_2'], sig['target_3'],
@@ -359,38 +385,30 @@ async def close_trade_barrier(
                    else datetime.now(timezone.utc) - trade['opened_at'])
                   .total_seconds() / 3600)
 
-    await Database.execute("""
-        INSERT INTO trade_results
-        (signal_id, symbol, entry_price, exit_price, profit_percent,
-         profit_usdt, result, exit_time, notes, duration_hours,
-         target_reached, stop_hit)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
-    """,
-        trade['signal_id'], symbol, entry, exit_price,
-        round(profit_pct, 4), round(profit_usdt, 4),
-        result, reason, round(hours_open, 2),
-        target_reached, stop_hit
-    )
-
-    await Database.execute(
-        "UPDATE active_trades SET status = 'closed' WHERE id = $1",
-        trade['id']
-    )
-
-    if result == 'WIN':
-        await Database.execute("""
-            INSERT INTO risk_management (date, wins)
-            VALUES (CURRENT_DATE, 1)
-            ON CONFLICT (date) DO UPDATE
-            SET wins = risk_management.wins + 1
-        """)
-    else:
-        await Database.execute("""
-            INSERT INTO risk_management (date, losses)
-            VALUES (CURRENT_DATE, 1)
-            ON CONFLICT (date) DO UPDATE
-            SET losses = risk_management.losses + 1
-        """)
+    async with Database.acquire() as conn:
+        async with conn.transaction():
+            inserted = await conn.fetchval("""
+                INSERT INTO trade_results
+                (signal_id, symbol, entry_price, exit_price, profit_percent,
+                 profit_usdt, result, exit_time, notes, duration_hours,
+                 target_reached, stop_hit)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
+                ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
+                RETURNING id
+            """,
+                trade['signal_id'], symbol, entry, exit_price,
+                round(profit_pct, 4), round(profit_usdt, 4),
+                result, reason, round(hours_open, 2), target_reached, stop_hit)
+            await conn.execute(
+                "UPDATE active_trades SET status='closed' WHERE id=$1", trade['id'])
+            if inserted:
+                column = 'wins' if result == 'WIN' else 'losses'
+                await conn.execute(f"""
+                    INSERT INTO risk_management (date, {column})
+                    VALUES (CURRENT_DATE, 1)
+                    ON CONFLICT (date) DO UPDATE
+                    SET {column}=risk_management.{column}+1
+                """)
 
     icon = "✅" if result == 'WIN' else "❌"
     logger.info(

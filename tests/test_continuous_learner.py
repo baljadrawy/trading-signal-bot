@@ -53,6 +53,15 @@ def test_default_fee_zero_backward_compatible():
     assert c['expectancy'] > 0 and c['weight'] == 1.0
 
 
+def test_noisy_negative_mean_fails_open_when_ci_crosses_zero():
+    trades = [_t('momentum','usdtd_flat','4h', p)
+              for p in [-5, 4, -4, 5, -3, 3, -2, 2, -1, 0] * 2]
+    c = compute_cells(trades, min_cell_n=10, throttle_expectancy=0, fee_roundtrip=0.3)[0]
+    assert c['expectancy'] < 0
+    assert c['ci_high'] > 0
+    assert c['weight'] == 1.0
+
+
 # ── تقادم الخلايا المخنوقة (إعادة الفحص الدوري) ──
 NOW = datetime(2026, 8, 10, 12, 0, 0)
 

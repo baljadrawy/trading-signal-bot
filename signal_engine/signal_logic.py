@@ -8,6 +8,8 @@ from shared.config import config
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.macro_context import MacroContext
+from shared.outbox import enqueue
+from shared.learning_governance import exploration_selected
 
 logger = setup_logger('signal_logic')
 
@@ -483,9 +485,15 @@ class SignalEngine:
                 self.last_decisions[symbol] = 'symbol_cooldown'
                 continue
             if (tt, data.get('timeframe')) in throttled:
-                self.last_decisions.setdefault(symbol, 'learned_gate_throttled')
-                logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (learned loser)")
-                continue
+                bucket = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')
+                explore_key = f"{symbol}|{tt}|{macro_state}|{data.get('timeframe')}"
+                if exploration_selected(explore_key, bucket, config.LEARNING_EXPLORATION_RATE):
+                    self.last_decisions[symbol] = 'learned_gate_exploration'
+                    logger.info(f"🧪 exploration: {symbol} {tt}/{data.get('timeframe')} ({macro_state})")
+                else:
+                    self.last_decisions.setdefault(symbol, 'learned_gate_throttled')
+                    logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (statistically negative)")
+                    continue
             # أول مرشّح صالح غير مخنوق يكفي (paper، جمع عيّنة) — بلا تفضيل نوع.
             # حُيِّد تفضيل reversion (flip 4f84717) 2026-07-29: كلا النوعين بلا حافة صافية
             # بعد الرسوم (تدقيق 2026-07-29 + دحض canary-close OOS)، والخنق المُتعلَّم
@@ -577,28 +585,32 @@ class SignalEngine:
             'trade_type': signal.get('trade_type'),
         })
 
-        signal_id = await Database.fetchval("""
-            INSERT INTO signals (
-                symbol, timeframe, market_condition,
-                entry_price, target_1, target_2, target_3,
-                stop_loss, score, score_details, is_paper_trade,
-                volume_usdt, features_snapshot, trade_type, macro_snapshot
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-            RETURNING id
-        """,
-            signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
-            signal.get('market_condition', 'unknown'),
-            signal['entry_price'], signal['target_1'], signal['target_2'], signal['target_3'],
-            signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
-            config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
-            signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}))
-
-        # تحديث عداد الإشارات اليومية
-        await Database.execute("""
-            INSERT INTO risk_management (date, signals_sent)
-            VALUES (CURRENT_DATE, 1)
-            ON CONFLICT (date) DO UPDATE
-            SET signals_sent = risk_management.signals_sent + 1
-        """)
+        async with Database.acquire() as conn:
+            async with conn.transaction():
+                signal_id = await conn.fetchval("""
+                    INSERT INTO signals (
+                        symbol, timeframe, market_condition,
+                        entry_price, target_1, target_2, target_3,
+                        stop_loss, score, score_details, is_paper_trade,
+                        volume_usdt, features_snapshot, trade_type, macro_snapshot,
+                        decision_source, strategy_version
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                    RETURNING id
+                """,
+                    signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
+                    signal.get('market_condition', 'unknown'),
+                    signal['entry_price'], signal['target_1'], signal['target_2'], signal['target_3'],
+                    signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
+                    config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
+                    signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}),
+                    'signal_engine', config.APP_VERSION)
+                await conn.execute("""
+                    INSERT INTO risk_management (date, signals_sent)
+                    VALUES (CURRENT_DATE, 1)
+                    ON CONFLICT (date) DO UPDATE
+                    SET signals_sent = risk_management.signals_sent + 1
+                """)
+                await enqueue(conn, 'signal.created', 'signal', signal_id,
+                              {'signal_id': signal_id})
 
         return signal_id

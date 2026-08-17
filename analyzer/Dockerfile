@@ -1,10 +1,16 @@
 # يدعم: linux/amd64 (Hetzner VPS) و linux/arm64 (Raspberry Pi 4)
 # ⬆️ 2026-06-23: رُقّي لـ3.12 (الأنلايزر فقط) لدعم pandas_ta 0.4.71b0 (يتطلب py>=3.12، pandas>=3، numpy>=2)
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:d764629ce0ddd8c71fd371e9901efb324a95789d2315a47db7e4d27e78f1b0e9
+
+ARG APP_VERSION=sb-2026.08
+ARG BUILD_REVISION=unknown
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$BUILD_REVISION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    APP_VERSION=$APP_VERSION
 
 WORKDIR /app
 
@@ -13,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 
 # نسخ الكود
 COPY shared/ ./shared/
-COPY analyzer/ ./
+COPY analyzer/main.py analyzer/technical_analyzer.py analyzer/orderbook_analyzer.py analyzer/simple_entry.py ./
 
 # مستخدم غير-root (uid 1000 يطابق tradmin على المضيف لصلاحيات الـ bind mounts)
 RUN useradd -u 1000 -m appuser \

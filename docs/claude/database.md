@@ -15,7 +15,7 @@ docker exec -i postgres psql -U trading_signal_bot -d trading_signals -c "..."
 |--------|-------|
 | `scan_candidates` | نتائج Scanner المؤقتة |
 | `analysis_results` | نتائج التحليل لكل (symbol, timeframe) |
-| `signals` | الإشارات المولّدة (+ `trade_type`, `macro_snapshot` لوضع التعلّم الحي) |
+| `signals` | الإشارات المولّدة، وتشمل `decision_source` و`strategy_version` |
 | `approval_requests` | طلبات موافقة المستخدم |
 | `symbol_whitelist` / `symbol_blacklist` | القوائم البيضاء/السوداء |
 | `active_trades` | الصفقات المفتوحة قيد المتابعة |
@@ -25,6 +25,8 @@ docker exec -i postgres psql -U trading_signal_bot -d trading_signals -c "..."
 | `indicator_weights` | أوزان المؤشرات حسب market_condition |
 | `macro_history` | لقطة USDT.D/BTC.D + اتجاه BTC/ETH اليومية (وضع التعلّم الحي) |
 | `learned_gates` | أوزان (نوع × usdtd_state × إطار) من المتعلّم المستمر |
+| `learning_runs` | حالة ومعاملات ونتيجة تحقق كل دورة تعلم |
+| `learned_gate_history` | سجل غير قابل للمحو المنطقي للقيم القديمة والجديدة ودورات rollback |
 | `schema_migrations` | إصدارات مخطط DB مع checksum لكل migration |
 | `service_heartbeats` | آخر نجاح/فشل تشغيلي لكل خدمة |
 

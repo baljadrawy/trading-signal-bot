@@ -1,2 +1,14 @@
 research/skill_application/
 **/__pycache__/
+.git/
+.env
+.env.*
+!.env.example
+data/
+logs/
+backups/
+*.log
+*.csv
+*.jsonl
+*.pkl
+*.joblib

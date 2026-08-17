@@ -18,6 +18,7 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
+from shared.outbox import worker_id, claim, ack, fail, enqueue
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
@@ -123,6 +124,7 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                       approval_mgr: ApprovalManager):
     """حلقة مستمرة تراقب الإشارات الجديدة"""
     consecutive_errors = 0
+    owner = worker_id('telegram')
     while True:
         try:
             # تنظيف الطلبات المنتهية
@@ -130,33 +132,33 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
             for req in expired:
                 await notify_expired(bot, req['symbol'])
 
-            # جلب الإشارات المعتمدة من Claude وغير المرسلة
-            signals = await Database.fetch("""
-                SELECT s.*
-                FROM signals s
-                LEFT JOIN approval_requests ar ON s.id = ar.signal_id
-                WHERE s.claude_approved = true
-                AND s.telegram_sent = false
-                AND s.signal_time > NOW() - INTERVAL '2 hours'
-                AND ar.id IS NULL
-                ORDER BY s.score DESC
-                LIMIT 5
-            """)
-
-            for signal in signals:
-                signal = dict(signal)
-                action = await approval_mgr.process_signal(signal)
-
-                if action == 'sent_direct':
-                    await send_signal_direct(bot, signal)
-                elif action == 'awaiting_approval':
-                    await send_approval_request(bot, signal)
-
-                await asyncio.sleep(2)
+            events = await claim('signal.reviewed', owner, limit=5)
+            delivered = 0
+            for event in events:
+                try:
+                    signal = await Database.fetchrow(
+                        "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
+                    if not signal or signal['telegram_sent'] or not signal['claude_approved']:
+                        await ack(event['id'], owner)
+                        continue
+                    signal = dict(signal)
+                    action = await approval_mgr.process_signal(signal)
+                    if action == 'sent_direct':
+                        await send_signal_direct(bot, signal)
+                    elif action == 'awaiting_approval':
+                        await send_approval_request(bot, signal)
+                    delivered += 1
+                    await ack(event['id'], owner)
+                    await asyncio.sleep(2)
+                except Exception as event_error:
+                    await fail(event['id'], owner, event_error)
+                    logger.error("outbox signal.reviewed %s failed: %s",
+                                 event['id'], format_error(event_error))
 
             consecutive_errors = 0
             await mark_success('telegram', {
-                'pending_signals': len(signals), 'expired_requests': len(expired)})
+                'events_claimed': len(events), 'delivered': delivered,
+                'expired_requests': len(expired)})
             await asyncio.sleep(15)
 
         except Exception as e:
@@ -185,10 +187,7 @@ async def send_signal_direct(bot: Bot, signal: dict):
             chat_id=config.TELEGRAM_CHAT_ID,
             text=message
         )
-        await Database.execute(
-            "UPDATE signals SET telegram_sent = true WHERE id = $1",
-            signal['id']
-        )
+        await mark_delivered(signal['id'])
         logger.info(f"📤 إرسال مباشر: {signal['symbol']}")
     except Exception as e:
         logger.error(f"❌ خطأ في الإرسال المباشر لـ {signal.get('symbol')}: {format_error(e)}")
@@ -221,15 +220,22 @@ async def send_approval_request(bot: Bot, signal: dict):
         )
 
         # تحديث حالة الإشارة
-        await Database.execute(
-            "UPDATE signals SET telegram_sent = true WHERE id = $1",
-            signal['id']
-        )
+        await mark_delivered(signal['id'])
         logger.info(f"🔍 طلب موافقة: {signal['symbol']}")
 
     except Exception as e:
         logger.error(f"❌ خطأ في إرسال طلب الموافقة لـ {signal.get('symbol')}: {format_error(e)}")
         raise
+
+
+async def mark_delivered(signal_id: int):
+    """Record Telegram delivery and publish trade registration atomically."""
+    async with Database.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "UPDATE signals SET telegram_sent=true WHERE id=$1", signal_id)
+            await enqueue(conn, 'signal.delivered', 'signal', signal_id,
+                          {'signal_id': signal_id})
 
 
 @restricted
@@ -604,7 +610,7 @@ def build_approval_message(signal: dict) -> str:
 
 @restricted
 async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أداء Claude ونسبة القبول/الرفض"""
+    """أداء قرارات المراجعة، سواء كانت سياسة آلية أو Claude."""
     total = await Database.fetchval("SELECT COUNT(*) FROM signals") or 0
     approved = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = true") or 0
     rejected = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = false") or 0
@@ -625,7 +631,7 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"🏆 أداء النظام\n"
         f"{'─'*28}\n\n"
-        f"🤖 مراجعة Claude:\n"
+        f"🧭 قرارات المراجعة:\n"
         f"  إجمالي الإشارات: {total}\n"
         f"  ✅ موافق عليها: {approved} ({approval_rate})\n"
         f"  ❌ مرفوضة: {rejected}\n"
@@ -643,7 +649,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """آخر 5 إشارات مع حالتها"""
     signals = await Database.fetch("""
         SELECT symbol, timeframe, score, claude_approved, telegram_sent,
-               signal_time, claude_comment
+               signal_time, claude_comment, decision_source, strategy_version
         FROM signals
         ORDER BY signal_time DESC
         LIMIT 5
@@ -655,12 +661,12 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["📡 آخر الإشارات\n" + "─"*28]
     for s in signals:
-        claude_icon = "✅" if s['claude_approved'] else "❌"
+        decision_icon = "✅" if s['claude_approved'] else "❌"
         sent_icon = "📤" if s['telegram_sent'] else "⏳"
         time_str = s['signal_time'].strftime("%H:%M") if s['signal_time'] else "؟"
         lines.append(
             f"\n{sent_icon} {s['symbol']} [{s['timeframe']}]\n"
-            f"  ⭐ {s['score']}/10 | Claude: {claude_icon} | {time_str}\n"
+            f"  ⭐ {s['score']}/10 | القرار: {decision_icon} ({s['decision_source'] or 'غير معروف'}) | {time_str}\n"
             f"  💬 {(s['claude_comment'] or '')[:60]}"
         )
 
@@ -714,8 +720,8 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌍 وضع السوق: {market_ar}\n\n"
         f"📊 الإشارات:\n"
         f"  إجمالي: {signals_today}\n"
-        f"  ✅ وافق Claude: {approved_today}\n"
-        f"  ❌ رفض Claude: {rejected_today}\n"
+        f"  ✅ قرارات موافقة: {approved_today}\n"
+        f"  ❌ قرارات رفض: {rejected_today}\n"
         f"  📤 أُرسلت: {sent_today}\n"
         f"{best_line}\n\n"
         f"💰 الصفقات:\n"

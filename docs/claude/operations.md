@@ -15,6 +15,22 @@ docker compose logs <service> --tail=30 -f
 docker compose ps
 ```
 
+## النشر الثابت والمشدّد
+
+- الشيفرة مضمّنة داخل الصور ولا توجد bind mounts للشيفرة في الإنتاج.
+- الصور تعمل كمستخدم غير root، بجذر read-only، مع `cap_drop: ALL` و`no-new-privileges`.
+- مسارات الكتابة محصورة في volumes للسجلات/النماذج/الأدلة و`tmpfs` في `/tmp`.
+- كل صورة تحمل `org.opencontainers.image.revision` ونسخة التطبيق.
+
+```bash
+export BUILD_REVISION="$(git rev-parse HEAD)"
+python3 database/migrate.py
+docker compose build
+docker compose up -d --no-build
+```
+
+أي تعديل محلي للشيفرة لا يصل إلى الحاويات إلا بعد إعادة البناء وإعادة الإنشاء.
+
 ## رفع للـ GitHub
 ```bash
 git add <paths>      # تجنّب git add -A (مخرجات بحث ضخمة غير متعقّبة)
@@ -51,3 +67,13 @@ LEARN_CRON_HOURS=24                 # وتيرة المتعلّم + الملخّ
 
 ## نظام التنبيهات (shared/alerts.py)
 `send_alert(message, level, component)` — مستويات `info|warning|critical`. كل حاوية فيها عدّاد `consecutive_errors`؛ عند 3 أخطاء متتالية → تنبيه critical؛ backoff = `min(60×errors, 300)` ثانية.
+
+## مراجعة أداء الاستراتيجية
+
+```bash
+docker compose exec continuous_learner python research/strategy_performance_review.py
+```
+
+يحسب التقرير gross/net expectancy وProfit Factor وdrawdown، والتقسيم حسب النوع والإطار
+والماكرو والزوج، ثم expanding walk-forward يقارن البوابات المتعلمة مع baseline ثابت.
+التقرير للقراءة فقط ولا يعدّل البوابات.

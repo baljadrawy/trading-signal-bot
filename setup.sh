@@ -3,6 +3,9 @@
 
 echo "🚀 إعداد Trading Signal Bot..."
 
+BUILD_REVISION="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+export BUILD_REVISION
+
 # التحقق من Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker غير مثبت!"

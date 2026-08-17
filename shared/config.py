@@ -77,6 +77,12 @@ class Config:
     # إعادة فحص دوري: خليّة مخنوقة (weight<=0) لم تُحدَّث منذ هذا العدد من الأيام تُحذف
     # فتعود إحماءً وتُجرَّب من جديد — يمنع الحظر الدائم الذاتي التحقّق للخلايا الصامتة.
     THROTTLE_STALE_DAYS: int = int(os.getenv('THROTTLE_STALE_DAYS', '14'))
+    # أول تاريخ موثوق بعد إصلاح overshot stop fills والتكرار داخل الشمعة.
+    LEARNING_CLEAN_START: str = os.getenv('LEARNING_CLEAN_START', '2026-07-20T00:00:00')
+    # الخنق يتطلب أن يكون الحد الأعلى لفترة الثقة تحت العتبة، لا المتوسط فقط.
+    LEARNING_CONFIDENCE_Z: float = float(os.getenv('LEARNING_CONFIDENCE_Z', '1.96'))
+    # استكشاف ثابت بالساعة للخلايا المخنوقة لمنع feedback loop والحظر الدائم.
+    LEARNING_EXPLORATION_RATE: float = float(os.getenv('LEARNING_EXPLORATION_RATE', '0.10'))
     LEARN_CRON_HOURS: int = int(os.getenv('LEARN_CRON_HOURS', '12'))
 
     # حجم الصفقة

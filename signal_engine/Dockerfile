@@ -1,9 +1,15 @@
 # يدعم: linux/amd64 (Hetzner VPS) و linux/arm64 (Raspberry Pi 4)
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:d764629ce0ddd8c71fd371e9901efb324a95789d2315a47db7e4d27e78f1b0e9
+
+ARG APP_VERSION=sb-2026.08
+ARG BUILD_REVISION=unknown
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$BUILD_REVISION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    APP_VERSION=$APP_VERSION
 
 WORKDIR /app
 
@@ -14,6 +20,8 @@ RUN pip install --no-cache-dir --upgrade pip==26.1.* wheel==0.46.* && pip instal
 COPY shared/ ./shared/
 COPY signal_engine/ ./
 COPY research/continuous_learner.py ./research/continuous_learner.py
+COPY research/rollback_learned_gates.py ./research/rollback_learned_gates.py
+COPY research/strategy_performance_review.py ./research/strategy_performance_review.py
 # Evidence flight-recorder package (PR #3c). Required for the recorder to collect anything
 # when ENABLE_EVIDENCE_RECORDER=true; if absent, the lazy import degrades to a no-op safely.
 COPY research/null_a/ ./research/null_a/

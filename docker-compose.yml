@@ -17,13 +17,29 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+x-build-args: &build-args
+  APP_VERSION: ${APP_VERSION:-sb-2026.08}
+  BUILD_REVISION: ${BUILD_REVISION:-unknown}
+
+x-hardened-runtime: &hardened-runtime
+  read_only: true
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
 services:
 
   # ==================== Scanner ====================
   scanner:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: scanner/Dockerfile
+      args: *build-args
     container_name: trading_scanner
     restart: unless-stopped
     logging: *default-logging
@@ -35,8 +51,6 @@ services:
       HEALTH_MAX_AGE_SECONDS: "900"
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./scanner:/app
     networks:
       - trading_network
       - shared_db_net
@@ -54,9 +68,11 @@ services:
 
   # ==================== Analyzer ====================
   analyzer:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: analyzer/Dockerfile
+      args: *build-args
     container_name: trading_analyzer
     restart: unless-stopped
     logging: *default-logging
@@ -68,8 +84,6 @@ services:
       HEALTH_MAX_AGE_SECONDS: "300"
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./analyzer:/app
       - models_data:/app/models
     networks:
       - trading_network
@@ -88,9 +102,11 @@ services:
 
   # ==================== Signal Engine ====================
   signal_engine:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: signal_engine/Dockerfile
+      args: *build-args
     container_name: trading_signal_engine
     restart: unless-stopped
     logging: *default-logging
@@ -99,14 +115,13 @@ services:
     environment:
       SERVICE_NAME: signal_engine
       HEALTH_MAX_AGE_SECONDS: "180"
+      LEARNING_CLEAN_START: ${LEARNING_CLEAN_START:-2026-07-20T00:00:00}
+      LEARNING_CONFIDENCE_Z: ${LEARNING_CONFIDENCE_Z:-1.96}
+      LEARNING_EXPLORATION_RATE: ${LEARNING_EXPLORATION_RATE:-0.10}
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./signal_engine:/app
       - models_data:/app/models
-      # Canary Phase A: research/null_a importable despite the /app bind-mount; evidence dir
-      # aligned with monitor_canary.py (host ./data/evidence). research mounted read-only.
-      - ./research:/app/research:ro
+      # Evidence output is the only writable host path used by Signal Engine.
       - ./data/evidence:/app/data/evidence
     networks:
       - trading_network
@@ -125,9 +140,11 @@ services:
 
   # ==================== Claude Review ====================
   claude_review:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: claude_review/Dockerfile
+      args: *build-args
     container_name: trading_claude_review
     restart: unless-stopped
     logging: *default-logging
@@ -139,8 +156,6 @@ services:
       HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./claude_review:/app
       - /home/tradmin/.claude:/home/appuser/.claude:ro
       - /home/tradmin/.claude.json:/home/appuser/.claude.json:ro
     networks:
@@ -159,9 +174,11 @@ services:
 
   # ==================== Trade Tracker ====================
   trade_tracker:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: trade_tracker/Dockerfile
+      args: *build-args
     container_name: trading_tracker
     restart: unless-stopped
     logging: *default-logging
@@ -171,8 +188,6 @@ services:
       HEALTH_MAX_AGE_SECONDS: "600"
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./trade_tracker:/app
     networks:
       - trading_network
       - shared_db_net
@@ -193,18 +208,18 @@ services:
   # profiles=["disabled"] يمنع `docker compose up -d` من إعادة تشغيله.
   # لإعادة تفعيله بعد رفع التجميد: احذف سطر profiles ثم `docker compose up -d optimizer`.
   optimizer:
+    <<: *hardened-runtime
     profiles: ["disabled"]
     build:
       context: .
       dockerfile: optimizer/Dockerfile
+      args: *build-args
     container_name: trading_optimizer
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./optimizer:/app/optimizer
     networks:
       - trading_network
       - shared_db_net
@@ -221,18 +236,23 @@ services:
 
   # ==================== Continuous Learner ====================
   continuous_learner:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: signal_engine/Dockerfile
+      args: *build-args
     container_name: trading_continuous_learner
     restart: unless-stopped
     logging: *default-logging
     env_file:
       - .env
     environment:
-      - LIVE_LEARNING_MODE=${LIVE_LEARNING_MODE}
-      - SERVICE_NAME=continuous_learner
-      - HEALTH_MAX_AGE_SECONDS=93600
+      LIVE_LEARNING_MODE: ${LIVE_LEARNING_MODE}
+      SERVICE_NAME: continuous_learner
+      HEALTH_MAX_AGE_SECONDS: "93600"
+      LEARNING_CLEAN_START: ${LEARNING_CLEAN_START:-2026-07-20T00:00:00}
+      LEARNING_CONFIDENCE_Z: ${LEARNING_CONFIDENCE_Z:-1.96}
+      LEARNING_EXPLORATION_RATE: ${LEARNING_EXPLORATION_RATE:-0.10}
     command: >
       sh -c "while true; do PYTHONPATH=/app python research/continuous_learner.py || true;
              sleep $$(( ${LEARN_CRON_HOURS:-12} * 3600 )); done"
@@ -251,9 +271,11 @@ services:
 
   # ==================== Telegram ====================
   telegram:
+    <<: *hardened-runtime
     build:
       context: .
       dockerfile: telegram/Dockerfile
+      args: *build-args
     container_name: trading_telegram
     restart: unless-stopped
     logging: *default-logging
@@ -263,8 +285,6 @@ services:
       HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
       - logs_data:/app/logs
-      - ./shared:/app/shared
-      - ./telegram:/app
     networks:
       - trading_network
       - shared_db_net

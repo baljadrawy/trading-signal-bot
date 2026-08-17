@@ -15,6 +15,7 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
+from shared.outbox import worker_id, claim, ack, fail, enqueue
 
 logger = setup_logger('claude_review')
 
@@ -27,26 +28,33 @@ async def main():
     await mark_started('claude_review')
 
     consecutive_errors = 0
+    owner = worker_id('claude_review')
 
     try:
         while True:
             try:
-                signals = await Database.fetch("""
-                    SELECT id, symbol, timeframe, market_condition,
-                           entry_price, target_1, target_2, target_3,
-                           stop_loss, score, score_details
-                    FROM signals
-                    WHERE (claude_approved IS NULL OR claude_approved = false)
-                    AND (claude_comment IS NULL OR claude_comment = '')
-                    AND signal_time > NOW() - INTERVAL '2 hours'
-                    ORDER BY signal_time DESC
-                """)
-
-                for signal in signals:
-                    await review_signal(dict(signal))
+                events = await claim('signal.created', owner, limit=20)
+                reviewed = 0
+                for event in events:
+                    try:
+                        signal = await Database.fetchrow("""
+                            SELECT id, symbol, timeframe, market_condition,
+                                   entry_price, target_1, target_2, target_3,
+                                   stop_loss, score, score_details, trade_type,
+                                   claude_comment
+                            FROM signals WHERE id=$1""", event['aggregate_id'])
+                        if signal and not signal['claude_comment']:
+                            await review_signal(dict(signal))
+                            reviewed += 1
+                        await ack(event['id'], owner)
+                    except Exception as event_error:
+                        await fail(event['id'], owner, event_error)
+                        logger.error("outbox signal.created %s failed: %s",
+                                     event['id'], format_error(event_error))
 
                 consecutive_errors = 0
-                await mark_success('claude_review', {'signals_reviewed': len(signals)})
+                await mark_success('claude_review', {
+                    'events_claimed': len(events), 'signals_reviewed': reviewed})
                 await asyncio.sleep(15)
 
             except Exception as e:
@@ -75,10 +83,8 @@ async def review_signal(signal: dict):
         # ── وضع التعلّم الحي: موافقة تلقائية (المحرّك البسيط + بوابة الماكرو هما قرار الدخول) ──
         # نتجاوز معايير claude القديمة (الانعكاسية) لأنها ترفض إشارات الزخم وتُحيّز جمع البيانات.
         if config.LIVE_LEARNING_MODE:
-            await Database.execute(
-                "UPDATE signals SET claude_approved = true, "
-                "claude_comment = 'live-learning: auto-approved (bypass)' WHERE id = $1",
-                signal['id'])
+            await store_review(signal['id'], True, 'policy_auto',
+                               'live-learning policy: automatic approval (Claude not invoked)')
             logger.info(f"✅ {signal['symbol']} [{signal.get('trade_type')}/{signal.get('timeframe')}] "
                         f"— موافقة تلقائية (وضع التعلّم الحي)")
             return
@@ -161,11 +167,7 @@ REASON: [سبب محدد بجملة واحدة، اذكر الرقم إذا رف
             reason = response_text.split("REASON:")[-1].strip()
 
         # تحديث قاعدة البيانات
-        await Database.execute("""
-            UPDATE signals
-            SET claude_approved = $1, claude_comment = $2
-            WHERE id = $3
-        """, approved, reason, signal['id'])
+        await store_review(signal['id'], approved, 'claude', reason)
 
         status = "موافق" if approved else "مرفوض"
         logger.info(f"{status} على إشارة {signal['symbol']} - {reason[:50]}")
@@ -174,15 +176,28 @@ REASON: [سبب محدد بجملة واحدة، اذكر الرقم إذا رف
         logger.error(f"خطأ في مراجعة الإشارة {signal['id']}: {e}")
         # fail-closed: عند فشل CLI نرفض الإشارة (الأمان أولاً — لا تداول على إشارة غير مُراجَعة).
         # كتابة claude_comment تمنع إعادة التقاطها في الـloop؛ claude_approved=false يمنع إرسالها.
-        await Database.execute(
-            "UPDATE signals SET claude_approved = false, claude_comment = $1 WHERE id = $2",
-            f'رفض تلقائي - فشل المراجعة (fail-closed): {str(e)[:100]}',
-            signal['id']
-        )
+        await store_review(
+            signal['id'], False, 'system_fail_closed',
+            f'رفض تلقائي - فشل المراجعة (fail-closed): {str(e)[:100]}')
         await send_alert(
             f"Claude Review CLI failure — رفض تلقائي (fail-closed) على {signal['symbol']}\nالخطأ: {str(e)[:150]}",
             level='warning', component='ClaudeReview'
         )
+
+
+async def store_review(signal_id: int, approved: bool, decision_source: str, comment: str):
+    """Persist review and its next-stage event in one transaction."""
+    async with Database.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """UPDATE signals SET claude_approved=$1,claude_comment=$2,
+                                      decision_source=$3, strategy_version=$4
+                   WHERE id=$5""", approved, comment, decision_source,
+                config.APP_VERSION, signal_id)
+            await enqueue(conn, 'signal.reviewed', 'signal', signal_id,
+                          {'signal_id': signal_id, 'approved': approved,
+                           'decision_source': decision_source,
+                           'strategy_version': config.APP_VERSION})
 
 if __name__ == "__main__":
     asyncio.run(main())
