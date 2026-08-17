@@ -52,9 +52,9 @@ def test_first_candidate_wins_momentum_before_reversion(monkeypatch):
     assert out["symbol"] == "AAAUSDT" and out["trade_type"] == "momentum"
 
 
-def test_first_candidate_wins_reversion_before_momentum(monkeypatch):
-    """reversion أولاً ثم momentum → يفوز reversion (لا تفضيل momentum أيضاً) — تناظر يثبت التحييد."""
+def test_fixed_policy_does_not_depend_on_database_input_order(monkeypatch):
+    """With equal execution data, the stable symbol tiebreaker replaces first-row bias."""
     engine = _engine(monkeypatch)
     results = [_cand("BBBUSDT", "reversion"), _cand("AAAUSDT", "momentum")]
     out = _run(engine.find_best_signal_live(results, FakeMacro()))
-    assert out["symbol"] == "BBBUSDT" and out["trade_type"] == "reversion"
+    assert out["symbol"] == "AAAUSDT" and out["trade_type"] == "momentum"

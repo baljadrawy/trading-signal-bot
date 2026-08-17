@@ -22,7 +22,8 @@ def test_target_then_dynamic_stop_is_conservative_when_intrabar_order_unknown():
     result = step_barrier(_cfg(), TripleBarrierState(peak=100), 103, 99, 102)
     assert result.exit_reason == "break_even"
     assert result.target_reached == 1
-    assert result.exit_price == 99.9
+    assert result.exit_price == 100.3
+    assert result.profit_pct == 0.3
     assert result.stop_hit is False
 
 
@@ -50,3 +51,10 @@ def test_t2_trade_uses_trailing_stop_and_can_continue_to_48_hours():
 def test_config_rejects_unordered_targets_and_invalid_slippage():
     assert "strictly ordered" in _cfg(target_2=101).validate()
     assert "slippage" in _cfg(stop_slippage=1).validate()
+    assert "roundtrip" in _cfg(roundtrip_cost=1).validate()
+
+
+def test_net_break_even_stop_is_capped_at_small_t1():
+    cfg = _cfg(target_1=100.2, target_2=104, target_3=106)
+    stop = TripleBarrierState(peak=100.2, highest_target=1).effective_stop(cfg)[0]
+    assert stop == 100.2

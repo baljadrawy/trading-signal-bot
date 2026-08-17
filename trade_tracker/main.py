@@ -226,7 +226,13 @@ async def register_new_signals():
             logger.warning(f"تعذر تسجيل {sig['symbol']}: لا يوجد سعر تعبئة حالي")
             continue
 
-        risk_decision = await assess_new_trade_risk(sig['symbol'])
+        macro_state = await Database.fetchval(
+            "SELECT COALESCE(macro_snapshot->>'usdtd_trend', market_condition) FROM signals WHERE id=$1",
+            sig['id'])
+        trade_type = await Database.fetchval(
+            "SELECT trade_type FROM signals WHERE id=$1", sig['id'])
+        risk_decision = await assess_new_trade_risk(
+            sig['symbol'], trade_type=trade_type, regime=macro_state)
         await record_risk_decision(risk_decision)
         if not risk_decision.allowed:
             logger.warning(
@@ -262,7 +268,8 @@ async def register_new_signals():
             f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
 
 
-async def assess_new_trade_risk(symbol: str):
+async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
+                                regime: str | None = None):
     """Build a UTC, net-of-cost portfolio snapshot and evaluate one admission."""
     risk_start = datetime.fromisoformat(config.LEARNING_CLEAN_START.replace('Z', '+00:00'))
     if risk_start.tzinfo is None:
@@ -274,7 +281,11 @@ async def assess_new_trade_risk(symbol: str):
         ORDER BY exit_time, id
     """, risk_start)
     open_trades = await Database.fetch("""
-        SELECT symbol, entry_price FROM active_trades WHERE status='open'
+        SELECT at.symbol, at.entry_price, s.trade_type,
+               COALESCE(s.macro_snapshot->>'usdtd_trend', s.market_condition) AS regime
+        FROM active_trades at
+        LEFT JOIN signals s ON s.id=at.signal_id
+        WHERE at.status='open'
     """)
     risk_row = await Database.fetchrow("""
         SELECT is_trading_paused, pause_reason
@@ -320,9 +331,11 @@ async def assess_new_trade_risk(symbol: str):
     limits = RiskLimits(
         capital_usdt=config.RISK_CAPITAL_USDT,
         trade_amount_usdt=config.TRADE_AMOUNT_USDT,
-        max_open_trades=config.MAX_OPEN_TRADES,
+        max_open_trades=min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES),
         max_gross_exposure_pct=config.MAX_GROSS_EXPOSURE_PERCENT,
         max_symbol_exposure_pct=config.MAX_SYMBOL_EXPOSURE_PERCENT,
+        max_strategy_exposure_pct=config.MAX_STRATEGY_EXPOSURE_PERCENT,
+        max_regime_exposure_pct=config.MAX_REGIME_EXPOSURE_PERCENT,
         max_daily_loss_pct=config.MAX_DAILY_LOSS_PERCENT,
         max_weekly_loss_pct=config.MAX_WEEKLY_LOSS_PERCENT,
         max_drawdown_pct=config.MAX_DRAWDOWN_PERCENT,
@@ -337,6 +350,10 @@ async def assess_new_trade_risk(symbol: str):
         open_count=len(open_trades),
         symbol_open_count=sum(1 for t in open_trades if t['symbol'] == symbol),
         consecutive_losses=consecutive_losses,
+        strategy_open_count=sum(
+            1 for t in open_trades if trade_type and t['trade_type'] == trade_type),
+        regime_open_count=sum(
+            1 for t in open_trades if regime and t['regime'] == regime),
         manually_paused=bool(risk_row and risk_row['is_trading_paused']),
         manual_pause_reason=(risk_row['pause_reason'] if risk_row else None),
     ), limits)
@@ -404,6 +421,7 @@ async def evaluate_trade(trade: dict, current_price: float):
     cfg   = create_config_from_trade(
         trade, trade_amount=config.TRADE_AMOUNT_USDT,
         stop_slippage=config.STOP_SLIPPAGE,
+        roundtrip_cost=config.FEE_ROUNDTRIP_PCT / 100.0,
     )
     state = create_state_from_trade(trade)
     # ضبط ساعات الفتح الحالية (تُحسب من DB)
@@ -479,6 +497,12 @@ async def close_trade_barrier(
         f"{icon} {symbol} | {result} | "
         f"ربح: {profit_pct:.2f}% ({profit_usdt:.2f} USDT) | {reason}"
     )
+    # لا تنتظر محاولة دخول لاحقة لتحديث لوحة المخاطر وسلسلة الخسائر.
+    try:
+        decision = await assess_new_trade_risk('__POST_CLOSE_RISK_REFRESH__')
+        await record_risk_decision(decision)
+    except Exception as exc:
+        logger.error(f"تعذر تحديث حالة المخاطر بعد الإغلاق: {format_error(exc)}")
 
 
 async def close_trade(trade: dict, result: str, profit_pct: float,

@@ -33,6 +33,7 @@ T1_EXPIRY_H_DEFAULT    = 24.0    # ساعة إغلاق عند توقف عند T1
 NO_T1_EXPIRY_H_DEFAULT = 24.0    # ساعة إغلاق إن لم يصل T1
 TRADE_AMOUNT_DEFAULT   = 50.0    # USDT لكل صفقة
 STOP_SLIPPAGE_DEFAULT  = 0.001   # 0.1% تعبئة أسوأ عند أي stop
+ROUNDTRIP_COST_DEFAULT = 0.003   # 0.3% رسوم/انزلاق عام خارج stop-fill
 
 
 @dataclass
@@ -52,6 +53,7 @@ class TripleBarrierConfig:
     t1_expiry_h:     float = T1_EXPIRY_H_DEFAULT
     no_t1_expiry_h:  float = NO_T1_EXPIRY_H_DEFAULT
     stop_slippage:   float = STOP_SLIPPAGE_DEFAULT
+    roundtrip_cost:  float = ROUNDTRIP_COST_DEFAULT
 
     def validate(self) -> Optional[str]:
         """يعيد رسالة خطأ إن كانت الإعدادات غير صالحة، وإلا None."""
@@ -69,7 +71,15 @@ class TripleBarrierConfig:
             return "targets must be strictly ordered T1 < T2 < T3"
         if not 0 <= self.stop_slippage < 1:
             return f"invalid stop slippage ({self.stop_slippage})"
+        if not 0 <= self.roundtrip_cost < 1:
+            return f"invalid roundtrip cost ({self.roundtrip_cost})"
         return None
+
+    def net_break_even_stop(self) -> float:
+        """Stop level whose modeled fill covers the external round-trip cost."""
+        required = self.entry * (1 + self.roundtrip_cost) / (1 - self.stop_slippage)
+        # A stop cannot be placed above the already observed T1 price.
+        return min(self.target_1, required)
 
 
 @dataclass
@@ -91,7 +101,8 @@ class TripleBarrierState:
             price = max(cfg.target_1, trail)
             return price, f"trailing@{price:.6f}(قمة {self.peak:.6f})"
         elif self.highest_target >= 1:
-            return cfg.entry, f"break_even@{cfg.entry:.6f}"
+            price = cfg.net_break_even_stop()
+            return price, f"net_break_even@{price:.6f}"
         else:
             return cfg.stop_loss, f"SL_أصلي@{cfg.stop_loss:.6f}"
 
@@ -114,6 +125,7 @@ class TripleBarrierResult:
 def create_config_from_trade(
     trade: dict, trade_amount: float = TRADE_AMOUNT_DEFAULT,
     stop_slippage: float = STOP_SLIPPAGE_DEFAULT,
+    roundtrip_cost: float = ROUNDTRIP_COST_DEFAULT,
 ) -> TripleBarrierConfig:
     """
     ينشئ TripleBarrierConfig من صف active_trades (dict).
@@ -128,6 +140,7 @@ def create_config_from_trade(
         stop_loss    = float(trade['stop_loss']),
         trade_amount = trade_amount,
         stop_slippage = stop_slippage,
+        roundtrip_cost = roundtrip_cost,
     )
 
 

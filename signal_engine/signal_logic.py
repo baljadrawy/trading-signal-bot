@@ -55,7 +55,7 @@ def get_evidence_recorder():
     return _evidence_recorder
 
 
-def _record_evidence(signal, source):
+def _record_evidence(signal, source, decision="signal_generated"):
     """Fail-safe evidence hook. Reads the signal, never mutates it, never raises —
     even if logging itself fails (the except-handler's own log is guarded)."""
     if not config.ENABLE_EVIDENCE_RECORDER or not signal:
@@ -63,7 +63,7 @@ def _record_evidence(signal, source):
     try:
         from research.null_a.recorder import capture_signal
         capture_signal(get_evidence_recorder(), signal, source=source,
-                       model_version=config.APP_VERSION)
+                       model_version=config.APP_VERSION, decision=decision)
     except Exception:
         try:
             logger.warning("evidence hook failed", exc_info=True)
@@ -72,6 +72,15 @@ def _record_evidence(signal, source):
 
 
 class SignalEngine:
+
+    @staticmethod
+    def _fixed_candidate_key(signal: dict) -> tuple:
+        """Fixed execution-quality ordering; contains no learned performance inputs."""
+        order_book = signal.get('order_book') or {}
+        spread = order_book.get('spread_pct')
+        spread = float(spread) if spread is not None else float('inf')
+        liquidity = float(signal.get('_selection_volume_usdt') or 0.0)
+        return (spread, -liquidity, signal.get('symbol', ''), signal.get('timeframe', ''))
 
     async def _get_live_thresholds(self) -> tuple:
         """يقرأ إعدادات MIN_SCORE و MIN_TF من optimizer_settings (تحديث حي)،
@@ -458,17 +467,18 @@ class SignalEngine:
         macro_state = macro.macro_state_key()
         # خلايا متعلَّمة مخنوقة
         throttled = set()
-        for r in await Database.fetch(
-                "SELECT trade_type, timeframe FROM learned_gates "
-                "WHERE macro_state=$1 AND n>=$2 AND weight<=0", macro_state, config.MIN_CELL_N):
-            throttled.add((r['trade_type'], r['timeframe']))
+        if config.LEARNING_GATES_ENABLED:
+            for r in await Database.fetch(
+                    "SELECT trade_type, timeframe FROM learned_gates "
+                    "WHERE macro_state=$1 AND n>=$2 AND weight<=0", macro_state, config.MIN_CELL_N):
+                throttled.add((r['trade_type'], r['timeframe']))
 
         open_symbols = set(x['symbol'] for x in await Database.fetch(
             "SELECT DISTINCT symbol FROM active_trades WHERE status='open'"))
         cooldown = await self._get_symbol_cooldown_set()
         blocked = open_symbols | cooldown
 
-        best = None
+        eligible = []
         for row in results:
             data = row['analysis_data']
             if isinstance(data, str):
@@ -480,9 +490,11 @@ class SignalEngine:
                 continue
             if symbol in open_symbols:
                 self.last_decisions[symbol] = 'open_trade_exists'
+                _record_evidence(data, source='live', decision='rejected_open_trade_exists')
                 continue
             if symbol in cooldown:
                 self.last_decisions[symbol] = 'symbol_cooldown'
+                _record_evidence(data, source='live', decision='rejected_symbol_cooldown')
                 continue
             if (tt, data.get('timeframe')) in throttled:
                 bucket = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')
@@ -493,20 +505,35 @@ class SignalEngine:
                 else:
                     self.last_decisions.setdefault(symbol, 'learned_gate_throttled')
                     logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (statistically negative)")
+                    _record_evidence(data, source='live', decision='rejected_learned_gate')
                     continue
-            # أول مرشّح صالح غير مخنوق يكفي (paper، جمع عيّنة) — بلا تفضيل نوع.
-            # حُيِّد تفضيل reversion (flip 4f84717) 2026-07-29: كلا النوعين بلا حافة صافية
-            # بعد الرسوم (تدقيق 2026-07-29 + دحض canary-close OOS)، والخنق المُتعلَّم
-            # (learned_gates.weight) هو من يقصي الخلايا الخاسرة لا انحياز مبرمَج.
-            if best is None:
-                best = {**data, 'macro_snapshot': {**macro.snapshot(), **macro.state()},
-                        'macro_state': macro_state}
-                self.last_decisions[symbol] = 'selected'
-            else:
-                self.last_decisions.setdefault(symbol, 'not_selected_capacity')
+            selection_volume = await self._get_volume_usdt(symbol)
+            selection_spread = (data.get('order_book') or {}).get('spread_pct')
+            candidate = {
+                **data,
+                'features': {
+                    **(data.get('features') or {}),
+                    'selection_spread_pct': selection_spread,
+                    'selection_volume_usdt': selection_volume,
+                },
+                'macro_snapshot': {**macro.snapshot(), **macro.state()},
+                'macro_state': macro_state,
+                '_selection_volume_usdt': selection_volume,
+            }
+            eligible.append(candidate)
+
+        best = min(eligible, key=self._fixed_candidate_key) if eligible else None
+        for candidate in eligible:
+            selected = candidate is best
+            decision = 'selected_fixed_execution_policy' if selected else 'rejected_fixed_policy_rank'
+            self.last_decisions[candidate['symbol']] = 'selected' if selected else 'not_selected_capacity'
+            _record_evidence(candidate, source='live', decision=decision)
         if best:
-            logger.info(f"🏆 live signal: {best['symbol']} | {best.get('trade_type')} | {best.get('timeframe')} | {macro_state}")
-        _record_evidence(best, source="live")
+            logger.info(
+                f"🏆 fixed-policy signal: {best['symbol']} | {best.get('trade_type')} | "
+                f"{best.get('timeframe')} | {macro_state} | "
+                f"rank={self._fixed_candidate_key(best)}")
+            best.pop('_selection_volume_usdt', None)
         return best
 
     def _get_btc_bonus(self, market_condition: str) -> float:
@@ -551,7 +578,10 @@ class SignalEngine:
             if row and row['volume_usdt']:
                 return float(row['volume_usdt'])
         except Exception as e:
-            logger.warning(f"فشل جلب volume_usdt لـ {symbol}: {e}")
+            try:
+                logger.warning(f"فشل جلب volume_usdt لـ {symbol}: {e}")
+            except Exception:
+                pass
         return None
 
     async def save_signal(self, signal: Dict) -> int:

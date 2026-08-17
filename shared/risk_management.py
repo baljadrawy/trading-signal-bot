@@ -10,6 +10,8 @@ class RiskLimits:
     max_open_trades: int
     max_gross_exposure_pct: float = 80.0
     max_symbol_exposure_pct: float = 10.0
+    max_strategy_exposure_pct: float = 40.0
+    max_regime_exposure_pct: float = 50.0
     max_daily_loss_pct: float = 3.0
     weekly_reduce_pct: float = 5.0
     weekly_minimum_pct: float = 7.0
@@ -32,6 +34,8 @@ class RiskSnapshot:
     open_count: int
     symbol_open_count: int
     consecutive_losses: int
+    strategy_open_count: int = 0
+    regime_open_count: int = 0
     manually_paused: bool = False
     manual_pause_reason: str | None = None
 
@@ -47,6 +51,8 @@ class RiskDecision:
     drawdown_pct: float
     gross_exposure_pct_after: float
     symbol_exposure_pct_after: float
+    strategy_exposure_pct_after: float
+    regime_exposure_pct_after: float
     consecutive_losses: int
 
 
@@ -66,7 +72,7 @@ def evaluate_new_trade(snapshot: RiskSnapshot, limits: RiskLimits) -> RiskDecisi
             or limits.capital_usdt <= 0 or limits.trade_amount_usdt <= 0
             or limits.max_open_trades <= 0 or snapshot.open_count < 0
             or snapshot.symbol_open_count < 0 or snapshot.consecutive_losses < 0):
-        return RiskDecision(False, 'invalid_risk_state', 0.0, 0, 0, 0, 0, 0, 0,
+        return RiskDecision(False, 'invalid_risk_state', 0.0, 0, 0, 0, 0, 0, 0, 0, 0,
                             max(0, snapshot.consecutive_losses))
 
     current_equity = (limits.capital_usdt + snapshot.realized_total_usdt
@@ -80,6 +86,10 @@ def evaluate_new_trade(snapshot: RiskSnapshot, limits: RiskLimits) -> RiskDecisi
     gross_after = _pct((snapshot.open_count + 1) * limits.trade_amount_usdt,
                        limits.capital_usdt)
     symbol_after = _pct((snapshot.symbol_open_count + 1) * limits.trade_amount_usdt,
+                        limits.capital_usdt)
+    strategy_after = _pct((snapshot.strategy_open_count + 1) * limits.trade_amount_usdt,
+                          limits.capital_usdt)
+    regime_after = _pct((snapshot.regime_open_count + 1) * limits.trade_amount_usdt,
                         limits.capital_usdt)
 
     multiplier = 1.0
@@ -124,10 +134,15 @@ def evaluate_new_trade(snapshot: RiskSnapshot, limits: RiskLimits) -> RiskDecisi
         hard_stop = 'gross_exposure_limit'
     elif symbol_after > limits.max_symbol_exposure_pct + 1e-9:
         hard_stop = 'symbol_concentration_limit'
+    elif strategy_after > limits.max_strategy_exposure_pct + 1e-9:
+        hard_stop = 'strategy_concentration_limit'
+    elif regime_after > limits.max_regime_exposure_pct + 1e-9:
+        hard_stop = 'regime_concentration_limit'
     elif snapshot.open_count >= effective_max:
         hard_stop = reasons[0] if reasons else 'max_open_trades'
 
     return RiskDecision(
         hard_stop is None, hard_stop or (reasons[0] if reasons else 'within_limits'),
         multiplier, effective_max, daily, weekly, drawdown, gross_after, symbol_after,
+        strategy_after, regime_after,
         snapshot.consecutive_losses)

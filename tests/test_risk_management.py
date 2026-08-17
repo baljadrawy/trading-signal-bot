@@ -35,6 +35,16 @@ def test_single_symbol_concentration_is_limited():
     assert decision.reason == 'symbol_concentration_limit'
 
 
+def test_strategy_and_regime_concentration_are_limited():
+    strategy = evaluate_new_trade(snapshot(strategy_open_count=4), limits())
+    assert not strategy.allowed
+    assert strategy.reason == 'strategy_concentration_limit'
+
+    regime = evaluate_new_trade(snapshot(regime_open_count=5), limits())
+    assert not regime.allowed
+    assert regime.reason == 'regime_concentration_limit'
+
+
 @pytest.mark.parametrize(('field', 'value', 'reason'), [
     ('daily_pnl_usdt', -15, 'daily_loss_limit'),
     ('weekly_pnl_usdt', -50, 'weekly_loss_limit'),

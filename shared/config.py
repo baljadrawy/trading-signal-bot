@@ -83,6 +83,7 @@ class Config:
     LEARNING_CONFIDENCE_Z: float = float(os.getenv('LEARNING_CONFIDENCE_Z', '1.96'))
     # استكشاف ثابت بالساعة للخلايا المخنوقة لمنع feedback loop والحظر الدائم.
     LEARNING_EXPLORATION_RATE: float = float(os.getenv('LEARNING_EXPLORATION_RATE', '0.10'))
+    LEARNING_GATES_ENABLED: bool = os.getenv('LEARNING_GATES_ENABLED', 'false').lower() == 'true'
     LEARN_CRON_HOURS: int = int(os.getenv('LEARN_CRON_HOURS', '12'))
 
     # حجم الصفقة
@@ -100,6 +101,9 @@ class Config:
     MAX_DRAWDOWN_PERCENT: float = float(os.getenv('MAX_DRAWDOWN_PERCENT', '15'))
     MAX_GROSS_EXPOSURE_PERCENT: float = float(os.getenv('MAX_GROSS_EXPOSURE_PERCENT', '80'))
     MAX_SYMBOL_EXPOSURE_PERCENT: float = float(os.getenv('MAX_SYMBOL_EXPOSURE_PERCENT', '10'))
+    MAX_STRATEGY_EXPOSURE_PERCENT: float = float(os.getenv('MAX_STRATEGY_EXPOSURE_PERCENT', '40'))
+    MAX_REGIME_EXPOSURE_PERCENT: float = float(os.getenv('MAX_REGIME_EXPOSURE_PERCENT', '50'))
+    RISK_CANARY_MAX_OPEN_TRADES: int = int(os.getenv('RISK_CANARY_MAX_OPEN_TRADES', '1'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '7'))
     MAX_OPEN_TRADES: int = int(os.getenv('MAX_OPEN_TRADES', '10'))  # 0 = بلا حد
     # Cooldown عام بعد ضربة SL حقيقية (ساعات). 0 = معطّل.
