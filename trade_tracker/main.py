@@ -17,10 +17,14 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
-from shared.outbox import worker_id, claim, ack, fail
+from shared.outbox import worker_id, claim, ack, fail, enqueue
 from shared.candle import candle_interval_case_sql
 from shared.execution import rebase_long_bracket
+from shared.entry_execution import decide_long_entry
+from shared.partial_exits import aggregate_close, fills_between
+from shared.signal_stop import candle_invalidated
 from shared.risk_management import RiskLimits, RiskSnapshot, evaluate_new_trade
+from shared.trading_state import get_pause_state
 from shared.triple_barrier import (
     create_config_from_trade,
     create_state_from_trade,
@@ -29,6 +33,10 @@ from shared.triple_barrier import (
     TripleBarrierConfig,
     TripleBarrierState,
 )
+try:
+    from .binance_price_stream import BinancePriceStream
+except ImportError:  # container executes /app/main.py as a top-level module
+    from binance_price_stream import BinancePriceStream
 
 logger = setup_logger('trade_tracker')
 
@@ -37,6 +45,11 @@ TRADE_EXPIRY_HOURS = 48
 
 # نسبة الـ trailing stop — يُستخدم في TripleBarrierConfig تلقائياً
 TRAIL_STOP_PCT = 2.5
+
+_trade_locks: dict[int, asyncio.Lock] = {}
+_closing: set[int] = set()
+_min_notional_cache: dict[str, float] = {}
+price_stream: BinancePriceStream | None = None
 
 
 async def main():
@@ -47,6 +60,19 @@ async def main():
 
     consecutive_errors = 0
     owner = worker_id('trade_tracker')
+    global price_stream
+    stream_task = None
+    if config.PRICE_STREAM_ENABLED:
+        price_stream = BinancePriceStream(
+            symbol_provider=get_open_symbols,
+            on_price=handle_stream_price,
+            logger=logger,
+            refresh_seconds=config.PRICE_STREAM_REFRESH_SECONDS,
+            alert_after_seconds=config.PRICE_STREAM_ALERT_AFTER_SECONDS,
+            on_status=publish_stream_status,
+        )
+        stream_task = asyncio.create_task(price_stream.run(), name='binance-price-stream')
+    await publish_recovery_event()
 
     try:
         while True:
@@ -79,8 +105,11 @@ async def main():
                                    RuntimeError('trade registration deferred'), 300)
                 consecutive_errors = 0
                 await mark_success('trade_tracker', {
-                    'delivery_events': len(delivery_events)})
-                await asyncio.sleep(300)  # كل 5 دقائق
+                    'delivery_events': len(delivery_events),
+                    'price_stream': price_stream.snapshot() if price_stream else None})
+                # REST backup checker: catches missed WebSocket events and fills
+                # waiting limit candidates without making REST the primary feed.
+                await asyncio.sleep(config.PRICE_BACKUP_CHECK_SECONDS)
 
             except Exception as e:
                 consecutive_errors += 1
@@ -100,23 +129,70 @@ async def main():
                 await asyncio.sleep(wait)
 
     finally:
+        if stream_task:
+            stream_task.cancel()
+            await asyncio.gather(stream_task, return_exceptions=True)
         await Database.disconnect()
+
+
+async def get_open_symbols() -> set[str]:
+    rows = await Database.fetch(
+        "SELECT DISTINCT symbol FROM active_trades WHERE status='open'")
+    return {row['symbol'] for row in rows}
+
+
+async def handle_stream_price(symbol: str, price: float):
+    """Evaluate every open trade for one symbol from an ordered WebSocket tick."""
+    rows = await Database.fetch(
+        "SELECT * FROM active_trades WHERE status='open' AND symbol=$1", symbol)
+    for row in rows:
+        await evaluate_trade_safely(dict(row), price, source='websocket')
+
+
+async def _publish_runtime_event(event_type: str, payload: dict):
+    async with Database.acquire() as conn:
+        async with conn.transaction():
+            key = await conn.fetchval(
+                "SELECT nextval(pg_get_serial_sequence('outbox_events','id'))")
+            await enqueue(conn, event_type, 'runtime_transition', key, payload)
+
+
+async def publish_stream_status(status: str, details: dict):
+    await _publish_runtime_event(f'price_stream.{status}', details)
+
+
+async def publish_recovery_event():
+    rows = await Database.fetch(
+        "SELECT id,symbol FROM active_trades WHERE status='open' ORDER BY id")
+    if rows:
+        await _publish_runtime_event('tracker.recovered', {
+            'count': len(rows),
+            'symbols': [row['symbol'] for row in rows],
+            'websocket_enabled': config.PRICE_STREAM_ENABLED,
+        })
 
 
 async def close_blacklisted_trades():
     """إغلاق أي صفقة مفتوحة لعملة في القائمة السوداء (مرفوضة من المستخدم)"""
     blacklisted = await Database.fetch("""
-        SELECT at.id, at.symbol
+        SELECT at.*
         FROM active_trades at
         JOIN symbol_blacklist bl ON at.symbol = bl.symbol
         WHERE at.status = 'open'
     """)
     for trade in blacklisted:
-        await Database.execute(
-            "UPDATE active_trades SET status = 'closed' WHERE id = $1",
-            trade['id']
-        )
-        logger.info(f"🚫 إغلاق صفقة {trade['symbol']} - العملة في القائمة السوداء")
+        current_price = await get_current_price(trade['symbol'])
+        if not current_price:
+            logger.warning(
+                f"تعذر إغلاق {trade['symbol']} المدرجة في القائمة السوداء: لا يوجد سعر")
+            continue
+        trade = dict(trade)
+        entry = float(trade['entry_price'])
+        pnl_pct = ((current_price - entry) / entry) * 100
+        result = 'WIN' if pnl_pct > 0 else 'LOSS'
+        await close_trade(
+            trade, result, pnl_pct, current_price,
+            'إغلاق تلقائي - أُضيف الرمز إلى القائمة السوداء')
 
 
 async def enforce_max_open_trades():
@@ -163,10 +239,10 @@ async def enforce_max_open_trades():
             await close_trade(trade_dict, result, pnl_pct, current_price,
                               f"إغلاق تلقائي - تجاوز حد MAX_OPEN_TRADES={config.MAX_OPEN_TRADES} (خسارة: {pnl_pct:.2f}%)")
         else:
-            await Database.execute(
-                "UPDATE active_trades SET status = 'closed' WHERE id = $1", trade_info['id']
-            )
-            logger.info(f"🚫 إغلاق {trade_info['symbol']} (بدون سعر) - تجاوز الحد الأقصى")
+            # لا نُحوّل المركز إلى مغلق دون سعر ونتيجة؛ وإلا يختفي من المتابعة
+            # ولا يمكن إنشاء إشعار إغلاق محاسبي صحيح.
+            logger.error(
+                f"تعذر إغلاق {trade_info['symbol']} لتجاوز الحد: لا يوجد سعر؛ ستبقى تحت المتابعة")
 
 
 async def register_new_signals():
@@ -184,7 +260,8 @@ async def register_new_signals():
     new_signals = await Database.fetch(f"""
         SELECT DISTINCT ON (s.symbol)
                s.id, s.symbol, s.entry_price, s.target_1, s.target_2, s.target_3,
-               s.stop_loss, s.timeframe, s.is_paper_trade
+               s.stop_loss, s.timeframe, s.is_paper_trade, s.trade_type,
+               s.features_snapshot
         FROM signals s
         LEFT JOIN active_trades at ON s.id = at.signal_id
         WHERE s.telegram_sent = true
@@ -226,6 +303,31 @@ async def register_new_signals():
             logger.warning(f"تعذر تسجيل {sig['symbol']}: لا يوجد سعر تعبئة حالي")
             continue
 
+        features = sig['features_snapshot'] or {}
+        if isinstance(features, str):
+            features = json.loads(features)
+        entry_decision = decide_long_entry(
+            trade_type=sig['trade_type'],
+            planned_entry=float(sig['entry_price']),
+            current_price=fill_entry,
+            stop_loss=float(sig['stop_loss']),
+            invalidation_price=features.get('stop_invalidation'),
+        )
+        if entry_decision.action == 'reject':
+            logger.warning(
+                f"⛔ رفض تعبئة {sig['symbol']}: {entry_decision.reason} "
+                f"(الآن={fill_entry}, stop={sig['stop_loss']})")
+            # Make the rejection terminal without mislabelling it as a model decision.
+            await Database.execute(
+                "UPDATE signals SET telegram_sent=false WHERE id=$1", sig['id'])
+            continue
+        if entry_decision.action == 'limit_wait':
+            logger.info(
+                f"⏳ Limit paper order {sig['symbol']} @ {entry_decision.order_price}; "
+                f"السعر الحالي {fill_entry} — لا نطارد السعر")
+            continue
+        min_notional = await get_min_notional(sig['symbol'])
+
         macro_state = await Database.fetchval(
             "SELECT COALESCE(macro_snapshot->>'usdtd_trend', market_condition) FROM signals WHERE id=$1",
             sig['id'])
@@ -251,21 +353,34 @@ async def register_new_signals():
             logger.error(f"رفض bracket غير صالح لـ {sig['symbol']}: {exc}")
             continue
 
-        await Database.execute("""
-            INSERT INTO active_trades
-            (signal_id, symbol, entry_price, target_1, target_2, target_3,
-             stop_loss, timeframe, is_paper_trade)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
-        """,
-            sig['id'], sig['symbol'],
-            bracket['entry_price'], bracket['target_1'], bracket['target_2'], bracket['target_3'],
-            bracket['stop_loss'], sig['timeframe'], sig['is_paper_trade']
-        )
-        drift_pct = (fill_entry / float(sig['entry_price']) - 1) * 100
-        logger.info(
-            f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {fill_entry} "
-            f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
+        async with Database.acquire() as conn:
+            async with conn.transaction():
+                trade_id = await conn.fetchval("""
+                    INSERT INTO active_trades
+                    (signal_id, symbol, entry_price, target_1, target_2, target_3,
+                     stop_loss, timeframe, is_paper_trade, entry_order_type,
+                     stop_policy, stop_invalidation, exit_policy_version,
+                     min_order_notional_usdt)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
+                    RETURNING id
+                """,
+                    sig['id'], sig['symbol'],
+                    bracket['entry_price'], bracket['target_1'], bracket['target_2'], bracket['target_3'],
+                    bracket['stop_loss'], sig['timeframe'], sig['is_paper_trade'],
+                    entry_decision.action, features.get('stop_policy'),
+                    (float(features['stop_invalidation'])
+                     * fill_entry / float(sig['entry_price'])
+                     if features.get('stop_invalidation') else bracket['stop_loss']),
+                    'partial_25_50_25_v1', min_notional)
+                if trade_id:
+                    await enqueue(conn, 'trade.opened', 'active_trade', trade_id,
+                                  {'active_trade_id': trade_id})
+        if trade_id:
+            drift_pct = (fill_entry / float(sig['entry_price']) - 1) * 100
+            logger.info(
+                f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {fill_entry} "
+                f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
 
 
 async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
@@ -287,10 +402,7 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
         LEFT JOIN signals s ON s.id=at.signal_id
         WHERE at.status='open'
     """)
-    risk_row = await Database.fetchrow("""
-        SELECT is_trading_paused, pause_reason
-        FROM risk_management WHERE date=CURRENT_DATE
-    """)
+    is_paused, pause_reason = await get_pause_state()
 
     now = datetime.now(timezone.utc)
     week_start = now.date()
@@ -354,8 +466,8 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
             1 for t in open_trades if trade_type and t['trade_type'] == trade_type),
         regime_open_count=sum(
             1 for t in open_trades if regime and t['regime'] == regime),
-        manually_paused=bool(risk_row and risk_row['is_trading_paused']),
-        manual_pause_reason=(risk_row['pause_reason'] if risk_row else None),
+        manually_paused=is_paused,
+        manual_pause_reason=pause_reason,
     ), limits)
 
 
@@ -366,18 +478,47 @@ async def record_risk_decision(decision):
         'loss_streak_halt', 'invalid_risk_state',
     }
     paused = decision.reason in hard_halts
-    await Database.execute("""
-        INSERT INTO risk_management
-            (date, daily_pnl_percent, consecutive_losses, is_trading_paused, pause_reason)
-        VALUES (CURRENT_DATE, $1, $2, $3, $4)
-        ON CONFLICT (date) DO UPDATE SET
-            daily_pnl_percent=EXCLUDED.daily_pnl_percent,
-            consecutive_losses=EXCLUDED.consecutive_losses,
-            is_trading_paused=(risk_management.is_trading_paused OR EXCLUDED.is_trading_paused),
-            pause_reason=CASE WHEN EXCLUDED.is_trading_paused THEN EXCLUDED.pause_reason
-                              ELSE risk_management.pause_reason END
-    """, decision.daily_pnl_pct, decision.consecutive_losses, paused,
-         f"risk:{decision.reason}" if paused else None)
+    async with Database.acquire() as conn:
+        async with conn.transaction():
+            prior = await conn.fetchrow("""
+                SELECT is_trading_paused
+                FROM risk_management
+                WHERE is_trading_paused=true OR pause_reason='manual_resume'
+                ORDER BY date DESC,id DESC LIMIT 1
+                FOR UPDATE
+            """)
+            was_paused = bool(prior and prior['is_trading_paused'])
+            risk_id = await conn.fetchval("""
+                INSERT INTO risk_management
+                    (date, daily_pnl_percent, consecutive_losses,
+                     is_trading_paused, pause_reason)
+                VALUES (CURRENT_DATE, $1, $2, $3, $4)
+                ON CONFLICT (date) DO UPDATE SET
+                    daily_pnl_percent=EXCLUDED.daily_pnl_percent,
+                    consecutive_losses=EXCLUDED.consecutive_losses,
+                    is_trading_paused=(risk_management.is_trading_paused
+                                       OR EXCLUDED.is_trading_paused),
+                    pause_reason=CASE WHEN EXCLUDED.is_trading_paused
+                                      THEN EXCLUDED.pause_reason
+                                      ELSE risk_management.pause_reason END
+                RETURNING id
+            """, decision.daily_pnl_pct, decision.consecutive_losses, paused,
+                 f"risk:{decision.reason}" if paused else None)
+            if paused and not was_paused:
+                # Reserve a unique notification key so a later resume/re-halt on
+                # the same day can produce a new, still-idempotent event.
+                notification_key = await conn.fetchval(
+                    "SELECT nextval(pg_get_serial_sequence('outbox_events','id'))")
+                await enqueue(conn, 'risk.halted', 'risk_transition',
+                              notification_key, {
+                                  'risk_management_id': risk_id,
+                                  'reason': decision.reason,
+                                  'daily_pnl_pct': decision.daily_pnl_pct,
+                                  'weekly_pnl_pct': decision.weekly_pnl_pct,
+                                  'drawdown_pct': decision.drawdown_pct,
+                                  'consecutive_losses': decision.consecutive_losses,
+                                  'loss_halt_limit': config.STOP_ON_CONSECUTIVE_LOSSES,
+                              })
 
 
 async def track_open_trades():
@@ -397,11 +538,47 @@ async def track_open_trades():
         current_price = await get_current_price(trade['symbol'])
         if not current_price:
             continue
+        if (int(trade.get('highest_target_hit') or 0) == 0
+                and trade.get('stop_invalidation')):
+            candle = await get_last_closed_candle(
+                trade['symbol'], trade.get('timeframe') or config.TIMEFRAME)
+            opened_at = trade['opened_at']
+            if opened_at.tzinfo is None:
+                opened_at = opened_at.replace(tzinfo=timezone.utc)
+            opened_ms = int(opened_at.timestamp() * 1000)
+            if candle and candle_invalidated(
+                    opened_ms=opened_ms, candle_close_ms=candle['close_time'],
+                    candle_close=candle['close'],
+                    invalidation_price=float(trade['stop_invalidation']),
+                    highest_target=int(trade.get('highest_target_hit') or 0)):
+                logger.warning(
+                    f"🕯️ إبطال إشارة {trade['symbol']}: إغلاق "
+                    f"{trade.get('timeframe')}={candle['close']} <= "
+                    f"{trade['stop_invalidation']}")
+                entry = float(trade['entry_price'])
+                pnl_pct = (current_price / entry - 1) * 100
+                await close_trade(
+                    trade, 'WIN' if pnl_pct > 0 else 'LOSS', pnl_pct,
+                    current_price, 'signal_candle_invalidation')
+                continue
+        await evaluate_trade_safely(trade, current_price, source='rest_backup')
 
-        await evaluate_trade(trade, current_price)
+
+async def evaluate_trade_safely(trade: dict, current_price: float,
+                                source: str):
+    """Serialize lifecycle changes per trade across WebSocket and REST paths."""
+    trade_id = int(trade['id'])
+    lock = _trade_locks.setdefault(trade_id, asyncio.Lock())
+    async with lock:
+        fresh = await Database.fetchrow(
+            "SELECT * FROM active_trades WHERE id=$1 AND status='open'", trade_id)
+        if not fresh:
+            return
+        await evaluate_trade(dict(fresh), current_price, source=source)
 
 
-async def evaluate_trade(trade: dict, current_price: float):
+async def evaluate_trade(trade: dict, current_price: float,
+                         source: str = 'rest_backup'):
     """تقييم صفقة واحدة وتسجيل نتيجتها — يستخدم shared.triple_barrier (مصدر حقيقة واحد)
 
     الجزء الخامس من الباكتيستر (2026-05-16): تم نقل منطق الخروج كاملاً إلى
@@ -428,15 +605,69 @@ async def evaluate_trade(trade: dict, current_price: float):
     state.hours_open = hours_open
 
     prev_highest = state.highest_target
-    result = step_barrier(cfg, state, current_price, current_price, current_price, 0.0)
+    result = step_barrier(
+        cfg, state, current_price, current_price, current_price, 0.0,
+        stop_observation_price=current_price)
 
     # تسجيل الأهداف الجديدة في DB
     if state.highest_target > prev_highest:
-        await Database.execute(
-            "UPDATE active_trades SET highest_target_hit = $1 WHERE id = $2",
-            state.highest_target, trade['id']
-        )
-        logger.info(f"🎯 {symbol} وصل T{state.highest_target}! السعر: {current_price:.6f}")
+        partial_fills = fills_between(
+            previous_target=prev_highest,
+            reached_target=state.highest_target,
+            entry=entry,
+            targets={1: float(trade['target_1']), 2: float(trade['target_2']),
+                     3: float(trade['target_3'])},
+            trade_amount=config.TRADE_AMOUNT_USDT,
+            min_notional=float(
+                trade.get('min_order_notional_usdt')
+                or config.MIN_ORDER_NOTIONAL_USDT),
+        ) if trade.get('exit_policy_version') == 'partial_25_50_25_v1' else []
+        async with Database.acquire() as conn:
+            async with conn.transaction():
+                realized_pct = sum(fill.gross_pct_contribution for fill in partial_fills)
+                realized_usdt = sum(fill.gross_usdt for fill in partial_fills)
+                sold_fraction = sum(fill.fraction for fill in partial_fills)
+                for fill in partial_fills:
+                    await conn.execute("""
+                        INSERT INTO trade_target_fills
+                            (active_trade_id,signal_id,symbol,target_number,
+                             fill_price,quantity_fraction,notional_usdt,
+                             gross_profit_percent_contribution,gross_profit_usdt)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                        ON CONFLICT (active_trade_id,target_number) DO NOTHING
+                    """, trade['id'], trade['signal_id'], symbol, fill.target,
+                         fill.price, fill.fraction,
+                         config.TRADE_AMOUNT_USDT * fill.fraction,
+                         fill.gross_pct_contribution, fill.gross_usdt)
+                await conn.execute("""
+                    UPDATE active_trades SET
+                        highest_target_hit=$1,
+                        remaining_fraction=GREATEST(0,remaining_fraction-$2),
+                        realized_profit_percent=realized_profit_percent+$3,
+                        realized_profit_usdt=realized_profit_usdt+$4
+                    WHERE id=$5
+                """, state.highest_target, sold_fraction, realized_pct,
+                     realized_usdt, trade['id'])
+                # T3 يغلق فوراً؛ رسالة الإغلاق تكفي وتمنع إشعارين متتاليين لنفس الحدث.
+                if state.highest_target < 3:
+                    event_aggregate_id = int(trade['id']) * 10 + state.highest_target
+                    effective_stop, _ = state.effective_stop(cfg)
+                    previous_remaining = float(
+                        trade.get('remaining_fraction')
+                        if trade.get('remaining_fraction') is not None else 1.0)
+                    await enqueue(conn, 'trade.target_hit', 'active_trade_target',
+                                  event_aggregate_id, {
+                                      'active_trade_id': trade['id'],
+                                      'target': state.highest_target,
+                                      'current_price': current_price,
+                                      'effective_stop': effective_stop,
+                                      'sold_fraction': sold_fraction,
+                                      'remaining_fraction': max(
+                                          0, previous_remaining - sold_fraction),
+                                  })
+        logger.info(
+            f"🎯 {symbol} وصل T{state.highest_target} عبر {source}; "
+            f"السعر={current_price:.6f}, شرائح={len(partial_fills)}")
 
     # تحديث peak_price في DB
     stored_peak = float(trade.get('peak_price') or entry)
@@ -447,6 +678,11 @@ async def evaluate_trade(trade: dict, current_price: float):
         )
 
     if result is not None:
+        # Reload partial accounting committed above (especially when the same
+        # tick crosses T3) before producing the terminal aggregate result.
+        refreshed = await Database.fetchrow(
+            "SELECT * FROM active_trades WHERE id=$1", trade['id'])
+        trade = dict(refreshed or trade)
         await close_trade_barrier(
             trade, result.result, result.profit_pct, result.profit_usdt,
             result.exit_price, result.exit_reason, result.target_reached, result.stop_hit,
@@ -459,6 +695,10 @@ async def close_trade_barrier(
     exit_price: float, reason: str, target_reached: int, stop_hit: bool
 ):
     """إغلاق الصفقة وتسجيل النتيجة — مع stop_hit الصحيح من TripleBarrier"""
+    trade_id = int(trade['id'])
+    if trade_id in _closing:
+        return
+    _closing.add(trade_id)
     symbol = trade['symbol']
     entry  = float(trade['entry_price'])
 
@@ -467,9 +707,31 @@ async def close_trade_barrier(
                    else datetime.now(timezone.utc) - trade['opened_at'])
                   .total_seconds() / 3600)
 
-    async with Database.acquire() as conn:
-        async with conn.transaction():
-            inserted = await conn.fetchval("""
+    try:
+        remaining_fraction = float(trade.get('remaining_fraction') or 0)
+        realized_pct = float(trade.get('realized_profit_percent') or 0)
+        realized_usdt = float(trade.get('realized_profit_usdt') or 0)
+        profit_pct, profit_usdt = aggregate_close(
+            entry=entry, final_exit=exit_price,
+            trade_amount=config.TRADE_AMOUNT_USDT,
+            realized_pct=realized_pct, realized_usdt=realized_usdt,
+            remaining_fraction=remaining_fraction)
+        # Weighted average exit keeps the legacy result row interpretable.
+        sold_fraction = max(0.0, 1.0 - remaining_fraction)
+        realized_exit_value = 0.0
+        if sold_fraction > 0:
+            fills = await Database.fetch(
+                "SELECT fill_price,quantity_fraction FROM trade_target_fills "
+                "WHERE active_trade_id=$1", trade_id)
+            realized_exit_value = sum(
+                float(f['fill_price']) * float(f['quantity_fraction']) for f in fills)
+        weighted_exit = realized_exit_value + exit_price * remaining_fraction
+        if sold_fraction + remaining_fraction <= 0:
+            weighted_exit = exit_price
+
+        async with Database.acquire() as conn:
+            async with conn.transaction():
+                inserted = await conn.fetchval("""
                 INSERT INTO trade_results
                 (signal_id, symbol, entry_price, exit_price, profit_percent,
                  profit_usdt, result, exit_time, notes, duration_hours,
@@ -477,20 +739,31 @@ async def close_trade_barrier(
                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
                 ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
                 RETURNING id
-            """,
-                trade['signal_id'], symbol, entry, exit_price,
-                round(profit_pct, 4), round(profit_usdt, 4),
-                result, reason, round(hours_open, 2), target_reached, stop_hit)
-            await conn.execute(
-                "UPDATE active_trades SET status='closed' WHERE id=$1", trade['id'])
-            if inserted:
-                column = 'wins' if result == 'WIN' else 'losses'
-                await conn.execute(f"""
+                """,
+                    trade['signal_id'], symbol, entry, weighted_exit,
+                    round(profit_pct, 4), round(profit_usdt, 4),
+                    'WIN' if profit_usdt > 0 else 'LOSS', reason,
+                    round(hours_open, 2), target_reached, stop_hit)
+                await conn.execute(
+                    "UPDATE active_trades SET status='closed',remaining_fraction=0 WHERE id=$1",
+                    trade_id)
+                if inserted:
+                    final_result = 'WIN' if profit_usdt > 0 else 'LOSS'
+                    column = 'wins' if final_result == 'WIN' else 'losses'
+                    await conn.execute(f"""
                     INSERT INTO risk_management (date, {column})
                     VALUES (CURRENT_DATE, 1)
                     ON CONFLICT (date) DO UPDATE
                     SET {column}=risk_management.{column}+1
-                """)
+                    """)
+                    await enqueue(conn, 'trade.closed', 'trade_result', inserted, {
+                        'trade_result_id': inserted,
+                        'active_trade_id': trade_id,
+                    })
+
+        result = 'WIN' if profit_usdt > 0 else 'LOSS'
+    finally:
+        _closing.discard(trade_id)
 
     icon = "✅" if result == 'WIN' else "❌"
     logger.info(
@@ -537,6 +810,58 @@ async def get_current_price(symbol: str) -> float:
                 return float(data['price'])
     except Exception as e:
         logger.error(f"خطأ في جلب سعر {symbol}: {format_error(e)}")
+        return None
+
+
+async def get_min_notional(symbol: str) -> float:
+    """Read Binance's current order-notional floor, cached for this process."""
+    if symbol in _min_notional_cache:
+        return _min_notional_cache[symbol]
+    fallback = config.MIN_ORDER_NOTIONAL_USDT
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                'https://api.binance.com/api/v3/exchangeInfo',
+                params={'symbol': symbol}, timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f'Binance exchangeInfo HTTP {resp.status}')
+                data = await resp.json()
+                filters = data['symbols'][0]['filters']
+                values = [float(f['minNotional']) for f in filters
+                          if f.get('filterType') in ('NOTIONAL', 'MIN_NOTIONAL')
+                          and f.get('minNotional')]
+                value = max(values) if values else fallback
+                _min_notional_cache[symbol] = value
+                return value
+    except Exception as exc:
+        logger.warning(
+            f"تعذر جلب MIN_NOTIONAL لـ {symbol}; استخدام {fallback}: {format_error(exc)}")
+        return fallback
+
+
+async def get_last_closed_candle(symbol: str, timeframe: str) -> dict | None:
+    """Return Binance's latest fully closed candle for signal invalidation."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                'https://api.binance.com/api/v3/klines',
+                params={'symbol': symbol, 'interval': timeframe, 'limit': 2},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f'Binance klines HTTP {resp.status}')
+                rows = await resp.json()
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                closed = [row for row in rows if int(row[6]) < now_ms]
+                if not closed:
+                    return None
+                row = closed[-1]
+                return {'open_time': int(row[0]), 'close_time': int(row[6]),
+                        'close': float(row[4])}
+    except Exception as exc:
+        logger.warning(
+            f"تعذر فحص شمعة الإبطال لـ {symbol}/{timeframe}: {format_error(exc)}")
         return None
 
 

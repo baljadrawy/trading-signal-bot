@@ -166,6 +166,7 @@ def step_barrier(
     low:           float,
     close:         float,
     hours_elapsed: float = 1.0,   # الوقت المنقضي منذ آخر فحص (1.0 لشمعة 1h)
+    stop_observation_price: float | None = None,
 ) -> Optional[TripleBarrierResult]:
     """
     يُطبّق منطق TripleBarrier على شمعة/لحظة واحدة.
@@ -178,7 +179,10 @@ def step_barrier(
     # ── 1. الستوب القائم قبل أحداث الشمعة (hard-stop priority) ─────────────
     prior_stop, prior_label = state.effective_stop(cfg)
     if low <= prior_stop:
-        return _stop_result(cfg, state, prior_stop, prior_label, hours_elapsed)
+        stop_reference = (min(prior_stop, stop_observation_price)
+                          if stop_observation_price is not None else prior_stop)
+        return _stop_result(
+            cfg, state, stop_reference, prior_label, hours_elapsed)
 
     # ── 2. تحديث القمة ─────────────────────────────────────────────────────
     if high > state.peak:
@@ -214,7 +218,9 @@ def step_barrier(
     eff_stop, stop_label = state.effective_stop(cfg)
 
     if low <= eff_stop:
-        return _stop_result(cfg, state, eff_stop, stop_label, 0.0)
+        stop_reference = (min(eff_stop, stop_observation_price)
+                          if stop_observation_price is not None else eff_stop)
+        return _stop_result(cfg, state, stop_reference, stop_label, 0.0)
 
     # ── 7. انتهاء 24h عند T1 فقط ─────────────────────────────────────────
     if state.hours_open >= cfg.t1_expiry_h and state.highest_target == 1:

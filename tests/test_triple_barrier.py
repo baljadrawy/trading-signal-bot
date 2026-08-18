@@ -58,3 +58,12 @@ def test_net_break_even_stop_is_capped_at_small_t1():
     cfg = _cfg(target_1=100.2, target_2=104, target_3=106)
     stop = TripleBarrierState(peak=100.2, highest_target=1).effective_stop(cfg)[0]
     assert stop == 100.2
+
+
+def test_tick_gap_below_stop_uses_observed_price_not_ideal_stop_fill():
+    result = step_barrier(
+        _cfg(), TripleBarrierState(peak=100), 94, 94, 94,
+        stop_observation_price=94)
+    assert result.exit_reason == 'stop_loss'
+    assert result.exit_price == 93.906
+    assert result.profit_pct == -6.094

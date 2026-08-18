@@ -16,6 +16,7 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
+from shared.signal_stop import plan_signal_stop
 from simple_entry import detect_trade_type
 
 logger = setup_logger('technical_analyzer')
@@ -47,7 +48,12 @@ class TechnicalAnalyzer:
             market_condition = self._detect_market_condition(df)
             weights = await self._get_indicator_weights(market_condition)
             scores = self._calculate_scores(df, weights)
-            levels = self._calculate_levels(df, tf)
+            trade_type = None
+            if config.LIVE_LEARNING_MODE:
+                trade_type = detect_trade_type(
+                    df, breakout_n=config.MOM_BREAKOUT_N,
+                    vol_mult=config.MOM_VOL_MULT, rev_rsi=config.REV_RSI)
+            levels = self._calculate_levels(df, tf, trade_type)
 
             # فلتر الاتجاه طويل المدى: السعر فوق ema200
             last_close = float(df['close'].iloc[-1])
@@ -57,12 +63,6 @@ class TechnicalAnalyzer:
             # لقطة الميزات الخام (feature store — تدقيق 2026-06-23): قيم المؤشرات الفعلية وقت الإشارة،
             # لا النقاط المبوّبة. تُمكّن بحث ML نزيهاً لاحقاً على ميزات خام (score_details المبوّبة AUC=0.50).
             features = self._raw_features(df)
-
-            trade_type = None
-            if config.LIVE_LEARNING_MODE:
-                trade_type = detect_trade_type(
-                    df, breakout_n=config.MOM_BREAKOUT_N,
-                    vol_mult=config.MOM_VOL_MULT, rev_rsi=config.REV_RSI)
 
             return {
                 'symbol': symbol,
@@ -76,6 +76,11 @@ class TechnicalAnalyzer:
                 'target_2': levels['t2'],
                 'target_3': levels['t3'],
                 'stop_loss': levels['stop'],
+                'stop_policy': levels['stop_policy'],
+                'stop_invalidation': levels['stop_invalidation'],
+                'stop_risk_pct': levels['stop_risk_pct'],
+                'stop_valid': levels['stop_valid'],
+                'stop_reject_reason': levels['stop_reject_reason'],
                 'atr': float(df['atr'].iloc[-1]),
                 'rsi': float(df['rsi'].iloc[-1]),
                 'macd_signal': scores['details'].get('macd', 0),
@@ -389,7 +394,8 @@ class TechnicalAnalyzer:
 
         return {'total': round(total, 2), 'details': details}
 
-    def _calculate_levels(self, df: pd.DataFrame, timeframe: str = '1h') -> Dict:
+    def _calculate_levels(self, df: pd.DataFrame, timeframe: str = '1h',
+                          trade_type: str = None) -> Dict:
         last       = df.iloc[-1]
         atr        = float(last['atr'])
         close      = float(last['close'])
@@ -411,9 +417,27 @@ class TechnicalAnalyzer:
         # الحل: cap لـ 1d عند 3% و 4h عند 5% لجعل T1 قابلاً للتحقق
         max_sl_pct = {'1d': 0.03, '4h': 0.05, '1h': 0.04, '15m': 0.02}
         cap_pct = max_sl_pct.get(timeframe, 0.04)
-        max_risk = entry * cap_pct
-        if (entry - stop_loss) > max_risk:
-            stop_loss = entry - max_risk
+        stop_policy = 'legacy_atr_support'
+        stop_invalidation = stop_loss
+        stop_valid = True
+        stop_reject_reason = None
+
+        if trade_type in ('momentum', 'reversion'):
+            breakout_level = float(
+                df['high'].iloc[-(config.MOM_BREAKOUT_N + 1):-1].max())
+            plan = plan_signal_stop(
+                entry=entry, atr=atr, trade_type=trade_type,
+                structure_low=support, breakout_level=breakout_level,
+                max_risk_pct=cap_pct)
+            stop_loss = plan.stop_price
+            stop_policy = plan.policy
+            stop_invalidation = plan.invalidation_price
+            stop_valid = plan.valid
+            stop_reject_reason = plan.reason
+        else:
+            max_risk = entry * cap_pct
+            if (entry - stop_loss) > max_risk:
+                stop_loss = entry - max_risk
 
         risk = entry - stop_loss
 
@@ -438,6 +462,11 @@ class TechnicalAnalyzer:
         return {
             'entry': round(entry, 8),
             'stop':  round(stop_loss, 8),
+            'stop_policy': stop_policy,
+            'stop_invalidation': round(stop_invalidation, 8),
+            'stop_risk_pct': round((entry - stop_loss) / entry * 100, 4),
+            'stop_valid': stop_valid,
+            'stop_reject_reason': stop_reject_reason,
             't1':    round(target_1, 8),
             't2':    round(target_2, 8),
             't3':    round(target_3, 8),

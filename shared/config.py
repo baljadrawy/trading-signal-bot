@@ -89,6 +89,11 @@ class Config:
     # حجم الصفقة
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
     STOP_SLIPPAGE: float = float(os.getenv('STOP_SLIPPAGE', '0.001'))  # 0.1% modeled stop-fill slippage
+    MIN_ORDER_NOTIONAL_USDT: float = float(os.getenv('MIN_ORDER_NOTIONAL_USDT', '5'))
+    PRICE_STREAM_ENABLED: bool = os.getenv('PRICE_STREAM_ENABLED', 'true').lower() == 'true'
+    PRICE_STREAM_REFRESH_SECONDS: int = int(os.getenv('PRICE_STREAM_REFRESH_SECONDS', '5'))
+    PRICE_BACKUP_CHECK_SECONDS: int = int(os.getenv('PRICE_BACKUP_CHECK_SECONDS', '30'))
+    PRICE_STREAM_ALERT_AFTER_SECONDS: int = int(os.getenv('PRICE_STREAM_ALERT_AFTER_SECONDS', '60'))
 
     # نظام الموافقة والـ Whitelist
     APPROVAL_TIMEOUT_MINUTES: int = int(os.getenv('APPROVAL_TIMEOUT_MINUTES', '30'))

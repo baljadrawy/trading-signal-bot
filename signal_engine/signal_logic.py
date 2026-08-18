@@ -488,6 +488,16 @@ class SignalEngine:
             if not tt:
                 self.last_decisions.setdefault(symbol, 'no_trade_setup')
                 continue
+            # Legacy rows/test fixtures predate signal-aware stop metadata.
+            # Only an explicit False is rejected; new analyzer output always
+            # supplies this field.
+            if data.get('stop_valid') is False:
+                reason = data.get('stop_reject_reason') or 'invalid_signal_stop'
+                self.last_decisions[symbol] = f'stop_rejected:{reason}'
+                _record_evidence(data, source='live', decision=f'rejected_{reason}')
+                logger.info(
+                    f"⛔ {symbol} {tt}/{data.get('timeframe')} وقف الإبطال مرفوض: {reason}")
+                continue
             if symbol in open_symbols:
                 self.last_decisions[symbol] = 'open_trade_exists'
                 _record_evidence(data, source='live', decision='rejected_open_trade_exists')
@@ -613,6 +623,9 @@ class SignalEngine:
             'trend_ok': signal.get('trend_ok'),
             'volume_usdt': volume_usdt,
             'trade_type': signal.get('trade_type'),
+            'stop_policy': signal.get('stop_policy'),
+            'stop_invalidation': signal.get('stop_invalidation'),
+            'stop_risk_pct': signal.get('stop_risk_pct'),
         })
 
         async with Database.acquire() as conn:

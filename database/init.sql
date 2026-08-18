@@ -106,7 +106,30 @@ CREATE TABLE IF NOT EXISTS active_trades (
     is_paper_trade BOOLEAN DEFAULT true,
     opened_at TIMESTAMP DEFAULT NOW(),
     highest_target_hit INTEGER DEFAULT 0,
+    entry_order_type VARCHAR(16) DEFAULT 'market',
+    stop_policy VARCHAR(64),
+    stop_invalidation DECIMAL(20,8),
+    exit_policy_version VARCHAR(32) NOT NULL DEFAULT 'partial_25_50_25_v1',
+    min_order_notional_usdt DECIMAL(12,4) NOT NULL DEFAULT 5,
+    remaining_fraction DECIMAL(8,6) NOT NULL DEFAULT 1.0,
+    realized_profit_percent DECIMAL(12,6) NOT NULL DEFAULT 0,
+    realized_profit_usdt DECIMAL(12,6) NOT NULL DEFAULT 0,
     status VARCHAR(20) DEFAULT 'open'
+);
+
+CREATE TABLE IF NOT EXISTS trade_target_fills (
+    id BIGSERIAL PRIMARY KEY,
+    active_trade_id INTEGER NOT NULL REFERENCES active_trades(id),
+    signal_id INTEGER REFERENCES signals(id),
+    symbol VARCHAR(20) NOT NULL,
+    target_number INTEGER NOT NULL CHECK (target_number BETWEEN 1 AND 3),
+    fill_price DECIMAL(20,8) NOT NULL,
+    quantity_fraction DECIMAL(8,6) NOT NULL CHECK (quantity_fraction > 0),
+    notional_usdt DECIMAL(12,4) NOT NULL,
+    gross_profit_percent_contribution DECIMAL(12,6) NOT NULL,
+    gross_profit_usdt DECIMAL(12,6) NOT NULL,
+    filled_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(active_trade_id, target_number)
 );
 
 -- جدول أوزان المؤشرات (التعلم الذاتي)
@@ -209,4 +232,3 @@ ON CONFLICT (indicator_name, market_condition) DO NOTHING;
 -- إدراج سجل إدارة المخاطر اليومي
 INSERT INTO risk_management (date) VALUES (CURRENT_DATE)
 ON CONFLICT (date) DO NOTHING;
-

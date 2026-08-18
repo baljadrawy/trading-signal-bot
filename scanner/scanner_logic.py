@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import List, Dict
 from binance import AsyncClient
 from shared.config import config
+from shared.trading_state import get_pause_state
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.ohlcv import closed_klines
@@ -160,16 +161,10 @@ class BinanceScanner:
 
     async def _is_trading_paused(self) -> bool:
         """تحقق من حالة إيقاف التداول"""
-        result = await Database.fetchrow(
-            "SELECT is_trading_paused FROM risk_management WHERE date = CURRENT_DATE"
-        )
-        return result['is_trading_paused'] if result else False
+        paused, _ = await get_pause_state()
+        return paused
 
     async def _get_pause_reason(self):
         """يعيد سبب الإيقاف إذا كان موقوفاً، أو None إذا كان التداول مفعّل"""
-        result = await Database.fetchrow(
-            "SELECT is_trading_paused, pause_reason FROM risk_management WHERE date = CURRENT_DATE"
-        )
-        if not result or not result['is_trading_paused']:
-            return None
-        return result['pause_reason']
+        paused, reason = await get_pause_state()
+        return reason if paused else None

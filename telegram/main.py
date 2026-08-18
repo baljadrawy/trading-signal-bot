@@ -19,6 +19,11 @@ from shared.retry_utils import format_error, is_network_error, compute_backoff, 
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared.outbox import worker_id, claim, ack, fail, enqueue
+from shared.telegram_messages import (
+    opened_message, target_message, closed_message, risk_halted_message,
+    runtime_status_message,
+)
+from shared.trading_state import get_pause_state
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
@@ -132,6 +137,8 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
             for req in expired:
                 await notify_expired(bot, req['symbol'])
 
+            lifecycle_delivered = await deliver_trade_lifecycle_events(bot, owner)
+
             events = await claim('signal.reviewed', owner, limit=5)
             delivered = 0
             for event in events:
@@ -139,6 +146,13 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                     signal = await Database.fetchrow(
                         "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
                     if not signal or signal['telegram_sent'] or not signal['claude_approved']:
+                        await ack(event['id'], owner)
+                        continue
+                    allowed, block_reason = await can_deliver_candidate()
+                    if not allowed:
+                        logger.info(
+                            "عدم إرسال المرشح %s إلى Telegram: %s",
+                            signal['symbol'], block_reason)
                         await ack(event['id'], owner)
                         continue
                     signal = dict(signal)
@@ -158,6 +172,7 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
             consecutive_errors = 0
             await mark_success('telegram', {
                 'events_claimed': len(events), 'delivered': delivered,
+                'lifecycle_delivered': lifecycle_delivered,
                 'expired_requests': len(expired)})
             await asyncio.sleep(15)
 
@@ -180,18 +195,102 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
 
 
 async def send_signal_direct(bot: Bot, signal: dict):
-    """إرسال الإشارة مباشرة (عملة في الـ Whitelist)"""
+    """Queue an approved candidate silently; Telegram reports only actual trade opens."""
     try:
-        message = build_signal_message(signal, is_direct=True)
-        await bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
-            text=message
-        )
         await mark_delivered(signal['id'])
-        logger.info(f"📤 إرسال مباشر: {signal['symbol']}")
+        logger.info(f"📥 مرشح معتمد أُرسل لحارس المخاطر: {signal['symbol']}")
     except Exception as e:
         logger.error(f"❌ خطأ في الإرسال المباشر لـ {signal.get('symbol')}: {format_error(e)}")
         raise
+
+
+async def can_deliver_candidate() -> tuple[bool, str]:
+    """Avoid user-facing candidates that cannot become an actual tracked trade."""
+    paused, pause_reason = await get_pause_state()
+    tracker_heartbeat = await Database.fetchrow(
+        "SELECT metadata FROM service_heartbeats WHERE service_name='trade_tracker'")
+    tracker_meta = tracker_heartbeat['metadata'] if tracker_heartbeat else {}
+    if isinstance(tracker_meta, str):
+        tracker_meta = json.loads(tracker_meta)
+    stream_meta = tracker_meta.get('price_stream') or {}
+    stream_status = ('✅ لحظي' if stream_meta.get('connected')
+                     else '⚠️ REST احتياطي')
+    if paused:
+        return False, pause_reason or 'trading_paused'
+    open_count = await Database.fetchval(
+        "SELECT COUNT(*) FROM active_trades WHERE status='open'") or 0
+    capacity = min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
+    if capacity > 0 and open_count >= capacity:
+        return False, f'portfolio_capacity_{open_count}/{capacity}'
+    return True, 'eligible'
+
+
+async def deliver_trade_lifecycle_events(bot: Bot, owner: str) -> int:
+    """Deliver idempotent opened/target/closed events from the transactional outbox."""
+    delivered = 0
+    for event_type in (
+        'risk.halted', 'price_stream.down', 'price_stream.restored',
+        'tracker.recovered', 'trade.opened', 'trade.target_hit', 'trade.closed',
+    ):
+        events = await claim(event_type, owner, limit=20)
+        for event in events:
+            try:
+                payload = event['payload']
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                if event_type in (
+                    'price_stream.down', 'price_stream.restored', 'tracker.recovered'):
+                    message = runtime_status_message(event_type, payload)
+                elif event_type == 'risk.halted':
+                    message = risk_halted_message(payload)
+                elif event_type == 'trade.opened':
+                    trade = await Database.fetchrow("""
+                        SELECT at.*, s.trade_type
+                        FROM active_trades at LEFT JOIN signals s ON s.id=at.signal_id
+                        WHERE at.id=$1
+                    """, payload['active_trade_id'])
+                    if not trade:
+                        await ack(event['id'], owner)
+                        continue
+                    message = opened_message(dict(trade), config.TRADE_AMOUNT_USDT)
+                elif event_type == 'trade.target_hit':
+                    trade = await Database.fetchrow(
+                        "SELECT * FROM active_trades WHERE id=$1",
+                        payload['active_trade_id'])
+                    if not trade:
+                        await ack(event['id'], owner)
+                        continue
+                    message = target_message(
+                        dict(trade), payload['target'], payload['current_price'],
+                        config.TRADE_AMOUNT_USDT, config.FEE_ROUNDTRIP_PCT,
+                        effective_stop=payload.get('effective_stop'),
+                        sold_fraction=payload.get('sold_fraction'),
+                        remaining_fraction=payload.get('remaining_fraction'))
+                else:
+                    result = await Database.fetchrow("""
+                        SELECT tr.* FROM trade_results tr WHERE tr.id=$1
+                    """, payload['trade_result_id'])
+                    if not result:
+                        await ack(event['id'], owner)
+                        continue
+                    result = dict(result)
+                    result['active_trade_id'] = payload.get('active_trade_id')
+                    result['target_fills'] = [dict(row) for row in await Database.fetch("""
+                        SELECT target_number,quantity_fraction,fill_price
+                        FROM trade_target_fills
+                        WHERE active_trade_id=$1 ORDER BY target_number
+                    """, payload.get('active_trade_id'))]
+                    message = closed_message(
+                        result, config.FEE_ROUNDTRIP_PCT,
+                        config.TRADE_AMOUNT_USDT)
+                await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message)
+                await ack(event['id'], owner)
+                delivered += 1
+            except Exception as event_error:
+                await fail(event['id'], owner, event_error)
+                logger.error("outbox %s %s failed: %s", event_type, event['id'],
+                             format_error(event_error))
+    return delivered
 
 
 async def send_approval_request(bot: Bot, signal: dict):
@@ -219,8 +318,8 @@ async def send_approval_request(bot: Bot, signal: dict):
             reply_markup=keyboard
         )
 
-        # تحديث حالة الإشارة
-        await mark_delivered(signal['id'])
+        # لا ننشر signal.delivered قبل موافقة المستخدم؛ وإلا قد تُفتح الصفقة
+        # بينما رسالة Telegram ما زالت مجرد طلب موافقة.
         logger.info(f"🔍 طلب موافقة: {signal['symbol']}")
 
     except Exception as e:
@@ -273,7 +372,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await send_signal_direct(context.bot, dict(full_signal))
             await query.edit_message_text(
-                f"✅ تمت الموافقة وإرسال الإشارة\n"
+                f"✅ تمت الموافقة وإرسال المرشح لحارس المخاطر\n"
+                f"سيصلك إشعار منفصل فقط إذا فُتحت الصفقة فعلياً\n"
                 f"📋 {signal['symbol']} أُضيفت للـ Whitelist تلقائياً"
             )
 
@@ -357,6 +457,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = await Database.fetchval(
         "SELECT COUNT(*) FROM approval_requests WHERE status = 'pending'"
     )
+    open_trades = await Database.fetchval(
+        "SELECT COUNT(*) FROM active_trades WHERE status='open'"
+    ) or 0
+    paused, pause_reason = await get_pause_state()
 
     # العتبات الحيّة من optimizer_settings (يحدّثها Optimizer تلقائياً)
     thresholds = await Database.fetch(
@@ -367,18 +471,22 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     min_score = settings.get('min_score_to_signal', '—')
     min_tf    = settings.get('min_timeframe_confirmations', '—')
 
-    status = "⏸️ موقوف" if (risk and risk['is_trading_paused']) else "✅ يعمل"
+    status = "⏸️ موقوف" if paused else "✅ يبحث ويراقب"
+    reason_line = f"\n🧯 سبب الإيقاف: {pause_reason}" if paused else ""
+    capacity = min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
     await update.message.reply_text(
-        f"📊 حالة النظام: {status}\n\n"
+        f"📊 حالة النظام: {status}{reason_line}\n\n"
         f"📅 اليوم:\n"
-        f"  إشارات: {risk['signals_sent'] if risk else 0}\n"
-        f"  أرباح: {risk['wins'] if risk else 0}\n"
-        f"  خسائر: {risk['losses'] if risk else 0}\n\n"
+        f"  مرشحون اجتازوا الفحص: {risk['signals_sent'] if risk else 0}\n"
+        f"  صفقات مفتوحة فعلياً: {open_trades}/{capacity}\n"
+        f"  إغلاقات رابحة: {risk['wins'] if risk else 0}\n"
+        f"  إغلاقات خاسرة: {risk['losses'] if risk else 0}\n\n"
         f"🎯 العتبات الحيّة:\n"
         f"  الحد الأدنى للنقاط: {min_score}\n"
         f"  تأكيد Timeframes: {min_tf}\n\n"
         f"📋 الـ Whitelist: {whitelist_count} عملة\n"
-        f"⏳ طلبات معلّقة: {pending}"
+        f"⏳ طلبات معلّقة: {pending}\n"
+        f"📡 مراقبة الأسعار: {stream_status}"
     )
 
 @restricted
@@ -391,7 +499,7 @@ async def cmd_whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [f"• {s['symbol']}" for s in symbols]
     await update.message.reply_text(
         f"✅ القائمة البيضاء — العملات المعتمدة ({len(symbols)}):\n"
-        f"(تُرسل إشاراتها مباشرة بدون سؤال)\n\n" +
+        f"(تمر مرشحاتها مباشرة إلى حارس المخاطر؛ ويصلك إشعار عند فتح صفقة فعلية)\n\n" +
         "\n".join(lines)
     )
 
@@ -455,18 +563,25 @@ async def cmd_remove_whitelist(update: Update, context: ContextTypes.DEFAULT_TYP
 @restricted
 async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await Database.execute("""
-        UPDATE risk_management SET is_trading_paused = true, pause_reason = 'إيقاف يدوي'
-        WHERE date = CURRENT_DATE
+        INSERT INTO risk_management (date, is_trading_paused, pause_reason)
+        VALUES (CURRENT_DATE, true, 'manual_pause')
+        ON CONFLICT (date) DO UPDATE SET
+            is_trading_paused=true, pause_reason='manual_pause'
     """)
-    await update.message.reply_text("⏸️ تم إيقاف البوت مؤقتاً")
+    await update.message.reply_text(
+        "⏸️ تم إيقاف البحث وفتح صفقات جديدة حتى تستخدم /resume\n"
+        "🛡️ الصفقات المفتوحة ستبقى تحت المتابعة وستصلك تحديثاتها وإغلاقاتها"
+    )
 
 @restricted
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await Database.execute("""
-        UPDATE risk_management SET is_trading_paused = false, pause_reason = NULL
-        WHERE date = CURRENT_DATE
+        INSERT INTO risk_management (date, is_trading_paused, pause_reason)
+        VALUES (CURRENT_DATE, false, 'manual_resume')
+        ON CONFLICT (date) DO UPDATE SET
+            is_trading_paused=false, pause_reason='manual_resume'
     """)
-    await update.message.reply_text("▶️ تم استئناف البوت")
+    await update.message.reply_text("▶️ تم استئناف البحث والسماح لحارس المخاطر بقبول صفقات جديدة")
 
 @restricted
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -593,7 +708,7 @@ def build_approval_message(signal: dict) -> str:
     )
     return (
         f"{'─'*30}\n"
-        f"🔍 مراجعة شرعية مطلوبة\n"
+        f"🔍 مرشح — مراجعة شرعية مطلوبة\n"
         f"{'─'*30}\n\n"
         f"🪙 {signal['symbol']}  🆕 عملة جديدة\n"
         f"وضع السوق: {market_ar}\n\n"
@@ -602,8 +717,9 @@ def build_approval_message(signal: dict) -> str:
         f"🎯 T2: {format_price(signal['target_2'])}\n"
         f"🎯 T3: {format_price(signal['target_3'])}\n"
         f"🛑 Stop: {format_price(signal['stop_loss'])}\n\n"
-        f"💰 الصفقة: {config.TRADE_AMOUNT_USDT} USDT\n"
+        f"💰 الحجم المقترح: {config.TRADE_AMOUNT_USDT} USDT\n"
         f"⭐ القوة: {signal['score']}/10\n\n"
+        f"⚠️ الموافقة لا تعني فتح صفقة؛ حارس المخاطر يقرر لاحقاً\n"
         f"⏰ ينتهي الطلب خلال 30 دقيقة\n"
         f"{'─'*30}"
     )
@@ -646,7 +762,7 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """آخر 5 إشارات مع حالتها"""
+    """آخر 5 مرشحين مع حالة عبورهم إلى حارس المخاطر."""
     signals = await Database.fetch("""
         SELECT symbol, timeframe, score, claude_approved, telegram_sent,
                signal_time, claude_comment, decision_source, strategy_version
@@ -659,7 +775,7 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📡 لا توجد إشارات بعد")
         return
 
-    lines = ["📡 آخر الإشارات\n" + "─"*28]
+    lines = ["📡 آخر المرشحين (ليست صفقات مفتوحة)\n" + "─"*28]
     for s in signals:
         decision_icon = "✅" if s['claude_approved'] else "❌"
         sent_icon = "📤" if s['telegram_sent'] else "⏳"
@@ -691,6 +807,19 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent_today = await Database.fetchval(
         "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND telegram_sent = true"
     ) or 0
+    opened_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM active_trades WHERE opened_at::date=CURRENT_DATE"
+    ) or 0
+    open_now = await Database.fetchval(
+        "SELECT COUNT(*) FROM active_trades WHERE status='open'"
+    ) or 0
+    closed = await Database.fetchrow("""
+        SELECT COUNT(*) AS total,
+               COALESCE(SUM(profit_usdt), 0) AS gross_usdt
+        FROM trade_results WHERE exit_time::date=CURRENT_DATE
+    """)
+    closed_today = int(closed['total'] or 0)
+    net_today = float(closed['gross_usdt'] or 0) - closed_today * fee_usdt()
 
     # أفضل إشارة اليوم
     best = await Database.fetchrow("""
@@ -707,7 +836,9 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """) or "غير معروف"
 
     market_ar = MARKET_CONDITION_AR.get(market, market)
-    status = "⏸️ موقوف" if (risk and risk['is_trading_paused']) else "✅ يعمل"
+    paused, pause_reason = await get_pause_state()
+    status = "⏸️ موقوف" if paused else "✅ يبحث ويراقب"
+    reason_line = f"\n🧯 السبب: {pause_reason}" if paused else ""
     wins = risk['wins'] if risk else 0
     losses = risk['losses'] if risk else 0
 
@@ -716,17 +847,20 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📅 ملخص اليوم\n"
         f"{'─'*28}\n\n"
-        f"⚙️ الحالة: {status}\n"
+        f"⚙️ الحالة: {status}{reason_line}\n"
         f"🌍 وضع السوق: {market_ar}\n\n"
-        f"📊 الإشارات:\n"
+        f"📊 المرشحون (ليست صفقات):\n"
         f"  إجمالي: {signals_today}\n"
         f"  ✅ قرارات موافقة: {approved_today}\n"
         f"  ❌ قرارات رفض: {rejected_today}\n"
-        f"  📤 أُرسلت: {sent_today}\n"
+        f"  🛡️ عَبَروا إلى حارس المخاطر: {sent_today}\n"
         f"{best_line}\n\n"
         f"💰 الصفقات:\n"
-        f"  أرباح: {wins} ✅\n"
-        f"  خسائر: {losses} ❌\n"
+        f"  فُتحت اليوم: {opened_today}\n"
+        f"  مفتوحة الآن: {open_now}\n"
+        f"  أُغلقت اليوم: {closed_today}\n"
+        f"  أرباح/خسائر: {wins} ✅ / {losses} ❌\n"
+        f"  الصافي بعد التكلفة: {net_today:+.2f} USDT\n"
         f"{'─'*28}"
     )
 
