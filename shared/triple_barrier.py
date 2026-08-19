@@ -35,6 +35,20 @@ TRADE_AMOUNT_DEFAULT   = 50.0    # USDT لكل صفقة
 STOP_SLIPPAGE_DEFAULT  = 0.001   # 0.1% تعبئة أسوأ عند أي stop
 ROUNDTRIP_COST_DEFAULT = 0.003   # 0.3% رسوم/انزلاق عام خارج stop-fill
 
+TIMEFRAME_EXPIRY_HOURS = {
+    '15m': (48.0, 24.0, 12.0),
+    '4h': (96.0, 48.0, 24.0),
+    '1d': (240.0, 120.0, 72.0),
+}
+
+
+def expiry_policy_for_timeframe(timeframe: str | None) -> tuple[float, float, float]:
+    """Return max, T1-stall and no-T1 hours for newly opened trades."""
+    return TIMEFRAME_EXPIRY_HOURS.get(
+        str(timeframe or '').lower(),
+        (TRADE_EXPIRY_H_DEFAULT, T1_EXPIRY_H_DEFAULT, NO_T1_EXPIRY_H_DEFAULT),
+    )
+
 
 @dataclass
 class TripleBarrierConfig:
@@ -141,6 +155,9 @@ def create_config_from_trade(
         trade_amount = trade_amount,
         stop_slippage = stop_slippage,
         roundtrip_cost = roundtrip_cost,
+        expiry_h = float(trade.get('expiry_h') or TRADE_EXPIRY_H_DEFAULT),
+        t1_expiry_h = float(trade.get('t1_expiry_h') or T1_EXPIRY_H_DEFAULT),
+        no_t1_expiry_h = float(trade.get('no_t1_expiry_h') or NO_T1_EXPIRY_H_DEFAULT),
     )
 
 

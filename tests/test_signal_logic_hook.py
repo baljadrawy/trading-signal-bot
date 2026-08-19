@@ -37,7 +37,10 @@ def _setup(monkeypatch):
     monkeypatch.setattr(engine, "_get_symbol_cooldown_set", no_cooldown)
     results = [{"symbol": "BTCUSDT",
                 "analysis_data": {"symbol": "BTCUSDT", "trade_type": "momentum",
-                                  "timeframe": "15m", "features": {"rsi": 30.0}}}]
+                                  "order_book": {"valid": True, "spread_pct": 0.01},
+                                  "timeframe": "15m", "features": {"rsi": 30.0},
+                                  "execution_features": {"breakout_level": 99.0},
+                                  "entry_reason": "close_above_ema20_ema50_breakout_with_volume"}}]
     return engine, results
 
 
@@ -46,6 +49,8 @@ def test_hook_disabled_output_unchanged(monkeypatch):
     engine, results = _setup(monkeypatch)
     out = _run(engine.find_best_signal_live(results, FakeMacro()))
     assert out["symbol"] == "BTCUSDT" and out["trade_type"] == "momentum"
+    assert out["execution_features"]["breakout_level"] == 99.0
+    assert "selection_spread_pct" in out["execution_features"]
 
 
 def test_hook_enabled_same_output_and_captures(monkeypatch):

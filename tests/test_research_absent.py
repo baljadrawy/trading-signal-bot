@@ -35,6 +35,7 @@ def _setup(monkeypatch):
     monkeypatch.setattr(engine, "_get_symbol_cooldown_set", no_cooldown)
     results = [{"symbol": "BTCUSDT",
                 "analysis_data": {"symbol": "BTCUSDT", "trade_type": "momentum",
+                                  "order_book": {"valid": True, "spread_pct": 0.01},
                                   "timeframe": "1h", "features": {"rsi": 30.0}}}]
     return engine, results
 

@@ -5,10 +5,6 @@
 import pandas as pd
 import numpy as np
 import ta
-try:
-    import pandas_ta as pta  # المحرك الأساسي للمؤشرات الإضافية (feature store)؛ fallback إلى ta لو فشل
-except Exception:
-    pta = None
 from typing import Dict, Optional
 from binance import AsyncClient
 from shared.config import config
@@ -17,7 +13,8 @@ from shared.logger import setup_logger
 from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
 from shared.signal_stop import plan_signal_stop
-from simple_entry import detect_trade_type
+from shared.regime import classify_regime
+from simple_entry import detect_trade_setup
 
 logger = setup_logger('technical_analyzer')
 
@@ -27,7 +24,7 @@ def indicator_warmup_bars() -> int:
     return max(
         config.EMA_LONG,
         config.MACD_SLOW + config.MACD_SIGNAL,
-        config.RSI_PERIOD + config.STOCH_K + config.STOCH_D,
+        config.STOCH_RSI_WINDOW + config.STOCH_K + config.STOCH_D,
         config.BB_PERIOD,
         config.ATR_PERIOD,
         50,
@@ -45,14 +42,19 @@ class TechnicalAnalyzer:
                 return None
 
             df = self._calculate_indicators(df)
-            market_condition = self._detect_market_condition(df)
+            regime = dict(classify_regime(df))
+            market_condition = str(regime['condition'])
             weights = await self._get_indicator_weights(market_condition)
             scores = self._calculate_scores(df, weights)
             trade_type = None
+            entry_reason = None
+            execution_features = {}
             if config.LIVE_LEARNING_MODE:
-                trade_type = detect_trade_type(
+                trade_type, entry_reason, execution_features = detect_trade_setup(
                     df, breakout_n=config.MOM_BREAKOUT_N,
-                    vol_mult=config.MOM_VOL_MULT, rev_rsi=config.REV_RSI)
+                    vol_mult=config.MOM_VOL_MULT, rev_rsi=config.REV_RSI,
+                    bb_max_position=config.REV_BB_MAX_POSITION,
+                    market_condition=market_condition)
             levels = self._calculate_levels(df, tf, trade_type)
 
             # فلتر الاتجاه طويل المدى: السعر فوق ema200
@@ -68,9 +70,15 @@ class TechnicalAnalyzer:
                 'symbol': symbol,
                 'timeframe': tf,
                 'market_condition': market_condition,
+                'regime': regime,
                 'total_score': scores['total'],
                 'score_details': scores['details'],
                 'features': features,
+                'research_features': features,
+                'execution_features': execution_features,
+                'entry_reason': entry_reason,
+                'selection_policy': ('fixed_execution_quality_v1'
+                                     if config.LIVE_LEARNING_MODE else 'legacy_score_v1'),
                 'entry_price': levels['entry'],
                 'target_1': levels['t1'],
                 'target_2': levels['t2'],
@@ -146,10 +154,15 @@ class TechnicalAnalyzer:
             window=config.ATR_PERIOD
         ).average_true_range()
 
+        # ADX is a regime feature, not an entry vote.
+        df['adx'] = ta.trend.ADXIndicator(
+            high=df['high'], low=df['low'], close=df['close'], window=14
+        ).adx()
+
         # Stochastic RSI
         stoch = ta.momentum.StochRSIIndicator(
             close=df['close'],
-            window=config.RSI_PERIOD,
+            window=config.STOCH_RSI_WINDOW,
             smooth1=config.STOCH_K,
             smooth2=config.STOCH_D
         )
@@ -195,8 +208,7 @@ class TechnicalAnalyzer:
         }
 
         # مؤشرات خام إضافية للـ feature store فقط (لا تُستخدم في الانتقاء/النقاط).
-        # المحرك الأساسي pandas_ta (مكتبة 150+ مؤشراً)، مع fallback إلى ta لكل مؤشر إن فشل/غاب.
-        # دفاعي بالكامل: أي inf/NaN/خطأ → None؛ وCCI |v|>1000 (سوق مسطّح) → None.
+        # نستخدم محرك ta المثبت نفسه صراحة؛ pandas_ta غير متوافق مع صورة الإنتاج الحالية.
         def clean(x, bound=None):
             try:
                 v = float(x.iloc[-1])
@@ -208,25 +220,17 @@ class TechnicalAnalyzer:
             except Exception:
                 return None
         h, l, c, vol = df['high'], df['low'], df['close'], df['volume']
-        def _adx_pta():
-            r = pta.adx(h, l, c, length=14)
-            return r['ADX_14'] if r is not None and 'ADX_14' in getattr(r, 'columns', []) else None
         specs = (
-            ('adx14',   _adx_pta,                                  lambda: ta.trend.ADXIndicator(h, l, c, window=14).adx(),                          None),
-            ('cci20',   lambda: pta.cci(h, l, c, length=20),       lambda: ta.trend.CCIIndicator(h, l, c, window=20).cci(),                          1000),
-            ('willr14', lambda: pta.willr(h, l, c, length=14),     lambda: ta.momentum.WilliamsRIndicator(h, l, c, lbp=14).williams_r(),             None),
-            ('roc10',   lambda: pta.roc(c, length=10),             lambda: ta.momentum.ROCIndicator(c, window=10).roc(),                            None),
-            ('mfi14',   lambda: pta.mfi(h, l, c, vol, length=14),  lambda: ta.volume.MFIIndicator(h, l, c, vol, window=14).money_flow_index(),       None),
-            ('cmf20',   lambda: pta.cmf(h, l, c, vol, length=20),  lambda: ta.volume.ChaikinMoneyFlowIndicator(h, l, c, vol, window=20).chaikin_money_flow(), None),
+            ('adx14',   lambda: df['adx'], None),
+            ('cci20',   lambda: ta.trend.CCIIndicator(h, l, c, window=20).cci(), 1000),
+            ('willr14', lambda: ta.momentum.WilliamsRIndicator(h, l, c, lbp=14).williams_r(), None),
+            ('roc10',   lambda: ta.momentum.ROCIndicator(c, window=10).roc(), None),
+            ('mfi14',   lambda: ta.volume.MFIIndicator(h, l, c, vol, window=14).money_flow_index(), None),
+            ('cmf20',   lambda: ta.volume.ChaikinMoneyFlowIndicator(h, l, c, vol, window=20).chaikin_money_flow(), None),
         )
-        for key, pfn, tfn, bound in specs:
-            val = None
-            if pta is not None:
-                try: val = clean(pfn(), bound)
-                except Exception: val = None
-            if val is None:  # fallback إلى ta
-                try: val = clean(tfn(), bound)
-                except Exception: val = None
+        for key, fn, bound in specs:
+            try: val = clean(fn(), bound)
+            except Exception: val = None
             feats[key] = val
         return feats
 
@@ -292,23 +296,8 @@ class TechnicalAnalyzer:
             return 0.0
 
     def _detect_market_condition(self, df: pd.DataFrame) -> str:
-        close  = df['close'].iloc[-1]
-        ema20  = df['ema20'].iloc[-1]
-        ema50  = df['ema50'].iloc[-1]
-        ema200 = df['ema200'].iloc[-1] if not pd.isna(df['ema200'].iloc[-1]) else ema50
-        atr     = df['atr'].iloc[-1]
-        avg_atr = df['atr'].rolling(20).mean().iloc[-1]
-
-        is_volatile = atr > avg_atr * 1.5
-
-        if is_volatile:
-            return "volatile"
-        elif close > ema20 > ema50 > ema200:
-            return "bullish"
-        elif close < ema20 < ema50 < ema200:
-            return "bearish"
-        else:
-            return "sideways"
+        """Backward-compatible string view of the canonical regime classifier."""
+        return str(classify_regime(df)['condition'])
 
     def _calculate_scores(self, df: pd.DataFrame, weights: Dict) -> Dict:
         # Mean-reverting indicators only — momentum indicators (volume, macd,
@@ -323,7 +312,7 @@ class TechnicalAnalyzer:
         # البيانات: RSI >1.2 أقوى مؤشر إيجابي في تحليل 240 صفقة (2026-05-11).
         rsi = last['rsi']
         base_rsi_weight = weights.get('rsi', 1.0)
-        if 20 <= rsi < 30:
+        if 0 <= rsi < 30:
             rsi_score = base_rsi_weight * 1.5   # oversold قوي — تعزيز
         elif 30 <= rsi < 40:
             rsi_score = base_rsi_weight * 1.0   # oversold معتدل — بدون تغيير
@@ -361,10 +350,7 @@ class TechnicalAnalyzer:
             stoch_k = last['stoch_k']
             stoch_d = last['stoch_d'] if not pd.isna(last['stoch_d']) else stoch_k
             base_stoch = weights.get('stoch_rsi', 1.0)
-            if stoch_k >= 0.9:
-                # مشبع شراءً — تخفيض قوي (يحمي من الدخول في قمة)
-                stoch_score = base_stoch * 0.3
-            elif stoch_k < 0.2 and stoch_k > stoch_d:
+            if stoch_k < 0.2 and stoch_k > stoch_d:
                 stoch_score = base_stoch          # oversold مع تقاطع صاعد — ممتاز
             # حالة stoch_k < 0.3 بدون تقاطع مُحذوفة: expectancy سالب على 100 صفقة
         details['stoch_rsi'] = round(stoch_score, 2)

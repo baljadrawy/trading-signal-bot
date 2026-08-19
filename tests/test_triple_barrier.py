@@ -1,4 +1,7 @@
-from shared.triple_barrier import TripleBarrierConfig, TripleBarrierState, step_barrier
+from shared.triple_barrier import (
+    TripleBarrierConfig, TripleBarrierState, create_config_from_trade,
+    expiry_policy_for_timeframe, step_barrier,
+)
 
 
 def _cfg(**overrides):
@@ -67,3 +70,14 @@ def test_tick_gap_below_stop_uses_observed_price_not_ideal_stop_fill():
     assert result.exit_reason == 'stop_loss'
     assert result.exit_price == 93.906
     assert result.profit_pct == -6.094
+
+
+def test_new_timeframe_expiry_policy_and_legacy_rows():
+    assert expiry_policy_for_timeframe('15m') == (48.0, 24.0, 12.0)
+    assert expiry_policy_for_timeframe('4h') == (96.0, 48.0, 24.0)
+    assert expiry_policy_for_timeframe('1d') == (240.0, 120.0, 72.0)
+    row = {'symbol': 'BTCUSDT', 'entry_price': 100, 'target_1': 102,
+           'target_2': 104, 'target_3': 106, 'stop_loss': 97}
+    assert create_config_from_trade(row).expiry_h == 48.0
+    row.update(expiry_h=96, t1_expiry_h=48, no_t1_expiry_h=24)
+    assert create_config_from_trade(row).expiry_h == 96.0

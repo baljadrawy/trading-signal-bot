@@ -64,8 +64,10 @@ class Config:
     MOM_BREAKOUT_N: int = int(os.getenv('MOM_BREAKOUT_N', '20'))
     MOM_VOL_MULT: float = float(os.getenv('MOM_VOL_MULT', '1.2'))
     REV_RSI: float = float(os.getenv('REV_RSI', '35'))
+    REV_BB_MAX_POSITION: float = float(os.getenv('REV_BB_MAX_POSITION', '0.20'))
     USDTD_SPIKE_PP: float = float(os.getenv('USDTD_SPIKE_PP', '0.5'))
     MACRO_CACHE_HOURS: int = int(os.getenv('MACRO_CACHE_HOURS', '1'))
+    MACRO_MAX_STALE_HOURS: int = int(os.getenv('MACRO_MAX_STALE_HOURS', '2'))
     WARMUP_N: int = int(os.getenv('WARMUP_N', '100'))
     ROLL_N: int = int(os.getenv('ROLL_N', '150'))
     MIN_CELL_N: int = int(os.getenv('MIN_CELL_N', '10'))
@@ -128,8 +130,9 @@ class Config:
     BB_PERIOD: int = 20
     BB_STD: float = 2.0
     ATR_PERIOD: int = 14
-    STOCH_K: int = 14
-    STOCH_D: int = 3
+    STOCH_RSI_WINDOW: int = 14
+    STOCH_K: int = 3  # %K smoothing; this is not the StochRSI lookback
+    STOCH_D: int = 3  # %D smoothing
     
     # فلاتر Scanner
     MIN_VOLUME_USDT: float = float(os.getenv('MIN_VOLUME_USDT', '10000000'))  # حجم تداول يومي أدنى — افتراضي 10M USDT (رُفع من 1M في 2026-04-27)

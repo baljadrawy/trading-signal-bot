@@ -22,7 +22,7 @@ class OrderBookAnalyzer:
             asks = [(float(p), float(q)) for p, q in ob['asks']]
             
             if not bids or not asks:
-                return self._empty_result()
+                return self._empty_result('empty_order_book')
             
             best_bid = bids[0][0]
             best_ask = asks[0][0]
@@ -46,6 +46,8 @@ class OrderBookAnalyzer:
             score = self._calculate_score(bid_ask_ratio, buy_wall, sell_wall, spread_pct)
             
             return {
+                'valid': True,
+                'error_reason': None,
                 'score': score,
                 'bid_ask_ratio': round(bid_ask_ratio, 3),
                 'total_bid_volume': round(total_bid_volume, 2),
@@ -59,7 +61,7 @@ class OrderBookAnalyzer:
             
         except Exception as e:
             logger.error(f"خطأ في تحليل Order Book لـ {symbol}: {e}")
-            return self._empty_result()
+            return self._empty_result(type(e).__name__)
 
     def _find_wall(self, orders, current_price: float, is_buy: bool) -> Optional[Dict]:
         """البحث عن جدران السيولة الكبيرة"""
@@ -107,8 +109,10 @@ class OrderBookAnalyzer:
         
         return round(max(0, min(1, score)), 2)  # من 0 إلى 1
 
-    def _empty_result(self) -> Dict:
+    def _empty_result(self, reason: str = 'unavailable') -> Dict:
         return {
+            'valid': False,
+            'error_reason': reason,
             'score': 0,
             'bid_ask_ratio': 1.0,
             'total_bid_volume': 0,
@@ -117,5 +121,5 @@ class OrderBookAnalyzer:
             'buy_wall_size': None,
             'sell_wall_price': None,
             'sell_wall_size': None,
-            'spread_pct': 0,
+            'spread_pct': None,
         }

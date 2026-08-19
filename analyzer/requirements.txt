@@ -1,10 +1,7 @@
 python-binance==1.0.19
 asyncpg==0.29.0
 aiohttp==3.13.5    # latest — حل كل CVEs aiohttp 2024-2026
-# ⬆️ ترقية 2026-06-23 (الأنلايزر فقط): pandas_ta 0.4.71b0 يتطلب Python>=3.12 + pandas>=3 + numpy>=2.
-# باقي الحاويات تبقى على py3.11/pandas2.2 (لا تحتاج pandas_ta). shared/ بلا pandas فالعزل آمن.
 pandas==3.0.3
 numpy==2.2.6
 ta==0.11.0
-pandas_ta==0.4.71b0    # feature store: مؤشرات خام إضافية + مكتبة 150+ مؤشراً للبحث المستقبلي
 websockets==12.0

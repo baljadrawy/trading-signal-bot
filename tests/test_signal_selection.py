@@ -40,7 +40,8 @@ def _engine(monkeypatch):
 
 def _cand(sym, tt):
     return {"symbol": sym,
-            "analysis_data": {"symbol": sym, "trade_type": tt, "timeframe": "15m"}}
+            "analysis_data": {"symbol": sym, "trade_type": tt, "timeframe": "15m",
+                              "order_book": {"valid": True, "spread_pct": 0.01}}}
 
 
 def test_first_candidate_wins_momentum_before_reversion(monkeypatch):

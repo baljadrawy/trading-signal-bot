@@ -130,8 +130,10 @@ async def main():
                     tfs = ', '.join(best_signal.get('confirmed_timeframes', []))
                     logger.info(
                         f"🎯 إشارة: {best_signal['symbol']} | "
-                        f"نقاط: {best_signal['total_score']}/10 | "
-                        f"تأكيد: {tfs}"
+                        f"نوع: {best_signal.get('trade_type') or 'legacy'} | "
+                        f"سبب: {best_signal.get('entry_reason') or 'legacy_score_policy'} | "
+                        f"سياسة: {best_signal.get('selection_policy') or 'legacy_score_v1'} | "
+                        f"تأكيد: {tfs or best_signal.get('timeframe', '?')}"
                     )
 
                     # حفظ الإشارة في قاعدة البيانات

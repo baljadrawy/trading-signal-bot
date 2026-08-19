@@ -1,5 +1,5 @@
 # يدعم: linux/amd64 (Hetzner VPS) و linux/arm64 (Raspberry Pi 4)
-# ⬆️ 2026-06-23: رُقّي لـ3.12 (الأنلايزر فقط) لدعم pandas_ta 0.4.71b0 (يتطلب py>=3.12، pandas>=3، numpy>=2)
+# Python 3.12 + pandas 3; production indicators use one explicit `ta` engine.
 FROM python:3.12-slim@sha256:d764629ce0ddd8c71fd371e9901efb324a95789d2315a47db7e4d27e78f1b0e9
 
 ARG APP_VERSION=sb-2026.08

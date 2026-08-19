@@ -683,6 +683,16 @@ def build_signal_message(signal: dict, is_direct: bool = False) -> str:
     t2_pct = ((t2   - entry) / entry) * 100
     t3_pct = ((t3   - entry) / entry) * 100
     sl_pct = ((stop - entry) / entry) * 100
+    features_snapshot = signal.get('features_snapshot') or {}
+    if isinstance(features_snapshot, str):
+        features_snapshot = json.loads(features_snapshot)
+    trade_type = signal.get('trade_type') or features_snapshot.get('trade_type') or 'legacy'
+    reason = features_snapshot.get('entry_reason') or 'legacy_score_policy'
+    reason_ar = {
+        'close_above_ema20_ema50_breakout_with_volume': 'اختراق مؤكد بالاتجاه والحجم',
+        'rsi_oversold_bounce_near_lower_bollinger': 'ارتداد تشبع قرب بولنجر السفلي',
+        'legacy_score_policy': 'سياسة النقاط القديمة',
+    }.get(reason, reason)
 
     return (
         f"{'─'*30}\n"
@@ -698,7 +708,9 @@ def build_signal_message(signal: dict, is_direct: bool = False) -> str:
         f"🛑 وقف الخسارة: {format_price(stop)}  ({sl_pct:.2f}%)\n"
         f"⚖️ المخاطرة/المكافأة: {rr}\n\n"
         f"⏱️ الإطار: {tfs_str}\n"
-        f"⭐ القوة: {signal['score']}/10\n"
+        f"🧭 النوع: {trade_type}\n"
+        f"🔎 سبب الدخول: {reason_ar}\n"
+        f"📎 نقاط بحثية: {signal['score']}/10 (ليست سبب الاختيار)\n"
         f"{'─'*30}"
     )
 
@@ -718,7 +730,8 @@ def build_approval_message(signal: dict) -> str:
         f"🎯 T3: {format_price(signal['target_3'])}\n"
         f"🛑 Stop: {format_price(signal['stop_loss'])}\n\n"
         f"💰 الحجم المقترح: {config.TRADE_AMOUNT_USDT} USDT\n"
-        f"⭐ القوة: {signal['score']}/10\n\n"
+        f"🧭 النوع: {signal.get('trade_type') or 'legacy'}\n"
+        f"📎 نقاط بحثية: {signal['score']}/10 (ليست سبب الاختيار الحي)\n\n"
         f"⚠️ الموافقة لا تعني فتح صفقة؛ حارس المخاطر يقرر لاحقاً\n"
         f"⏰ ينتهي الطلب خلال 30 دقيقة\n"
         f"{'─'*30}"

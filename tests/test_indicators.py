@@ -50,6 +50,15 @@ def _manual_atr(df, window):
     return pd.Series(values, index=df.index)
 
 
+def _manual_stoch_rsi(close, window, smooth_k, smooth_d):
+    rsi = _manual_rsi(close, window)
+    low = rsi.rolling(window).min()
+    high = rsi.rolling(window).max()
+    raw = (rsi - low) / (high - low)
+    k = raw.rolling(smooth_k).mean()
+    return k, k.rolling(smooth_d).mean()
+
+
 def test_core_indicators_match_independent_known_formulas():
     source = _market_frame()
     actual = TechnicalAnalyzer(None)._calculate_indicators(source.copy())
@@ -94,6 +103,17 @@ def test_volume_obv_and_stoch_units_are_stable():
     assert ((mature >= 0) & (mature <= 1)).all().all()
 
 
+def test_stoch_rsi_matches_standard_14_3_3_definition():
+    source = _market_frame()
+    actual = TechnicalAnalyzer(None)._calculate_indicators(source.copy())
+    expected_k, expected_d = _manual_stoch_rsi(
+        source['close'], config.STOCH_RSI_WINDOW, config.STOCH_K, config.STOCH_D)
+    np.testing.assert_allclose(actual['stoch_k'], expected_k, rtol=1e-10, atol=1e-10,
+                               equal_nan=True)
+    np.testing.assert_allclose(actual['stoch_d'], expected_d, rtol=1e-10, atol=1e-10,
+                               equal_nan=True)
+
+
 def test_raw_feature_store_has_finite_values_and_declared_units():
     calculated = TechnicalAnalyzer(None)._calculate_indicators(_market_frame())
     features = TechnicalAnalyzer(None)._raw_features(calculated)
@@ -124,3 +144,12 @@ def test_nearby_resistance_cannot_push_t1_below_entry():
     })
     levels = TechnicalAnalyzer(None)._calculate_levels(df, "1d")
     assert levels["stop"] < levels["entry"] < levels["t1"] < levels["t2"] < levels["t3"]
+
+
+def test_extreme_oversold_scores_but_overbought_stoch_does_not():
+    analyzer = TechnicalAnalyzer(None)
+    df = analyzer._calculate_indicators(_market_frame())
+    df.loc[df.index[-1], ['rsi', 'stoch_k', 'stoch_d']] = [10.0, 0.95, 0.90]
+    scores = analyzer._calculate_scores(df, {'rsi': 1.0, 'stoch_rsi': 1.0})
+    assert scores['details']['rsi'] == 1.5
+    assert scores['details']['stoch_rsi'] == 0

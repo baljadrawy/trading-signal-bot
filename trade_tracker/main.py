@@ -32,6 +32,7 @@ from shared.triple_barrier import (
     barrier_status_summary,
     TripleBarrierConfig,
     TripleBarrierState,
+    expiry_policy_for_timeframe,
 )
 try:
     from .binance_price_stream import BinancePriceStream
@@ -353,6 +354,7 @@ async def register_new_signals():
             logger.error(f"رفض bracket غير صالح لـ {sig['symbol']}: {exc}")
             continue
 
+        expiry_h, t1_expiry_h, no_t1_expiry_h = expiry_policy_for_timeframe(sig['timeframe'])
         async with Database.acquire() as conn:
             async with conn.transaction():
                 trade_id = await conn.fetchval("""
@@ -360,8 +362,10 @@ async def register_new_signals():
                     (signal_id, symbol, entry_price, target_1, target_2, target_3,
                      stop_loss, timeframe, is_paper_trade, entry_order_type,
                      stop_policy, stop_invalidation, exit_policy_version,
-                     min_order_notional_usdt)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                     min_order_notional_usdt, expiry_policy_version,
+                     expiry_h, t1_expiry_h, no_t1_expiry_h)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                            $15, $16, $17, $18)
                     ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
                     RETURNING id
                 """,
@@ -372,7 +376,8 @@ async def register_new_signals():
                     (float(features['stop_invalidation'])
                      * fill_entry / float(sig['entry_price'])
                      if features.get('stop_invalidation') else bracket['stop_loss']),
-                    'partial_25_50_25_v1', min_notional)
+                    'partial_25_50_25_v1', min_notional, 'timeframe_v1',
+                    expiry_h, t1_expiry_h, no_t1_expiry_h)
                 if trade_id:
                     await enqueue(conn, 'trade.opened', 'active_trade', trade_id,
                                   {'active_trade_id': trade_id})

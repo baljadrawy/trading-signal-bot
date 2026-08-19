@@ -488,6 +488,16 @@ class SignalEngine:
             if not tt:
                 self.last_decisions.setdefault(symbol, 'no_trade_setup')
                 continue
+            order_book = data.get('order_book') or {}
+            spread = order_book.get('spread_pct')
+            if order_book.get('valid') is not True or spread is None:
+                self.last_decisions[symbol] = 'order_book_unavailable'
+                _record_evidence(data, source='live', decision='rejected_order_book_unavailable')
+                continue
+            if float(spread) > config.MAX_SPREAD_PCT:
+                self.last_decisions[symbol] = 'spread_exceeds_limit'
+                _record_evidence(data, source='live', decision='rejected_spread_exceeds_limit')
+                continue
             # Legacy rows/test fixtures predate signal-aware stop metadata.
             # Only an explicit False is rejected; new analyzer output always
             # supplies this field.
@@ -518,11 +528,11 @@ class SignalEngine:
                     _record_evidence(data, source='live', decision='rejected_learned_gate')
                     continue
             selection_volume = await self._get_volume_usdt(symbol)
-            selection_spread = (data.get('order_book') or {}).get('spread_pct')
+            selection_spread = float(spread)
             candidate = {
                 **data,
-                'features': {
-                    **(data.get('features') or {}),
+                'execution_features': {
+                    **(data.get('execution_features') or {}),
                     'selection_spread_pct': selection_spread,
                     'selection_volume_usdt': selection_volume,
                 },
@@ -612,7 +622,10 @@ class SignalEngine:
         # لقطة الميزات الخام (feature store — تدقيق 2026-06-23): قيم المؤشرات الفعلية + سياق دفتر الأوامر
         # وقت الإشارة، مرتبطة لاحقاً بالنتيجة عبر trade_results.signal_id → بحث ML نزيه على ميزات خام.
         _ob = signal.get('order_book') or {}
-        features_snapshot = dict(signal.get('features') or {})
+        research_features = dict(
+            signal.get('research_features') or signal.get('features') or {})
+        execution_features = dict(signal.get('execution_features') or {})
+        features_snapshot = dict(research_features)  # compatibility for existing research readers
         features_snapshot.update({
             'spread_pct': _ob.get('spread_pct'),
             'bid_ask_ratio': _ob.get('bid_ask_ratio'),
@@ -626,6 +639,10 @@ class SignalEngine:
             'stop_policy': signal.get('stop_policy'),
             'stop_invalidation': signal.get('stop_invalidation'),
             'stop_risk_pct': signal.get('stop_risk_pct'),
+            'entry_reason': signal.get('entry_reason'),
+            'selection_policy': signal.get('selection_policy'),
+            'research_features': research_features,
+            'execution_features': execution_features,
         })
 
         async with Database.acquire() as conn:
