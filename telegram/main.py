@@ -24,6 +24,10 @@ from shared.telegram_messages import (
     runtime_status_message,
 )
 from shared.trading_state import get_pause_state
+from shared.risk_epoch import (
+    LOSS_STREAK_HALTED, LOSS_STREAK_RECOVERY_REQUIRED, TRADING_PAUSED,
+    RecoveryRejected, loss_streak_state, operational_state, record_recovery,
+)
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
@@ -82,6 +86,7 @@ async def main():
     app.add_handler(CommandHandler("remove_whitelist", cmd_remove_whitelist))
     app.add_handler(CommandHandler("pause",            cmd_pause))
     app.add_handler(CommandHandler("resume",           cmd_resume))
+    app.add_handler(CommandHandler("recover_risk",     cmd_recover_risk))
     app.add_handler(CommandHandler("stats",            cmd_stats))
     app.add_handler(CommandHandler("performance",      cmd_performance))
     app.add_handler(CommandHandler("signals",          cmd_signals))
@@ -109,6 +114,7 @@ async def main():
             BotCommand("stats",            "📈 إحصائيات آخر 7 أيام"),
             BotCommand("pause",            "⏸️ إيقاف البوت مؤقتاً"),
             BotCommand("resume",           "▶️ استئناف البوت"),
+            BotCommand("recover_risk",     "🔑 رفع قاطع سلسلة الخسائر بإقرار"),
         ])
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
@@ -443,7 +449,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/whitelist - العملات المعتمدة\n"
         "/stats    - إحصائيات اليوم\n"
         "/pause    - إيقاف مؤقت\n"
-        "/resume   - استئناف"
+        "/resume   - استئناف\n"
+        "/recover_risk <السبب> - رفع قاطع سلسلة الخسائر بإقرار صريح"
     )
 
 @restricted
@@ -462,6 +469,18 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ) or 0
     paused, pause_reason = await get_pause_state()
 
+    # حالة بثّ الأسعار من نبضة trade_tracker. كانت تُقرأ سابقاً كمتغيّر عام
+    # بينما هي محليّة داخل can_deliver_candidate، فكان /status يرفع NameError
+    # في كل استدعاء.
+    tracker_heartbeat = await Database.fetchrow(
+        "SELECT metadata FROM service_heartbeats WHERE service_name='trade_tracker'")
+    tracker_meta = tracker_heartbeat['metadata'] if tracker_heartbeat else {}
+    if isinstance(tracker_meta, str):
+        tracker_meta = json.loads(tracker_meta)
+    stream_meta = (tracker_meta or {}).get('price_stream') or {}
+    stream_status = ('✅ لحظي' if stream_meta.get('connected')
+                     else '⚠️ REST احتياطي')
+
     # العتبات الحيّة من optimizer_settings (يحدّثها Optimizer تلقائياً)
     thresholds = await Database.fetch(
         "SELECT key, value FROM optimizer_settings "
@@ -471,8 +490,32 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     min_score = settings.get('min_score_to_signal', '—')
     min_tf    = settings.get('min_timeframe_confirmations', '—')
 
-    status = "⏸️ موقوف" if paused else "✅ يبحث ويراقب"
+    # حالة المخاطر تسبق حالة الإيقاف في العرض: رفع الإيقاف وحده يترك القبول
+    # مرفوضاً، وهذا بالضبط اللبس الذي يجب ألا يتكرر.
+    streak = await loss_streak_state()
+    op_state = operational_state(streak, paused)
+    status = {
+        LOSS_STREAK_RECOVERY_REQUIRED:
+            "🛑 قاطع سلسلة الخسائر — لا يُقبل أي دخول (يحتاج إقراراً يدوياً)",
+        LOSS_STREAK_HALTED:
+            "🛑 قاطع سلسلة الخسائر — لا يُقبل أي دخول",
+        TRADING_PAUSED: "⏸️ موقوف",
+    }.get(op_state, "✅ يبحث ويراقب")
     reason_line = f"\n🧯 سبب الإيقاف: {pause_reason}" if paused else ""
+    if streak.halt_active:
+        reason_line += (
+            f"\n🔢 الخسائر المتتالية: {streak.consecutive_losses}/{streak.halt_threshold}"
+            f"\n⚠️ الماسح قد يعمل ويولّد إشارات، لكن كل دخول جديد مرفوض"
+        )
+        if streak.manual_recovery_required:
+            reason_line += (
+                "\n🔑 لا توجد صفقة مفتوحة تستطيع كسر السلسلة تلقائياً — "
+                "الاستئناف يحتاج /recover_risk <السبب>"
+            )
+        else:
+            reason_line += (
+                f"\n⏳ {streak.open_positions} صفقة مفتوحة قد تكسر السلسلة بإغلاق رابح"
+            )
     capacity = min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
     await update.message.reply_text(
         f"📊 حالة النظام: {status}{reason_line}\n\n"
@@ -581,7 +624,64 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ON CONFLICT (date) DO UPDATE SET
             is_trading_paused=false, pause_reason='manual_resume'
     """)
+    # لا يجوز أن يبدو النظام سليماً بينما القاطع ما زال يرفض كل دخول.
+    streak = await loss_streak_state()
+    if streak.halt_active:
+        extra = (
+            f"\n\n🛑 لكن قاطع سلسلة الخسائر ما زال نشطاً "
+            f"({streak.consecutive_losses}/{streak.halt_threshold}) — "
+            f"**كل دخول جديد سيُرفض رغم الاستئناف**"
+        )
+        extra += (
+            "\n🔑 لا توجد صفقة مفتوحة تكسرها تلقائياً؛ استخدم /recover_risk <السبب>"
+            if streak.manual_recovery_required else
+            f"\n⏳ {streak.open_positions} صفقة مفتوحة قد تكسرها بإغلاق رابح"
+        )
+        await update.message.reply_text(
+            "▶️ تم رفع الإيقاف الإداري" + extra)
+        return
     await update.message.reply_text("▶️ تم استئناف البحث والسماح لحارس المخاطر بقبول صفقات جديدة")
+
+@restricted
+async def cmd_recover_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """رفع قاطع سلسلة الخسائر بإقرار صريح — /recover_risk <السبب>
+
+    ليس تصفيراً للتاريخ: الصفقات القديمة تبقى كما هي، ويُسجَّل الإقرار نفسه
+    في risk_recovery_events. يبدأ العدّ من حدود الحقبة الجديدة فقط.
+    """
+    reason = ' '.join(context.args or []).strip()
+    if not reason:
+        await update.message.reply_text(
+            "⚠️ الاستئناف بعد قاطع سلسلة الخسائر يحتاج سبباً صريحاً\n"
+            "مثال: /recover_risk راجعت الصفقات التسع ولا يوجد خلل تنفيذي\n\n"
+            "🛡️ هذا إقرار مسؤول يُسجَّل باسمك، وليس تصفيراً للسجل"
+        )
+        return
+    state = await loss_streak_state()
+    try:
+        event = await record_recovery(
+            acknowledged_by=str(update.effective_chat.id), reason=reason)
+    except RecoveryRejected as exc:
+        await update.message.reply_text(
+            f"⛔ تعذّر رفع القاطع: {exc}\n\n"
+            f"🔢 السلسلة الحالية: {state.consecutive_losses}/{state.halt_threshold}\n"
+            f"📂 صفقات مفتوحة: {state.open_positions}"
+        )
+        return
+    paused, _ = await get_pause_state()
+    next_step = (
+        "\n\n▶️ التداول ما زال موقوفاً إدارياً — استخدم /resume لاستئناف البحث"
+        if paused else ""
+    )
+    await update.message.reply_text(
+        f"✅ تم رفع قاطع سلسلة الخسائر بإقرار صريح (سجل #{event['id']})\n\n"
+        f"🔢 السلسلة قبل الإقرار: {event['consecutive_losses_before']}\n"
+        f"📝 السبب: {event['reason']}\n"
+        f"🕒 بداية الحقبة الجديدة: {event['epoch_started_at']:%Y-%m-%d %H:%M} UTC\n\n"
+        f"🗂️ لم يُحذف أي سجل؛ الصفقات السابقة تبقى للتدقيق"
+        f"{next_step}"
+    )
+
 
 @restricted
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):

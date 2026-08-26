@@ -162,6 +162,8 @@ CREATE TABLE IF NOT EXISTS learning_log (
 );
 
 -- جدول حماية رأس المال
+-- ملاحظة: consecutive_losses هنا عرض/تليمتري فقط ولا يُقرأ في قرار القبول.
+-- المصدر الوحيد للحقيقة هو إعادة البناء من trade_results في shared/risk_epoch.py.
 CREATE TABLE IF NOT EXISTS risk_management (
     id SERIAL PRIMARY KEY,
     date DATE UNIQUE DEFAULT CURRENT_DATE,
@@ -173,6 +175,26 @@ CREATE TABLE IF NOT EXISTS risk_management (
     is_trading_paused BOOLEAN DEFAULT false,
     pause_reason TEXT
 );
+
+-- حدود حقبة سلسلة الخسائر: إقرار صريح مدقَّق يرفع القاطع الصلب من دون حذف
+-- أي سجل. جدول فارغ = لا حقبة = السلوك السابق تماماً (fail-safe).
+-- قيد open_positions_at_recovery=0 يضمن سلامة القيمة المسجَّلة فقط؛ ضمان أن
+-- المحفظة كانت خالية فعلاً يأتي من pg_advisory_xact_lock المشترك.
+CREATE TABLE IF NOT EXISTS risk_recovery_events (
+    id SERIAL PRIMARY KEY,
+    epoch_started_at TIMESTAMPTZ NOT NULL,
+    acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    acknowledged_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    halt_reason TEXT NOT NULL,
+    consecutive_losses_before INTEGER NOT NULL,
+    open_positions_at_recovery INTEGER NOT NULL,
+    CONSTRAINT risk_recovery_reason_not_blank CHECK (btrim(reason) <> ''),
+    CONSTRAINT risk_recovery_actor_not_blank CHECK (btrim(acknowledged_by) <> ''),
+    CONSTRAINT risk_recovery_requires_flat_book CHECK (open_positions_at_recovery = 0)
+);
+CREATE INDEX IF NOT EXISTS idx_risk_recovery_epoch
+    ON risk_recovery_events (epoch_started_at DESC);
 
 -- جدول القائمة السوداء (العملات المرفوضة نهائياً - لا تُحلَّل ولا تُرسل)
 CREATE TABLE IF NOT EXISTS symbol_blacklist (

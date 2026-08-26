@@ -24,6 +24,10 @@ from shared.entry_execution import decide_long_entry
 from shared.partial_exits import aggregate_close, fills_between
 from shared.signal_stop import candle_invalidated
 from shared.risk_management import RiskLimits, RiskSnapshot, evaluate_new_trade
+from shared.risk_epoch import (
+    acquire_risk_admission_lock, effective_risk_start, loss_streak_halt_active,
+    tail_loss_streak,
+)
 from shared.trading_state import get_pause_state
 from shared.triple_barrier import (
     create_config_from_trade,
@@ -357,6 +361,19 @@ async def register_new_signals():
         expiry_h, t1_expiry_h, no_t1_expiry_h = expiry_policy_for_timeframe(sig['timeframe'])
         async with Database.acquire() as conn:
             async with conn.transaction():
+                # Same advisory lock /recover_risk takes. Held only across the
+                # halt re-check and the row that makes the position real, so a
+                # recovery can never be acknowledged on a flat-book assumption
+                # that this insert is about to invalidate.
+                await acquire_risk_admission_lock(conn)
+                if await loss_streak_halt_active(conn):
+                    # A recovery/halt transition landed between the risk check
+                    # above and this lock; re-verify rather than trust the
+                    # earlier read.
+                    logger.warning(
+                        f"⛔ إلغاء فتح {sig['symbol']}: قاطع سلسلة الخسائر أصبح نشطاً "
+                        f"قبل تثبيت الصفقة")
+                    continue
                 trade_id = await conn.fetchval("""
                     INSERT INTO active_trades
                     (signal_id, symbol, entry_price, target_1, target_2, target_3,
@@ -391,9 +408,10 @@ async def register_new_signals():
 async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
                                 regime: str | None = None):
     """Build a UTC, net-of-cost portfolio snapshot and evaluate one admission."""
-    risk_start = datetime.fromisoformat(config.LEARNING_CLEAN_START.replace('Z', '+00:00'))
-    if risk_start.tzinfo is None:
-        risk_start = risk_start.replace(tzinfo=timezone.utc)
+    # Same helper the status/telemetry surfaces read, so a displayed streak can
+    # never disagree with the streak this admission actually uses. With no
+    # acknowledged recovery on record this equals LEARNING_CLEAN_START exactly.
+    risk_start = await effective_risk_start()
     results = await Database.fetch("""
         SELECT profit_usdt, result, exit_time
         FROM trade_results
@@ -430,11 +448,7 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
             weekly += net
         net_results.append(net)
 
-    consecutive_losses = 0
-    for net in reversed(net_results):
-        if net >= 0:
-            break
-        consecutive_losses += 1
+    consecutive_losses = tail_loss_streak(net_results)
 
     unrealized = 0.0
     for trade in open_trades:
