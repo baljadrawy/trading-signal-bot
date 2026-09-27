@@ -1,0 +1,21 @@
+# Implementation Roadmap / خطة التنفيذ
+**As of 2026-09-27.** This roadmap documents intent, not authorization to run services, migrate production or trade.
+
+| Phase | Work | Exit gate |
+|---|---|---|
+| P1 | Forward instrumentation: candidate IDs, append-only decision events, rejected geometry, no-trade/macro cycles, B3 admission, Telegram refusals, NO_FILL, quality/reconciliation. | Frozen strategy decision parity; complete isolated tests; review before merge/deploy. |
+| P2 | Historical snapshot audit and independent forward market collector; PIT macro/breadth/liquidity coverage and Parquet/DuckDB as-of research layer. | Document gaps, lineage, coverage and quality; no sealed-holdout access. |
+| P2 Research | Define and label drawdown/rally/breakout/regime events over predeclared horizons; historical neighbor search; simple probabilistic baselines. | Time-purged walk-forward evaluation; independent episode counts; reproducible artifacts. |
+| P3 | Paper readiness: B3/risk recovery tests, operational monitoring, data quality, P0 risk review, backup and failure drills. | Owner separately approves any paper restart. |
+| P4 | Prospective paper observation and prediction shadow logging. | Predeclared duration, quality and risk gates; independent outcome measurement. |
+| P5 | Shadow ML for regime, historical similarity, downside/upside and candidate quality. | Calibrated, prospective benefit over baselines; no production decision influence. |
+| P6 (future) | Versioned `RiskRecommendation` + deterministic `RiskPolicyGate`; first shadow counterfactuals, then owner-approved paper A/B or sequential evaluation. | Demonstrated net risk-adjusted benefit, stable failure modes, explicit owner activation. |
+| P7 (future) | Web command center/ML Lab and operator approval workflows. | Secure authorization, auditability and reliable underlying data. |
+| Separate future track | Execution-bot integration/live gateway. | Separate architecture review, execution parity, safety/reconciliation and explicit live authorization. |
+
+## Phase-change rules
+- Complete and verify the current phase before expanding scope; parallel independent P2 data collection is allowed if it does not change production.
+- Research data/labels from old strategy versions may inform **market studies**, not train a current-strategy trade-quality model without policy-version controls.
+- High predicted downside: proposed reduction in *new* trade count/stake/exposure; high predicted upside: proposed restoration of suppressed opportunities within existing caps. Both are **advice only** until P6 approval.
+- Failure of ML or missing/stale context must never weaken B3, resume halted paper, or enable live trading.
+- Record every new idea in IDEA_REGISTER and every owner-approved change in DECISION_LOG before modifying the roadmap.
