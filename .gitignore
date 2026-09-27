@@ -65,3 +65,9 @@ research/skill_application/data/*.parquet
 research/skill_application/data/*.log
 research/skill_application/data/*.done
 *.joblib
+
+# Immutable research datasets/runs are external artifacts; commit manifests/templates only.
+research/datasets/*/
+research/runs/*/
+!research/datasets/.gitkeep
+!research/runs/.gitkeep
