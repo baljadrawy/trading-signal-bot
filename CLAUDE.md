@@ -43,3 +43,6 @@ After returning the P1 instrumentation report, inventory dependencies and verify
 
 ## Shared production/development host — mandatory 2026-09-27
 Owner confirmed **one host for both development and production**. Separate worktrees and temporary Docker containers are NOT independent staging. Read [Single-host Safety](docs/product/SINGLE_HOST_SAFETY.md) before any operation. The post-P1 dependency audit is read-only: no installs, builds, disposable databases, heavy tests, service recreation or production mutations. Request explicit owner approval and a resource-bounded isolation plan before any active experiment. Never reuse production DB, secrets, networks or writable mounts for tests.
+
+## Single canonical branch and safe GitHub cleanup — owner direction 2026-09-27
+Read [Repository Consolidation](docs/product/REPOSITORY_CONSOLIDATION.md) and ADR-011. Target one long-lived `main` branch; temporary PR branches are permitted only until review/merge. Audit all 13 existing branches, unique commits, workflow/deployment refs, deployed overlays and dead-code candidates **read-only** before proposing deletions. Do not delete branches/files, merge P1, change the default branch, force-push or touch production without a separately approved deletion/consolidation plan. Retain immutable rollback tags and restorable backups.
