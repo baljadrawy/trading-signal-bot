@@ -7,6 +7,7 @@
 2. [Decision Log](docs/product/DECISION_LOG.md)
 3. [Implementation Roadmap](docs/product/IMPLEMENTATION_ROADMAP.md)
 4. [Idea Register](docs/product/IDEA_REGISTER.md)
+5. [Dependency & Runtime Currency Policy](docs/product/DEPENDENCY_POLICY.md)
 
 Older README, docs/claude/live-learning.md and strategy-history documents may describe superseded operations. **Do not treat old "live learning", daily auto-optimization or active paper trading claims as current.** If old docs conflict with the owner-approved charter, stop and surface the conflict instead of silently changing strategy or scope.
 
@@ -36,3 +37,6 @@ Older README, docs/claude/live-learning.md and strategy-history documents may de
 - [Strategy history](docs/claude/strategy-history.md)
 - [Edge research foundation](docs/edge_research_foundation.md)
 - [Development log](DEV_LOG.md)
+
+## Dependency policy — owner decision 2026-09-27
+After returning the P1 instrumentation report, inventory dependencies and verify the **then-current** latest stable, supported and security-maintained compatible versions from upstream sources. Do not upgrade packages during P1 without explicit scope approval. Propose a separate reproducibly pinned upgrade PR, with aarch64/Python compatibility, CVE review, full B3 tests, numerical/strategy decision parity, resource benchmarks and rollback. Never auto-deploy or auto-restart the halted bot. Read [Dependency Policy](docs/product/DEPENDENCY_POLICY.md).
