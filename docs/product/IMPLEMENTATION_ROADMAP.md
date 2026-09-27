@@ -22,3 +22,6 @@
 
 ## Dependency modernization checkpoint (owner-approved 2026-09-27)
 After Claude delivers the P1 report, inventory actual service dependencies and verify the latest stable supported compatible releases **at that date**. Follow [DEPENDENCY_POLICY](DEPENDENCY_POLICY.md). Keep upgrades in a separate branch/PR from P1 instrumentation; test ARM64 compatibility, B3 and strategy parity, security and rollback. Do not silently upgrade production, restart services or resume paper trading.
+
+## P1 delivery checkpoint — reported 2026-09-27
+Claude reports `feature/forward-instrumentation@23dea904a852` implemented and pushed (22 changed files), with 999 passed/3 skipped in both recorder modes and 24 Telegram-environment tests. GitHub confirms the branch and changed files; **independent test reproduction, rebuilt-image validation, owner merge approval and deployment are still pending**. The branch is default-off; production paper trading remains HALTED. The additive `analysis_data.pit` and `features_snapshot.identity` JSON changes should be reviewed as distinct from the recorder toggle. V1 remains active for comparison until v2 forward data and backup/retention are validated. See [initial post-P1 dependency inventory](DEPENDENCY_AUDIT_2026-09-27_INITIAL.md) and [dependency policy](DEPENDENCY_POLICY.md).
