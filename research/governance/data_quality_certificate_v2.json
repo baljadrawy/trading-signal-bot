@@ -1,0 +1,30 @@
+{
+  "15m_status": "PASS",
+  "checksum_status": "UPSTREAM_VERIFIED",
+  "critical_failures": [
+    "HISTORICAL_USDT_DOMINANCE_MISSING"
+  ],
+  "dataset_id": "ds-09284abbc6453ff59acd",
+  "dataset_manifest_sha256": "a7c8eee1ecbd05eef3e28b1a40bd7199cc3fb9ac71ab3aac2c84ac0ca6a33b09",
+  "determinism_status": "PASS",
+  "eligible_for_phase2": false,
+  "execution_fidelity": "TIER_3_DOCUMENTED_CONSERVATIVE_PROXY",
+  "holdout_look_count": 0,
+  "holdout_status": "SEALED",
+  "knowledge_cutoff": "2026-08-19T09:33:46Z",
+  "leakage_status": "PASS",
+  "macro_status": "MACRO_DATA_UNAVAILABLE",
+  "normalized_status": "PASS_WITH_RECORDED_SOURCE_ROW_EXCLUSIONS",
+  "old_dataset_manifest_unchanged": true,
+  "replay_status": "BLOCKED_MACRO_DATA_UNAVAILABLE",
+  "status": "FAIL",
+  "supersedes_dataset_id": "ds-d82b982e7221e2dcc7b7",
+  "survivorship_status": "MATERIAL_SURVIVORSHIP_LIMITATION",
+  "technical_validation_artifact": "/home/tradmin/research-data/trading-signal-bot/certification/ds-09284abbc6453ff59acd_technical_validation.json",
+  "universe_status": "PARTIALLY_POINT_IN_TIME_CONTROLLED",
+  "warnings": [
+    "MATERIAL_SURVIVORSHIP_LIMITATION",
+    "EXECUTION_PROXY_NOT_CALIBRATED",
+    "MANDATORY_PHASE2_COST_AND_SLIPPAGE_STRESS_IF_EVENTUALLY_UNLOCKED"
+  ]
+}

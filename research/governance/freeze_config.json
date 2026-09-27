@@ -1,0 +1,17 @@
+{
+  "historical_partition": {
+    "discovery": {
+      "end": "2026-05-31T23:59:59.999999Z",
+      "start": "2017-08-01T00:00:00Z",
+      "trust": "RESEARCH_CONTAMINATED"
+    },
+    "validation": {
+      "status": "HISTORICAL_VALIDATION_CONTAMINATED"
+    }
+  },
+  "macro_mode": "MACRO_DATA_UNAVAILABLE",
+  "requested_timeframes": ["15m", "4h", "1d"],
+  "spread_mode": "SPREAD_UNAVAILABLE",
+  "universe_completeness": "PARTIAL_POINT_IN_TIME",
+  "warmup_candles": 100
+}

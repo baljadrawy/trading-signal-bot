@@ -1,0 +1,25 @@
+{
+  "historical_end": "2026-05-31T23:59:59.999999Z",
+  "knowledge_cutoff": "2026-08-19T09:33:46Z",
+  "macro": {
+    "definition": "USDT market cap / total crypto market cap * 100",
+    "mode": "MACRO_DATA_UNAVAILABLE",
+    "required_by_production_contract": true
+  },
+  "normalization": {
+    "gap_policy": "PRESERVE",
+    "invalid_source_row_policy": "EXCLUDE_WITH_REASON_AND_COUNT",
+    "output": "PARQUET_ZSTD",
+    "timezone": "UTC"
+  },
+  "raw_source": "Binance Public Data monthly spot klines",
+  "required_timeframes": ["15m", "1h", "4h", "1d"],
+  "spread_mode": "TIER_3_DOCUMENTED_CONSERVATIVE_PROXY",
+  "supersedes_dataset_id": "ds-d82b982e7221e2dcc7b7",
+  "universe": {
+    "event_source": "Binance Public Data presence",
+    "listing_evidence": "FIRST_TRADE_OBSERVED_NOT_LISTING_ANNOUNCEMENT",
+    "missing_tail_evidence": "INFERRED_LAST_DATA",
+    "survivorship_status": "MATERIAL_SURVIVORSHIP_LIMITATION"
+  }
+}

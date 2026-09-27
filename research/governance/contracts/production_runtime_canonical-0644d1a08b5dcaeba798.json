@@ -1,0 +1,221 @@
+{
+  "captured_at": "2026-08-19T17:21:31.668474+00:00",
+  "contract": {
+    "cost": {
+      "baseline_components": {
+        "entry_fee": 0.001,
+        "exit_fee": 0.001,
+        "slippage": 0.0005,
+        "spread_cost": 0.0005
+      },
+      "roundtrip_cost": 0.003,
+      "stop_slippage": 0.001
+    },
+    "direction": "long_only",
+    "entry": {
+      "momentum": {
+        "breakout_n": 20,
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "regime": "bullish",
+        "volume_multiplier": 1.2,
+        "volume_n": 20
+      },
+      "reversion": {
+        "bollinger_n": 20,
+        "bollinger_position_max": 0.2,
+        "bollinger_std": 2.0,
+        "regime": "sideways",
+        "requires_bullish_candle": true,
+        "requires_close_above_previous": true,
+        "rsi_max": 35.0,
+        "rsi_n": 14
+      }
+    },
+    "execution_filters": {
+      "historical_spread_modes": [
+        "HISTORICAL_ORDERBOOK",
+        "HISTORICAL_SPREAD_PROXY",
+        "NO_SPREAD_DATA"
+      ],
+      "max_spread_pct": 0.15,
+      "orderbook_required": true
+    },
+    "logic_sources": {
+      "trading_analyzer:/app/shared/regime.py": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+      "trading_analyzer:/app/shared/signal_stop.py": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+      "trading_analyzer:/app/simple_entry.py": "fba7ecb40b602ea4096072824b8e9dc8dcca1c14dad1e87523161aec413bad15",
+      "trading_analyzer:/app/technical_analyzer.py": "34c976e8080d1a2cec1987d0c184f7c68e0e38367a6436f74fd3f3fae74af6be",
+      "trading_scanner:/app/scanner_logic.py": "4db6101af9ca35c00488cc37cdd0cc45dcbcb0dc9b09b02ecbd6a4d81148d357",
+      "trading_signal_engine:/app/signal_logic.py": "9091d741d4222095e0c086f674c0f694f28b3b828c90639f320e05593a97a8ff",
+      "trading_tracker:/app/main.py": "07f4b38b8b0c5edb8112cb26171a20d843007fd5d6e46c1aa5a09b6a0677412e",
+      "trading_tracker:/app/shared/execution.py": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+      "trading_tracker:/app/shared/partial_exits.py": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+      "trading_tracker:/app/shared/risk_management.py": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+      "trading_tracker:/app/shared/triple_barrier.py": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff"
+    },
+    "macro": {
+      "missing_policy": "MACRO_DATA_UNAVAILABLE",
+      "required": true
+    },
+    "position": {
+      "candle_invalidation_before_t1": true,
+      "expiry_hours": {
+        "15m": [
+          48.0,
+          24.0,
+          12.0
+        ],
+        "1d": [
+          240.0,
+          120.0,
+          72.0
+        ],
+        "4h": [
+          96.0,
+          48.0,
+          24.0
+        ]
+      },
+      "intrabar_default": "CONSERVATIVE",
+      "trail_stop_pct": 2.5
+    },
+    "regime": {
+      "adx_n": 14,
+      "adx_range": 20.0,
+      "adx_trend": 25.0,
+      "atr_n": 14,
+      "ema_n": 20,
+      "high_vol_percentile": 0.75,
+      "slope_bars": 5,
+      "vol_lookback": 100
+    },
+    "risk": {
+      "capital_usdt": 500.0,
+      "loss_halt_count": 7,
+      "max_daily_loss_pct": 3.0,
+      "max_drawdown_pct": 15.0,
+      "max_gross_exposure_pct": 80.0,
+      "max_open_trades": 2,
+      "max_regime_exposure_pct": 50.0,
+      "max_strategy_exposure_pct": 40.0,
+      "max_symbol_exposure_pct": 10.0,
+      "max_weekly_loss_pct": 10.0,
+      "trade_amount_usdt": 50.0
+    },
+    "schema_version": "1.0.0",
+    "stop": {
+      "atr_buffer": 0.25,
+      "max_risk_pct": {
+        "15m": 2.0,
+        "1d": 3.0,
+        "4h": 5.0
+      },
+      "minimum_atr_distance": 1.0
+    },
+    "targets": {
+      "fractions": {
+        "1": 0.25,
+        "2": 0.5,
+        "3": 0.25
+      },
+      "min_notional_usdt": 5.0,
+      "r_multiples": {
+        "1": 1.0,
+        "2": 1.8,
+        "3": 2.2
+      },
+      "t1_resistance_cap_factor": 0.99
+    },
+    "timeframes": [
+      "15m",
+      "4h",
+      "1d"
+    ],
+    "universe": {
+      "excluded_symbols": [
+        "BUSDUSDT",
+        "TUSDUSDT",
+        "USDCUSDT"
+      ],
+      "min_abs_change_24h_pct": 1.0,
+      "min_quote_volume_24h": 10000000.0,
+      "quote_asset": "USDT",
+      "status": "TRADING",
+      "strong_bearish_min_abs_change_pct": 5.0
+    }
+  },
+  "contract_hash": "0644d1a08b5dcaeba798be992e55bd65357b349dd8461d907c78fb195c4a76a5",
+  "contract_id": "production_runtime_canonical-0644d1a08b5dcaeba798",
+  "contract_schema_version": "1.0.0",
+  "git_dirty": true,
+  "git_sha": "63da7d31daef2b952c695b256f81cf174b6451a8",
+  "parent_contract_id": null,
+  "provenance": {
+    "config_sources": {
+      "trading_analyzer": {
+        "command": [
+          "python",
+          "-u",
+          "main.py"
+        ],
+        "compose_config": "/home/tradmin/trading-signal-bot/docker-compose.yml",
+        "compose_service": "analyzer",
+        "container": "trading_analyzer",
+        "image": "trading-signal-bot-analyzer",
+        "image_id": "sha256:ce305ecd7760e900181fc2d6eec6bea8d54f7c5cfd2099a3bda2532e06e52ce8",
+        "started_at": "2026-08-19T08:32:53.178388985Z"
+      },
+      "trading_scanner": {
+        "command": [
+          "python",
+          "-u",
+          "main.py"
+        ],
+        "compose_config": "/home/tradmin/trading-signal-bot/docker-compose.yml",
+        "compose_service": "scanner",
+        "container": "trading_scanner",
+        "image": "trading-signal-bot-scanner",
+        "image_id": "sha256:4d59ba3d6e793fdddfead7c2f153d82c3aaf7586925b2e20e77afd2b41f07947",
+        "started_at": "2026-08-18T17:24:15.772598827Z"
+      },
+      "trading_signal_engine": {
+        "command": [
+          "python",
+          "-u",
+          "main.py"
+        ],
+        "compose_config": "/home/tradmin/trading-signal-bot/docker-compose.yml",
+        "compose_service": "signal_engine",
+        "container": "trading_signal_engine",
+        "image": "trading-signal-bot-signal_engine",
+        "image_id": "sha256:b3d4b62366546682ff1fe85c360a79e2028291fcf7f06f4c268b86af0971efa0",
+        "started_at": "2026-08-19T08:32:53.211531098Z"
+      },
+      "trading_tracker": {
+        "command": [
+          "python",
+          "-u",
+          "main.py"
+        ],
+        "compose_config": "/home/tradmin/trading-signal-bot/docker-compose.yml",
+        "compose_service": "trade_tracker",
+        "container": "trading_tracker",
+        "image": "trading-signal-bot-trade_tracker",
+        "image_id": "sha256:d291f64e079515ad0be8a566484444dd546d8ca762fbc87ad7a91ba6179eab50",
+        "started_at": "2026-08-19T08:32:53.224527396Z"
+      }
+    },
+    "disclosure": "CURRENT_RUNTIME_CONTRACT_REBASED_AFTER_KNOWLEDGE_FREEZE",
+    "knowledge_freeze": "2026-08-19T09:33:46Z",
+    "risk.max_open_trades": {
+      "source": "trading_tracker:min(MAX_OPEN_TRADES,RISK_CANARY_MAX_OPEN_TRADES)"
+    },
+    "runtime_mode": "active docker compose production services",
+    "timeframes": {
+      "source": "trading_analyzer:shared.config.Config.TIMEFRAMES"
+    }
+  },
+  "runtime_config_hash": "0d72084ebacf58329396ea61244bab3803b92de2e67295e3b82e86c6c60c3285",
+  "status": "PRODUCTION_RUNTIME_CANONICAL"
+}

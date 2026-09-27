@@ -1,0 +1,11 @@
+{
+  "experiment_ids": [],
+  "freeze_timestamp": "2026-08-19T09:33:46Z",
+  "git_sha": null,
+  "holdout_look_count": 0,
+  "hypothesis_ids": [],
+  "opened_at": null,
+  "opened_by": null,
+  "reason": null,
+  "status": "SEALED"
+}

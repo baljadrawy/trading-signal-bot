@@ -1,0 +1,15 @@
+{
+  "config_hash": "0630d94198c9d611931dfb7d42af6e3983573375fe03fe0b3f1fb8e5a807ae10",
+  "dataset_id": "ds-d82b982e7221e2dcc7b7",
+  "dataset_manifest_hash": "af26dc74c9cfccea5248b363ad0043f8dedad13383f2e8524a97d871226081c1",
+  "freeze_config_snapshot": "research/governance/freeze_config.json",
+  "freeze_git_dirty": true,
+  "freeze_git_sha": "63da7d31daef2b952c695b256f81cf174b6451a8",
+  "freeze_strategy_contract_hash": "f8e59381cd0c8d3632309cb8d28f3e3ccfe60e4200066d560b82047ae7644de9",
+  "holdout_policy_version": "1.0.0",
+  "knowledge_cutoff": "2026-08-19T09:33:46Z",
+  "partition_policy_version": "1.0.0",
+  "raw_file_index_content_hash": "afd6d5806aaf21707c313cb9cb110fc141d0205c0ab407aba677c007d2d9fe92",
+  "raw_file_index_file_hash": "179f7f123571a359fe3a7a0e89c0a081e6c983715445445a7839ad616e063679",
+  "research_freeze_timestamp_utc": "2026-08-19T09:33:46Z"
+}

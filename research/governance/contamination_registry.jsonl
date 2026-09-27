@@ -1,0 +1,4 @@
+{"contamination_level":"KNOWN_RESEARCHED","evidence":"Repository artifacts and owner disclosure","period_end":"2025-12-31T23:59:59Z","period_start":"2023-01-01T00:00:00Z","reason":"Historical strategy and momentum/reversion research reviewed these years"}
+{"contamination_level":"KNOWN_RESEARCHED","evidence":"Repository July/August reports and owner disclosure","period_end":"2026-08-19T09:33:46Z","period_start":"2026-07-01T00:00:00Z","reason":"Results were observed before the research freeze"}
+{"contamination_level":"LIKELY_RESEARCHED","evidence":"Legacy backtests span older archive data but provenance is incomplete","period_end":"2022-12-31T23:59:59Z","period_start":"2017-08-01T00:00:00Z","reason":"Cannot prove this period remained unseen"}
+{"contamination_level":"CLEAN_FORWARD_ONLY","evidence":"Data did not exist at freeze time","period_end":null,"period_start":"2026-08-19T09:33:46.000001Z","reason":"Eligible for sealed forward holdout ingestion only"}

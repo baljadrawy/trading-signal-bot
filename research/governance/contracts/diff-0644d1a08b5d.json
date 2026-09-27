@@ -1,0 +1,142 @@
+{
+  "legacy_vs_runtime": {
+    "differences": [
+      {
+        "live": "fba7ecb40b602ea4096072824b8e9dc8dcca1c14dad1e87523161aec413bad15",
+        "path": "logic_sources.analyzer/simple_entry.py",
+        "research": null
+      },
+      {
+        "live": "4db6101af9ca35c00488cc37cdd0cc45dcbcb0dc9b09b02ecbd6a4d81148d357",
+        "path": "logic_sources.scanner/scanner_logic.py",
+        "research": null
+      },
+      {
+        "live": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+        "path": "logic_sources.shared/partial_exits.py",
+        "research": null
+      },
+      {
+        "live": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+        "path": "logic_sources.shared/regime.py",
+        "research": null
+      },
+      {
+        "live": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+        "path": "logic_sources.shared/risk_management.py",
+        "research": null
+      },
+      {
+        "live": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+        "path": "logic_sources.shared/signal_stop.py",
+        "research": null
+      },
+      {
+        "live": "398183aa93856f167650fe28e421ed039f31a8f3111a670e05df202e62cd1f93",
+        "path": "logic_sources.shared/strategy_math.py",
+        "research": null
+      },
+      {
+        "live": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+        "path": "logic_sources.shared/triple_barrier.py",
+        "research": null
+      },
+      {
+        "live": "9091d741d4222095e0c086f674c0f694f28b3b828c90639f320e05593a97a8ff",
+        "path": "logic_sources.signal_engine/signal_logic.py",
+        "research": null
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_analyzer:/app/shared/regime.py",
+        "research": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_analyzer:/app/shared/signal_stop.py",
+        "research": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_analyzer:/app/simple_entry.py",
+        "research": "fba7ecb40b602ea4096072824b8e9dc8dcca1c14dad1e87523161aec413bad15"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_analyzer:/app/technical_analyzer.py",
+        "research": "34c976e8080d1a2cec1987d0c184f7c68e0e38367a6436f74fd3f3fae74af6be"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_scanner:/app/scanner_logic.py",
+        "research": "4db6101af9ca35c00488cc37cdd0cc45dcbcb0dc9b09b02ecbd6a4d81148d357"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_signal_engine:/app/signal_logic.py",
+        "research": "9091d741d4222095e0c086f674c0f694f28b3b828c90639f320e05593a97a8ff"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_tracker:/app/main.py",
+        "research": "07f4b38b8b0c5edb8112cb26171a20d843007fd5d6e46c1aa5a09b6a0677412e"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_tracker:/app/shared/execution.py",
+        "research": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_tracker:/app/shared/partial_exits.py",
+        "research": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_tracker:/app/shared/risk_management.py",
+        "research": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead"
+      },
+      {
+        "live": null,
+        "path": "logic_sources.trading_tracker:/app/shared/triple_barrier.py",
+        "research": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff"
+      }
+    ],
+    "live_hash": "f8e59381cd0c8d3632309cb8d28f3e3ccfe60e4200066d560b82047ae7644de9",
+    "match": false,
+    "research_hash": "0644d1a08b5dcaeba798be992e55bd65357b349dd8461d907c78fb195c4a76a5",
+    "status": "RESEARCH CONTRACT DOES NOT MATCH LIVE CONTRACT"
+  },
+  "production_vs_research": {
+    "allowed_paths": [
+      "macro.admission_behavior",
+      "macro.mode",
+      "macro.required"
+    ],
+    "differences": [
+      {
+        "live": null,
+        "path": "macro.admission_behavior",
+        "research": "BYPASSED_BY_RESEARCH_ABLATION"
+      },
+      {
+        "live": null,
+        "path": "macro.mode",
+        "research": "MACRO_DISABLED_RESEARCH_ABLATION"
+      },
+      {
+        "live": true,
+        "path": "macro.required",
+        "research": false
+      }
+    ],
+    "missing_paths": [],
+    "observed_paths": [
+      "macro.admission_behavior",
+      "macro.mode",
+      "macro.required"
+    ],
+    "status": "PASS",
+    "unexpected_paths": []
+  }
+}

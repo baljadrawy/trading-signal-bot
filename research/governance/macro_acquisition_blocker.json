@@ -1,0 +1,19 @@
+{
+  "checked_at_utc": "2026-08-19T13:28:48Z",
+  "credential_class": "COINMARKETCAP_PLAN_WITH_12_MONTH_HISTORY",
+  "credential_present": true,
+  "credential_valid": true,
+  "credential_values_logged": false,
+  "historical_endpoint_checks": {
+    "global_metrics_quotes_historical": "HTTP_400_HISTORY_LIMIT_12_MONTHS",
+    "tether_quotes_historical": "HTTP_400_HISTORY_LIMIT_12_MONTHS"
+  },
+  "historical_end": "2026-05-31T23:59:59.999999Z",
+  "knowledge_cutoff": "2026-08-19T09:33:46Z",
+  "preferred_provider": "CoinMarketCap",
+  "provider_asset_id": "825",
+  "required_environment_variable": "CMC_PRO_API_KEY_WITH_FULL_REQUIRED_HISTORY",
+  "status": "MACRO_HISTORICAL_COVERAGE_ENTITLEMENT_REQUIRED",
+  "stop_condition": "PROVIDER_PLAN_HISTORY_SHORTER_THAN_REQUIRED_DATASET_RANGE",
+  "target_definition": "USDT market cap / total crypto market cap * 100"
+}

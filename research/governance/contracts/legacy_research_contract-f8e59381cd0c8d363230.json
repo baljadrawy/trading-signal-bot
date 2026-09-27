@@ -1,0 +1,159 @@
+{
+  "captured_at": "2026-08-19T17:21:31.668474+00:00",
+  "contract": {
+    "cost": {
+      "baseline_components": {
+        "entry_fee": 0.001,
+        "exit_fee": 0.001,
+        "slippage": 0.0005,
+        "spread_cost": 0.0005
+      },
+      "roundtrip_cost": 0.003,
+      "stop_slippage": 0.001
+    },
+    "direction": "long_only",
+    "entry": {
+      "momentum": {
+        "breakout_n": 20,
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "regime": "bullish",
+        "volume_multiplier": 1.2,
+        "volume_n": 20
+      },
+      "reversion": {
+        "bollinger_n": 20,
+        "bollinger_position_max": 0.2,
+        "bollinger_std": 2.0,
+        "regime": "sideways",
+        "requires_bullish_candle": true,
+        "requires_close_above_previous": true,
+        "rsi_max": 35.0,
+        "rsi_n": 14
+      }
+    },
+    "execution_filters": {
+      "historical_spread_modes": [
+        "HISTORICAL_ORDERBOOK",
+        "HISTORICAL_SPREAD_PROXY",
+        "NO_SPREAD_DATA"
+      ],
+      "max_spread_pct": 0.15,
+      "orderbook_required": true
+    },
+    "logic_sources": {
+      "analyzer/simple_entry.py": "fba7ecb40b602ea4096072824b8e9dc8dcca1c14dad1e87523161aec413bad15",
+      "scanner/scanner_logic.py": "4db6101af9ca35c00488cc37cdd0cc45dcbcb0dc9b09b02ecbd6a4d81148d357",
+      "shared/partial_exits.py": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+      "shared/regime.py": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+      "shared/risk_management.py": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+      "shared/signal_stop.py": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+      "shared/strategy_math.py": "398183aa93856f167650fe28e421ed039f31a8f3111a670e05df202e62cd1f93",
+      "shared/triple_barrier.py": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+      "signal_engine/signal_logic.py": "9091d741d4222095e0c086f674c0f694f28b3b828c90639f320e05593a97a8ff"
+    },
+    "macro": {
+      "missing_policy": "MACRO_DATA_UNAVAILABLE",
+      "required": true
+    },
+    "position": {
+      "candle_invalidation_before_t1": true,
+      "expiry_hours": {
+        "15m": [
+          48.0,
+          24.0,
+          12.0
+        ],
+        "1d": [
+          240.0,
+          120.0,
+          72.0
+        ],
+        "4h": [
+          96.0,
+          48.0,
+          24.0
+        ]
+      },
+      "intrabar_default": "CONSERVATIVE",
+      "trail_stop_pct": 2.5
+    },
+    "regime": {
+      "adx_n": 14,
+      "adx_range": 20.0,
+      "adx_trend": 25.0,
+      "atr_n": 14,
+      "ema_n": 20,
+      "high_vol_percentile": 0.75,
+      "slope_bars": 5,
+      "vol_lookback": 100
+    },
+    "risk": {
+      "capital_usdt": 500.0,
+      "loss_halt_count": 7,
+      "max_daily_loss_pct": 3.0,
+      "max_drawdown_pct": 15.0,
+      "max_gross_exposure_pct": 80.0,
+      "max_open_trades": 2,
+      "max_regime_exposure_pct": 50.0,
+      "max_strategy_exposure_pct": 40.0,
+      "max_symbol_exposure_pct": 10.0,
+      "max_weekly_loss_pct": 10.0,
+      "trade_amount_usdt": 50.0
+    },
+    "schema_version": "1.0.0",
+    "stop": {
+      "atr_buffer": 0.25,
+      "max_risk_pct": {
+        "15m": 2.0,
+        "1d": 3.0,
+        "4h": 5.0
+      },
+      "minimum_atr_distance": 1.0
+    },
+    "targets": {
+      "fractions": {
+        "1": 0.25,
+        "2": 0.5,
+        "3": 0.25
+      },
+      "min_notional_usdt": 5.0,
+      "r_multiples": {
+        "1": 1.0,
+        "2": 1.8,
+        "3": 2.2
+      },
+      "t1_resistance_cap_factor": 0.99
+    },
+    "timeframes": [
+      "15m",
+      "4h",
+      "1d"
+    ],
+    "universe": {
+      "excluded_symbols": [
+        "BUSDUSDT",
+        "TUSDUSDT",
+        "USDCUSDT"
+      ],
+      "min_abs_change_24h_pct": 1.0,
+      "min_quote_volume_24h": 10000000.0,
+      "quote_asset": "USDT",
+      "status": "TRADING",
+      "strong_bearish_min_abs_change_pct": 5.0
+    }
+  },
+  "contract_hash": "f8e59381cd0c8d3632309cb8d28f3e3ccfe60e4200066d560b82047ae7644de9",
+  "contract_id": "legacy_research_contract-f8e59381cd0c8d363230",
+  "contract_schema_version": "1.0.0",
+  "git_dirty": true,
+  "git_sha": "63da7d31daef2b952c695b256f81cf174b6451a8",
+  "parent_contract_id": null,
+  "provenance": {
+    "freeze_timestamp": "2026-08-19T09:33:46Z",
+    "preserved_hash": "f8e59381cd0c8d3632309cb8d28f3e3ccfe60e4200066d560b82047ae7644de9",
+    "source": "research/governance/research_freeze.json"
+  },
+  "runtime_config_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "status": "LEGACY_RESEARCH_CONTRACT"
+}

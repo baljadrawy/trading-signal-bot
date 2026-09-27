@@ -1,0 +1,37 @@
+{
+  "15m_status": "PASS",
+  "checksum_status": "UPSTREAM_VERIFIED",
+  "critical_failures": [
+    "MACRO_HISTORICAL_COVERAGE_ENTITLEMENT_REQUIRED",
+    "HISTORICAL_USDT_DOMINANCE_MISSING"
+  ],
+  "dataset_id": "ds-09284abbc6453ff59acd",
+  "determinism_status": "PASS",
+  "eligible_for_phase2": false,
+  "execution_fidelity": "TIER_3_DOCUMENTED_CONSERVATIVE_PROXY",
+  "holdout_look_count": 0,
+  "holdout_status": "SEALED",
+  "knowledge_cutoff": "2026-08-19T09:33:46Z",
+  "macro_coverage": null,
+  "macro_definition": "USDT market cap / total crypto market cap * 100",
+  "macro_leakage_status": "NOT_TESTABLE_WITHOUT_SOURCE_DATA",
+  "macro_provider": "CoinMarketCap (credential valid; required range unavailable on plan)",
+  "macro_status": "MACRO_HISTORICAL_COVERAGE_ENTITLEMENT_REQUIRED",
+  "market_microstructure_parity": "LIMITED_TIER_3_PROXY",
+  "normalized_status": "PASS_WITH_RECORDED_SOURCE_ROW_EXCLUSIONS",
+  "phase2_mandatory_constraints": [],
+  "previous_dataset_manifest_sha256_after": "a7c8eee1ecbd05eef3e28b1a40bd7199cc3fb9ac71ab3aac2c84ac0ca6a33b09",
+  "previous_dataset_manifest_sha256_before": "a7c8eee1ecbd05eef3e28b1a40bd7199cc3fb9ac71ab3aac2c84ac0ca6a33b09",
+  "status": "FAIL",
+  "strategy_logic_replay_status": "BLOCKED_MACRO_DATA_UNAVAILABLE",
+  "survivorship_status": "MATERIAL_SURVIVORSHIP_LIMITATION",
+  "universe_status": "PARTIALLY_POINT_IN_TIME_CONTROLLED",
+  "warnings": [
+    "CMC_KEY_VALID_BUT_PLAN_LIMITS_HISTORY_TO_12_MONTHS",
+    "REQUIRED_START_2017-08-17_PRECEDES_PLAN_EARLIEST_ALLOWED_DATE_2025-08-18",
+    "NO_MACRO_RAW_DATA_ACQUIRED",
+    "NO_NEW_DATASET_CREATED",
+    "MATERIAL_SURVIVORSHIP_LIMITATION",
+    "EXECUTION_PROXY_NOT_CALIBRATED"
+  ]
+}

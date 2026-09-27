@@ -1,0 +1,22 @@
+{
+  "critical_failures": [
+    "MISSING_REQUIRED_TIMEFRAME_15M",
+    "AUTHORITATIVE_POINT_IN_TIME_UNIVERSE_MISSING",
+    "HISTORICAL_USDT_DOMINANCE_MISSING"
+  ],
+  "dataset_id": "ds-d82b982e7221e2dcc7b7",
+  "determinism_status": "CONTENT_INDEX_DETERMINISTIC",
+  "eligible_for_phase2": false,
+  "execution_fidelity": "TIER_4_NO_SPREAD",
+  "external_certificate": "/home/tradmin/research-data/trading-signal-bot/ds-d82b982e7221e2dcc7b7/data_quality_certificate.json",
+  "macro_status": "MACRO_DATA_UNAVAILABLE",
+  "partition_status": "FROZEN_GOVERNANCE_ONLY",
+  "status": "FAIL",
+  "survivorship_status": "NOT_SURVIVORSHIP_SAFE",
+  "warnings": [
+    "UPSTREAM_CHECKSUMS_NOT_RETAINED",
+    "HISTORICAL_SPREAD_UNAVAILABLE",
+    "RAW_SYMBOL_LIST_PROVENANCE_UNKNOWN",
+    "NORMALIZED_RESEARCH_LAYER_NOT_BUILT"
+  ]
+}
