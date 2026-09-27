@@ -1,0 +1,37 @@
+{
+  "strategy_version": "sb-2026.08",
+  "random_seed": 0,
+  "research_partition": "UNASSIGNED",
+  "unlock_holdout": false,
+  "intrabar_policy": "CONSERVATIVE",
+  "label_horizon_bars": 24,
+  "execution_assumptions": {
+    "fill_model": "NEXT_OBSERVABLE_MARKET_OR_LIMIT",
+    "intrabar_policy": "CONSERVATIVE",
+    "fee_model": "EXPLICIT_COMPONENTS_V1",
+    "slippage_model": "FIXED_BASELINE_PLUS_STOP_SLIPPAGE",
+    "spread_model": "DATASET_DECLARED"
+  },
+  "cost_model": {
+    "entry_fee": 0.001,
+    "exit_fee": 0.001,
+    "spread_cost": 0.0005,
+    "slippage": 0.0005,
+    "stop_slippage": 0.001
+  },
+  "indicator_params": {
+    "rsi_period": 14,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "ema_short": 20,
+    "ema_medium": 50,
+    "ema_long": 200,
+    "bb_period": 20,
+    "bb_std": 2.0,
+    "atr_period": 14,
+    "stoch_rsi_window": 14,
+    "stoch_k": 3,
+    "stoch_d": 3
+  }
+}
