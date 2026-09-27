@@ -40,3 +40,6 @@ Older README, docs/claude/live-learning.md and strategy-history documents may de
 
 ## Dependency policy — owner decision 2026-09-27
 After returning the P1 instrumentation report, inventory dependencies and verify the **then-current** latest stable, supported and security-maintained compatible versions from upstream sources. Do not upgrade packages during P1 without explicit scope approval. Propose a separate reproducibly pinned upgrade PR, with aarch64/Python compatibility, CVE review, full B3 tests, numerical/strategy decision parity, resource benchmarks and rollback. Never auto-deploy or auto-restart the halted bot. Read [Dependency Policy](docs/product/DEPENDENCY_POLICY.md).
+
+## Shared production/development host — mandatory 2026-09-27
+Owner confirmed **one host for both development and production**. Separate worktrees and temporary Docker containers are NOT independent staging. Read [Single-host Safety](docs/product/SINGLE_HOST_SAFETY.md) before any operation. The post-P1 dependency audit is read-only: no installs, builds, disposable databases, heavy tests, service recreation or production mutations. Request explicit owner approval and a resource-bounded isolation plan before any active experiment. Never reuse production DB, secrets, networks or writable mounts for tests.
