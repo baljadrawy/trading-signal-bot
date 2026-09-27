@@ -12,8 +12,11 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
-from shared.signal_stop import plan_signal_stop
 from shared.regime import classify_regime
+from shared.strategy_math import (
+    calculate_production_indicators, calculate_signal_levels,
+    production_indicator_params,
+)
 from simple_entry import detect_trade_setup
 
 logger = setup_logger('technical_analyzer')
@@ -117,69 +120,7 @@ class TechnicalAnalyzer:
 
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """حساب جميع المؤشرات باستخدام مكتبة ta"""
-
-        # RSI
-        df['rsi'] = ta.momentum.RSIIndicator(
-            close=df['close'], window=config.RSI_PERIOD
-        ).rsi()
-
-        # MACD
-        macd = ta.trend.MACD(
-            close=df['close'],
-            window_fast=config.MACD_FAST,
-            window_slow=config.MACD_SLOW,
-            window_sign=config.MACD_SIGNAL
-        )
-        df['macd']        = macd.macd()
-        df['macd_signal'] = macd.macd_signal()
-        df['macd_hist']   = macd.macd_diff()
-
-        # EMA
-        df['ema20']  = ta.trend.EMAIndicator(df['close'], window=config.EMA_SHORT).ema_indicator()
-        df['ema50']  = ta.trend.EMAIndicator(df['close'], window=config.EMA_MEDIUM).ema_indicator()
-        df['ema200'] = ta.trend.EMAIndicator(df['close'], window=config.EMA_LONG).ema_indicator()
-
-        # Bollinger Bands
-        bb = ta.volatility.BollingerBands(
-            close=df['close'], window=config.BB_PERIOD, window_dev=config.BB_STD
-        )
-        df['bb_upper']  = bb.bollinger_hband()
-        df['bb_middle'] = bb.bollinger_mavg()
-        df['bb_lower']  = bb.bollinger_lband()
-        df['bb_width']  = (df['bb_upper'] - df['bb_lower']) / df['bb_middle']
-
-        # ATR
-        df['atr'] = ta.volatility.AverageTrueRange(
-            high=df['high'], low=df['low'], close=df['close'],
-            window=config.ATR_PERIOD
-        ).average_true_range()
-
-        # ADX is a regime feature, not an entry vote.
-        df['adx'] = ta.trend.ADXIndicator(
-            high=df['high'], low=df['low'], close=df['close'], window=14
-        ).adx()
-
-        # Stochastic RSI
-        stoch = ta.momentum.StochRSIIndicator(
-            close=df['close'],
-            window=config.STOCH_RSI_WINDOW,
-            smooth1=config.STOCH_K,
-            smooth2=config.STOCH_D
-        )
-        df['stoch_k'] = stoch.stochrsi_k()
-        df['stoch_d'] = stoch.stochrsi_d()
-
-        # OBV
-        df['obv']     = ta.volume.OnBalanceVolumeIndicator(
-            close=df['close'], volume=df['volume']
-        ).on_balance_volume()
-        df['obv_ema'] = ta.trend.EMAIndicator(df['obv'], window=20).ema_indicator()
-
-        # Volume Ratio
-        df['volume_ma']    = df['volume'].rolling(20).mean()
-        df['volume_ratio'] = df['volume'] / df['volume_ma']
-
-        return df
+        return calculate_production_indicators(df, production_indicator_params(config))
 
     def _raw_features(self, df: pd.DataFrame) -> Dict:
         """قيم المؤشرات الخام في آخر شمعة مغلقة — للتخزين كـ feature store (بحث ML مستقبلي)."""
@@ -382,81 +323,8 @@ class TechnicalAnalyzer:
 
     def _calculate_levels(self, df: pd.DataFrame, timeframe: str = '1h',
                           trade_type: str = None) -> Dict:
-        last       = df.iloc[-1]
-        atr        = float(last['atr'])
-        close      = float(last['close'])
-        recent     = df.tail(20)
-        support    = float(recent['low'].min())
-        resistance = float(recent['high'].max())
-
-        entry     = close
-        stop_atr  = entry - (atr * 1.5)
-        stop_sup  = support * 0.99
-        stop_loss = max(stop_atr, stop_sup)
-
-        # تأكد أن stop_loss أقل من entry دائماً
-        if stop_loss >= entry:
-            stop_loss = entry * 0.97
-
-        # Cap على SL حسب الـ timeframe — البيانات (2433 صفقة):
-        # 1d: avg_sl=10.53% → T1=10.10% بعيد جداً، معظم الخروج بـ expiry 48h
-        # الحل: cap لـ 1d عند 3% و 4h عند 5% لجعل T1 قابلاً للتحقق
-        max_sl_pct = {'1d': 0.03, '4h': 0.05, '1h': 0.04, '15m': 0.02}
-        cap_pct = max_sl_pct.get(timeframe, 0.04)
-        stop_policy = 'legacy_atr_support'
-        stop_invalidation = stop_loss
-        stop_valid = True
-        stop_reject_reason = None
-
-        if trade_type in ('momentum', 'reversion'):
-            breakout_level = float(
-                df['high'].iloc[-(config.MOM_BREAKOUT_N + 1):-1].max())
-            plan = plan_signal_stop(
-                entry=entry, atr=atr, trade_type=trade_type,
-                structure_low=support, breakout_level=breakout_level,
-                max_risk_pct=cap_pct)
-            stop_loss = plan.stop_price
-            stop_policy = plan.policy
-            stop_invalidation = plan.invalidation_price
-            stop_valid = plan.valid
-            stop_reject_reason = plan.reason
-        else:
-            max_risk = entry * cap_pct
-            if (entry - stop_loss) > max_risk:
-                stop_loss = entry - max_risk
-
-        risk = entry - stop_loss
-
-        # R:R tuned for mean-reverting strategy.
-        # T3 خُفّض من 3.0R إلى 2.2R (2026-04-27) — البيانات: 0/168 لمست 3R
-        # T1 quick bounce, T2 extended move, T3 reversal end.
-        target_1 = entry + (risk * 1.0)
-        target_2 = entry + (risk * 1.8)
-        target_3 = entry + (risk * 2.2)
-
-        if target_2 <= target_1:
-            target_2 = entry + (risk * 1.8)
-        if target_3 <= target_2:
-            target_3 = entry + (risk * 2.2)
-
-        # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول
-        if target_1 > resistance and resistance > entry:
-            resistance_fill = resistance * 0.99
-            if resistance_fill > entry:
-                target_1 = resistance_fill
-
-        return {
-            'entry': round(entry, 8),
-            'stop':  round(stop_loss, 8),
-            'stop_policy': stop_policy,
-            'stop_invalidation': round(stop_invalidation, 8),
-            'stop_risk_pct': round((entry - stop_loss) / entry * 100, 4),
-            'stop_valid': stop_valid,
-            'stop_reject_reason': stop_reject_reason,
-            't1':    round(target_1, 8),
-            't2':    round(target_2, 8),
-            't3':    round(target_3, 8),
-        }
+        return calculate_signal_levels(
+            df, timeframe, trade_type, breakout_n=config.MOM_BREAKOUT_N)
 
     async def _get_indicator_weights(self, market_condition: str) -> Dict:
         try:
