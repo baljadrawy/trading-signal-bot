@@ -28,3 +28,6 @@ Claude reports `feature/forward-instrumentation@23dea904a852` implemented and pu
 
 ## Single-host constraint (owner-confirmed 2026-09-27)
 Development and production share one host; do not call disposable containers an independent staging environment. Post-P1 dependency audit is read-only and must not install, rebuild, test under load or touch running services. Any future isolated test/build on the shared host requires a separately approved resource-bounded plan with unique networks/ports/volumes, synthetic data, verified host headroom and rollback. See [single-host safety](SINGLE_HOST_SAFETY.md).
+
+## GitHub consolidation checkpoint
+Owner direction: target one long-lived `main` branch with short-lived PR branches; first conduct a read-only audit of the current 13 branches and unused-code candidates. Do not combine consolidation with the unreviewed P1 merge or dependency upgrade. See [REPOSITORY_CONSOLIDATION](REPOSITORY_CONSOLIDATION.md) and ADR-011.
