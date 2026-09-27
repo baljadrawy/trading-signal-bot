@@ -57,6 +57,18 @@ class Config:
     EVIDENCE_FILTER_TIMEFRAMES: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_TIMEFRAMES', '').split(',') if s])
     EVIDENCE_FILTER_SOURCES: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_SOURCES', '').split(',') if s])
     EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR: int = int(os.getenv('EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR', '0'))
+    # ── Evidence recorder v2 (P1 forward instrumentation) ────────────────
+    # Point-in-time decision events with deterministic identities (shared/evidence_v2.py).
+    # Off by default; separate directory, so v1 evidence files are never touched. Recording
+    # never changes a decision: every hook is guarded and failures are counted, not raised.
+    EVIDENCE_V2_ENABLED: bool = os.getenv('EVIDENCE_V2_ENABLED', 'false').lower() == 'true'
+    EVIDENCE_V2_DIR: str = os.getenv('EVIDENCE_V2_DIR', 'data/evidence_v2')
+    EVIDENCE_V2_MAX_QUEUE: int = int(os.getenv('EVIDENCE_V2_MAX_QUEUE', '10000'))
+    EVIDENCE_V2_BATCH_SIZE: int = int(os.getenv('EVIDENCE_V2_BATCH_SIZE', '500'))
+    EVIDENCE_V2_FLUSH_INTERVAL_S: float = float(os.getenv('EVIDENCE_V2_FLUSH_INTERVAL_S', '2'))
+    EVIDENCE_V2_FSYNC: bool = os.getenv('EVIDENCE_V2_FSYNC', 'true').lower() == 'true'
+    EVIDENCE_V2_STATE_CACHE: int = int(os.getenv('EVIDENCE_V2_STATE_CACHE', '50000'))
+    EVIDENCE_V2_STATS_INTERVAL_S: float = float(os.getenv('EVIDENCE_V2_STATS_INTERVAL_S', '600'))
 
     # ── Live-Learning mode ──────────────────────────────────────────────
     LIVE_LEARNING_MODE: bool = os.getenv('LIVE_LEARNING_MODE', 'false').lower() == 'true'

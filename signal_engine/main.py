@@ -17,9 +17,104 @@ from shared.retry_utils import format_error, is_network_error, compute_backoff, 
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared.macro_context import MacroContext
-from signal_logic import SignalEngine
+from signal_logic import SignalEngine, signal_identity
+from shared import evidence_v2
 
 logger = setup_logger('signal_engine')
+
+SELECTION_LIMIT = 200          # the LIMIT of the candidate query below (unchanged)
+_ELIGIBLE_WHERE = """
+    WHERE signal_generated = false
+    AND analyzed_at > NOW() - INTERVAL '30 minutes'
+    AND symbol NOT IN (SELECT symbol FROM active_trades WHERE status = 'open')"""
+
+
+def _with_ev2(metadata: dict) -> dict:
+    """Heartbeat metadata plus recorder health when v2 is enabled (unchanged otherwise)."""
+    health = evidence_v2.health('signal_engine')
+    return {**metadata, 'evidence_v2': health} if health is not None else metadata
+
+
+async def _v2_truncation(results) -> dict | None:
+    """P1: measure LIMIT truncation with read-only queries, only when the limit was reached.
+    Runs after the candidate query, so the rows given to the decision are never affected."""
+    if not evidence_v2.enabled():
+        return None
+    try:
+        if len(results) < SELECTION_LIMIT:
+            info = {'truncated': False, 'returned': len(results)}
+        else:
+            total = await Database.fetchval("SELECT count(*) FROM analysis_results" + _ELIGIBLE_WHERE)
+            cut = await Database.fetch(
+                "SELECT symbol, timeframe FROM analysis_results" + _ELIGIBLE_WHERE +
+                " ORDER BY symbol, (analysis_data->>'total_score')::float DESC"
+                f" OFFSET {SELECTION_LIMIT} LIMIT 500")
+            cut_rows = [[r['symbol'], r['timeframe']] for r in cut]
+            info = {'truncated': int(total or 0) > SELECTION_LIMIT, 'returned': len(results),
+                    'eligible_total': int(total or 0), 'truncated_count': max(0, int(total or 0) - len(results)),
+                    'truncated_rows': cut_rows, 'count_is_separate_statement': True}
+        evidence_v2.emit('signal_engine', 'selection.truncation', {'stream': 'signal_engine.selection'},
+                         info, state={'truncated': info['truncated'],
+                                      'rows': evidence_v2.sha256_hex(
+                                          evidence_v2.canonical_json(info.get('truncated_rows')))[:16]},
+                         dedup_key='selection.truncation', transition=True)
+        return info
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+        return None
+
+
+def _v2_cycle(outcome: str, cycle_started_ms: int, results=(), decisions=None, context=None,
+              truncation=None, signal_id=None) -> None:
+    """P1: one cycle.outcome event per change of cycle state (idle/macro/no-trade/signal)."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        histogram = {}
+        for reason in (decisions or {}).values():
+            key = reason.split(':')[0]
+            histogram[key] = histogram.get(key, 0) + 1
+        ctx = dict(context or {})
+        payload = {
+            'cycle_started_ms': cycle_started_ms,
+            'duration_ms': evidence_v2.now_ms() - cycle_started_ms,
+            'rows': len(results), 'symbols': len({r['symbol'] for r in results}),
+            'decision_histogram': histogram, 'signal_id': signal_id,
+            'macro': {k: ctx.get(k) for k in ('macro_state', 'macro_blocked', 'macro_data_valid',
+                                              'macro_age_seconds', 'macro_valid_at_ms',
+                                              'macro_snapshot', 'macro_trend_state')},
+            'truncation': truncation,
+        }
+        evidence_v2.emit('signal_engine', 'cycle.outcome', {'stream': 'signal_engine.cycle'}, payload,
+                         state={'outcome': outcome,
+                                'truncated': bool(truncation and truncation.get('truncated'))},
+                         dedup_key='cycle.outcome', transition=True, event_time_ms=cycle_started_ms)
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+
+
+def _v2_signal_created(signal_id, signal: dict, context=None) -> None:
+    """P1: lineage link candidate_id -> signal_id (entity event, idempotent by signal_id)."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        pit = signal.get('pit') or {}
+        subject = {'signal_id': signal_id, 'candidate_id': pit.get('candidate_id'),
+                   'candle_id': pit.get('candle_id')}
+        payload = {
+            'symbol': signal.get('symbol'), 'timeframe': signal.get('timeframe'),
+            'trade_type': signal.get('trade_type'), 'selection_policy': signal.get('selection_policy'),
+            'geometry': {k: signal.get(k) for k in ('entry_price', 'target_1', 'target_2', 'target_3',
+                                                    'stop_loss', 'stop_invalidation', 'stop_risk_pct',
+                                                    'stop_policy')},
+            'macro_state': signal.get('macro_state'),
+            'identity': signal_identity(signal),
+            'pit': pit,
+        }
+        evidence_v2.emit('signal_engine', 'signal.created', subject, payload,
+                         event_time_ms=(context or {}).get('decision_at_ms'))
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
 
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
@@ -34,6 +129,7 @@ async def main():
     macro_ctx = MacroContext(client)
 
     engine = SignalEngine()
+    ev2_task = evidence_v2.start_flusher('signal_engine')   # None unless EVIDENCE_V2_ENABLED
 
     # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
     # failure is buried and the engine continues unaffected).
@@ -67,6 +163,7 @@ async def main():
                 # مستثنى: العملات المرفوضة + العملات التي لديها صفقة مفتوحة
                 # ملاحظة: استثناء approval_requests المرفوضة حُذف من هنا —
                 # كل العملات المرفوضة مُضافة لـ symbol_blacklist ومحظورة من Scanner.
+                cycle_started_ms = evidence_v2.now_ms()
                 results = await Database.fetch("""
                     SELECT symbol, timeframe, analysis_data FROM analysis_results
                     WHERE signal_generated = false
@@ -79,9 +176,11 @@ async def main():
                 """)
 
                 consecutive_errors = 0
+                truncation = await _v2_truncation(results)
 
                 if not results:
-                    await mark_success('signal_engine', {'results': 0, 'status': 'idle'})
+                    _v2_cycle('idle_no_fresh_analysis', cycle_started_ms)
+                    await mark_success('signal_engine', _with_ev2({'results': 0, 'status': 'idle'}))
                     now = time.time()
                     if now - _last_heartbeat >= 600:  # كل 10 دقائق
                         logger.info("💤 لا نتائج تحليل طازجة — البوت ينتظر")
@@ -91,6 +190,7 @@ async def main():
 
                 # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
                 engine.last_decisions = {}
+                engine.last_v2_context = None
                 if config.LIVE_LEARNING_MODE:
                     best_signal = await engine.find_best_signal_live(results, macro_ctx)
                 else:
@@ -149,11 +249,18 @@ async def main():
                     )
 
                     logger.info(f"✅ تم حفظ الإشارة بـ ID: {signal_id}")
+                    _v2_signal_created(signal_id, best_signal, engine.last_v2_context)
 
-                await mark_success('signal_engine', {
+                v2_context = getattr(engine, 'last_v2_context', None)
+                _v2_cycle('signal_created' if best_signal
+                          else ('macro_blocked' if (v2_context or {}).get('macro_blocked')
+                                else 'no_eligible_candidate'),
+                          cycle_started_ms, results, decisions, v2_context, truncation,
+                          signal_id if best_signal else None)
+                await mark_success('signal_engine', _with_ev2({
                     'results': len(results),
                     'signal_created': bool(best_signal),
-                })
+                }))
 
                 await asyncio.sleep(60)
 
@@ -175,6 +282,7 @@ async def main():
                 await asyncio.sleep(wait)
 
     finally:
+        await evidence_v2.stop('signal_engine', ev2_task)
         # bounded drain of evidence on shutdown (guarded; never blocks teardown unduly)
         if _evidence_flusher is not None:
             _evidence_flusher.cancel()
