@@ -12,6 +12,8 @@ This is an append-only decision register. Do not silently rewrite approved inten
 | ADR-007 | 2026-09-27 | P0 PostgreSQL least-privilege design tested in isolated environment; production rollout deferred. | Deferred rollout | No new SUPERUSER research connections; reassess before paper resumption. |
 | ADR-008 | 2026-09-27 | Track future ideas in GitHub with status, rationale, evidence, risks and phase; no scope creep into an active phase without owner approval. | Approved process | See IDEA_REGISTER and CLAUDE.md. |\n| ADR-009 | 2026-09-27 | After Claude's P1 response, review all dependency versions against the latest stable, supported and secure compatible releases available at review time. | Approved direction | Inventory and separate upgrade proposal/PR; ARM64/Python compatibility, reproducible pins, security review and decision parity required; no upgrades to active P1 or production without separate approval. |
 
+| ADR-010 | 2026-09-27 | Development and production share a single host; Git worktrees and disposable containers are logical isolation only, not a separate staging environment. | Owner-confirmed constraint | Post-P1 dependency audit is read-only; no tests/builds or disposable infra without separate approval and host resource/isolation review. See SINGLE_HOST_SAFETY.md. |
+
 ## Owner approval model
 - **Idea** ≠ approved product direction ≠ authorized code change ≠ approved deployment ≠ authorized paper restart ≠ authorized live trading.
 - Each ADR change must link a dated owner decision, impact on risk/strategy, acceptance tests and rollback.
