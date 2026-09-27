@@ -1,3 +1,5 @@
+> **2026-09-27 GOVERNANCE OVERRIDE — READ FIRST:** [Product Charter](docs/product/PROJECT_CHARTER.md), [Decision Log](docs/product/DECISION_LOG.md), [Idea Register](docs/product/IDEA_REGISTER.md), [Implementation Roadmap](docs/product/IMPLEMENTATION_ROADMAP.md). This file contains historical statements about active live learning that are STALE: current bot is PAPER_HALTED, retired learner/optimizer are OFF, and live trading is FORBIDDEN. Owner-approved product direction is NOT approval to implement, deploy, resume paper, modify B3, or connect live execution. Record all new ideas in IDEA_REGISTER and owner decisions in DECISION_LOG before scope changes. The separate trading-bot integration is deferred. Preserve safety and ask owner when in doubt.
+
 # CLAUDE.md — Trading Signal Bot development contract
 
 **Read first (authoritative owner-approved product direction, 2026-09-27):**
