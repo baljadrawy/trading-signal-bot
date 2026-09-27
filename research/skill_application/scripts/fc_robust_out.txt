@@ -1,0 +1,76 @@
+====================================================================================================
+FC DELTA-NEUTRAL FUNDING CARRY — proper backtest | 20 symbols | 106341 decision-periods | 97.12 yr | PPY=1095
+====================================================================================================
+
+[REF] funding-only mean while held = 0.0146%/8h -> 15.96%/yr on NOTIONAL (deployed). Committed (idle=0) = 11.78%/yr
+[REF] basis MtM mean while held = 0.0014%/8h -> 1.59%/yr (drag on carry)
+
+====================================================================================================
+LEVERAGE L=2   liq threshold thr(L)=1/L-0.005=0.495 (perp up-move to liquidate short)   capital/unit notional = 1.500
+====================================================================================================
+  LIQ[R rebalanced(per-period reset)]: events=9/78532 held (0.011%)  ~0.081/symbol-year  worst_event=-33.97% notional = -22.65% of total capital
+  LIQ[P passive(no rebalance, spell-anchor)]: events=214/78532 held (0.273%)  ~1.928/symbol-year  worst_event=-45.82% notional = -30.54% of total capital
+
+  NET ANNUAL (Model R rebalanced) — winsorized 1/99
+    cost | gross%not/dep |  net%not/dep |  net%not/comm | gross%cap/dep |  net%cap/dep |  NET%cap/COMM
+    0.3% |        18.19 |      -20.06 |       -14.81 |        11.43 |      -14.08 |       -10.40
+    0.4% |        18.19 |      -32.81 |       -24.23 |        11.43 |      -22.58 |       -16.67
+    0.6% |        18.19 |      -58.31 |       -43.06 |        11.43 |      -39.58 |       -29.23
+  spells=9136  liq-rehedges=9  frac_held=73.8%
+
+====================================================================================================
+LEVERAGE L=3   liq threshold thr(L)=1/L-0.005=0.328 (perp up-move to liquidate short)   capital/unit notional = 1.333
+====================================================================================================
+  LIQ[R rebalanced(per-period reset)]: events=37/78532 held (0.047%)  ~0.333/symbol-year  worst_event=-22.95% notional = -17.21% of total capital
+  LIQ[P passive(no rebalance, spell-anchor)]: events=392/78532 held (0.499%)  ~3.532/symbol-year  worst_event=-45.35% notional = -34.01% of total capital
+
+  NET ANNUAL (Model R rebalanced) — winsorized 1/99
+    cost | gross%not/dep |  net%not/dep |  net%not/comm | gross%cap/dep |  net%cap/dep |  NET%cap/COMM
+    0.3% |        19.09 |      -19.36 |       -14.30 |        12.84 |      -16.00 |       -11.82
+    0.4% |        19.09 |      -32.18 |       -23.76 |        12.84 |      -25.62 |       -18.92
+    0.6% |        19.09 |      -57.81 |       -42.70 |        12.84 |      -44.84 |       -33.12
+  spells=9156  liq-rehedges=37  frac_held=73.8%
+
+====================================================================================================
+ROBUSTNESS (base: Model R rebalanced, cost=0.6% pessimistic, NET on capital, committed)
+====================================================================================================
+
+ L=2: symbol-clustered bootstrap (3000 reps) net%/yr on capital(committed): point(sym-mean)=-29.32%  95%CI=[-31.85, -26.01]  median_sym=-30.75%
+       per-symbol net%/yr: ARB=-36.3  BTC=-35.9  ETH=-34.7  LINK=-34.7  OP=-34.2  LTC=-33.8  FIL=-32.7  DOGE=-32.3  ADA=-31.0  SUI=-30.9  NEAR=-30.6  XRP=-29.7  SOL=-28.6  APT=-27.3  AVAX=-27.0  INJ=-27.0  MATIC=-26.9  DOT=-24.3  ATOM=-23.0  BNB=-5.5
+       pooled net%/yr(committed,cap)=-29.23. top contributors: BNB=-0.31, SUI=-0.98, APT=-1.02, MATIC=-1.02, INJ=-1.05
+       remove-top-N to flip pooled<=0: N=0 (of 20) FRAGILE
+       per-year net%/yr(cap,committed,winsor):
+         2021:-18.9%(liq9)  2022:-26.1%(liq0)  2023:-33.3%(liq0)  2024:-34.5%(liq0)  2025:-30.8%(liq0)  2026:-25.3%(liq0)
+         years net-positive: 0/6
+       monthly net-positive share=3% ; 6-mo windows with >=4 pos months=0%
+
+ L=3: symbol-clustered bootstrap (3000 reps) net%/yr on capital(committed): point(sym-mean)=-33.22%  95%CI=[-36.07, -29.46]  median_sym=-34.83%
+       per-symbol net%/yr: ARB=-41.1  BTC=-40.6  ETH=-39.3  LINK=-39.3  OP=-38.6  LTC=-38.3  FIL=-37.0  DOGE=-36.8  ADA=-35.1  SUI=-35.0  NEAR=-34.7  XRP=-33.7  SOL=-32.4  APT=-30.9  AVAX=-30.6  INJ=-30.6  MATIC=-30.4  DOT=-27.5  ATOM=-26.0  BNB=-6.2
+       pooled net%/yr(committed,cap)=-33.12. top contributors: BNB=-0.35, SUI=-1.11, APT=-1.15, MATIC=-1.16, INJ=-1.19
+       remove-top-N to flip pooled<=0: N=0 (of 20) FRAGILE
+       per-year net%/yr(cap,committed,winsor):
+         2021:-21.6%(liq30)  2022:-29.5%(liq2)  2023:-37.8%(liq3)  2024:-39.1%(liq0)  2025:-34.8%(liq2)  2026:-28.6%(liq0)
+         years net-positive: 0/6
+       monthly net-positive share=3% ; 6-mo windows with >=4 pos months=0%
+
+====================================================================================================
+PRE-REGISTERED THRESHOLDS (ALL must pass for GO) — base Model R, cost 0.6%
+====================================================================================================
+
+--- L=2 ---
+  [FAIL] T1 net annual(cap,committed)>=+5% @0.6%: -29.23% (deployed -39.58%)
+  [FAIL] T2 symbol-clustered 95%CI lower>0: CI=[-31.85,-26.01] pt=-29.32
+  [FAIL] T3 worst liq event > -3% of capital: Rebalanced worst=-22.65% ; Passive worst=-30.54%
+  [FAIL] T4 >=4/6 monthly windows pos (majority) & majority years pos: 6mo-windows-ok=0% ; years pos=0/6
+  => L=2 verdict: NO-GO
+
+--- L=3 ---
+  [FAIL] T1 net annual(cap,committed)>=+5% @0.6%: -33.12% (deployed -44.84%)
+  [FAIL] T2 symbol-clustered 95%CI lower>0: CI=[-36.07,-29.46] pt=-33.22
+  [FAIL] T3 worst liq event > -3% of capital: Rebalanced worst=-17.21% ; Passive worst=-34.01%
+  [FAIL] T4 >=4/6 monthly windows pos (majority) & majority years pos: 6mo-windows-ok=0% ; years pos=0/6
+  => L=3 verdict: NO-GO
+
+====================================================================================================
+OVERALL VERDICT: NO-GO  (GO requires ALL thresholds pass at BOTH L=2 and L=3)
+====================================================================================================
