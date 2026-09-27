@@ -1,0 +1,226 @@
+{
+ "baseline": "deploy/baseline-2026-09-27",
+ "recorded_at_utc": "2026-09-27",
+ "base_commit": "8bfca778b42fa5c29993d5c57bf1674ae755522f",
+ "execution_mode": "PAPER_ONLY",
+ "trading_state": "HALTED (risk:loss_streak_halt, decision id 29415)",
+ "reproducibility": "NOT_PROVEN \u2014 running images were built by single-file overlays and mixed build contexts; scanner and claude_review contain files that match no commit; no clean rebuild has been performed.",
+ "services": {
+  "trading_analyzer": {
+   "image_id": "sha256:ce305ecd7760e900181fc2d6eec6bea8d54f7c5cfd2099a3bda2532e06e52ce8",
+   "image_ref": "trading-signal-bot-analyzer",
+   "status": "running",
+   "started_at": "2026-09-27T09:44:59.47942048Z",
+   "finished_at": null,
+   "files": 28,
+   "files_by_source_commit": {
+    "8bfca77": 26,
+    "05999ea": 1,
+    "63da7d3": 1
+   },
+   "files_not_in_any_git_commit": [],
+   "nonsecret_config_sha256": "6a34e1b57243febc5b56cef5f13c037f254d653d3fd91dde8e6104747f0310c4"
+  },
+  "trading_claude_review": {
+   "image_id": "sha256:8bca25750c77ae2ab5921fd89e35decf050a8ccf11f73d0226fdeec5272b4aa5",
+   "image_ref": "trading-signal-bot-claude_review",
+   "status": "running",
+   "started_at": "2026-09-27T09:44:59.40412732Z",
+   "finished_at": null,
+   "files": 17,
+   "files_by_source_commit": {
+    "8bfca77": 11,
+    "c4cae2b": 1,
+    "c4a623c": 1,
+    "14fc775": 2,
+    "NOT_IN_RECENT_COMMITS": 2
+   },
+   "files_not_in_any_git_commit": [
+    "/app/shared/schema.py",
+    "/app/shared/learning_governance.py"
+   ],
+   "nonsecret_config_sha256": "33a4fdf2c349b3a2914579e3646d3b6e0cf0dd797ff7b618836abf96f1c8b6b8"
+  },
+  "trading_continuous_learner": {
+   "image_id": "sha256:d1aa69bde63f53e0203c3b1c21568fb0fc036104f6fcc974bc97965af2a16aea",
+   "image_ref": "trading-signal-bot-continuous_learner",
+   "status": "exited",
+   "started_at": "2026-08-17T17:49:15.37145649Z",
+   "finished_at": "2026-08-17T21:03:34.069474713Z",
+   "files": 28,
+   "files_by_source_commit": {
+    "605a962": 1,
+    "8bfca77": 20,
+    "c4a623c": 2,
+    "14fc775": 4,
+    "7bf6214": 1
+   },
+   "files_not_in_any_git_commit": [],
+   "nonsecret_config_sha256": null
+  },
+  "trading_scanner": {
+   "image_id": "sha256:9b0b53a6a799990690947b8e39aba77e7dbf055df41e3f29af3d95a7f20defa1",
+   "image_ref": "trading-signal-bot-scanner",
+   "status": "running",
+   "started_at": "2026-09-27T12:37:47.466607262Z",
+   "finished_at": null,
+   "files": 23,
+   "files_by_source_commit": {
+    "8bfca77": 18,
+    "7bf6214": 3,
+    "NOT_IN_RECENT_COMMITS": 1,
+    "c4a623c": 1
+   },
+   "files_not_in_any_git_commit": [
+    "/app/shared/telegram_messages.py"
+   ],
+   "nonsecret_config_sha256": "0d8464245336950707b35a66cdf8856037178bafdb2b745e725223f24a6b881b"
+  },
+  "trading_signal_engine": {
+   "image_id": "sha256:b3d4b62366546682ff1fe85c360a79e2028291fcf7f06f4c268b86af0971efa0",
+   "image_ref": "trading-signal-bot-signal_engine",
+   "status": "running",
+   "started_at": "2026-09-27T09:44:59.43135296Z",
+   "finished_at": null,
+   "files": 37,
+   "files_by_source_commit": {
+    "8bfca77": 35,
+    "05999ea": 1,
+    "63da7d3": 1
+   },
+   "files_not_in_any_git_commit": [],
+   "nonsecret_config_sha256": "6a34e1b57243febc5b56cef5f13c037f254d653d3fd91dde8e6104747f0310c4"
+  },
+  "trading_telegram": {
+   "image_id": "sha256:b84d3d1528a085391892bd9e162d99b7bd75a7d72caca3aa66f2d29caceda76f",
+   "image_ref": "trading-signal-bot-telegram",
+   "status": "running",
+   "started_at": "2026-09-27T12:37:29.352280907Z",
+   "finished_at": null,
+   "files": 28,
+   "files_by_source_commit": {
+    "8bfca77": 28
+   },
+   "files_not_in_any_git_commit": [],
+   "nonsecret_config_sha256": "6a34e1b57243febc5b56cef5f13c037f254d653d3fd91dde8e6104747f0310c4"
+  },
+  "trading_tracker": {
+   "image_id": "sha256:2b59c6a164c02ccca6fc6ec4245948104857d381148ee19bdc8436b357dfac26",
+   "image_ref": "trading-signal-bot-trade_tracker",
+   "status": "running",
+   "started_at": "2026-09-27T12:36:54.572368188Z",
+   "finished_at": null,
+   "files": 29,
+   "files_by_source_commit": {
+    "8bfca77": 29
+   },
+   "files_not_in_any_git_commit": [],
+   "nonsecret_config_sha256": "6a34e1b57243febc5b56cef5f13c037f254d653d3fd91dde8e6104747f0310c4"
+  }
+ },
+ "unmatched_deployed_files": [
+  {
+   "service": "trading_scanner",
+   "path": "/app/shared/telegram_messages.py",
+   "sha256": "640e134f10d3018920e6ef828d3873ab6595656e9342ac1fea9915e863a7b014",
+   "git_blob": "a8cf860f277bd2c4a3ce8b684e97967013066dbf"
+  },
+  {
+   "service": "trading_claude_review",
+   "path": "/app/shared/schema.py",
+   "sha256": "9d43e9d4d7a321ce5233c45887f2bfe24881f9775ee47868b8171a4335646e21",
+   "git_blob": "88e019696f79dd1000ae7c4ad693d250d0bc96d8"
+  },
+  {
+   "service": "trading_claude_review",
+   "path": "/app/shared/learning_governance.py",
+   "sha256": "14540f1698135d00fd4af127186b8192b13992d4c56cec5f863ed04d77c97630",
+   "git_blob": "df6fcc1f7835d324ed183b731df22455e34309b2"
+  }
+ ],
+ "image_tags": [
+  {
+   "tag": "trading-signal-bot-scanner:latest",
+   "image_id": "sha256:9b0b53a6a799990690947b8e39aba77e7dbf055df41e3f29af3d95a7f20defa1"
+  },
+  {
+   "tag": "trading-signal-bot-analyzer:latest",
+   "image_id": "sha256:ce305ecd7760e900181fc2d6eec6bea8d54f7c5cfd2099a3bda2532e06e52ce8"
+  },
+  {
+   "tag": "trading-signal-bot-signal_engine:latest",
+   "image_id": "sha256:b3d4b62366546682ff1fe85c360a79e2028291fcf7f06f4c268b86af0971efa0"
+  },
+  {
+   "tag": "trading-signal-bot-trade_tracker:latest",
+   "image_id": "sha256:2b59c6a164c02ccca6fc6ec4245948104857d381148ee19bdc8436b357dfac26"
+  },
+  {
+   "tag": "trading-signal-bot-telegram:latest",
+   "image_id": "sha256:b84d3d1528a085391892bd9e162d99b7bd75a7d72caca3aa66f2d29caceda76f"
+  },
+  {
+   "tag": "trading-signal-bot-claude_review:latest",
+   "image_id": "sha256:8bca25750c77ae2ab5921fd89e35decf050a8ccf11f73d0226fdeec5272b4aa5"
+  },
+  {
+   "tag": "trading-signal-bot-continuous_learner:latest",
+   "image_id": "sha256:d1aa69bde63f53e0203c3b1c21568fb0fc036104f6fcc974bc97965af2a16aea"
+  },
+  {
+   "tag": "b3-rollback/scanner:pre-b3",
+   "image_id": "sha256:4d59ba3d6e793fdddfead7c2f153d82c3aaf7586925b2e20e77afd2b41f07947"
+  },
+  {
+   "tag": "b3-rollback/telegram:pre-b3",
+   "image_id": "sha256:fb0ef1b9097accf871909128a22928dc38c87100434ef1d0fa91599dd076083e"
+  },
+  {
+   "tag": "b3-rollback/trade_tracker:pre-b3",
+   "image_id": "sha256:c60cac87920a3f39921c3048d20ed19e8a77f74e1f00868869efea4cbd3f7183"
+  },
+  {
+   "tag": "trade_tracker:pre-risk1-rollback",
+   "image_id": "sha256:d291f64e079515ad0be8a566484444dd546d8ca762fbc87ad7a91ba6179eab50"
+  },
+  {
+   "tag": "telegram:pre-risk1-rollback",
+   "image_id": "sha256:ab4bc1077b6c4e17ac15978b762aab04040139ce3fba7e143ee95b2240914f74"
+  },
+  {
+   "tag": "b3prep-20260927T120659/scanner:candidate",
+   "image_id": "sha256:9b0b53a6a799990690947b8e39aba77e7dbf055df41e3f29af3d95a7f20defa1"
+  },
+  {
+   "tag": "b3prep-20260927T120659/telegram:candidate",
+   "image_id": "sha256:b84d3d1528a085391892bd9e162d99b7bd75a7d72caca3aa66f2d29caceda76f"
+  },
+  {
+   "tag": "b3prep-20260927T120659/tracker:candidate",
+   "image_id": "sha256:2b59c6a164c02ccca6fc6ec4245948104857d381148ee19bdc8436b357dfac26"
+  }
+ ],
+ "rollback_anchors": [
+  {
+   "tag": "b3-rollback/scanner:pre-b3",
+   "image_id": "sha256:4d59ba3d6e793fdddfead7c2f153d82c3aaf7586925b2e20e77afd2b41f07947"
+  },
+  {
+   "tag": "b3-rollback/telegram:pre-b3",
+   "image_id": "sha256:fb0ef1b9097accf871909128a22928dc38c87100434ef1d0fa91599dd076083e"
+  },
+  {
+   "tag": "b3-rollback/trade_tracker:pre-b3",
+   "image_id": "sha256:c60cac87920a3f39921c3048d20ed19e8a77f74e1f00868869efea4cbd3f7183"
+  },
+  {
+   "tag": "trade_tracker:pre-risk1-rollback",
+   "image_id": "sha256:d291f64e079515ad0be8a566484444dd546d8ca762fbc87ad7a91ba6179eab50"
+  },
+  {
+   "tag": "telegram:pre-risk1-rollback",
+   "image_id": "sha256:ab4bc1077b6c4e17ac15978b762aab04040139ce3fba7e143ee95b2240914f74"
+  }
+ ],
+ "secrets": "Not recorded. Runtime .env values, compose config-hash labels and container environments are deliberately excluded."
+}

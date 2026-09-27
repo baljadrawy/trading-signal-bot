@@ -1,0 +1,1902 @@
+[
+ {
+  "service": "trading_analyzer",
+  "path": "/app/technical_analyzer.py",
+  "repo_path": "analyzer/technical_analyzer.py",
+  "sha256": "34c976e8080d1a2cec1987d0c184f7c68e0e38367a6436f74fd3f3fae74af6be",
+  "bytes": 21877,
+  "git_blob": "6f6611739229836646ba673cefe19523c2cc1c93",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/simple_entry.py",
+  "repo_path": "analyzer/simple_entry.py",
+  "sha256": "fba7ecb40b602ea4096072824b8e9dc8dcca1c14dad1e87523161aec413bad15",
+  "bytes": 3400,
+  "git_blob": "61ca69895549531b2e4b82343e098a3682fbf0d5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/requirements.txt",
+  "repo_path": "analyzer/requirements.txt",
+  "sha256": "1b4bb460bc7e3fd6f37abb0f183b430b1086d66445005625aaf080a9a00442dc",
+  "bytes": 159,
+  "git_blob": "34541bfd5d2d0796c1759c129b2f89afa9558ceb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/main.py",
+  "repo_path": "analyzer/main.py",
+  "sha256": "e8e1d6ce45b33f8d6623aec3ffe7bc733f3e398ca4857e4963435402fdd2cde9",
+  "bytes": 5475,
+  "git_blob": "b69901317dba1dbe9a1e606f5471059b313f202a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/orderbook_analyzer.py",
+  "repo_path": "analyzer/orderbook_analyzer.py",
+  "sha256": "19570c94af7b2f25729c9905a1cc93fd03c97df4476c7b5ad10519289942880b",
+  "bytes": 4993,
+  "git_blob": "6e39929531896073bf21250386cdeddf2232bbab",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "fe42ff44b8625c1bd94ae84904a91db9e4ac1c1cc29d481fb932c412f7e26ea5",
+  "bytes": 10296,
+  "git_blob": "995e04f227df368d9f954e75c31c2f532b6aaadb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/regime.py",
+  "repo_path": "shared/regime.py",
+  "sha256": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+  "bytes": 2888,
+  "git_blob": "b1ad6e22e6ea910bbb7495dfe1cd0965b9dfade6",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/entry_execution.py",
+  "repo_path": "shared/entry_execution.py",
+  "sha256": "178abc2c79f3f35f17f9d27e8838dd08cec140b23a8fa50863363e82c5468a4e",
+  "bytes": 1248,
+  "git_blob": "77c92a9a67592c9b723f7069da8b48d192b83a13",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/partial_exits.py",
+  "repo_path": "shared/partial_exits.py",
+  "sha256": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+  "bytes": 2155,
+  "git_blob": "d3397f030803c8a757f0c8cb4da956d04b7477c1",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/execution.py",
+  "repo_path": "shared/execution.py",
+  "sha256": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+  "bytes": 990,
+  "git_blob": "a5aa270f954b933611fe859389501a19686351d2",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/trading_state.py",
+  "repo_path": "shared/trading_state.py",
+  "sha256": "7260b54466fce8790ea6c092528e381644bcdb6a40e14c6aae7c0c10a07c0a86",
+  "bytes": 638,
+  "git_blob": "a3e9200010c0b2b10fc2b84b69557b0e73ec737f",
+  "source_commit": "05999ea",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/telegram_messages.py",
+  "repo_path": "shared/telegram_messages.py",
+  "sha256": "4839c3cd44b725907b8f40803aec215e354b1cb318d08643d33cfb2a2dda1dea",
+  "bytes": 9174,
+  "git_blob": "5f8cfd1db9781b4ab82fe38613633cc6c273251e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "06c2a28dfc69a8ed04fb8d878cdaa653e5a79eb6bb54d52025ff72a4f04dbd1a",
+  "bytes": 5490,
+  "git_blob": "9099d1d11e1522c3ea2a4a4c9c7b9da5cc6e15eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/risk_management.py",
+  "repo_path": "shared/risk_management.py",
+  "sha256": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+  "bytes": 5907,
+  "git_blob": "59e918ac70e67296c9b9e8e0bdf9fbb69c707b5c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+  "bytes": 14955,
+  "git_blob": "cce68c7795fba99cce09b6ee18b390a2f375083c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/ohlcv.py",
+  "repo_path": "shared/ohlcv.py",
+  "sha256": "6a064e2ffcd1ebdb59a6eb21cd7e15fd8e1f16ddf7366f3ae0ab6ca6e8f9130a",
+  "bytes": 3420,
+  "git_blob": "8ae788a0de28b74ab3342b7d5caf84f54428d9e5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "17fed649dd2dceafe3d6e87f25f43d24efe76dd286ad8fdeb4f15738944b9281",
+  "bytes": 1389,
+  "git_blob": "5145b1c78ac6b2f9490ed8450d6ba2957efde00b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/signal_stop.py",
+  "repo_path": "shared/signal_stop.py",
+  "sha256": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+  "bytes": 2579,
+  "git_blob": "6a55ae086620c894da1a008aa7e81b1e89ec75eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "46e28118e4dceac7510491586c60452e59d8db02708f9a1f75ab857ee3f54f73",
+  "bytes": 685,
+  "git_blob": "cec88f4a1f4bf774160df5a1a27831f3454f0415",
+  "source_commit": "63da7d3",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_analyzer",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/scanner_logic.py",
+  "repo_path": "scanner/scanner_logic.py",
+  "sha256": "4db6101af9ca35c00488cc37cdd0cc45dcbcb0dc9b09b02ecbd6a4d81148d357",
+  "bytes": 6846,
+  "git_blob": "fa03cc2a688c321353ea3385cd3c857a2a9f0f82",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/Dockerfile",
+  "repo_path": "scanner/Dockerfile",
+  "sha256": "f03f434bec3215c9e9c305ebfb1eb73e2a0715035d2f3fe3dd9743be910f9bc4",
+  "bytes": 936,
+  "git_blob": "2516c82afdc08af15c44275ccfaaf7eacb5a1986",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/requirements.txt",
+  "repo_path": "scanner/requirements.txt",
+  "sha256": "8ba7867cfa570f2ceb3386cb4c0214e52680a6d3f430d5704d6bddd620350b9a",
+  "bytes": 155,
+  "git_blob": "23dcce829a6a4ff702fa857ed37439a3dba31fff",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/main.py",
+  "repo_path": "scanner/main.py",
+  "sha256": "3fe905b9b16349d021adb5fcf29b7058bdc9a8e845ce6da10d21372b14ebf815",
+  "bytes": 2620,
+  "git_blob": "3dc9cb1ad06c9fcab8db63f1bed58d3ce976ba83",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "d0720804022cc1a8f53798553551a6a22147b54fdcd17c795bf287d7df703c22",
+  "bytes": 9579,
+  "git_blob": "c5c03b5cbab00c272d755ca94dcc8734ba4fd02c",
+  "source_commit": "7bf6214",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/execution.py",
+  "repo_path": "shared/execution.py",
+  "sha256": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+  "bytes": 990,
+  "git_blob": "a5aa270f954b933611fe859389501a19686351d2",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/trading_state.py",
+  "repo_path": "shared/trading_state.py",
+  "sha256": "920fbc2bf416b7da3bc67ed3262bf3ae3611bef3aa52ea89ceab1519d4573ad6",
+  "bytes": 2222,
+  "git_blob": "2b1d585ed9fb5e0bc9952acbd5b5b2d026b8aa63",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/telegram_messages.py",
+  "repo_path": "shared/telegram_messages.py",
+  "sha256": "640e134f10d3018920e6ef828d3873ab6595656e9342ac1fea9915e863a7b014",
+  "bytes": 3151,
+  "git_blob": "a8cf860f277bd2c4a3ce8b684e97967013066dbf",
+  "source_commit": null,
+  "in_git_history": false
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "15d23f8cce8cb5dd9c8decf676c13085a2b4929a0a8d4b0bff9d69da931ea661",
+  "bytes": 4558,
+  "git_blob": "abb8391ce17ff39149f874536020c0f3a5eeb370",
+  "source_commit": "c4a623c",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/risk_management.py",
+  "repo_path": "shared/risk_management.py",
+  "sha256": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+  "bytes": 5907,
+  "git_blob": "59e918ac70e67296c9b9e8e0bdf9fbb69c707b5c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "7172cd117a843055dc440e16da76b128c9f7e5c072b2a66aabd4e7058ff9b91f",
+  "bytes": 13908,
+  "git_blob": "a6aaebcc6eda0fda767979cf2a84c21d22c5710e",
+  "source_commit": "7bf6214",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/ohlcv.py",
+  "repo_path": "shared/ohlcv.py",
+  "sha256": "6a064e2ffcd1ebdb59a6eb21cd7e15fd8e1f16ddf7366f3ae0ab6ca6e8f9130a",
+  "bytes": 3420,
+  "git_blob": "8ae788a0de28b74ab3342b7d5caf84f54428d9e5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "17fed649dd2dceafe3d6e87f25f43d24efe76dd286ad8fdeb4f15738944b9281",
+  "bytes": 1389,
+  "git_blob": "5145b1c78ac6b2f9490ed8450d6ba2957efde00b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "65904dc3b7f050cc7dffa6524e4a0bb24c66d2819cac824bd6967bd6c1c40dd3",
+  "bytes": 685,
+  "git_blob": "0e73dfd2b683b5e3cf9135abdc35e940807cc625",
+  "source_commit": "7bf6214",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_scanner",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/signal_logic.py",
+  "repo_path": "signal_engine/signal_logic.py",
+  "sha256": "9091d741d4222095e0c086f674c0f694f28b3b828c90639f320e05593a97a8ff",
+  "bytes": 37650,
+  "git_blob": "7b4406c5e7d4efeff4a38f21cb2cfce318a6fcc5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/Dockerfile",
+  "repo_path": "signal_engine/Dockerfile",
+  "sha256": "eea7b6586c324cf7e308ec8ee5cebacb474f3cc0d918f9396181b262b68c8b94",
+  "bytes": 1406,
+  "git_blob": "5dcc1667b428d13256ee8af56ada01127f818afa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/requirements.txt",
+  "repo_path": "signal_engine/requirements.txt",
+  "sha256": "50de28a95bd722bb018d9b8c5422cf8b8f36ef454a1e4bc0c04dca71a422a9d5",
+  "bytes": 196,
+  "git_blob": "311dc6b4421482552b783f96604d3a0ef8dccb2f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/main.py",
+  "repo_path": "signal_engine/main.py",
+  "sha256": "619396352cfda0d9959c168330a097214d249b9de16285a1d23e0104ca6b3e9b",
+  "bytes": 9083,
+  "git_blob": "3979e882f97e109910b5f8cfb1340a29d501950b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "fe42ff44b8625c1bd94ae84904a91db9e4ac1c1cc29d481fb932c412f7e26ea5",
+  "bytes": 10296,
+  "git_blob": "995e04f227df368d9f954e75c31c2f532b6aaadb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/regime.py",
+  "repo_path": "shared/regime.py",
+  "sha256": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+  "bytes": 2888,
+  "git_blob": "b1ad6e22e6ea910bbb7495dfe1cd0965b9dfade6",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/entry_execution.py",
+  "repo_path": "shared/entry_execution.py",
+  "sha256": "178abc2c79f3f35f17f9d27e8838dd08cec140b23a8fa50863363e82c5468a4e",
+  "bytes": 1248,
+  "git_blob": "77c92a9a67592c9b723f7069da8b48d192b83a13",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/partial_exits.py",
+  "repo_path": "shared/partial_exits.py",
+  "sha256": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+  "bytes": 2155,
+  "git_blob": "d3397f030803c8a757f0c8cb4da956d04b7477c1",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/execution.py",
+  "repo_path": "shared/execution.py",
+  "sha256": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+  "bytes": 990,
+  "git_blob": "a5aa270f954b933611fe859389501a19686351d2",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/trading_state.py",
+  "repo_path": "shared/trading_state.py",
+  "sha256": "7260b54466fce8790ea6c092528e381644bcdb6a40e14c6aae7c0c10a07c0a86",
+  "bytes": 638,
+  "git_blob": "a3e9200010c0b2b10fc2b84b69557b0e73ec737f",
+  "source_commit": "05999ea",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/telegram_messages.py",
+  "repo_path": "shared/telegram_messages.py",
+  "sha256": "4839c3cd44b725907b8f40803aec215e354b1cb318d08643d33cfb2a2dda1dea",
+  "bytes": 9174,
+  "git_blob": "5f8cfd1db9781b4ab82fe38613633cc6c273251e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "06c2a28dfc69a8ed04fb8d878cdaa653e5a79eb6bb54d52025ff72a4f04dbd1a",
+  "bytes": 5490,
+  "git_blob": "9099d1d11e1522c3ea2a4a4c9c7b9da5cc6e15eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/risk_management.py",
+  "repo_path": "shared/risk_management.py",
+  "sha256": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+  "bytes": 5907,
+  "git_blob": "59e918ac70e67296c9b9e8e0bdf9fbb69c707b5c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+  "bytes": 14955,
+  "git_blob": "cce68c7795fba99cce09b6ee18b390a2f375083c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/ohlcv.py",
+  "repo_path": "shared/ohlcv.py",
+  "sha256": "6a064e2ffcd1ebdb59a6eb21cd7e15fd8e1f16ddf7366f3ae0ab6ca6e8f9130a",
+  "bytes": 3420,
+  "git_blob": "8ae788a0de28b74ab3342b7d5caf84f54428d9e5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "17fed649dd2dceafe3d6e87f25f43d24efe76dd286ad8fdeb4f15738944b9281",
+  "bytes": 1389,
+  "git_blob": "5145b1c78ac6b2f9490ed8450d6ba2957efde00b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/signal_stop.py",
+  "repo_path": "shared/signal_stop.py",
+  "sha256": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+  "bytes": 2579,
+  "git_blob": "6a55ae086620c894da1a008aa7e81b1e89ec75eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "46e28118e4dceac7510491586c60452e59d8db02708f9a1f75ab857ee3f54f73",
+  "bytes": 685,
+  "git_blob": "cec88f4a1f4bf774160df5a1a27831f3454f0415",
+  "source_commit": "63da7d3",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/strategy_performance_review.py",
+  "repo_path": "research/strategy_performance_review.py",
+  "sha256": "cec92fdbc0effaeba3536bd4bba3001cba92f7921ad14567c9f2e239478f6c50",
+  "bytes": 10154,
+  "git_blob": "18e73eecd6a461658eef906535d79a55c6d65bf0",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/continuous_learner.py",
+  "repo_path": "research/continuous_learner.py",
+  "sha256": "b335e5b40f9b029dedc52b3a6fc80cb66c253ec4ca78f8309c9ad049a58f1b61",
+  "bytes": 17416,
+  "git_blob": "e8a806999080f66bd47a067a8f2dbf33f1783742",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/rollback_learned_gates.py",
+  "repo_path": "research/rollback_learned_gates.py",
+  "sha256": "a1b26dc5f09349bb505113434aaedc16365b5a034fc1880004f5832b08dbc875",
+  "bytes": 4342,
+  "git_blob": "61611cd73239deb9aabbc190d4aeaa15adaf2693",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/buckets.py",
+  "repo_path": "research/null_a/buckets.py",
+  "sha256": "2d6604f881565c9d92dda6e0a18d27aa8537dabddcd8418f01e971a2923af1f3",
+  "bytes": 1322,
+  "git_blob": "82ecad68cdcd27fd034c9afb3a7c9aea7369714e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/conditional_null.py",
+  "repo_path": "research/null_a/conditional_null.py",
+  "sha256": "da8e22208ccec46b9c97ec9849bc582023430b7ed5075654111d9a326dc7b254",
+  "bytes": 2635,
+  "git_blob": "47c22b8c0550efede809588058fd3845305c428b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/evidence_store.py",
+  "repo_path": "research/null_a/evidence_store.py",
+  "sha256": "7fe271e18c517ae47df1d01e0230f8b780738f1af0c9869a95b2d9963c23fea8",
+  "bytes": 1911,
+  "git_blob": "196c93a4ae64e950e89de8abe93cac4c5b270469",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/sinks.py",
+  "repo_path": "research/null_a/sinks.py",
+  "sha256": "15b2127d8bf43355b0bfac7246e68deca096a88f1593460b1ed41021e34b67d2",
+  "bytes": 2513,
+  "git_blob": "660285688e1a50ffacd4a3b17d18197152b9d086",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/__init__.py",
+  "repo_path": "research/null_a/__init__.py",
+  "sha256": "fc70941d2d2b5ff3e4b74e75d60e8e63f65bdecc84dd97023605737eeac8acab",
+  "bytes": 1072,
+  "git_blob": "8ed7f3796530c4126a2248f802a903c9f43a7557",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/recorder.py",
+  "repo_path": "research/null_a/recorder.py",
+  "sha256": "804c8f2907a0542550b2b52295dffa6b89978c7a32462dc58c9e548d0e5cb761",
+  "bytes": 11606,
+  "git_blob": "5fb0b31ea3cb80872cafb5fff99d35f505e9a5ab",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_signal_engine",
+  "path": "/app/research/null_a/quality.py",
+  "repo_path": "research/null_a/quality.py",
+  "sha256": "91a9fa7076d209266843ba937a8010e77addd94a9ab6f2a3c580e45fd6b22080",
+  "bytes": 1660,
+  "git_blob": "36a793b325ef9ccdc6a2761bbf4a449d933887a8",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/binance_price_stream.py",
+  "repo_path": "trade_tracker/binance_price_stream.py",
+  "sha256": "7dabfc0cffce57b96bf2a9cbd5d98f58579c73bbaba87b027aaa52a34e19c246",
+  "bytes": 6935,
+  "git_blob": "97687d3351f4851395fa0e34574a15e0ab45cb6d",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/Dockerfile",
+  "repo_path": "trade_tracker/Dockerfile",
+  "sha256": "6be8edf6262139f9b1ae7689b607c400f9aa9b0b9a169528e2dd4c8302831712",
+  "bytes": 850,
+  "git_blob": "2892fc9d3cd4295db21c6ebe4f5688c2b784ab08",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/requirements.txt",
+  "repo_path": "trade_tracker/requirements.txt",
+  "sha256": "a9ae6d496a41eae979ebd3f73b89106e6395a84d5b9167af5a71757b9221aaaa",
+  "bytes": 103,
+  "git_blob": "75de95c9c68ef220b13b66f2b687d5347e8aca00",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/__init__.py",
+  "repo_path": "trade_tracker/__init__.py",
+  "sha256": "82e1687fa2fb1e44748c4992d3a6679846578379ae19fc6a79afe28e41987e8c",
+  "bytes": 29,
+  "git_blob": "52e14c996726e5972fdcfe01bdcdce49674a811f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/main.py",
+  "repo_path": "trade_tracker/main.py",
+  "sha256": "2cd229aa4dbf80b54ef93ee24175914a68c2b1d0989bb72481fd77bced0c30d6",
+  "bytes": 42142,
+  "git_blob": "abff641219c38fd410e81d56f58eb5de8a92605b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "fe42ff44b8625c1bd94ae84904a91db9e4ac1c1cc29d481fb932c412f7e26ea5",
+  "bytes": 10296,
+  "git_blob": "995e04f227df368d9f954e75c31c2f532b6aaadb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/regime.py",
+  "repo_path": "shared/regime.py",
+  "sha256": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+  "bytes": 2888,
+  "git_blob": "b1ad6e22e6ea910bbb7495dfe1cd0965b9dfade6",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/entry_execution.py",
+  "repo_path": "shared/entry_execution.py",
+  "sha256": "178abc2c79f3f35f17f9d27e8838dd08cec140b23a8fa50863363e82c5468a4e",
+  "bytes": 1248,
+  "git_blob": "77c92a9a67592c9b723f7069da8b48d192b83a13",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/partial_exits.py",
+  "repo_path": "shared/partial_exits.py",
+  "sha256": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+  "bytes": 2155,
+  "git_blob": "d3397f030803c8a757f0c8cb4da956d04b7477c1",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/execution.py",
+  "repo_path": "shared/execution.py",
+  "sha256": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+  "bytes": 990,
+  "git_blob": "a5aa270f954b933611fe859389501a19686351d2",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/trading_state.py",
+  "repo_path": "shared/trading_state.py",
+  "sha256": "920fbc2bf416b7da3bc67ed3262bf3ae3611bef3aa52ea89ceab1519d4573ad6",
+  "bytes": 2222,
+  "git_blob": "2b1d585ed9fb5e0bc9952acbd5b5b2d026b8aa63",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/telegram_messages.py",
+  "repo_path": "shared/telegram_messages.py",
+  "sha256": "4839c3cd44b725907b8f40803aec215e354b1cb318d08643d33cfb2a2dda1dea",
+  "bytes": 9174,
+  "git_blob": "5f8cfd1db9781b4ab82fe38613633cc6c273251e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "06c2a28dfc69a8ed04fb8d878cdaa653e5a79eb6bb54d52025ff72a4f04dbd1a",
+  "bytes": 5490,
+  "git_blob": "9099d1d11e1522c3ea2a4a4c9c7b9da5cc6e15eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/risk_management.py",
+  "repo_path": "shared/risk_management.py",
+  "sha256": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+  "bytes": 5907,
+  "git_blob": "59e918ac70e67296c9b9e8e0bdf9fbb69c707b5c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+  "bytes": 14955,
+  "git_blob": "cce68c7795fba99cce09b6ee18b390a2f375083c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/ohlcv.py",
+  "repo_path": "shared/ohlcv.py",
+  "sha256": "6a064e2ffcd1ebdb59a6eb21cd7e15fd8e1f16ddf7366f3ae0ab6ca6e8f9130a",
+  "bytes": 3420,
+  "git_blob": "8ae788a0de28b74ab3342b7d5caf84f54428d9e5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "17fed649dd2dceafe3d6e87f25f43d24efe76dd286ad8fdeb4f15738944b9281",
+  "bytes": 1389,
+  "git_blob": "5145b1c78ac6b2f9490ed8450d6ba2957efde00b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/signal_stop.py",
+  "repo_path": "shared/signal_stop.py",
+  "sha256": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+  "bytes": 2579,
+  "git_blob": "6a55ae086620c894da1a008aa7e81b1e89ec75eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "3a126c72193b88475f1dd704c9346e11af0d2eb7108711578b8c1f052b09c62a",
+  "bytes": 685,
+  "git_blob": "1b574179c50efd118e7dcf9f6e387b220f3c458b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_tracker",
+  "path": "/app/shared/risk_epoch.py",
+  "repo_path": "shared/risk_epoch.py",
+  "sha256": "9284bdb5ef4621ed24dc5f2da810c5e395fe69d77779dc17682448a1840b9431",
+  "bytes": 9761,
+  "git_blob": "2279fe2c3bdecd2e65e4fd13ac7ac17edf4d0b57",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/whitelist.py",
+  "repo_path": "telegram/whitelist.py",
+  "sha256": "2b4a429aec46937f4cd5bf45c145fe19024481df80b79c8d36f3d63582e2fa42",
+  "bytes": 9308,
+  "git_blob": "bdb75214ef522c216242e732e8c556fe3553a4b3",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/Dockerfile",
+  "repo_path": "telegram/Dockerfile",
+  "sha256": "66640812fa7f1408f5f03d40b6534538f28d8dfdd2c1de5f7ad33cf851edbd89",
+  "bytes": 938,
+  "git_blob": "64fed38aca93e7f453eec587ce7bed52f6c8f3de",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/requirements.txt",
+  "repo_path": "telegram/requirements.txt",
+  "sha256": "d0e820e12ba7cd0c8c7ea918321efcde4bda1dc7f08688bdb96d555a3cfafdaf",
+  "bytes": 151,
+  "git_blob": "94af883a80751bdcd14b9d5172c1af4cfadb14a4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/main.py",
+  "repo_path": "telegram/main.py",
+  "sha256": "c3b14140ce5c7f1eee48dcb7a6563ecfec486fa20002780b8548d6032ecfaf12",
+  "bytes": 46531,
+  "git_blob": "5ff56c67c1b07a4fe5a8c34c0e140ee17cf18f9f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "fe42ff44b8625c1bd94ae84904a91db9e4ac1c1cc29d481fb932c412f7e26ea5",
+  "bytes": 10296,
+  "git_blob": "995e04f227df368d9f954e75c31c2f532b6aaadb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/regime.py",
+  "repo_path": "shared/regime.py",
+  "sha256": "3b9a31396978c4360fdc701694e20a526d46b597b5d9db04f45f3434ae5a211c",
+  "bytes": 2888,
+  "git_blob": "b1ad6e22e6ea910bbb7495dfe1cd0965b9dfade6",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/entry_execution.py",
+  "repo_path": "shared/entry_execution.py",
+  "sha256": "178abc2c79f3f35f17f9d27e8838dd08cec140b23a8fa50863363e82c5468a4e",
+  "bytes": 1248,
+  "git_blob": "77c92a9a67592c9b723f7069da8b48d192b83a13",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/partial_exits.py",
+  "repo_path": "shared/partial_exits.py",
+  "sha256": "973f26a3144d5557001a42657ad880aeb3059cfec8d0a2fc9cac96cb66c0c77d",
+  "bytes": 2155,
+  "git_blob": "d3397f030803c8a757f0c8cb4da956d04b7477c1",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/execution.py",
+  "repo_path": "shared/execution.py",
+  "sha256": "43ed2bb4b89a05cb209a8d317ecd9737c24880a2921d4f8f1d80740d1f427d2a",
+  "bytes": 990,
+  "git_blob": "a5aa270f954b933611fe859389501a19686351d2",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/trading_state.py",
+  "repo_path": "shared/trading_state.py",
+  "sha256": "920fbc2bf416b7da3bc67ed3262bf3ae3611bef3aa52ea89ceab1519d4573ad6",
+  "bytes": 2222,
+  "git_blob": "2b1d585ed9fb5e0bc9952acbd5b5b2d026b8aa63",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/telegram_messages.py",
+  "repo_path": "shared/telegram_messages.py",
+  "sha256": "4839c3cd44b725907b8f40803aec215e354b1cb318d08643d33cfb2a2dda1dea",
+  "bytes": 9174,
+  "git_blob": "5f8cfd1db9781b4ab82fe38613633cc6c273251e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "06c2a28dfc69a8ed04fb8d878cdaa653e5a79eb6bb54d52025ff72a4f04dbd1a",
+  "bytes": 5490,
+  "git_blob": "9099d1d11e1522c3ea2a4a4c9c7b9da5cc6e15eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/risk_management.py",
+  "repo_path": "shared/risk_management.py",
+  "sha256": "d860d324a9606ef59b60fd38798a6b661f13e892a7ebf5a36d8b9da4f647bead",
+  "bytes": 5907,
+  "git_blob": "59e918ac70e67296c9b9e8e0bdf9fbb69c707b5c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "c38a7122b8ea6c179f95047a5710689c71f9963f2684ddcc90d096a5971173ff",
+  "bytes": 14955,
+  "git_blob": "cce68c7795fba99cce09b6ee18b390a2f375083c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/ohlcv.py",
+  "repo_path": "shared/ohlcv.py",
+  "sha256": "6a064e2ffcd1ebdb59a6eb21cd7e15fd8e1f16ddf7366f3ae0ab6ca6e8f9130a",
+  "bytes": 3420,
+  "git_blob": "8ae788a0de28b74ab3342b7d5caf84f54428d9e5",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "17fed649dd2dceafe3d6e87f25f43d24efe76dd286ad8fdeb4f15738944b9281",
+  "bytes": 1389,
+  "git_blob": "5145b1c78ac6b2f9490ed8450d6ba2957efde00b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/signal_stop.py",
+  "repo_path": "shared/signal_stop.py",
+  "sha256": "ca8dc4953774efff5b9309c2241f5dbd0ecda2f474b0d42a6c7e7a1a72875572",
+  "bytes": 2579,
+  "git_blob": "6a55ae086620c894da1a008aa7e81b1e89ec75eb",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "3a126c72193b88475f1dd704c9346e11af0d2eb7108711578b8c1f052b09c62a",
+  "bytes": 685,
+  "git_blob": "1b574179c50efd118e7dcf9f6e387b220f3c458b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_telegram",
+  "path": "/app/shared/risk_epoch.py",
+  "repo_path": "shared/risk_epoch.py",
+  "sha256": "9284bdb5ef4621ed24dc5f2da810c5e395fe69d77779dc17682448a1840b9431",
+  "bytes": 9761,
+  "git_blob": "2279fe2c3bdecd2e65e4fd13ac7ac17edf4d0b57",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/Dockerfile",
+  "repo_path": "claude_review/Dockerfile",
+  "sha256": "a86aee68e31c032b28f76525ceb86e277d007b1e8c350fe4921a523f65093572",
+  "bytes": 1401,
+  "git_blob": "1ee74610d7061bccc87c0a55d76cd28dffd71b92",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/requirements.txt",
+  "repo_path": "claude_review/requirements.txt",
+  "sha256": "d3d4d14b43602b5eec8438be248cdd047fc1d1ed88ef03bccf344198d2d10b38",
+  "bytes": 81,
+  "git_blob": "dfea83c0bca712dbd91c60689c7fa1998d8972da",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/main.py",
+  "repo_path": "claude_review/main.py",
+  "sha256": "b4bd3414f900b393123b2e1a4d409993d93eb114ef4361076fadc71ba424abff",
+  "bytes": 9854,
+  "git_blob": "a3f0caf3a980d7df16be8c3e6780071e9647a809",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "e007763dd9f001ff7bf13a708885270ab6c637b721627d921a8c87f634f7ca2a",
+  "bytes": 8122,
+  "git_blob": "69a342b4f3da136823af8743a0cd296b19d88101",
+  "source_commit": "c4cae2b",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "15d23f8cce8cb5dd9c8decf676c13085a2b4929a0a8d4b0bff9d69da931ea661",
+  "bytes": 4558,
+  "git_blob": "abb8391ce17ff39149f874536020c0f3a5eeb370",
+  "source_commit": "c4a623c",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "861b05a23edf391bf3c0cd33fb453deb4d3564e920fddabb76b56737aa22b38a",
+  "bytes": 12557,
+  "git_blob": "6fffdd668c028bbb2f1bb5bad6fb17eff0b7985b",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "1eb897c8c01fb9001b6c87c05679c29c3e534a003ddd78add88ba9f2d781fea7",
+  "bytes": 1373,
+  "git_blob": "2ce814ee89193497b93721384cf1d958486a0354",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "9d43e9d4d7a321ce5233c45887f2bfe24881f9775ee47868b8171a4335646e21",
+  "bytes": 685,
+  "git_blob": "88e019696f79dd1000ae7c4ad693d250d0bc96d8",
+  "source_commit": null,
+  "in_git_history": false
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "14540f1698135d00fd4af127186b8192b13992d4c56cec5f863ed04d77c97630",
+  "bytes": 2044,
+  "git_blob": "df6fcc1f7835d324ed183b731df22455e34309b2",
+  "source_commit": null,
+  "in_git_history": false
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_claude_review",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/signal_logic.py",
+  "repo_path": "signal_engine/signal_logic.py",
+  "sha256": "7727f73988bf43cd987d5c7eb5b96869671959352e1782b7cc2f645cbab2ac81",
+  "bytes": 34448,
+  "git_blob": "f277add4e1476215ecadf8b57e1b0eef5467caac",
+  "source_commit": "605a962",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/Dockerfile",
+  "repo_path": "signal_engine/Dockerfile",
+  "sha256": "eea7b6586c324cf7e308ec8ee5cebacb474f3cc0d918f9396181b262b68c8b94",
+  "bytes": 1406,
+  "git_blob": "5dcc1667b428d13256ee8af56ada01127f818afa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/requirements.txt",
+  "repo_path": "signal_engine/requirements.txt",
+  "sha256": "50de28a95bd722bb018d9b8c5422cf8b8f36ef454a1e4bc0c04dca71a422a9d5",
+  "bytes": 196,
+  "git_blob": "311dc6b4421482552b783f96604d3a0ef8dccb2f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/main.py",
+  "repo_path": "signal_engine/main.py",
+  "sha256": "abcc7119f60518e1a122acc7fe561f9c8cb5b49a33c084a9794df661ce428814",
+  "bytes": 8838,
+  "git_blob": "d182d04e69401259f00b515fdd76e20938aa5824",
+  "source_commit": "c4a623c",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/database.py",
+  "repo_path": "shared/database.py",
+  "sha256": "61371b91c1d72b7715e10da57c282a960bc16a568454676bb63b08b5c84a628f",
+  "bytes": 2384,
+  "git_blob": "866f635d1e3969c65193c5af558af6242f09107b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/config.py",
+  "repo_path": "shared/config.py",
+  "sha256": "83592f9c2a8f75fe18766cdf149486b1b069a221e243ad7fe8130bf6fe5e7cc7",
+  "bytes": 8765,
+  "git_blob": "871eba89f1be9049d2f67ff59a4b00bee0e931b6",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/maintenance.py",
+  "repo_path": "shared/maintenance.py",
+  "sha256": "64191d8e611cca5000a8372357fe3af1f1430a5c079f8b1a6bb218381d6fc2b5",
+  "bytes": 654,
+  "git_blob": "9edf643982166bcee9e3a6d32efe7e5668fe587c",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/health.py",
+  "repo_path": "shared/health.py",
+  "sha256": "158a95eaa7323ac61c58d2b428e94e22a488e773c08372c1c73086aab6b32ed7",
+  "bytes": 4144,
+  "git_blob": "7c81ba2f2fcfcd2c429fbb5cdd220968654c9b01",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/outbox.py",
+  "repo_path": "shared/outbox.py",
+  "sha256": "d3d1de74e8bd0d29c1043c228f2ea7f2858984d21306461787b1ee8d3b45f7bb",
+  "bytes": 2727,
+  "git_blob": "8416d5af9ad1441b4fae441435b6c3c79194651a",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/fees.py",
+  "repo_path": "shared/fees.py",
+  "sha256": "facd3d12ced2af3f148b9cb5e6f8fd48c68006beafa522f04851654c0051d427",
+  "bytes": 1823,
+  "git_blob": "281d5172fcca8727581629c1d7e8570220ae2db4",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/macro_context.py",
+  "repo_path": "shared/macro_context.py",
+  "sha256": "15d23f8cce8cb5dd9c8decf676c13085a2b4929a0a8d4b0bff9d69da931ea661",
+  "bytes": 4558,
+  "git_blob": "abb8391ce17ff39149f874536020c0f3a5eeb370",
+  "source_commit": "c4a623c",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/triple_barrier.py",
+  "repo_path": "shared/triple_barrier.py",
+  "sha256": "861b05a23edf391bf3c0cd33fb453deb4d3564e920fddabb76b56737aa22b38a",
+  "bytes": 12557,
+  "git_blob": "6fffdd668c028bbb2f1bb5bad6fb17eff0b7985b",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/alerts.py",
+  "repo_path": "shared/alerts.py",
+  "sha256": "6169bc12c007c72e0e39777f8f01b2b95b2b6af6904bf8d186a20aa40af5152c",
+  "bytes": 1438,
+  "git_blob": "b8adb21e65756b49657d357c5127822e47dd189f",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/candle.py",
+  "repo_path": "shared/candle.py",
+  "sha256": "1eb897c8c01fb9001b6c87c05679c29c3e534a003ddd78add88ba9f2d781fea7",
+  "bytes": 1373,
+  "git_blob": "2ce814ee89193497b93721384cf1d958486a0354",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/schema.py",
+  "repo_path": "shared/schema.py",
+  "sha256": "65904dc3b7f050cc7dffa6524e4a0bb24c66d2819cac824bd6967bd6c1c40dd3",
+  "bytes": 685,
+  "git_blob": "0e73dfd2b683b5e3cf9135abdc35e940807cc625",
+  "source_commit": "7bf6214",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/learning_governance.py",
+  "repo_path": "shared/learning_governance.py",
+  "sha256": "20323d47631a9d2ee0a4e8ef4940791bd5434edda35b4e2c6ce6c8973f05aa7a",
+  "bytes": 2915,
+  "git_blob": "09cc1b3043fc5acaef474956965a789c1028be75",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/logger.py",
+  "repo_path": "shared/logger.py",
+  "sha256": "33826a2397609628099328d75636f0dbca72069d6c3e6805fe0caf6321e48f4f",
+  "bytes": 1526,
+  "git_blob": "86f83f4aff4ece2896e695710dbe9a4460bd02aa",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/shared/retry_utils.py",
+  "repo_path": "shared/retry_utils.py",
+  "sha256": "e6ba57b1703f394a4ef7cd14d3fd34b7c1dc2d1bcef955e8c3489dbf0745753a",
+  "bytes": 2223,
+  "git_blob": "a54fb19094cfdd9eb0d9789d6ded0abe565afe39",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/strategy_performance_review.py",
+  "repo_path": "research/strategy_performance_review.py",
+  "sha256": "ae23a7a0884fe27948ee4163061c49ef7a845ac530efb8255d825b1b8eb7d2f1",
+  "bytes": 8602,
+  "git_blob": "906935050106f739c22c9c46c6f93d1adb933e04",
+  "source_commit": "14fc775",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/continuous_learner.py",
+  "repo_path": "research/continuous_learner.py",
+  "sha256": "b335e5b40f9b029dedc52b3a6fc80cb66c253ec4ca78f8309c9ad049a58f1b61",
+  "bytes": 17416,
+  "git_blob": "e8a806999080f66bd47a067a8f2dbf33f1783742",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/rollback_learned_gates.py",
+  "repo_path": "research/rollback_learned_gates.py",
+  "sha256": "a1b26dc5f09349bb505113434aaedc16365b5a034fc1880004f5832b08dbc875",
+  "bytes": 4342,
+  "git_blob": "61611cd73239deb9aabbc190d4aeaa15adaf2693",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/buckets.py",
+  "repo_path": "research/null_a/buckets.py",
+  "sha256": "2d6604f881565c9d92dda6e0a18d27aa8537dabddcd8418f01e971a2923af1f3",
+  "bytes": 1322,
+  "git_blob": "82ecad68cdcd27fd034c9afb3a7c9aea7369714e",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/conditional_null.py",
+  "repo_path": "research/null_a/conditional_null.py",
+  "sha256": "da8e22208ccec46b9c97ec9849bc582023430b7ed5075654111d9a326dc7b254",
+  "bytes": 2635,
+  "git_blob": "47c22b8c0550efede809588058fd3845305c428b",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/evidence_store.py",
+  "repo_path": "research/null_a/evidence_store.py",
+  "sha256": "7fe271e18c517ae47df1d01e0230f8b780738f1af0c9869a95b2d9963c23fea8",
+  "bytes": 1911,
+  "git_blob": "196c93a4ae64e950e89de8abe93cac4c5b270469",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/sinks.py",
+  "repo_path": "research/null_a/sinks.py",
+  "sha256": "15b2127d8bf43355b0bfac7246e68deca096a88f1593460b1ed41021e34b67d2",
+  "bytes": 2513,
+  "git_blob": "660285688e1a50ffacd4a3b17d18197152b9d086",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/__init__.py",
+  "repo_path": "research/null_a/__init__.py",
+  "sha256": "fc70941d2d2b5ff3e4b74e75d60e8e63f65bdecc84dd97023605737eeac8acab",
+  "bytes": 1072,
+  "git_blob": "8ed7f3796530c4126a2248f802a903c9f43a7557",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/recorder.py",
+  "repo_path": "research/null_a/recorder.py",
+  "sha256": "804c8f2907a0542550b2b52295dffa6b89978c7a32462dc58c9e548d0e5cb761",
+  "bytes": 11606,
+  "git_blob": "5fb0b31ea3cb80872cafb5fff99d35f505e9a5ab",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ },
+ {
+  "service": "trading_continuous_learner",
+  "path": "/app/research/null_a/quality.py",
+  "repo_path": "research/null_a/quality.py",
+  "sha256": "91a9fa7076d209266843ba937a8010e77addd94a9ab6f2a3c580e45fd6b22080",
+  "bytes": 1660,
+  "git_blob": "36a793b325ef9ccdc6a2761bbf4a449d933887a8",
+  "source_commit": "8bfca77",
+  "in_git_history": true
+ }
+]
