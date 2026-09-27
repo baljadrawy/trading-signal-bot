@@ -14,6 +14,8 @@ This is an append-only decision register. Do not silently rewrite approved inten
 
 | ADR-010 | 2026-09-27 | Development and production share a single host; Git worktrees and disposable containers are logical isolation only, not a separate staging environment. | Owner-confirmed constraint | Post-P1 dependency audit is read-only; no tests/builds or disposable infra without separate approval and host resource/isolation review. See SINGLE_HOST_SAFETY.md. |
 
+| ADR-011 | 2026-09-27 | Consolidate GitHub to one long-lived canonical branch (target main), remove verified unused code/obsolete branches and keep short-lived PR branches only while work is under review. | Approved direction | Read-only branch/code audit first; preserve baseline and unique commits; no unreviewed P1 merge, deletion or default-branch change without separate owner approval. See REPOSITORY_CONSOLIDATION.md. |
+
 ## Owner approval model
 - **Idea** ≠ approved product direction ≠ authorized code change ≠ approved deployment ≠ authorized paper restart ≠ authorized live trading.
 - Each ADR change must link a dated owner decision, impact on risk/strategy, acceptance tests and rollback.
