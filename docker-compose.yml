@@ -85,6 +85,8 @@ services:
     volumes:
       - logs_data:/app/logs
       - models_data:/app/models
+      # P1 evidence v2: separate directory; v1 files in ./data/evidence are never touched.
+      - ./data/evidence_v2:/app/data/evidence_v2
     networks:
       - trading_network
       - shared_db_net
@@ -123,6 +125,8 @@ services:
       - models_data:/app/models
       # Evidence output is the only writable host path used by Signal Engine.
       - ./data/evidence:/app/data/evidence
+      # P1 evidence v2: separate directory; v1 files in ./data/evidence are never touched.
+      - ./data/evidence_v2:/app/data/evidence_v2
     networks:
       - trading_network
       - shared_db_net
@@ -188,6 +192,8 @@ services:
       HEALTH_MAX_AGE_SECONDS: "600"
     volumes:
       - logs_data:/app/logs
+      # P1 evidence v2: separate directory; v1 files in ./data/evidence are never touched.
+      - ./data/evidence_v2:/app/data/evidence_v2
     networks:
       - trading_network
       - shared_db_net
@@ -285,6 +291,8 @@ services:
       HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
       - logs_data:/app/logs
+      # P1 evidence v2: separate directory; v1 files in ./data/evidence are never touched.
+      - ./data/evidence_v2:/app/data/evidence_v2
     networks:
       - trading_network
       - shared_db_net

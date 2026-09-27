@@ -14,6 +14,7 @@ from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
 from shared.signal_stop import plan_signal_stop
 from shared.regime import classify_regime
+from shared import evidence_v2
 from simple_entry import detect_trade_setup
 
 logger = setup_logger('technical_analyzer')
@@ -38,8 +39,10 @@ class TechnicalAnalyzer:
         tf = timeframe or config.TIMEFRAME
         try:
             df = await self._get_candles(symbol, tf)
+            klines_fetched_at_ms = evidence_v2.now_ms()   # P1: when the closed candles were in hand
             if df is None or len(df) < indicator_warmup_bars():
                 return None
+            pit = evidence_v2.candle_pit(df, tf, klines_fetched_at_ms)   # reads index/close_time only
 
             df = self._calculate_indicators(df)
             regime = dict(classify_regime(df))
@@ -95,6 +98,8 @@ class TechnicalAnalyzer:
                 'volume_ratio': float(df['volume_ratio'].iloc[-1]),
                 'trend_ok': trend_ok,
                 'trade_type': trade_type,
+                # P1 point-in-time identity (instrumentation only; no decision reads it)
+                'pit': evidence_v2.candidate_pit(pit, symbol, tf, trade_type, config, weights),
             }
         except Exception as e:
             logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {format_error(e)}")
