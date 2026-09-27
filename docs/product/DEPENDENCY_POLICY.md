@@ -28,3 +28,6 @@ Inventory every direct/transitive dependency and runtime for Python services, Do
 
 ## Deliverable after P1
 A dated `DEPENDENCY_AUDIT_YYYY-MM-DD.md` and a proposed version matrix. Only implement changes after scope and owner approval. Cross-link any resulting issue/PR in the Decision Log.
+
+## Single-host audit limitation
+Owner confirmed development and production run on the same host. The post-P1 audit is strictly **read-only**: inspect manifests, existing installed packages and image metadata and official upstream releases. Do not install packages, start test DBs, rebuild images or run resource-heavy tests as part of the audit. Propose an isolated resource-limited upgrade experiment for **separate owner approval**. See [SINGLE_HOST_SAFETY](SINGLE_HOST_SAFETY.md).
