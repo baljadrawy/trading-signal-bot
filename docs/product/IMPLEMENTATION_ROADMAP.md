@@ -19,3 +19,6 @@
 - High predicted downside: proposed reduction in *new* trade count/stake/exposure; high predicted upside: proposed restoration of suppressed opportunities within existing caps. Both are **advice only** until P6 approval.
 - Failure of ML or missing/stale context must never weaken B3, resume halted paper, or enable live trading.
 - Record every new idea in IDEA_REGISTER and every owner-approved change in DECISION_LOG before modifying the roadmap.
+
+## Dependency modernization checkpoint (owner-approved 2026-09-27)
+After Claude delivers the P1 report, inventory actual service dependencies and verify the latest stable supported compatible releases **at that date**. Follow [DEPENDENCY_POLICY](DEPENDENCY_POLICY.md). Keep upgrades in a separate branch/PR from P1 instrumentation; test ARM64 compatibility, B3 and strategy parity, security and rollback. Do not silently upgrade production, restart services or resume paper trading.
