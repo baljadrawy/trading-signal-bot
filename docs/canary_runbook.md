@@ -1,3 +1,5 @@
+> **HISTORICAL / DO NOT EXECUTE OPERATIONAL COMMANDS** — see docs/ops/COMPOSE_OPERATIONS.md
+
 # Canary Runbook — Evidence Flight Recorder
 
 The operational contract for first-enabling the evidence recorder on the live (paper)
@@ -28,7 +30,7 @@ EVIDENCE_FILTER_TIMEFRAMES=1h
 EVIDENCE_FILTER_SOURCES=live,paper
 EVIDENCE_FILTER_MAX_SIGNALS_PER_HOUR=20
 ```
-Apply to `.env`, then: `docker compose up -d --build signal_engine`.
+Historical (2026-07 canary): the flags were applied to `.env` and `signal_engine` was rebuilt and recreated. **Do not repeat:** building in production is forbidden and `signal_engine` is a D3 drift-blocked service; any change now requires owner authorization and the Class B procedure in `docs/ops/COMPOSE_OPERATIONS.md`.
 
 ## Observation Window
 24–48h.
@@ -70,7 +72,8 @@ signal_engine startup failure
 ## Rollback (immediate, ~1 min, no code change)
 ```
 ENABLE_EVIDENCE_RECORDER=false
-docker compose restart signal_engine
+# then: notify the owner; restart/recreate of signal_engine only under the
+# Class B procedure in docs/ops/COMPOSE_OPERATIONS.md (no automatic Compose commands)
 ```
 The recorder is off-by-default and fully isolated; rollback is a flag flip + restart. No DB
 migration, no state to unwind. Captured evidence in `data/evidence/` is harmless to keep.

@@ -1,3 +1,5 @@
+> **HISTORICAL / DO NOT EXECUTE OPERATIONAL COMMANDS** — see docs/ops/COMPOSE_OPERATIONS.md
+
 # Measurement-Layer Fix — Design Spec
 
 **Date:** 2026-07-15

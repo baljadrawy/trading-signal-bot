@@ -1,5 +1,6 @@
 #!/bin/bash
-# سكريبت الإعداد الأول للـ Raspberry Pi
+# سكريبت الإعداد الأول — لتثبيت أول على خادم فارغ فقط (initial install on an EMPTY host only).
+# ليس أداة نشر أو تشغيل للإنتاج: عمليات الإنتاج في docs/ops/COMPOSE_OPERATIONS.md
 
 echo "🚀 إعداد Trading Signal Bot..."
 
@@ -9,6 +10,20 @@ export BUILD_REVISION
 # التحقق من Docker
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker غير مثبت!"
+    exit 1
+fi
+
+# حارس fail-closed: يرفض التشغيل إذا وُجدت أي حاوية للمشروع أو أي حاوية trading_*
+# (قبل أي build أو start). أي فشل في الاستعلام يُعامل كرفض.
+if ! existing_project="$(docker ps -a --filter label=com.docker.compose.project=trading-signal-bot -q)" \
+   || ! existing_named="$(docker ps -a --filter name=trading_ --format '{{.Names}}')"; then
+    echo "❌ تعذّر فحص الحاويات الحالية؛ رفض الإعداد (fail-closed)."
+    exit 1
+fi
+if [ -n "$existing_project" ] || printf '%s\n' "$existing_named" | grep -q '^trading_'; then
+    echo "⛔ رفض: توجد حاويات trading-signal-bot / trading_* على هذا الخادم."
+    echo "   setup.sh للتثبيت الأول على خادم فارغ فقط، ولا يُستخدم للنشر أو إعادة التشغيل."
+    echo "   اتبع docs/ops/COMPOSE_OPERATIONS.md (أي تعديل يحتاج موافقة المالك)."
     exit 1
 fi
 
@@ -56,5 +71,5 @@ echo ""
 echo "📊 لمراقبة السجلات:"
 echo "   docker compose logs -f"
 echo ""
-echo "⏹️ للإيقاف:"
-echo "   docker compose down"
+echo "⏹️ الإيقاف وأي عملية تشغيلية لاحقة: اتبع docs/ops/COMPOSE_OPERATIONS.md"
+echo "   (لا أوامر Compose شاملة في الإنتاج؛ خدمة واحدة وبموافقة المالك)"

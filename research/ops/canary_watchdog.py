@@ -72,7 +72,7 @@ def send_telegram(text):
 def build_msg(state, reason, latest, hours, n):
     action = ""
     if state == "RED":
-        action = "\n⚠️ تراجع موصى: ENABLE_EVIDENCE_RECORDER=false ثم docker compose up -d signal_engine"
+        action = "\n⚠️ تراجع موصى: أبلغ المالك واتبع docs/ops/COMPOSE_OPERATIONS.md (لا تنفّذ أوامر Compose تلقائياً)"
     elif state == "INVALID":
         action = "\n⚠️ عيّنة غير صالحة (BTCUSDT شحيح) — أعد ضبط النطاق، لا تنتظر 48h"
     elif state == "STALE":
