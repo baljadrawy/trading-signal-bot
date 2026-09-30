@@ -24,7 +24,7 @@ research/skill_application/.venv/bin/python -m pytest tests/ -q               # 
   `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate <svc>`
   مع التقاط الهوية قبل/بعد (container ID، image، StartedAt، RestartCount، IPs)، وفحص صحة طازج ×2، وبوابتي PAPER_HALTED/B3.
 - **Class C (ممنوع في الإنتاج):** `up`/`up -d` بلا خدمة، `up --build`، أي `build` من نسخة الإنتاج، `down`، `down -v`، `--remove-orphans`، أي `prune`، `pull` لصور التطبيق، `start`/`restart`/`rm` الشاملة، `run` يركّب مجلد الإنتاج، وأي تعديل لأكثر من خدمة.
-- **المتعلّم (`continuous_learner`) يبقى متوقفاً:** في profile `learner`؛ تشغيله فقط بـ `--profile learner` وبتفويض منفصل من المالك. **الـprofile لا يجعل الأوامر العارية مقبولة.**
+- **المتعلّم (`continuous_learner`) يبقى متوقفاً:** الـprofile `learner` يمنعه فقط من المشاركة في التشغيل الافتراضي العادي لـCompose (حماية من التشغيل العرضي). استهداف المتعلّم مباشرةً بالاسم يبقى ممكناً تقنياً في Docker Compose، و**ممنوع** دون تفويض منفصل من المالك. **الـprofile ليس حدّ تفويض:** حدّ التفويض هو موافقة المالك الصريحة + إجراء Class B + هذا المرجع + رفض `ops/compose-safe` للمتعلّم + قاعدة التوقف المطلقة. لا تستهدف `continuous_learner` بأي أمر Compose؛ أي تشغيل مقصود يتم فقط عبر الإجراء المُراجَع وبتفويض منفصل. **الـprofile لا يجعل الأوامر العارية مقبولة.**
 - **صور مثبّتة:** telegram و trade_tracker و scanner على صور `deploy/aiohttp-3.14.3/IMAGES.md` — لا إعادة بناء ولا إعادة وسم أبداً.
 - **خدمات D3 محجوبة بالانجراف:** analyzer و signal_engine و claude_review — إعادة إنشائها تطبّق انجراف البيئة؛ ممنوعة قبل مرحلة D3.
 - **مصدر الحقيقة:** `docker-compose.yml` في الإنتاج يجب أن يطابق الـblob المُراجَع في Git؛ أي تغيير عبر PR ثم تثبيت منفصل بتفويض مستقل مع تحقق `config --hash`.

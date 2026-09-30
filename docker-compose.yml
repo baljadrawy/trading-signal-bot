@@ -238,7 +238,7 @@ services:
       dockerfile: signal_engine/Dockerfile
       args: *build-args
     container_name: trading_continuous_learner
-    profiles: ["learner"]   # never started by a default up; requires --profile learner + owner approval (docs/ops/COMPOSE_OPERATIONS.md)
+    profiles: ["learner"]   # excluded from default startup only; NOT an authorization control — never target directly (docs/ops/COMPOSE_OPERATIONS.md)
     restart: unless-stopped
     logging: *default-logging
     env_file:

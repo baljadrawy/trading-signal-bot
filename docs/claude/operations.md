@@ -64,7 +64,7 @@ LEARN_CRON_HOURS=24                 # وتيرة المتعلّم + الملخّ
 
 ## مراجعة أداء الاستراتيجية
 
-> المتعلّم (`continuous_learner`) متوقف عمداً وفي profile `learner`؛ لا تشغّله لتشغيل هذا التقرير.
+> المتعلّم (`continuous_learner`) متوقف عمداً. الـprofile `learner` يمنعه فقط من التشغيل الافتراضي، وليس حدّ تفويض: استهدافه مباشرةً ممكن تقنياً وممنوع دون تفويض منفصل من المالك. لا تشغّله لتشغيل هذا التقرير.
 > تشغيل التقرير داخل حاوية إنتاج يحتاج موافقة المالك (Class B في [COMPOSE_OPERATIONS.md](../ops/COMPOSE_OPERATIONS.md)).
 
 يحسب التقرير gross/net expectancy وProfit Factor وdrawdown، والتقسيم حسب النوع والإطار

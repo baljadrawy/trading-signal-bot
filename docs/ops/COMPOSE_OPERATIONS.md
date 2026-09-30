@@ -17,8 +17,9 @@ initial-setup-only, historical, or wrong; this file wins.
   PAPER_HALTED (B3, `risk:loss_streak_halt`). No operation may lift the halt; recovery follows
   `docs/loss_streak_recovery_runbook.md` and needs the owner.
 - **One service at a time.** Never mutate more than one service in one command or one step.
-- **The learner (`continuous_learner`) stays stopped.** It is in Compose profile `learner`, so
-  default commands ignore it. Starting it needs separate, explicit owner authorization.
+- **The learner (`continuous_learner`) stays stopped.** The profile prevents the learner from
+  participating in normal default Compose startup. Directly targeting the learner remains possible
+  in Docker Compose and is prohibited without separate owner authorization. See "Learner" below.
 - **D3 services are drift-blocked.** `analyzer`, `signal_engine` and `claude_review` differ from
   the Compose definition (environment drift). Recreating any of them applies that drift. They must
   not be recreated until the D3 phase is approved.
@@ -103,14 +104,20 @@ Mandatory gates for every Class B step:
 Rollback = the same canonical form on the exact prior image (a dedicated rollback override or the
 rollback tag from `deploy/aiohttp-3.14.3/IMAGES.md`), with the same gates.
 
-**Learner (separate authorization only):** after a D3-style environment review and with a stop plan:
-
-```bash
-docker compose -p trading-signal-bot -f docker-compose.yml --profile learner up -d --no-deps --no-build --pull never continuous_learner
-```
-
-Note: Docker documents that explicitly naming a profiled service (e.g. `run continuous_learner`)
-can activate it without `--profile`. The profile is not a lock; this policy is.
+**Learner (`continuous_learner`): profile vs authorization.**
+- *Default accidental protection:* `profiles: ["learner"]`. The profile prevents the learner from
+  participating in normal default Compose startup (a default `up` does not include it).
+- *It is NOT an authorization boundary.* Directly targeting the learner remains possible in Docker
+  Compose (e.g. naming `continuous_learner` in `up`, `run` or `start` can run it without
+  `--profile`), and is prohibited without separate owner authorization. Adding `--profile learner`
+  is not an approval mechanism either.
+- *Authorization boundary:* explicit owner approval for that specific start, the Class B procedure
+  above, this runbook, `ops/compose-safe` (which refuses the learner for every subcommand), and the
+  absolute STOP rule.
+- Operators must NOT directly target `continuous_learner` with Docker Compose (no `up`, `run`,
+  `start`, `restart`, `exec` or `rm` naming it). An intentional learner start is separately
+  owner-authorized and is executed only through the canonical, reviewed procedure written for that
+  authorization (after a D3-style environment review, with a stop plan and PAPER_HALTED/B3 gates).
 
 ## Class C: forbidden in production
 Never run these against project `trading-signal-bot` on this host (no exception without a new,
@@ -130,7 +137,8 @@ explicit owner decision recorded in writing):
 - any command that mutates more than one service at once.
 
 **The learner profile does NOT make bare commands acceptable.** It only removes the learner from
-the default model; a bare `up -d` would still recreate the D3 services with drifted environment,
+the default model (accidental default startup); it does not stop direct targeting and is not an
+authorization control; a bare `up -d` would still recreate the D3 services with drifted environment,
 and `down` would still take the whole bot down.
 
 ## Initial setup vs production

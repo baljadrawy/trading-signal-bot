@@ -87,5 +87,8 @@ Line numbers refer to `develop@99401654`. Git-only change: no container, image o
 DEPLOYED COPY STILL PENDING 0 of the 34 (plus 2 extra rows: the deployed watchdog copy and the production Compose
 install). Reclassified/LOW rows listed above: OUT-OF-SCOPE 3, RETAINED WITH GATE 1 (Compose comments).
 
-Structural control added by S5B: `continuous_learner` now has `profiles: ["learner"]` (not started by any default
-`up`; config hashes of all 7 services unchanged offline). Read-only helper: `ops/compose-safe`.
+Default-startup protection added by S5B: `continuous_learner` now has `profiles: ["learner"]`, so it does not
+participate in normal default Compose startup (config hashes of all 7 services unchanged offline). This is **not an
+authorization boundary**: directly targeting the learner remains possible in Docker Compose and is prohibited without
+separate owner authorization. The authorization boundary is explicit owner approval, the Class B procedure in
+`docs/ops/COMPOSE_OPERATIONS.md`, `ops/compose-safe` (refuses the learner) and the absolute STOP rule.

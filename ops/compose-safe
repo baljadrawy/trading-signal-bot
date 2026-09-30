@@ -7,6 +7,10 @@ This helper deliberately has NO mutation subcommands. Restart, stop, recreate,
 deploy, rollback and any learner start belong to the separately authorized,
 gated per-rollout deployment procedures (Class B), never to this tool.
 
+continuous_learner and optimizer are refused for every subcommand, whatever the Compose
+profile state. The learner's `profiles: ["learner"]` only keeps it out of default startup;
+it is NOT an authorization control. `--profile` is never accepted and never passed through.
+
 Usage:
   ops/compose-safe [--project-dir DIR] status
   ops/compose-safe [--project-dir DIR] services
@@ -90,6 +94,13 @@ def _denied(token):
 
 def check_denylist(argv):
     for token in argv:
+        if token == "--profile" or token.startswith("--profile="):
+            raise Refused(
+                f"refused: '--profile' is not accepted. Profiles are default-startup protection only, "
+                f"not an authorization control; see {RUNBOOK}."
+            )
+        if token in OWNER_ONLY_SERVICES:
+            check_service(token)  # raises with the owner-authorization message
         if _denied(token):
             raise Refused(
                 f"refused: '{token}' is a mutation word/flag. This helper is read-only; "

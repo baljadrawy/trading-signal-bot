@@ -81,6 +81,59 @@ class ComposeSafeTest(unittest.TestCase):
             err = self.assert_refused(sub, "continuous_learner")
             self.assertIn("owner authorization", err)
 
+    def test_learner_rejected_for_every_subcommand_regardless_of_profile(self):
+        # The learner profile is default-startup protection only, not an authorization
+        # control: the helper must refuse the learner everywhere, in any position.
+        cases = [
+            ("status", "continuous_learner"),
+            ("services", "continuous_learner"),
+            ("logs", "continuous_learner"),
+            ("logs", "continuous_learner", "--tail", "10"),
+            ("logs", "telegram", "continuous_learner"),
+            ("inspect", "continuous_learner"),
+            ("render-hash", "continuous_learner"),
+            ("continuous_learner", "status"),
+            ("continuous_learner",),
+        ]
+        for args in cases:
+            with self.subTest(args=args):
+                err = self.assert_refused(*args)
+                self.assertIn("owner authorization", err)
+        with mock.patch.dict(os.environ, {"COMPOSE_PROFILES": "learner"}):
+            for sub in ("status", "logs", "inspect", "render-hash"):
+                err = self.assert_refused(sub, "continuous_learner")
+                self.assertIn("owner authorization", err)
+
+    def test_profile_flag_rejected_in_any_position(self):
+        variants = [
+            ("--profile", "learner", "status"),
+            ("status", "--profile", "learner"),
+            ("logs", "telegram", "--profile", "learner"),
+            ("render-hash", "--profile", "learner", "telegram"),
+            ("inspect", "telegram", "--profile=learner"),
+            ("--profile=learner", "services"),
+            ("services", "--profile"),
+        ]
+        for args in variants:
+            with self.subTest(args=args):
+                err = self.assert_refused(*args)
+                self.assertIn("--profile", err)
+
+    def test_compose_profiles_env_not_inherited(self):
+        with mock.patch.dict(os.environ, {"COMPOSE_PROFILES": "learner", "COMPOSE_FILE": "x.yml"}):
+            self.call("status")
+        env = self.run_mock.call_args.kwargs["env"]
+        self.assertNotIn("COMPOSE_PROFILES", env)
+        self.assertNotIn("COMPOSE_FILE", env)
+        self.assertNotIn("--profile", self.run_mock.call_args.args[0])
+
+    def test_no_passthrough_or_learner_start(self):
+        for args in (("status", "--", "up"), ("logs", "telegram", "--", "ps"),
+                     ("status", "ps"), ("up", "continuous_learner"),
+                     ("start", "continuous_learner"), ("run", "continuous_learner")):
+            with self.subTest(args=args):
+                self.assert_refused(*args)
+
     def test_optimizer_rejected(self):
         for sub in ("logs", "inspect", "render-hash"):
             err = self.assert_refused(sub, "optimizer")
