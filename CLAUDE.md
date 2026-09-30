@@ -9,13 +9,26 @@
 - **PAPER_TRADING=true دائماً** — لا تغيّره.
 - DB مباشرة: `docker exec -i postgres psql -U trading_signal_bot -d trading_signals -c "..."` (الدور `trading_signal_bot`، DB `trading_signals`).
 
-## أوامر سريعة
+## أوامر سريعة (قراءة فقط)
 ```bash
-docker compose build --no-cache <service> && docker compose up -d <service>   # بعد تغيير الكود
-docker compose ps                                                             # الحالة
-docker compose logs <service> --tail=30 -f                                    # اللوقات
+ops/compose-safe status                                                       # الحالة (مساعد قراءة فقط)
+ops/compose-safe logs <service> --tail 30                                     # اللوقات (يحجب التوكنات)
 research/skill_application/.venv/bin/python -m pytest tests/ -q               # اختبارات الوحدة
 ```
+
+## سلامة التشغيل (Operations Safety) — إلزامي
+المرجع الكامل: [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md). يغلب أي أمر في وثيقة أخرى.
+- **خادم واحد مشترك** (postgres المشترك + مشاريع أخرى): لا أوامر تطال "كل شيء"، و**خدمة واحدة في كل مرة**.
+- **Class A (قراءة فقط، مسموح دائماً):** `docker ps` / `inspect` / `logs` / `stats --no-stream` / `image inspect`، و Compose `ps` / `logs` / `top` / `images`، و `config --hash <svc>` و `config --services`. **`docker compose config` العادي يطبع أسرار `.env` مفكوكة** — لا يُعرض على الطرفية أبداً؛ فقط إعادة توجيه لملف بصلاحية 600.
+- **Class B (بموافقة صريحة من المالك + إجراء مُبوَّب):** restart/stop/recreate/deploy/rollback لخدمة **واحدة**، أو `exec` يكتب، أو تشغيل المتعلّم. الصيغة الوحيدة، من `/home/tradmin/trading-signal-bot` فقط:
+  `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate <svc>`
+  مع التقاط الهوية قبل/بعد (container ID، image، StartedAt، RestartCount، IPs)، وفحص صحة طازج ×2، وبوابتي PAPER_HALTED/B3.
+- **Class C (ممنوع في الإنتاج):** `up`/`up -d` بلا خدمة، `up --build`، أي `build` من نسخة الإنتاج، `down`، `down -v`، `--remove-orphans`، أي `prune`، `pull` لصور التطبيق، `start`/`restart`/`rm` الشاملة، `run` يركّب مجلد الإنتاج، وأي تعديل لأكثر من خدمة.
+- **المتعلّم (`continuous_learner`) يبقى متوقفاً:** الـprofile `learner` يمنعه فقط من المشاركة في التشغيل الافتراضي العادي لـCompose (حماية من التشغيل العرضي). استهداف المتعلّم مباشرةً بالاسم يبقى ممكناً تقنياً في Docker Compose، و**ممنوع** دون تفويض منفصل من المالك. **الـprofile ليس حدّ تفويض:** حدّ التفويض هو موافقة المالك الصريحة + إجراء Class B + هذا المرجع + رفض `ops/compose-safe` للمتعلّم + قاعدة التوقف المطلقة. لا تستهدف `continuous_learner` بأي أمر Compose؛ أي تشغيل مقصود يتم فقط عبر الإجراء المُراجَع وبتفويض منفصل. **الـprofile لا يجعل الأوامر العارية مقبولة.**
+- **صور مثبّتة:** telegram و trade_tracker و scanner على صور `deploy/aiohttp-3.14.3/IMAGES.md` — لا إعادة بناء ولا إعادة وسم أبداً.
+- **خدمات D3 محجوبة بالانجراف:** analyzer و signal_engine و claude_review — إعادة إنشائها تطبّق انجراف البيئة؛ ممنوعة قبل مرحلة D3.
+- **مصدر الحقيقة:** `docker-compose.yml` في الإنتاج يجب أن يطابق الـblob المُراجَع في Git؛ أي تغيير عبر PR ثم تثبيت منفصل بتفويض مستقل مع تحقق `config --hash`.
+- **قاعدة التوقف المطلقة:** أي شيء غير متوقع (hash مختلف، diff غير متوقع، تغيّر هوية حاوية، بوابة فاشلة، سرّ في المخرجات) = **توقّف وارجع للمالك**. لا تشخيص ثم متابعة.
 
 ## قواعد حرجة (تغلب الافتراضات)
 - **العتبات الحيّة في DB (`optimizer_settings`/`indicator_weights`) تغلب `.env`** — راجع DB لا `.env`.

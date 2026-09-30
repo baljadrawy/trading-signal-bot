@@ -1,3 +1,5 @@
+> **HISTORICAL / DO NOT EXECUTE OPERATIONAL COMMANDS** — see docs/ops/COMPOSE_OPERATIONS.md
+
 # Canary — Live State (single source of truth in-repo)
 
 Companion to `docs/canary_runbook.md`. Captures WHAT is live right now, the operational
@@ -63,7 +65,8 @@ write_success<99.9%) · INVALID (captured=0 for >12h → sample too sparse) · S
 ```
 # in .env:
 ENABLE_EVIDENCE_RECORDER=false
-docker compose up -d signal_engine
+# then: notify the owner; recreate signal_engine only under the Class B procedure
+# in docs/ops/COMPOSE_OPERATIONS.md (D3 drift-blocked service; no automatic Compose commands)
 ```
 `.env` backups: `.env.bak.precanary`, `.env.bak.ar1`. The recorder is fully isolated and
 off-by-default; rollback is a flag flip + restart. No DB migration, no state to unwind.

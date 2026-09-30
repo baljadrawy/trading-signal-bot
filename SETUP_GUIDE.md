@@ -108,7 +108,11 @@ MAX_DAILY_LOSS_PERCENT=3
 STOP_ON_CONSECUTIVE_LOSSES=3
 ```
 
-### الخطوة 4: تشغيل المشروع
+### الخطوة 4: تشغيل المشروع (تثبيت أول على خادم فارغ فقط)
+> ⚠️ **الإعداد الأول فقط.** `setup.sh` يبني الصور ويشغّل كل الخدمات، ولذلك يرفض العمل إذا وُجدت أي حاوية
+> `trading-signal-bot` أو `trading_*` على الخادم. لا يُستخدم للنشر أو التحديث أو إعادة التشغيل في الإنتاج؛
+> عمليات الإنتاج حصراً عبر [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md).
+
 ```bash
 chmod +x setup.sh
 ./setup.sh
@@ -176,31 +180,24 @@ cat ~/.ssh/colab_key
 
 ---
 
-## 🔧 أوامر الصيانة اليومية
+## 🔧 التشغيل اليومي في الإنتاج
+
+> ⛔ **الإنتاج ليس إعداداً أولياً.** الإيقاف والتشغيل وإعادة التشغيل والتحديث وإعادة البناء ليست أوامر صيانة
+> روتينية هنا. المرجع الوحيد: [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md).
+> - **Class A (قراءة فقط، مسموح):** الحالة واللوقات والفحص (`ops/compose-safe status|logs|inspect`).
+> - **Class B (بموافقة المالك وإجراء مُبوَّب، خدمة واحدة):** إعادة تشغيل أو إعادة إنشاء خدمة (مثلاً scanner) أو التراجع.
+> - **Class C (ممنوع):** الإيقاف الشامل للمشروع، التشغيل الشامل بلا اسم خدمة، البناء من نسخة الإنتاج، حذف الأحجام.
+> - **تحديث الكود** يمرّ عبر PR، ثم تثبيت منفصل بتفويض مستقل؛ `git pull` وحده لا ينشر شيئاً ولا يُتبع بـ build في الإنتاج.
+> - **استعادة قاعدة البيانات** عملية كتابة مدمّرة: بموافقة المالك وحسب إجراء النسخ الاحتياطي المعتمد فقط.
 
 ```bash
-# إيقاف النظام
-docker compose down
+# قراءة فقط
+ops/compose-safe status
+ops/compose-safe logs scanner --tail 100
+docker stats --no-stream
 
-# تشغيل النظام
-docker compose up -d
-
-# إعادة تشغيل container معين
-docker compose restart scanner
-
-# تحديث الكود من GitHub
-git pull origin main
-docker compose build
-docker compose up -d
-
-# مراقبة استخدام الموارد
-docker stats
-
-# النسخ الاحتياطي لقاعدة البيانات
-docker exec trading_postgres pg_dump -U trading_bot trading_signals > backup_$(date +%Y%m%d).sql
-
-# استعادة النسخ الاحتياطي
-docker exec -i trading_postgres psql -U trading_bot trading_signals < backup_YYYYMMDD.sql
+# النسخ الاحتياطي لقاعدة البيانات (قراءة؛ الحاوية المشتركة اسمها postgres)
+docker exec postgres pg_dump -U trading_signal_bot trading_signals > backup_$(date +%Y%m%d).sql
 ```
 
 ---
@@ -337,7 +334,8 @@ trading-signal-bot/
 | `scan_candidates` | عملات مرشحة للتحليل (مؤقت) |
 
 > ⚠️ الجداول تُنشأ تلقائياً عند أول تشغيل عبر `database/init.sql`
-> إذا أردت إعادة إنشاء الجداول: `docker compose down -v && docker compose up -d`
+> ⛔ لا تُعِد إنشاء الجداول بحذف الأحجام أو إسقاط المشروع: ذلك يدمّر البيانات والنماذج ويعيد إنشاء كل الخدمات.
+> أي تغيير في المخطط يمرّ عبر `database/migrate.py` وبموافقة المالك (انظر [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md)).
 
 ---
 
@@ -435,19 +433,9 @@ git branch -d hotfix/fix-scanner-crash
 ---
 
 ### على الخادم - تحديث الكود
-```bash
-cd ~/trading-signal-bot
-
-# تحديث من main (الكود المستقر)
-git pull origin main
-docker compose build
-docker compose up -d
-
-# أو تجربة dev أولاً
-git pull origin dev
-docker compose build
-docker compose up -d
-```
+> ⛔ لا بناء ولا تشغيل شامل في نسخة الإنتاج. التغييرات تُدمج عبر PR، ثم يُنشر ما يلزم **خدمةً واحدةً**
+> بتفويض صريح من المالك وحسب الإجراء المُبوَّب في [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md) (Class B).
+> التجارب والبناء تتم في نسخة معزولة بوسم صورة فريد، لا في `~/trading-signal-bot`.
 
 ---
 

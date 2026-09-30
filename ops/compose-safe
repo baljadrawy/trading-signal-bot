@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""compose-safe: fail-closed, READ-ONLY helper for the trading-signal-bot Compose project.
+
+Policy: docs/ops/COMPOSE_OPERATIONS.md (Class A only).
+
+This helper deliberately has NO mutation subcommands. Restart, stop, recreate,
+deploy, rollback and any learner start belong to the separately authorized,
+gated per-rollout deployment procedures (Class B), never to this tool.
+
+continuous_learner and optimizer are refused for every subcommand, whatever the Compose
+profile state. The learner's `profiles: ["learner"]` only keeps it out of default startup;
+it is NOT an authorization control. `--profile` is never accepted and never passed through.
+
+Usage:
+  ops/compose-safe [--project-dir DIR] status
+  ops/compose-safe [--project-dir DIR] services
+  ops/compose-safe [--project-dir DIR] logs <svc> [--since T] [--tail N]
+  ops/compose-safe [--project-dir DIR] inspect <svc>
+  ops/compose-safe [--project-dir DIR] render-hash <svc>
+
+Every Compose call is `docker compose -p trading-signal-bot -f <DIR>/docker-compose.yml ...`
+with a fixed argv list (no shell). A full `docker compose config` is never run, because it
+prints interpolated secrets. Log output is redacted for bearer and Telegram bot tokens.
+`inspect` prints a curated summary and never the container environment.
+
+Standard library only.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+PROJECT_NAME = "trading-signal-bot"
+DEFAULT_PROJECT_DIR = "/home/tradmin/trading-signal-bot"
+COMPOSE_FILENAME = "docker-compose.yml"
+RUNBOOK = "docs/ops/COMPOSE_OPERATIONS.md"
+
+# service -> container name
+SERVICES = {
+    "telegram": "trading_telegram",
+    "trade_tracker": "trading_tracker",
+    "scanner": "trading_scanner",
+    "analyzer": "trading_analyzer",
+    "signal_engine": "trading_signal_engine",
+    "claude_review": "trading_claude_review",
+}
+
+# Services that must never be touched through this helper.
+OWNER_ONLY_SERVICES = {"continuous_learner", "optimizer"}
+
+SUBCOMMANDS = ("status", "services", "logs", "inspect", "render-hash")
+
+# Any of these anywhere in argv is a hard error (exact token, or `--flag=value`).
+DENIED_TOKENS = frozenset({
+    "up", "down", "start", "stop", "restart", "rm", "create", "run", "build",
+    "pull", "push", "prune", "exec", "kill",
+    "-v", "--volumes", "--remove-orphans", "--build", "--force-recreate",
+})
+
+EXIT_OK = 0
+EXIT_USAGE = 2
+
+_SINCE_RE = re.compile(r"^[0-9A-Za-z:.+\-]{1,40}$")
+_TAIL_RE = re.compile(r"^(all|[0-9]{1,6})$")
+_HASH_LINE_RE = re.compile(r"^[a-z0-9_.\-]+ [0-9a-f]{64}$")
+_SERVICE_LINE_RE = re.compile(r"^[a-z0-9_.\-]+$")
+
+_REDACTIONS = (
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=\-]+"), r"\1[REDACTED]"),
+    (re.compile(r"(bot[0-9]+:)[A-Za-z0-9_\-]+"), r"\1[REDACTED]"),
+    (re.compile(r"\b([0-9]{6,}:)[A-Za-z0-9_\-]{30,}\b"), r"\1[REDACTED]"),
+)
+
+
+class Refused(Exception):
+    """Raised for any request this helper will not execute."""
+
+
+def redact(text):
+    for pattern, repl in _REDACTIONS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _denied(token):
+    if token in DENIED_TOKENS:
+        return True
+    if token.startswith("--") and "=" in token:
+        return token.split("=", 1)[0] in DENIED_TOKENS
+    return False
+
+
+def check_denylist(argv):
+    for token in argv:
+        if token == "--profile" or token.startswith("--profile="):
+            raise Refused(
+                f"refused: '--profile' is not accepted. Profiles are default-startup protection only, "
+                f"not an authorization control; see {RUNBOOK}."
+            )
+        if token in OWNER_ONLY_SERVICES:
+            check_service(token)  # raises with the owner-authorization message
+        if _denied(token):
+            raise Refused(
+                f"refused: '{token}' is a mutation word/flag. This helper is read-only; "
+                f"mutations need explicit owner authorization and the gated procedure in {RUNBOOK}."
+            )
+
+
+def check_service(name):
+    if name in OWNER_ONLY_SERVICES:
+        raise Refused(
+            f"refused: '{name}' is not operable through this helper; it requires separate, "
+            f"explicit owner authorization ({RUNBOOK})."
+        )
+    if name not in SERVICES:
+        raise Refused(f"refused: unknown service '{name}'. Allowed: {', '.join(SERVICES)}")
+    return name
+
+
+def parse_args(argv):
+    """Return (project_dir, subcommand, options dict). Raises Refused."""
+    check_denylist(argv)
+    project_dir = DEFAULT_PROJECT_DIR
+    rest = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--project-dir":
+            if i + 1 >= len(argv):
+                raise Refused("refused: --project-dir needs a value")
+            project_dir = argv[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--project-dir="):
+            project_dir = tok.split("=", 1)[1]
+            i += 1
+            continue
+        rest.append(tok)
+        i += 1
+
+    if not rest:
+        raise Refused("refused: missing subcommand. Allowed: " + ", ".join(SUBCOMMANDS))
+    sub, args = rest[0], rest[1:]
+    if sub not in SUBCOMMANDS:
+        raise Refused(f"refused: unknown subcommand '{sub}'. Allowed: " + ", ".join(SUBCOMMANDS))
+
+    opts = {}
+    if sub in ("status", "services"):
+        if args:
+            raise Refused(f"refused: '{sub}' takes no arguments")
+    elif sub in ("inspect", "render-hash"):
+        if len(args) != 1:
+            raise Refused(f"refused: '{sub}' takes exactly one service")
+        opts["service"] = check_service(args[0])
+    elif sub == "logs":
+        if not args:
+            raise Refused("refused: 'logs' needs a service")
+        opts["service"] = check_service(args[0])
+        opts["tail"] = "200"
+        j = 1
+        while j < len(args):
+            flag = args[j]
+            if flag in ("--since", "--tail") and j + 1 < len(args):
+                value = args[j + 1]
+                if flag == "--since":
+                    if not _SINCE_RE.match(value):
+                        raise Refused(f"refused: invalid --since value '{value}'")
+                    opts["since"] = value
+                else:
+                    if not _TAIL_RE.match(value):
+                        raise Refused(f"refused: invalid --tail value '{value}'")
+                    opts["tail"] = value
+                j += 2
+            else:
+                raise Refused(f"refused: unexpected logs argument '{flag}'")
+    return project_dir, sub, opts
+
+
+def compose_file(project_dir):
+    path = os.path.join(project_dir, COMPOSE_FILENAME)
+    if not os.path.isfile(path):
+        raise Refused(f"refused: {path} does not exist")
+    return path
+
+
+def compose_base(project_dir):
+    return ["docker", "compose", "-p", PROJECT_NAME, "-f", compose_file(project_dir)]
+
+
+def build_argv(project_dir, sub, opts):
+    """Return the fixed argv list for a validated request."""
+    if sub == "inspect":
+        compose_file(project_dir)  # same project-file precondition for every subcommand
+        return ["docker", "inspect", SERVICES[opts["service"]]]
+    base = compose_base(project_dir)
+    if sub == "status":
+        return base + ["ps", "--all"]
+    if sub == "services":
+        return base + ["config", "--services"]
+    if sub == "render-hash":
+        return base + ["config", "--hash", opts["service"]]
+    if sub == "logs":
+        argv = base + ["logs", "--no-color", "--tail", opts["tail"]]
+        if "since" in opts:
+            argv += ["--since", opts["since"]]
+        return argv + [opts["service"]]
+    raise Refused(f"refused: unknown subcommand '{sub}'")
+
+
+def _clean_env():
+    # Deterministic: never inherit Compose selectors (e.g. COMPOSE_PROFILES, COMPOSE_FILE).
+    return {k: v for k, v in os.environ.items() if not k.startswith("COMPOSE_")}
+
+
+def _run(argv):
+    for tok in argv:  # defence in depth: the final argv is checked again
+        if _denied(tok):
+            raise Refused(f"refused: internal argv contains '{tok}'")
+    if "config" in argv and not ("--hash" in argv or "--services" in argv):
+        raise Refused("refused: full 'config' output is never produced (it prints secrets)")
+    return subprocess.run(argv, capture_output=True, text=True, env=_clean_env(), check=False)
+
+
+def _summarize_inspect(raw):
+    data = json.loads(raw)
+    out = []
+    for c in data:
+        state = c.get("State") or {}
+        labels = (c.get("Config") or {}).get("Labels") or {}
+        nets = (c.get("NetworkSettings") or {}).get("Networks") or {}
+        out.append({
+            "Id": c.get("Id"),
+            "Name": c.get("Name"),
+            "Image": c.get("Image"),
+            "ConfigImage": (c.get("Config") or {}).get("Image"),
+            "Created": c.get("Created"),
+            "RestartCount": c.get("RestartCount"),
+            "State": {
+                "Status": state.get("Status"),
+                "Running": state.get("Running"),
+                "StartedAt": state.get("StartedAt"),
+                "FinishedAt": state.get("FinishedAt"),
+                "ExitCode": state.get("ExitCode"),
+                "Health": (state.get("Health") or {}).get("Status"),
+            },
+            "ComposeLabels": {k: v for k, v in labels.items() if k.startswith("com.docker.compose.")},
+            "Networks": {name: n.get("IPAddress") for name, n in nets.items()},
+        })
+    return json.dumps(out, indent=2, sort_keys=True)
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        project_dir, sub, opts = parse_args(argv)
+        cmd = build_argv(project_dir, sub, opts)
+        res = _run(cmd)
+    except Refused as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_USAGE
+
+    stdout = res.stdout or ""
+    if res.returncode != 0:
+        print(redact(res.stderr or ""), file=sys.stderr, end="")
+        return res.returncode
+
+    if sub == "render-hash":
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+        if not lines or not all(_HASH_LINE_RE.match(ln) for ln in lines):
+            print("refused: unexpected render-hash output (suppressed)", file=sys.stderr)
+            return EXIT_USAGE
+        print("\n".join(lines))
+    elif sub == "services":
+        lines = [ln for ln in stdout.splitlines() if ln.strip()]
+        if not all(_SERVICE_LINE_RE.match(ln) for ln in lines):
+            print("refused: unexpected services output (suppressed)", file=sys.stderr)
+            return EXIT_USAGE
+        print("\n".join(lines))
+    elif sub == "inspect":
+        print(_summarize_inspect(stdout))
+    else:  # status, logs
+        print(redact(stdout), end="")
+        if res.stderr:
+            print(redact(res.stderr), file=sys.stderr, end="")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

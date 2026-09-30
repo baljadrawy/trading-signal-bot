@@ -1,18 +1,16 @@
 # التشغيل والإعدادات
 
 ## أوامر Docker
+> ⛔ **السياسة الملزمة:** [docs/ops/COMPOSE_OPERATIONS.md](../ops/COMPOSE_OPERATIONS.md). هنا أوامر القراءة فقط (Class A).
+> إعادة التشغيل/الإنشاء/النشر/التراجع لخدمة واحدة = Class B (موافقة المالك + إجراء مُبوَّب).
+> البناء في نسخة الإنتاج، والإيقاف أو التشغيل الشامل للمشروع، وحذف الأحجام = Class C (ممنوع).
+
 ```bash
-# بناء وتشغيل كامل (--no-cache ضروري بعد تغيير الكود)
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-
-# إعادة بناء حاوية واحدة
-docker compose build --no-cache signal_engine && docker compose up -d signal_engine
-
-# اللوقات والحالة
-docker compose logs <service> --tail=30 -f
-docker compose ps
+# الحالة واللوقات (قراءة فقط)
+ops/compose-safe status
+ops/compose-safe logs <service> --tail 30
+docker compose -p trading-signal-bot -f docker-compose.yml ps
+docker compose -p trading-signal-bot -f docker-compose.yml logs <service> --tail=30
 ```
 
 ## النشر الثابت والمشدّد
@@ -22,14 +20,10 @@ docker compose ps
 - مسارات الكتابة محصورة في volumes للسجلات/النماذج/الأدلة و`tmpfs` في `/tmp`.
 - كل صورة تحمل `org.opencontainers.image.revision` ونسخة التطبيق.
 
-```bash
-export BUILD_REVISION="$(git rev-parse HEAD)"
-python3 database/migrate.py
-docker compose build
-docker compose up -d --no-build
-```
-
-أي تعديل محلي للشيفرة لا يصل إلى الحاويات إلا بعد إعادة البناء وإعادة الإنشاء.
+أي تعديل محلي للشيفرة لا يصل إلى الحاويات إلا بعد إعادة البناء وإعادة الإنشاء. البناء يتم في نسخة معزولة
+بوسم صورة فريد (لا في `/home/tradmin/trading-signal-bot`)، والنشر خدمةً واحدةً بتفويض المالك حسب Class B في
+[COMPOSE_OPERATIONS.md](../ops/COMPOSE_OPERATIONS.md). telegram و trade_tracker و scanner على صور مثبّتة
+(`deploy/aiohttp-3.14.3/IMAGES.md`) لا تُعاد بناؤها. الـmigrations عملية كتابة على DB وتحتاج موافقة المالك.
 
 ## رفع للـ GitHub
 ```bash
@@ -70,9 +64,8 @@ LEARN_CRON_HOURS=24                 # وتيرة المتعلّم + الملخّ
 
 ## مراجعة أداء الاستراتيجية
 
-```bash
-docker compose exec continuous_learner python research/strategy_performance_review.py
-```
+> المتعلّم (`continuous_learner`) متوقف عمداً. الـprofile `learner` يمنعه فقط من التشغيل الافتراضي، وليس حدّ تفويض: استهدافه مباشرةً ممكن تقنياً وممنوع دون تفويض منفصل من المالك. لا تشغّله لتشغيل هذا التقرير.
+> تشغيل التقرير داخل حاوية إنتاج يحتاج موافقة المالك (Class B في [COMPOSE_OPERATIONS.md](../ops/COMPOSE_OPERATIONS.md)).
 
 يحسب التقرير gross/net expectancy وProfit Factor وdrawdown، والتقسيم حسب النوع والإطار
 والماكرو والزوج، ثم expanding walk-forward يقارن البوابات المتعلمة مع baseline ثابت.

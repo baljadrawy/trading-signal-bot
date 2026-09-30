@@ -1,3 +1,5 @@
+> **HISTORICAL / DO NOT EXECUTE OPERATIONAL COMMANDS** — see docs/ops/COMPOSE_OPERATIONS.md
+
 # Live-Learning Signal Collector — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,5 @@
+> **HISTORICAL / DO NOT EXECUTE OPERATIONAL COMMANDS** — see docs/ops/COMPOSE_OPERATIONS.md
+
 # المرحلة 3 — مراجعة فرضية الدخول
 
 تاريخ القياس: 2026-08-17. العينة النظيفة تبدأ من 2026-07-20، والتكلفة

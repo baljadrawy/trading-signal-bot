@@ -138,13 +138,10 @@ git merge dev
 git push origin main
 ```
 
-**على الـ Raspberry Pi بعدها مباشرة:**
-```bash
-cd ~/trading-signal-bot
-git pull origin main
-docker compose build
-docker compose up -d
-```
+**على الخادم بعدها:** لا نشر تلقائي ولا أوامر Compose شاملة.
+> ⛔ الدمج في main لا يعني النشر. أي تثبيت في الإنتاج خطوة منفصلة بتفويض صريح من المالك، **خدمةً واحدةً**،
+> حسب الإجراء المُبوَّب (Class B) في [docs/ops/COMPOSE_OPERATIONS.md](docs/ops/COMPOSE_OPERATIONS.md).
+> لا `build` في نسخة الإنتاج، ولا تشغيل شامل بلا اسم خدمة.
 
 ---
 
