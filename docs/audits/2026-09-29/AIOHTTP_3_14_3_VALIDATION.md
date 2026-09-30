@@ -2,6 +2,8 @@
 
 **Verdict: THIN-OVERLAY VALIDATION PASS. Deployment NOT included; it needs a separate owner approval.**
 
+> **Status update 2026-09-30 (added; the historical text below is unchanged):** telegram, trade_tracker and scanner are now DEPLOYED on the validated overlays. analyzer, signal_engine and claude_review are validated but NOT deployed. See §10.
+
 Scope: the security fix only (GHSA-cq5v-8q36-5273 / CVE-2026-69244 HIGH and 13 other advisories). Isolated on the shared host. No production container, image, tag, requirements file, database or trading state was changed. PAPER_HALTED (B3 row `2026-09-11 · risk:loss_streak_halt · 29415`) and the stopped learner were verified before and after.
 
 ## 1. Audit trail (every STOP preserved)
@@ -103,3 +105,29 @@ Test file: `tests/test_aiohttp_314_compat.py`. Evidence: `/home/tradmin/backups/
 ## 9. Follow-up finding (NOT solved here)
 
 **Dependency reproducibility / lockfile remediation is required after this security remediation.** No lockfiles or constraints exist, so any normal rebuild drifts transitive packages. Handle it in a separate, owner-approved phase.
+
+## 10. Deployment status (added 2026-09-30; sections 1–9 above are the unchanged 2026-09-29 validation record)
+
+**Successfully deployed to production** (one service at a time, each under a separate owner authorization, with a gated script, a closed Compose-bookkeeping allowlist, strict IPs, fresh health ×2, native smoke and a 3×60 s observation; no rollback needed):
+
+| Service | Deployed (UTC) | Image (overlay) | aiohttp | Evidence (local host) |
+|---|---|---|---|---|
+| telegram | 2026-09-30 04:21–04:26 | `sha256:ef80d11c657967ad21318685eab8ef41cbc08ac7002d06bb8f825960e6bee4f1` | 3.14.3 | `deploy-telegram-v2-20260930T042152Z/` |
+| trade_tracker | 2026-09-30 06:10–06:15 | `sha256:af063314973ee6f4f988903c9836a91b30b4f3343cb68db8587bd41580b179c3` | 3.14.3 | `deploy-trade_tracker-20260930T061054Z/` |
+| scanner | 2026-09-30 06:50–06:54 | `sha256:63b38e7a659d0efbc5dd1cb2a6035da1ab210f7774e94056d77fe7c61b50615e` | 3.14.3 | `deploy-scanner-20260930T065007Z/` |
+
+- **Earlier telegram attempt:** on 2026-09-29 it stopped at D4 (a Compose-label difference) and was rolled back to `b84d3d15…`. The gates were corrected under owner review before the successful run.
+- **Evidence root:** `/home/tradmin/backups/tsb-aiohttp-20260929T122701Z/`.
+- **Image provenance and rollback targets:** `deploy/aiohttp-3.14.3/IMAGES.md`.
+- **Compose:** `docker-compose.yml` now pins these three images (`image:` + `pull_policy: never`, no `build:`). This reproduces the running config hashes exactly, so installing it needs no recreation. The production installation is a separate, owner-authorized step.
+
+**Validated but NOT deployed** (still aiohttp 3.13.5 in production and in `requirements.txt`): analyzer, signal_engine, claude_review.
+- Their recreation would apply the known Compose/runtime environment drift (P0 finding D3). They wait for a separate phase.
+- The overlay images `47877db4…`, `4b7f4a58…` and `aaeb0467…` remain local, validated, unused.
+
+**Not part of this rollout:**
+- **optimizer:** no overlay built; no running container; profile `disabled`; `requirements.txt` stays on 3.13.5.
+- **continuous_learner:** stopped; builds from `signal_engine/requirements.txt` (3.13.5); not rebuilt or started.
+
+**Requirements scope:** `aiohttp==3.14.3` only in `telegram/`, `trade_tracker/` and `scanner/requirements.txt`. Nothing else changed; there are still no lockfiles (§9).
+
