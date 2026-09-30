@@ -1,5 +1,5 @@
 asyncpg==0.29.0
 anthropic==0.25.0
-aiohttp==3.14.3    # latest — حل كل CVEs aiohttp 2024-2026
+aiohttp==3.13.5    # latest — حل كل CVEs aiohttp 2024-2026
 pandas==3.0.3
 python-binance==1.0.19   # للـ MacroContext (BTC/ETH klines عبر AsyncClient)
