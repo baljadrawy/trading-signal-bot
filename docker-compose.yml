@@ -36,10 +36,8 @@ services:
   # ==================== Scanner ====================
   scanner:
     <<: *hardened-runtime
-    build:
-      context: .
-      dockerfile: scanner/Dockerfile
-      args: *build-args
+    image: tsb-aiohttp-test-scanner:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay; see deploy/aiohttp-3.14.3/IMAGES.md
+    pull_policy: never
     container_name: trading_scanner
     restart: unless-stopped
     logging: *default-logging
@@ -175,10 +173,8 @@ services:
   # ==================== Trade Tracker ====================
   trade_tracker:
     <<: *hardened-runtime
-    build:
-      context: .
-      dockerfile: trade_tracker/Dockerfile
-      args: *build-args
+    image: tsb-aiohttp-test-trade_tracker:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay; see deploy/aiohttp-3.14.3/IMAGES.md
+    pull_policy: never
     container_name: trading_tracker
     restart: unless-stopped
     logging: *default-logging
@@ -272,10 +268,8 @@ services:
   # ==================== Telegram ====================
   telegram:
     <<: *hardened-runtime
-    build:
-      context: .
-      dockerfile: telegram/Dockerfile
-      args: *build-args
+    image: tsb-aiohttp-test-telegram:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay; see deploy/aiohttp-3.14.3/IMAGES.md
+    pull_policy: never
     container_name: trading_telegram
     restart: unless-stopped
     logging: *default-logging
