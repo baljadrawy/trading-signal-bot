@@ -9,6 +9,8 @@ from shared.database import Database
 from shared.logger import setup_logger
 from shared.macro_context import MacroContext
 from shared.outbox import enqueue
+from shared.signal_readiness import (
+    READY_DECISION_SOURCE, SIGNAL_READY_EVENT, assert_signal_complete, ready_payload)
 from shared.learning_governance import exploration_selected
 
 logger = setup_logger('signal_logic')
@@ -605,7 +607,16 @@ class SignalEngine:
         return None
 
     async def save_signal(self, signal: Dict) -> int:
-        """حفظ الإشارة في قاعدة البيانات"""
+        """حفظ الإشارة في قاعدة البيانات ونشر signal.ready في نفس المعاملة.
+
+        CR-1: الإشارة تُحفظ جاهزة مباشرة (decision_source=policy_ready) دون المرور
+        بـ claude_review؛ claude_approved يبقى NULL (لا موافقة Claude مزيّفة).
+        الجاهزية لا تعني فتح صفقة: بوابة الإيقاف/B3 في telegram وحارس المخاطر
+        في trade_tracker يبقيان صاحبَي القرار. لا يُنشر signal.created بعد الآن
+        (لا مستهلك له)؛ التراجع = إعادة هذا الملف لنشر signal.created.
+        """
+        # fail-closed: إشارة ناقصة/تالفة لا تُحفظ ولا تصبح قابلة للتداول.
+        assert_signal_complete(signal)
         score_details = signal.get('score_details', {})
         if signal.get('order_book'):
             score_details['order_book'] = signal['order_book'].get('score', 0)
@@ -663,14 +674,15 @@ class SignalEngine:
                     signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
                     config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
                     signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}),
-                    'signal_engine', config.APP_VERSION)
+                    READY_DECISION_SOURCE, config.APP_VERSION)
                 await conn.execute("""
                     INSERT INTO risk_management (date, signals_sent)
                     VALUES (CURRENT_DATE, 1)
                     ON CONFLICT (date) DO UPDATE
                     SET signals_sent = risk_management.signals_sent + 1
                 """)
-                await enqueue(conn, 'signal.created', 'signal', signal_id,
-                              {'signal_id': signal_id})
+                # إن فشل الإدراج أو النشر تتراجع المعاملة كاملة: لا إشارة ولا حدث.
+                await enqueue(conn, SIGNAL_READY_EVENT, 'signal', signal_id,
+                              ready_payload(signal_id, config.APP_VERSION))
 
         return signal_id
