@@ -76,7 +76,7 @@ services:
       - .env
       - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
     environment:
-      EVIDENCE_V2_ENABLED: "false"   # P1-D: deployed with forward instrumentation OFF (activation is a separate owner decision)
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: analyzer
       HEALTH_MAX_AGE_SECONDS: "300"
       # D3B-1: analyzer code never reads these; blank overrides keep the shared .env values out of this container
@@ -113,7 +113,7 @@ services:
     env_file:
       - .env
     environment:
-      EVIDENCE_V2_ENABLED: "false"   # P1-D: deployed with forward instrumentation OFF (activation is a separate owner decision)
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: signal_engine
       HEALTH_MAX_AGE_SECONDS: "180"
       LEARNING_CLEAN_START: ${LEARNING_CLEAN_START:-2026-07-20T00:00:00}
@@ -153,7 +153,7 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      EVIDENCE_V2_ENABLED: "false"   # P1-D: deployed with forward instrumentation OFF (activation is a separate owner decision)
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: trade_tracker
       HEALTH_MAX_AGE_SECONDS: "600"
     volumes:
@@ -252,7 +252,7 @@ services:
     logging: *default-logging
     env_file: .env
     environment:
-      EVIDENCE_V2_ENABLED: "false"   # P1-D: deployed with forward instrumentation OFF (activation is a separate owner decision)
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: telegram
       HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
