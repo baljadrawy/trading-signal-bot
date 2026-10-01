@@ -145,6 +145,8 @@ class Env:
             return 5.0
         self.mp.setattr(self.tr, 'get_current_price', price)
         self.mp.setattr(self.tr, 'get_min_notional', notional)
+        if hasattr(self.tr, '_V2_EXPIRY_STATE'):          # P1-FIX watermark (per scenario)
+            self.tr._V2_EXPIRY_STATE.clear()
         if hasattr(self.tr, '_V2_LAST_OUTCOME'):
             self.tr._V2_LAST_OUTCOME.clear()
             self.mp.setattr(self.tr, '_V2_PROCESS_STARTED',
