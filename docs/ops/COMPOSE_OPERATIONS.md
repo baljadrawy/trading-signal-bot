@@ -20,12 +20,16 @@ initial-setup-only, historical, or wrong; this file wins.
 - **The learner (`continuous_learner`) stays stopped.** The profile prevents the learner from
   participating in normal default Compose startup. Directly targeting the learner remains possible
   in Docker Compose and is prohibited without separate owner authorization. See "Learner" below.
-- **D3 services are drift-blocked.** `analyzer`, `signal_engine` and `claude_review` differ from
-  the Compose definition (environment drift). Recreating any of them applies that drift. They must
-  not be recreated until the D3 phase is approved.
-- **Pinned images.** `telegram`, `trade_tracker` and `scanner` run the approved aiohttp 3.14.3
-  images recorded in `deploy/aiohttp-3.14.3/IMAGES.md` (`image:` + `pull_policy: never`, no
-  `build:`). Never rebuild, retag, re-pull or overwrite those tags.
+- **claude_review is retired from the runtime (CR-2).** It is no longer a Compose service; the
+  active path is signal_engine → `signal.ready` → telegram → trade_tracker. The stopped container
+  `trading_claude_review`, its image, source and historical data are kept for rollback
+  (`deploy/cr2-signal-ready/RETIREMENT.md`). Compose may report it as an orphan: never use
+  `--remove-orphans`; removing it needs separate owner authorization.
+- **Pinned images.** `scanner` runs the approved aiohttp 3.14.3 image recorded in
+  `deploy/aiohttp-3.14.3/IMAGES.md`; `analyzer` runs its D3B-1 overlay pinned in `docker-compose.yml`;
+  `telegram`, `trade_tracker` and `signal_engine` run the CR-2 overlays recorded in
+  `deploy/cr2-signal-ready/IMAGES.md` (`image:` + `pull_policy: never`, no `build:`). Never rebuild,
+  retag, re-pull or overwrite those tags.
 - **Source of truth.** The production `docker-compose.yml` must equal the reviewed Git blob.
   Changes go through a PR, and installing a merged file in production is a separate,
   owner-authorized step with offline hash verification (`config --hash`).
@@ -42,7 +46,7 @@ DC="docker compose -p trading-signal-bot -f docker-compose.yml"
 
 Service to container map: `telegram`=`trading_telegram`, `trade_tracker`=`trading_tracker`,
 `scanner`=`trading_scanner`, `analyzer`=`trading_analyzer`, `signal_engine`=`trading_signal_engine`,
-`claude_review`=`trading_claude_review`, `continuous_learner`=`trading_continuous_learner` (stopped),
+`continuous_learner`=`trading_continuous_learner` (stopped),
 `optimizer` (profile `disabled`, not deployed).
 
 ## Class A: read-only (always allowed)

@@ -137,40 +137,6 @@ services:
           memory: 512m
           cpus: '1.0'
 
-  # ==================== Claude Review ====================
-  claude_review:
-    <<: *hardened-runtime
-    build:
-      context: .
-      dockerfile: claude_review/Dockerfile
-      args: *build-args
-    container_name: trading_claude_review
-    restart: unless-stopped
-    logging: *default-logging
-    env_file: .env
-    environment:
-      # نلغي ANTHROPIC_API_KEY حتى يستخدم claude CLI الـ OAuth token من .credentials.json
-      ANTHROPIC_API_KEY: ""
-      SERVICE_NAME: claude_review
-      HEALTH_MAX_AGE_SECONDS: "120"
-    volumes:
-      - logs_data:/app/logs
-      - /home/tradmin/.claude:/home/appuser/.claude:ro
-      - /home/tradmin/.claude.json:/home/appuser/.claude.json:ro
-    networks:
-      - trading_network
-      - shared_db_net
-    healthcheck:
-      test: ["CMD", "python", "-m", "shared.health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-
   # ==================== Trade Tracker ====================
   trade_tracker:
     <<: *hardened-runtime

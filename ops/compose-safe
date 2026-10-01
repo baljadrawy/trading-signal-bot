@@ -44,7 +44,6 @@ SERVICES = {
     "scanner": "trading_scanner",
     "analyzer": "trading_analyzer",
     "signal_engine": "trading_signal_engine",
-    "claude_review": "trading_claude_review",
 }
 
 # Services that must never be touched through this helper.
