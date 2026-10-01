@@ -152,7 +152,7 @@ async def analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row):
             # Order Book نجلبه مرة واحدة فقط (نفس لكل الـ timeframes)
             if not results:
                 ob_result = await ob_analyzer.analyze(symbol)
-                ob_fetched_at_ms = evidence_v2.now_ms()   # P1 point-in-time stamp
+                ob_fetched_at_ms = evidence_v2.now_ms() if evidence_v2.enabled() else None   # P1 point-in-time stamp
             else:
                 ob_result = list(results.values())[0].get('order_book')
 

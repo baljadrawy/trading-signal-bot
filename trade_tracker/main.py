@@ -7,6 +7,7 @@ import asyncio
 import sys
 import json
 import dataclasses
+from collections import OrderedDict
 from datetime import datetime, timezone
 sys.path.append('/app')
 
@@ -97,14 +98,18 @@ async def main():
                         event['aggregate_id'])
                     if active:
                         await ack(event['id'], owner)
+                        await _v2_delivery_consumed(event, 'opened')
                         continue
                     terminal = await Database.fetchval(
                         DELIVERY_TERMINAL_SQL, event['aggregate_id'])
                     if terminal:
                         await ack(event['id'], owner)
+                        await _v2_delivery_consumed(event, 'terminal')
                     else:
                         await fail(event['id'], owner,
                                    RuntimeError('trade registration deferred'), 300)
+                        await _v2_delivery_consumed(event, 'deferred')
+                await _v2_expiry_sweep()
                 consecutive_errors = 0
                 await mark_success('trade_tracker', _with_ev2({
                     'delivery_events': len(delivery_events),
@@ -142,6 +147,106 @@ async def main():
 # ── Evidence recorder v2 (P1-C) — admission, entry, lifecycle and risk events. Every helper
 # reads its inputs, never mutates them, never raises and is a no-op unless EVIDENCE_V2_ENABLED.
 _LAST_RISK_CONTEXT: dict = {}
+# P1-R: last observed outcome code per signal (bounded; memory only, used to explain deferrals
+# and to classify window expiry as NO_FILL). Filled only while instrumentation is ON.
+_V2_LAST_OUTCOME: "OrderedDict[int, str]" = OrderedDict()
+_V2_LAST_OUTCOME_MAX = 10000
+_V2_PROCESS_STARTED = datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC like signal_time
+# Must match the admission window of register_new_signals (asserted by tests).
+V2_ADMISSION_WINDOW_SQL = "INTERVAL '2 hours'"
+# Read-only twin of DELIVERY_TERMINAL_SQL that names WHY a delivered signal is terminal
+# (same conditions, same order of precedence; asserted equivalent by tests). NULL = not terminal.
+DELIVERY_OUTCOME_SQL = f"""
+    SELECT CASE
+        WHEN NOT s.telegram_sent THEN 'ENTRY_REJECTED'
+        WHEN NOT {READY_SQL_PREDICATE} THEN 'NOT_READY'
+        WHEN s.signal_time <= NOW()-{V2_ADMISSION_WINDOW_SQL} THEN 'STALE'
+        WHEN EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol) THEN 'BLACKLISTED'
+        WHEN EXISTS (SELECT 1 FROM approval_requests ar
+                     WHERE ar.signal_id=s.id AND ar.status='rejected') THEN 'REJECTED'
+    END AS code
+    FROM signals s WHERE s.id=$1
+    """
+# Signals whose admission window closed after this process started, still without a trade.
+V2_EXPIRED_SQL = f"""
+    SELECT s.id, s.symbol, s.timeframe, s.trade_type, s.signal_time, s.features_snapshot,
+           EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol) AS blacklisted,
+           EXISTS (SELECT 1 FROM approval_requests ar
+                   WHERE ar.signal_id=s.id AND ar.status='rejected') AS rejected
+    FROM signals s
+    LEFT JOIN active_trades at ON at.signal_id = s.id
+    WHERE s.telegram_sent = true
+      AND {READY_SQL_PREDICATE}
+      AND at.id IS NULL
+      AND s.signal_time <= NOW() - {V2_ADMISSION_WINDOW_SQL}
+      AND s.signal_time > $1::timestamp - {V2_ADMISSION_WINDOW_SQL}
+    ORDER BY s.signal_time
+    LIMIT 200
+    """
+
+
+def _v2_note_outcome(signal_id, code: str) -> None:
+    try:
+        _V2_LAST_OUTCOME[int(signal_id)] = code
+        _V2_LAST_OUTCOME.move_to_end(int(signal_id))
+        while len(_V2_LAST_OUTCOME) > _V2_LAST_OUTCOME_MAX:
+            _V2_LAST_OUTCOME.popitem(last=False)
+    except Exception:
+        pass
+
+
+async def _v2_delivery_consumed(event, kind: str) -> None:
+    """delivery.consumed — what happened to one claimed runtime `signal.delivered` event:
+    opened, terminal (with the named DELIVERY_TERMINAL_SQL condition) or deferred (with the
+    last observed admission/entry outcome and whether this was the final outbox attempt).
+    Read-only; runs after the runtime ack/fail and never changes it."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        sid = event['aggregate_id']
+        last = _V2_LAST_OUTCOME.get(int(sid))
+        attempts, max_attempts = event.get('attempts'), event.get('max_attempts')
+        payload = {'outbox_event_id': event['id'], 'attempts': attempts,
+                   'max_attempts': max_attempts, 'last_outcome_code': last}
+        if kind == 'opened':
+            code = 'OPENED'
+        elif kind == 'terminal':
+            code = await Database.fetchval(DELIVERY_OUTCOME_SQL, sid) or 'UNKNOWN'
+            if code == 'STALE' and last == 'AWAITING_FILL':
+                payload['resolved_code'] = 'NO_FILL'
+        else:
+            exists = await Database.fetchval("SELECT 1 FROM signals WHERE id=$1", sid)
+            code = 'SIGNAL_MISSING' if not exists else (last or 'DEFERRED_UNOBSERVED')
+            payload['final_attempt'] = bool(attempts is not None and max_attempts is not None
+                                            and attempts >= max_attempts)
+        payload['outcome_code'] = code
+        evidence_v2.emit('trade_tracker', 'delivery.consumed',
+                         {'signal_id': sid, 'outbox_event_id': event['id']}, payload,
+                         state={'kind': kind, 'outcome_code': code, 'attempts': attempts},
+                         dedup_key=f"consumed:{event['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+async def _v2_expiry_sweep() -> None:
+    """entry.expired — terminal record for a sent, ready signal that left the admission window
+    without a trade: NO_FILL when the last observed entry action was a limit wait. Read-only;
+    only signals whose window closed after this process started (no restated history)."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        rows = await Database.fetch(V2_EXPIRED_SQL, _V2_PROCESS_STARTED)
+        for row in rows:
+            last = _V2_LAST_OUTCOME.get(int(row['id']))
+            code = ('BLACKLISTED' if row['blacklisted'] else 'REJECTED' if row['rejected']
+                    else evidence_v2.expiry_outcome_code(last))
+            evidence_v2.emit('trade_tracker', 'entry.expired', _v2_signal_subject(row), {
+                'outcome_code': code, 'last_outcome_code': last,
+                'signal_time': row['signal_time'], 'admission_window': '2 hours',
+                'trade_type': row['trade_type'],
+            }, state={'outcome_code': code}, dedup_key=f"expiry:{row['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
 
 
 def _with_ev2(metadata: dict) -> dict:
@@ -195,6 +300,9 @@ def _v2_admission(sig, outcome: str, reason=None, decision=None, **extra) -> Non
             reason = getattr(decision, 'reason', None)
         if decision is not None or outcome == 'risk_rejected':
             payload.update(_v2_risk_payload(decision))
+        code = evidence_v2.admission_outcome_code(outcome, reason)
+        payload['outcome_code'] = code
+        _v2_note_outcome(sig['id'], code)
         evidence_v2.emit('trade_tracker', 'admission.decision', subject, payload,
                          state={'outcome': outcome, 'reason': reason},
                          dedup_key=f"admission:{sig['id']}")
@@ -207,7 +315,10 @@ def _v2_entry(sig, entry_decision, observed_price, features) -> None:
     if not evidence_v2.enabled():
         return
     try:
+        code = evidence_v2.entry_outcome_code(getattr(entry_decision, 'action', None))
+        _v2_note_outcome(sig['id'], code)
         evidence_v2.emit('trade_tracker', 'entry.attempt', _v2_signal_subject(sig), {
+            'outcome_code': code,
             'planned_entry': float(sig['entry_price']), 'observed_price': observed_price,
             'stop_loss': float(sig['stop_loss']),
             'invalidation_price': (features or {}).get('stop_invalidation'),

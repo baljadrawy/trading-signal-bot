@@ -93,29 +93,6 @@ def _v2_cycle(outcome: str, cycle_started_ms: int, results=(), decisions=None, c
         evidence_v2.hook_error('signal_engine', exc)
 
 
-def _v2_signal_created(signal_id, signal: dict, context=None) -> None:
-    """P1: lineage link candidate_id -> signal_id (entity event, idempotent by signal_id)."""
-    if not evidence_v2.enabled():
-        return
-    try:
-        pit = signal.get('pit') or {}
-        subject = {'signal_id': signal_id, 'candidate_id': pit.get('candidate_id'),
-                   'candle_id': pit.get('candle_id')}
-        payload = {
-            'symbol': signal.get('symbol'), 'timeframe': signal.get('timeframe'),
-            'trade_type': signal.get('trade_type'), 'selection_policy': signal.get('selection_policy'),
-            'geometry': {k: signal.get(k) for k in ('entry_price', 'target_1', 'target_2', 'target_3',
-                                                    'stop_loss', 'stop_invalidation', 'stop_risk_pct',
-                                                    'stop_policy')},
-            'macro_state': signal.get('macro_state'),
-            'identity': signal_identity(signal),
-            'pit': pit,
-        }
-        evidence_v2.emit('signal_engine', 'signal.created', subject, payload,
-                         event_time_ms=(context or {}).get('decision_at_ms'))
-    except Exception as exc:
-        evidence_v2.hook_error('signal_engine', exc)
-
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
 
@@ -237,7 +214,13 @@ async def main():
                     )
 
                     # حفظ الإشارة في قاعدة البيانات
-                    signal_id = await engine.save_signal(best_signal)
+                    try:
+                        signal_id = await engine.save_signal(best_signal)
+                    except Exception:
+                        # P1-R: close the cycle record for a refused save; behaviour unchanged.
+                        _v2_cycle('signal_refused', cycle_started_ms, results, decisions,
+                                  getattr(engine, 'last_v2_context', None), truncation)
+                        raise
 
                     # تحديث حالة التحليل لجميع الـ Timeframes لهذه العملة
                     await Database.execute(
@@ -249,10 +232,9 @@ async def main():
                     )
 
                     logger.info(f"✅ تم حفظ الإشارة بـ ID: {signal_id}")
-                    _v2_signal_created(signal_id, best_signal, engine.last_v2_context)
 
                 v2_context = getattr(engine, 'last_v2_context', None)
-                _v2_cycle('signal_created' if best_signal
+                _v2_cycle('signal_ready' if best_signal
                           else ('macro_blocked' if (v2_context or {}).get('macro_blocked')
                                 else 'no_eligible_candidate'),
                           cycle_started_ms, results, decisions, v2_context, truncation,

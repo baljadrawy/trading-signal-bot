@@ -237,7 +237,9 @@ def check_lineage(events, now_ms, report, first_recording_ms):
     selected = {e["subject"].get("candidate_id") for e in by_type["candidate.evaluated"]
                 if (e.get("state") or {}).get("decision") == "selected"}
     created = {}
-    for e in by_type["signal.created"]:
+    # P1-R: the evidence event for a committed policy_ready signal is `signal.ready` (it mirrors
+    # the runtime outbox event of the same name; there is no `signal.created` in the CR-2 contract).
+    for e in by_type["signal.ready"]:
         created[e["subject"].get("signal_id")] = e
         cid = e["subject"].get("candidate_id")
         if cid and cid not in selected:
@@ -249,7 +251,8 @@ def check_lineage(events, now_ms, report, first_recording_ms):
         for e in by_type[t]:
             delivery[e["subject"].get("signal_id")].append(e)
     admission = defaultdict(list)
-    for t in ("admission.decision", "entry.attempt", "trade.opened"):
+    for t in ("admission.decision", "entry.attempt", "trade.opened", "delivery.consumed",
+              "entry.expired"):
         for e in by_type[t]:
             admission[e["subject"].get("signal_id")].append(e)
 
@@ -270,10 +273,25 @@ def check_lineage(events, now_ms, report, first_recording_ms):
     for sid, evs in admission.items():
         if sid not in created:
             orphan("admission_without_signal_event", evs[0], sid)
+    # P1-R: a deferral that exhausts the outbox attempts dead-letters the runtime event. Evidence
+    # must say why; only a dead letter with no observed admission/entry outcome is unexplained.
+    dead_letters = {"explained": 0, "unexplained": 0}
+    for e in by_type["delivery.consumed"]:
+        p = e.get("payload") or {}
+        if p.get("final_attempt"):
+            if p.get("outcome_code") in ("DEFERRED_UNOBSERVED", "UNKNOWN", None):
+                dead_letters["unexplained"] += 1
+                report.add("warning", "unexplained_dead_letter", signal_id=e["subject"].get("signal_id"),
+                           outbox_event_id=p.get("outbox_event_id"))
+            else:
+                dead_letters["explained"] += 1
+    for e in by_type["entry.expired"]:
+        if (e.get("payload") or {}).get("outcome_code") == "EXPIRED_UNOBSERVED":
+            report.add("info", "expiry_without_observed_attempt", signal_id=e["subject"].get("signal_id"))
     opened = {e["subject"].get("active_trade_id"): e for e in by_type["trade.opened"]}
     closed = {e["subject"].get("active_trade_id"): e for e in by_type["trade.closed"]}
     lifecycle = {"opened": len(opened), "closed": len(closed), "open_within_horizon": 0,
-                 "stale_open": 0}
+                 "stale_open": 0, "dead_letters": dead_letters}
     for tid, e in opened.items():
         if tid in closed:
             continue
@@ -306,7 +324,7 @@ def reconcile(directory: str, now_ms: int, since_ms: int | None = None) -> dict:
     starts = [e["event_time_ms"] for e in events if e["event_type"] == "recorder.started"]
     first_recording_ms = min(starts) if starts else min((e["event_time_ms"] for e in events), default=now_ms)
     for e in events:
-        if e["event_type"] in ("candidate.evaluated", "signal.created", "candidate.analyzed"):
+        if e["event_type"] in ("candidate.evaluated", "signal.ready", "candidate.analyzed"):
             _pit_checks(e, report)
             if e["event_type"] != "candidate.analyzed":
                 _staleness(e, report)
@@ -315,12 +333,18 @@ def reconcile(directory: str, now_ms: int, since_ms: int | None = None) -> dict:
     for e in events:
         counts[f"{e['service']}:{e['event_type']}"] += 1
     ids = [e for e in events if e["event_type"] == "candidate.evaluated"]
+    outcomes = defaultdict(int)                   # P1-R outcome matrix (shared vocabulary)
+    for e in events:
+        code = (e.get("payload") or {}).get("outcome_code")
+        if code:
+            outcomes[f"{e['event_type']}:{code}"] += 1
     return {
         "generated_for": dt.datetime.fromtimestamp(now_ms / 1000, dt.timezone.utc).isoformat(),
         "directory": os.path.abspath(directory), "records_read": len(raw), "unique_events": len(events),
         "event_counts": dict(sorted(counts.items())),
         "identity_coverage": (sum(1 for e in ids if e["subject"].get("candidate_id")) / len(ids)) if ids else None,
         "trade_lifecycle": lifecycle, "recorder_health": health,
+        "outcome_codes": dict(sorted(outcomes.items())),
         "findings": report.as_dict(), "exit_code": report.worst(),
     }
 

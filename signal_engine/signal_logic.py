@@ -167,6 +167,28 @@ def _v2_selection(eligible: list, best, key, ctx: dict | None) -> None:
         evidence_v2.hook_error('signal_engine', exc)
 
 
+def _v2_signal_refused(signal, exc: BaseException) -> None:
+    """signal.refused (INCOMPLETE_SIGNAL) — save_signal rejected the signal before any write."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        pit = (signal.get('pit') if isinstance(signal, dict) else None) or {}
+        subject = {'candidate_id': pit.get('candidate_id'), 'candle_id': pit.get('candle_id'),
+                   'symbol': signal.get('symbol') if isinstance(signal, dict) else None,
+                   'timeframe': signal.get('timeframe') if isinstance(signal, dict) else None}
+        evidence_v2.emit('signal_engine', 'signal.refused', subject,
+                         {'outcome_code': 'INCOMPLETE_SIGNAL',
+                          'error': f"{type(exc).__name__}: {exc}"[:300],
+                          'geometry': {k: (signal.get(k) if isinstance(signal, dict) else None)
+                                       for k in _GEOMETRY_KEYS + ('total_score',)},
+                          'pit': pit},
+                         state={'outcome': 'refused', 'reason': 'incomplete_signal'},
+                         dedup_key='refused:' + (pit.get('candidate_id') or
+                                                 f"{subject['symbol']}|{subject['timeframe']}"))
+    except Exception as hook_exc:
+        evidence_v2.hook_error('signal_engine', hook_exc)
+
+
 def signal_identity(signal: dict) -> dict | None:
     """P1-A identity persisted with the signal (features_snapshot['identity']); None on error."""
     try:
@@ -187,6 +209,35 @@ def signal_identity(signal: dict) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _v2_signal_ready(signal_id, signal: dict, context=None) -> None:
+    """P1-R evidence event `signal.ready`: the signal row (decision_source=policy_ready) and the
+    runtime outbox event `signal.ready` were committed in one transaction. Lineage link
+    candidate_id -> signal_id (entity event, idempotent by signal_id). Emitted after the commit."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        pit = signal.get('pit') or {}
+        subject = {'signal_id': signal_id, 'candidate_id': pit.get('candidate_id'),
+                   'candle_id': pit.get('candle_id')}
+        payload = {
+            'outcome_code': 'POLICY_READY',
+            'decision_source': READY_DECISION_SOURCE,
+            'runtime_outbox_event': SIGNAL_READY_EVENT,
+            'symbol': signal.get('symbol'), 'timeframe': signal.get('timeframe'),
+            'trade_type': signal.get('trade_type'), 'selection_policy': signal.get('selection_policy'),
+            'geometry': {k: signal.get(k) for k in ('entry_price', 'target_1', 'target_2', 'target_3',
+                                                    'stop_loss', 'stop_invalidation', 'stop_risk_pct',
+                                                    'stop_policy')},
+            'macro_state': signal.get('macro_state'),
+            'identity': signal_identity(signal),
+            'pit': pit,
+        }
+        evidence_v2.emit('signal_engine', 'signal.ready', subject, payload,
+                         event_time_ms=(context or {}).get('decision_at_ms'))
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
 
 
 class SignalEngine:
@@ -745,7 +796,11 @@ class SignalEngine:
         (لا مستهلك له)؛ التراجع = إعادة هذا الملف لنشر signal.created.
         """
         # fail-closed: إشارة ناقصة/تالفة لا تُحفظ ولا تصبح قابلة للتداول.
-        assert_signal_complete(signal)
+        try:
+            assert_signal_complete(signal)
+        except Exception as exc:
+            _v2_signal_refused(signal, exc)   # P1-R: INCOMPLETE_SIGNAL evidence only
+            raise                             # the refusal itself is unchanged
         score_details = signal.get('score_details', {})
         if signal.get('order_book'):
             score_details['order_book'] = signal['order_book'].get('score', 0)
@@ -784,7 +839,8 @@ class SignalEngine:
             'research_features': research_features,
             'execution_features': execution_features,
         })
-        _identity = signal_identity(signal)          # P1-A lineage anchor in the DB row
+        # P1-A lineage anchor in the DB row — persisted only while forward instrumentation is ON
+        _identity = signal_identity(signal) if evidence_v2.enabled() else None
         if _identity is not None:
             features_snapshot['identity'] = _identity
 
@@ -817,4 +873,5 @@ class SignalEngine:
                 await enqueue(conn, SIGNAL_READY_EVENT, 'signal', signal_id,
                               ready_payload(signal_id, config.APP_VERSION))
 
+        _v2_signal_ready(signal_id, signal, getattr(self, 'last_v2_context', None))   # after commit
         return signal_id

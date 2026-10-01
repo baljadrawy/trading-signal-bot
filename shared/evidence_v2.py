@@ -628,3 +628,103 @@ def candidate_pit(pit: dict, symbol: str, timeframe: str, trade_type: str | None
         return out
     except Exception:
         return {}
+
+
+# ------------------------------------------------------------------ outcome vocabulary (P1-R) --
+# One normalized code per terminal or non-terminal outcome, shared by every service. Events keep
+# their detailed lowercase `reason` (unchanged P1 terms); `outcome_code` is the cross-service key.
+# Pure functions of the values the runtime already decided on: they classify, never decide.
+OUTCOME_CODES = (
+    "POLICY_READY",        # signal persisted with decision_source=policy_ready + runtime signal.ready
+    "INCOMPLETE_SIGNAL",   # save_signal refused a signal that failed assert_signal_complete
+    "DELIVERED",           # telegram passed the candidate to the risk guard (telegram_sent=true)
+    "AWAITING_APPROVAL",   # telegram sent an owner approval request (manual-approval flow)
+    "B3_BLOCKED",          # loss-streak circuit breaker (B3) blocked delivery or admission
+    "PAUSED",              # any other trading pause, incl. fail-closed missing/inconsistent risk state
+    "CAPACITY",            # portfolio/open-trade capacity reached
+    "RISK_REJECTED",       # other risk-guard hard stops (loss limits, exposure, concentration)
+    "STALE",               # signal older than the admission window when its delivery event was handled
+    "NOT_READY",           # not deliverable/trackable under the readiness contract
+    "BLACKLISTED",         # symbol blacklisted
+    "REJECTED",            # owner rejected the approval request
+    "ENTRY_REJECTED",      # fill model rejected the entry (signal invalidated before fill)
+    "DUPLICATE",           # already sent / already registered / repeat event for the same signal
+    "SIGNAL_MISSING",      # event refers to a signal row that does not exist
+    "ENTRY_MARKET",        # fill model would fill at market now (non-terminal; admission follows)
+    "AWAITING_FILL",       # limit order waiting for the planned entry (non-terminal)
+    "NO_FILL",             # admission window closed while the limit order was still unfilled
+    "NO_PRICE",            # no current price to evaluate the entry (non-terminal)
+    "BRACKET_INVALID",     # bracket construction failed
+    "EXPIRED",             # admission window closed after a non-fill deferral (see last_outcome_code)
+    "EXPIRED_UNOBSERVED",  # admission window closed; this process never observed an attempt
+    "OPENED",              # paper trade registered (TRACKED)
+    "DEFERRED_UNOBSERVED", # delivery event deferred; no admission attempt observed yet
+    "UNKNOWN",             # unrecognized value (classification only; never a decision)
+)
+
+
+def pause_outcome_code(reason: Any) -> str:
+    """Code for a telegram delivery refusal (`can_deliver_candidate` block_reason)."""
+    r = str(reason or "")
+    if r.startswith("portfolio_capacity"):
+        return "CAPACITY"
+    if r.endswith("loss_streak_halt"):          # 'risk:loss_streak_halt' pause row = B3
+        return "B3_BLOCKED"
+    return "PAUSED"
+
+
+_RISK_PAUSE_REASONS = {"manual_pause", "trading_paused", "risk_state_missing", "risk_state_inconsistent"}
+
+
+def risk_outcome_code(reason: Any) -> str:
+    """Code for a trade_tracker risk-guard rejection (RiskDecision.reason)."""
+    r = str(reason or "")
+    if r.endswith("loss_streak_halt"):          # 'loss_streak_halt' or pause reason 'risk:loss_streak_halt'
+        return "B3_BLOCKED"
+    if r == "max_open_trades" or r.startswith("portfolio_capacity"):
+        return "CAPACITY"
+    if r in _RISK_PAUSE_REASONS or r.startswith("risk:") or r == "إيقاف يدوي":
+        return "PAUSED"
+    return "RISK_REJECTED"
+
+
+def candidate_skip(event_type: str, signal: Any) -> tuple[str, str]:
+    """(reason, code) for a candidate event telegram acks without delivery. Mirrors
+    shared.signal_readiness.is_deliverable_for_event (tested to agree with it)."""
+    def get(key):
+        try:
+            return signal[key]
+        except Exception:
+            return None
+    if signal is None:
+        return "signal_missing", "SIGNAL_MISSING"
+    if get("telegram_sent"):
+        return "already_sent", "DUPLICATE"
+    if event_type == "signal.ready":
+        return "not_ready", "NOT_READY"
+    if event_type == "signal.reviewed":
+        return "legacy_not_approved", "NOT_READY"
+    return "unsupported_event_type", "NOT_READY"
+
+
+def admission_outcome_code(outcome: str, reason: Any = None) -> str:
+    """Code for a trade_tracker admission.decision outcome."""
+    return {
+        "admitted": "OPENED", "no_price": "NO_PRICE", "bracket_invalid": "BRACKET_INVALID",
+        "already_registered": "DUPLICATE", "halt_under_admission_lock": "B3_BLOCKED",
+    }.get(outcome) or (risk_outcome_code(reason) if outcome == "risk_rejected" else "RISK_REJECTED")
+
+
+def entry_outcome_code(action: Any) -> str:
+    """Code for a trade_tracker entry.attempt (fill model action)."""
+    return {"limit_wait": "AWAITING_FILL", "reject": "ENTRY_REJECTED", "market": "ENTRY_MARKET"}.get(
+        str(action), "UNKNOWN")
+
+
+def expiry_outcome_code(last_code: str | None) -> str:
+    """Terminal code when a signal leaves the admission window without a trade."""
+    if last_code is None:
+        return "EXPIRED_UNOBSERVED"
+    if last_code == "AWAITING_FILL":
+        return "NO_FILL"
+    return "EXPIRED"

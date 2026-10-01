@@ -88,43 +88,23 @@ def _v2_signal_subject(signal) -> dict:
             'symbol': signal['symbol'], 'timeframe': signal['timeframe']}
 
 
-def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=None, **extra) -> None:
-    """delivery.* — one event per signal and delivery state (idempotent by signal)."""
+def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=None,
+                 claimed_event_type=None, outcome_code=None, **extra) -> None:
+    """delivery.* — one event per signal and delivery state (idempotent by signal).
+    `claimed_event_type` is the runtime outbox event that was consumed (signal.ready, or the
+    legacy signal.reviewed kept for rollback); `outcome_code` is the shared P1-R vocabulary."""
     if not evidence_v2.enabled():
         return
     try:
         subject = (_v2_signal_subject(signal) if signal is not None
                    else {'signal_id': None, 'outbox_event_id': event_id})
         if outcome == 'skipped' and reason is None:
-            reason = ('signal_missing' if not signal else 'already_sent' if signal['telegram_sent']
-                      else 'not_approved')
-        evidence_v2.emit('telegram', event_type, subject, {'outbox_event_id': event_id, **extra},
+            reason, outcome_code = evidence_v2.candidate_skip(claimed_event_type, signal)
+        evidence_v2.emit('telegram', event_type, subject,
+                         {'outbox_event_id': event_id, 'claimed_event_type': claimed_event_type,
+                          'outcome_code': outcome_code, **extra},
                          state={'outcome': outcome, 'reason': reason},
                          dedup_key=f"delivery:{subject.get('signal_id') or event_id}")
-    except Exception as exc:
-        evidence_v2.hook_error('telegram', exc)
-
-
-def _v2_streak_details(streak) -> dict:
-    return {k: getattr(streak, k, None) for k in ('consecutive_losses', 'halt_threshold',
-                                                   'open_positions', 'halt_active')}
-
-
-def _v2_control(command: str, outcome: str, streak=None, recovery=None, error=None, **details) -> None:
-    """control.command — an owner risk-control action and its result (no chat identifiers).
-    Raw objects are passed in and read here, inside the guard, never in the caller."""
-    if not evidence_v2.enabled():
-        return
-    try:
-        if streak is not None:
-            details.update(_v2_streak_details(streak))
-        if recovery is not None:
-            details.update({k: recovery.get(k) for k in ('id', 'consecutive_losses_before',
-                                                          'epoch_started_at', 'reason')})
-        if error is not None:
-            details['detail'] = str(error)[:200]
-        evidence_v2.emit('telegram', 'control.command', {'stream': 'telegram.control', 'command': command},
-                         details, state={'command': command, 'outcome': outcome}, transition=True)
     except Exception as exc:
         evidence_v2.hook_error('telegram', exc)
 
@@ -264,10 +244,13 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
         signal = await Database.fetchrow(
             "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
         if not is_deliverable_for_event(event_type, signal):
+            _v2_delivery('delivery.skipped', signal, 'skipped', None, event['id'], event_type)
             await ack(event['id'], owner)
             return False
         allowed, block_reason = await can_deliver_candidate()
         if not allowed:
+            _v2_delivery('delivery.refused', signal, 'refused', block_reason, event['id'], event_type,
+                         evidence_v2.pause_outcome_code(block_reason))
             logger.info(
                 "عدم إرسال المرشح %s إلى Telegram: %s",
                 signal['symbol'], block_reason)
@@ -279,6 +262,9 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
             await send_signal_direct(bot, signal)
         elif action == 'awaiting_approval':
             await send_approval_request(bot, signal)
+        _v2_delivery('delivery.sent' if action == 'sent_direct' else 'delivery.approval_requested',
+                     signal, action, None, event['id'], event_type,
+                     'DELIVERED' if action == 'sent_direct' else 'AWAITING_APPROVAL')
         await ack(event['id'], owner)
         await asyncio.sleep(DELIVERY_PACING_SECONDS)
         return True
@@ -700,7 +686,6 @@ async def cmd_pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ON CONFLICT (date) DO UPDATE SET
             is_trading_paused=true, pause_reason='manual_pause'
     """)
-    _v2_control('pause', 'paused', pause_reason='manual_pause')
     await update.message.reply_text(
         "⏸️ تم إيقاف البحث وفتح صفقات جديدة حتى تستخدم /resume\n"
         "🛡️ الصفقات المفتوحة ستبقى تحت المتابعة وستصلك تحديثاتها وإغلاقاتها"
@@ -716,7 +701,6 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """)
     # لا يجوز أن يبدو النظام سليماً بينما القاطع ما زال يرفض كل دخول.
     streak = await loss_streak_state()
-    _v2_control('resume', 'resumed', streak=streak)
     if streak.halt_active:
         extra = (
             f"\n\n🛑 لكن قاطع سلسلة الخسائر ما زال نشطاً "
@@ -742,7 +726,6 @@ async def cmd_recover_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     reason = ' '.join(context.args or []).strip()
     if not reason:
-        _v2_control('recover_risk', 'rejected_missing_reason')
         await update.message.reply_text(
             "⚠️ الاستئناف بعد قاطع سلسلة الخسائر يحتاج سبباً صريحاً\n"
             "مثال: /recover_risk راجعت الصفقات التسع ولا يوجد خلل تنفيذي\n\n"
@@ -754,7 +737,6 @@ async def cmd_recover_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event = await record_recovery(
             acknowledged_by=str(update.effective_chat.id), reason=reason)
     except RecoveryRejected as exc:
-        _v2_control('recover_risk', 'rejected', streak=state, error=exc)
         await update.message.reply_text(
             f"⛔ تعذّر رفع القاطع: {exc}\n\n"
             f"🔢 السلسلة الحالية: {state.consecutive_losses}/{state.halt_threshold}\n"
@@ -762,7 +744,6 @@ async def cmd_recover_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     paused, _ = await get_pause_state()
-    _v2_control('recover_risk', 'recovered', recovery=event, still_paused=paused)
     next_step = (
         "\n\n▶️ التداول ما زال موقوفاً إدارياً — استخدم /resume لاستئناف البحث"
         if paused else ""
