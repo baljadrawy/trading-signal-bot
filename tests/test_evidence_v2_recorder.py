@@ -209,6 +209,20 @@ def test_unwritable_directory_is_counted_not_raised(tmp_path):
     assert rec.stats()['flush_failures'] == 1 and 'Permission' in rec.stats()['last_error']
 
 
+def test_unwritable_destination_independent_of_uid(tmp_path):
+    """P1-R: the destination cannot be created even by root (its parent is a regular file):
+    the failure is counted and visible, the event stays queued, nothing is raised."""
+    blocker = tmp_path / 'not_a_dir'
+    blocker.write_text('x')
+    rec = RecorderV2('svc', ev2.JsonlDailySink(str(blocker / 'evidence'), 'svc'), IDENT,
+                     flush_retry_count=0)
+    assert rec.emit('x', {}, {}) is True
+    assert rec.flush_now() == 0
+    st = rec.stats()
+    assert st['flush_failures'] == 1 and st['queue_depth'] == 1 and st['last_error']
+    assert rec.health()['flush_failures'] == 1
+
+
 def test_async_flusher_persists_everything_and_publishes_stats(tmp_path):
     rec = RecorderV2('svc', ev2.JsonlDailySink(str(tmp_path), 'svc'), IDENT,
                      flush_interval_s=0.05, stats_interval_s=0)

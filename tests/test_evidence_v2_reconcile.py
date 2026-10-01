@@ -50,7 +50,8 @@ def lifecycle(s, sid=1, cid='cand_a', t=T0, close=True):
            state={'tt': 'momentum'}, dedup_key=cid)
     s.emit('signal_engine', 'candidate.evaluated', subj, {'pit': pit(t), 'macro': {'macro_age_seconds': 60}},
            t=t, state={'decision': 'selected', 'reason': None}, dedup_key='e' + cid)
-    s.emit('signal_engine', 'signal.created', {'signal_id': sid, 'candidate_id': cid}, {'pit': pit(t)}, t=t)
+    s.emit('signal_engine', 'signal.ready', {'signal_id': sid, 'candidate_id': cid},
+           {'pit': pit(t), 'outcome_code': 'POLICY_READY'}, t=t)
     sig = {'signal_id': sid, 'candidate_id': cid, 'symbol': 'AUSDT', 'timeframe': '15m'}
     s.emit('telegram', 'delivery.sent', sig, t=t + 60_000, state={'outcome': 'sent_direct'})
     s.emit('trade_tracker', 'entry.attempt', sig, t=t + 90_000, state={'action': 'market'})
@@ -70,7 +71,9 @@ def test_complete_lifecycle_is_clean(tmp_path):
     s.flush(now=T0 + 6 * H)
     r = findings(tmp_path, T0 + 6 * H)
     assert r['exit_code'] == 0, r['findings']
-    assert r['trade_lifecycle'] == {'opened': 1, 'closed': 1, 'open_within_horizon': 0, 'stale_open': 0}
+    assert r['trade_lifecycle'] == {'opened': 1, 'closed': 1, 'open_within_horizon': 0, 'stale_open': 0,
+                                    'dead_letters': {'explained': 0, 'unexplained': 0}}
+    assert r['outcome_codes'] == {'signal.ready:POLICY_READY': 1}
     assert r['identity_coverage'] == 1.0
 
 
@@ -79,7 +82,7 @@ def test_missing_stages_and_stale_open_trade(tmp_path):
     lifecycle(s, sid=1, cid='cand_a', close=False)
     s.emit('signal_engine', 'candidate.evaluated', {'candidate_id': 'cand_b', 'symbol': 'B', 'timeframe': '15m'},
            {'pit': pit(T0)}, t=T0, state={'decision': 'selected'}, dedup_key='eb')
-    s.emit('signal_engine', 'signal.created', {'signal_id': 2, 'candidate_id': 'cand_b'}, {'pit': pit(T0)}, t=T0)
+    s.emit('signal_engine', 'signal.ready', {'signal_id': 2, 'candidate_id': 'cand_b'}, {'pit': pit(T0)}, t=T0)
     s.flush(now=T0 + 60 * H)
     r = findings(tmp_path, T0 + 60 * H)
     f = r['findings']
@@ -156,3 +159,39 @@ def test_tool_is_outcome_blind_by_construction():
     code = src.split('"""', 2)[2]                                       # ignore the module docstring
     assert not re.search(r"['\"](gross_profit|net_profit|profit_pct|pnl|result_label|"
                          r"weighted_exit_price|trigger_price|profit_usdt)['\"]", code)
+
+
+def _sent(s, sid, t):
+    sig = {'signal_id': sid, 'candidate_id': f'cand_{sid}', 'symbol': 'NUSDT', 'timeframe': '15m'}
+    s.emit('signal_engine', 'signal.ready', {'signal_id': sid, 'candidate_id': f'cand_{sid}'},
+           {'pit': pit(t), 'outcome_code': 'POLICY_READY'}, t=t)
+    s.emit('telegram', 'delivery.sent', sig, {'outcome_code': 'DELIVERED',
+                                             'claimed_event_type': 'signal.ready'},
+           t=t + 30_000, state={'outcome': 'sent_direct'})
+    return sig
+
+
+def test_no_fill_dead_letter_is_explained_unobserved_is_flagged(tmp_path):
+    """P1-R: a delivery event that exhausts its outbox attempts (runtime dead letter) is explained
+    by evidence when an outcome was observed (limit wait -> NO_FILL); only an unobserved one warns."""
+    s = Stream(tmp_path)
+    sig = _sent(s, 7, T0)
+    s.emit('trade_tracker', 'entry.attempt', sig, {'outcome_code': 'AWAITING_FILL'}, t=T0 + 60_000,
+           state={'action': 'limit_wait'}, dedup_key='entry:7')
+    s.emit('trade_tracker', 'delivery.consumed', {'signal_id': 7, 'outbox_event_id': 70},
+           {'outcome_code': 'AWAITING_FILL', 'final_attempt': True, 'outbox_event_id': 70},
+           t=T0 + 40 * 60_000, state={'kind': 'deferred'})
+    s.emit('trade_tracker', 'entry.expired', sig, {'outcome_code': 'NO_FILL',
+                                                  'last_outcome_code': 'AWAITING_FILL'},
+           t=T0 + 2 * H + 30_000, state={'outcome_code': 'NO_FILL'})
+    sig8 = _sent(s, 8, T0)
+    s.emit('trade_tracker', 'delivery.consumed', {'signal_id': 8, 'outbox_event_id': 80},
+           {'outcome_code': 'DEFERRED_UNOBSERVED', 'final_attempt': True, 'outbox_event_id': 80},
+           t=T0 + 40 * 60_000, state={'kind': 'deferred'})
+    s.flush(now=T0 + 3 * H)
+    r = findings(tmp_path, T0 + 3 * H)
+    assert r['trade_lifecycle']['dead_letters'] == {'explained': 1, 'unexplained': 1}
+    codes = set(r['findings'])
+    assert 'unexplained_dead_letter' in codes
+    assert r['outcome_codes']['entry.expired:NO_FILL'] == 1
+    assert 'missing_admission_stage' not in codes          # expiry/consumed count as tracker stage

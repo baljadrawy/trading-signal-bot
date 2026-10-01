@@ -59,7 +59,8 @@ SIGNALS = [  # symbol, planned entry, first observed price -> expected entry dec
 
 async def seed():
     await Database.execute("INSERT INTO risk_management (date, is_trading_paused, pause_reason) "
-                           "VALUES (CURRENT_DATE, false, 'manual_resume')")
+                           "VALUES (CURRENT_DATE, false, 'manual_resume') ON CONFLICT (date) DO UPDATE "
+                           "SET is_trading_paused=false, pause_reason='manual_resume'")
     for symbol, entry, _ in SIGNALS:
         identity = {'candidate_id': f'cand_{symbol.lower()}', 'candle_id': f'{symbol}|15m|0'}
         await Database.execute("""
@@ -67,8 +68,8 @@ async def seed():
                 target_3, stop_loss, score, score_details, is_paper_trade, volume_usdt,
                 features_snapshot, trade_type, macro_snapshot, decision_source, strategy_version,
                 telegram_sent, claude_approved, signal_time)
-            VALUES ($1,'15m','ranging',$2,$3,$4,$5,$6,5,'{}',true,1e6,$7,'momentum','{}','signal_engine',
-                    'sb-test',true,true,NOW())""",
+            VALUES ($1,'15m','ranging',$2,$3,$4,$5,$6,5,'{}',true,1e6,$7,'momentum','{}','policy_ready',
+                    'sb-test',true,NULL,NOW())""",   # CR-2 contract: readiness, no Claude approval
             symbol, entry, entry * 1.02, entry * 1.036, entry * 1.044, entry * 0.98,
             json.dumps({'stop_invalidation': entry * 0.985, 'stop_policy': 'invalidation_atr_v1',
                         'identity': identity}))
@@ -159,7 +160,7 @@ def test_lifecycle_parity_and_events(tracker, monkeypatch, tmp_path):
     ev2._RECORDERS['trade_tracker'] = Raising('trade_tracker', ev2.ListSink(), IDENT)
     assert _run(tracker, 'p1_after_raising', monkeypatch) == off
 
-    if BEFORE:                                              # develop 4e3eb0a vs this branch
+    if BEFORE:                                              # develop f973cace vs this branch
         before = load('tracker_before', os.path.join(BEFORE, 'trade_tracker', 'main.py'))
         assert _run(before, 'p1_before', monkeypatch) == off
 

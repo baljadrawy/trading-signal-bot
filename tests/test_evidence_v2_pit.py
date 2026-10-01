@@ -10,7 +10,8 @@ from shared.config import config
 from evidence_v2_fakes import (TF_MS, FakeClient, FakeMacro, analysis_row, inject_recorder,
                                synthetic_klines)
 
-# The analyzer's result keys before P1 (develop 4e3eb0a). P1 may only ADD 'pit'.
+# The analyzer's result keys before P1 (unchanged through develop f973cace). P1 may only ADD 'pit',
+# and only while forward instrumentation is ON (EVIDENCE_V2_ENABLED).
 PRE_P1_KEYS = {'symbol', 'timeframe', 'market_condition', 'regime', 'total_score', 'score_details',
                'features', 'research_features', 'execution_features', 'entry_reason',
                'selection_policy', 'entry_price', 'target_1', 'target_2', 'target_3', 'stop_loss',
@@ -36,9 +37,10 @@ def _branch_analyzer():
     return _ANALYZER['mod']
 
 
-def _analyze(rows, monkeypatch, tf='15m', live=True):
+def _analyze(rows, monkeypatch, tf='15m', live=True, ev2_on=True):
     technical_analyzer = _branch_analyzer()
     monkeypatch.setattr(config, 'LIVE_LEARNING_MODE', live)
+    monkeypatch.setattr(config, 'EVIDENCE_V2_ENABLED', ev2_on)
     analyzer = technical_analyzer.TechnicalAnalyzer(FakeClient(rows))
     return asyncio.run(analyzer.analyze('SYNTHUSDT', tf))
 
@@ -60,8 +62,19 @@ def test_pit_identity_is_the_last_closed_exchange_candle(monkeypatch):
 def test_pit_block_is_purely_additive(monkeypatch):
     rows, _ = synthetic_klines('15m')
     for live in (True, False):
-        out = _analyze(rows, monkeypatch, live=live)
-        assert set(out) - {'pit'} == PRE_P1_KEYS
+        on = _analyze(rows, monkeypatch, live=live, ev2_on=True)
+        off = _analyze(rows, monkeypatch, live=live, ev2_on=False)
+        assert set(on) == PRE_P1_KEYS | {'pit'}
+        assert {k: v for k, v in on.items() if k != 'pit'} == off
+
+
+def test_pit_absent_when_instrumentation_off(monkeypatch):
+    """Owner decision (P1-R): analysis_data.pit is P1 persistence and must not exist while
+    forward instrumentation is OFF — the analysis result is exactly the pre-P1 key set."""
+    rows, _ = synthetic_klines('15m')
+    for live in (True, False):
+        out = _analyze(rows, monkeypatch, live=live, ev2_on=False)
+        assert 'pit' not in out and set(out) == PRE_P1_KEYS
 
 
 def test_open_candle_cannot_influence_any_analysis_value(monkeypatch):

@@ -1,6 +1,8 @@
-"""Telegram instrumentation (P1-D): delivery refusals and owner risk controls are recorded without
-changing replies or database writes. Runs where python-telegram-bot is installed (the telegram image);
-skipped elsewhere, like the other telegram tests."""
+"""Telegram instrumentation (P1 / P1-R): candidate-delivery outcomes are recorded on the CR-2 path
+(handle_candidate_event: signal.ready + legacy signal.reviewed) without changing replies or database
+writes. P1-R records NO owner-command events (command handlers are out of scope). Runs where
+python-telegram-bot is installed (the telegram image); skipped elsewhere — the same hooks are also
+covered with stand-ins by tests/test_p1r_cr2_contract.py."""
 import sys; sys.path.insert(0, '.')
 import asyncio
 import json
@@ -44,34 +46,31 @@ def enable(monkeypatch):
 
 
 SIGNAL = {'id': 41, 'symbol': 'AAAUSDT', 'timeframe': '15m', 'telegram_sent': True,
-          'claude_approved': True,
+          'decision_source': 'policy_ready', 'claude_approved': None,
           'features_snapshot': json.dumps({'identity': {'candidate_id': 'cand_abc'}})}
 
 
-def test_delivery_events_carry_lineage_and_reason(monkeypatch):
+def test_delivery_events_carry_lineage_reason_event_type_and_code(monkeypatch):
     rec, sink = enable(monkeypatch)
-    main._v2_delivery('delivery.refused', SIGNAL, 'refused', 'risk:loss_streak_halt', 7)
-    main._v2_delivery('delivery.skipped', SIGNAL, 'skipped', None, 8)          # reason derived inside
-    main._v2_delivery('delivery.skipped', None, 'skipped', None, 9)            # missing signal row
+    main._v2_delivery('delivery.refused', SIGNAL, 'refused', 'risk:loss_streak_halt', 7,
+                      'signal.ready', 'B3_BLOCKED')
+    main._v2_delivery('delivery.skipped', SIGNAL, 'skipped', None, 8, 'signal.ready')   # reason derived
+    main._v2_delivery('delivery.skipped', None, 'skipped', None, 9, 'signal.reviewed')  # missing row
     rec.flush_now()
     refused, skipped, missing = sink.records()
     assert refused['subject'] == {'signal_id': 41, 'candidate_id': 'cand_abc', 'symbol': 'AAAUSDT',
                                   'timeframe': '15m'}
     assert refused['state'] == {'outcome': 'refused', 'reason': 'risk:loss_streak_halt'}
-    assert skipped['state']['reason'] == 'already_sent' and missing['state']['reason'] == 'signal_missing'
+    assert refused['payload']['outcome_code'] == 'B3_BLOCKED'
+    assert refused['payload']['claimed_event_type'] == 'signal.ready'
+    assert skipped['state']['reason'] == 'already_sent' and skipped['payload']['outcome_code'] == 'DUPLICATE'
+    assert missing['state']['reason'] == 'signal_missing'
+    assert missing['payload']['claimed_event_type'] == 'signal.reviewed'
     ev2.reset_for_tests()
 
 
-def test_control_hook_reads_partial_objects_without_raising(monkeypatch):
-    rec, sink = enable(monkeypatch)
-    main._v2_control('resume', 'resumed', streak=SimpleNamespace(halt_active=True))
-    main._v2_control('recover_risk', 'recovered', recovery={'id': 3, 'reason': 'reviewed'}, still_paused=True)
-    rec.flush_now()
-    resume, recovered = sink.records()
-    assert resume['payload']['halt_active'] is True and resume['payload']['consecutive_losses'] is None
-    assert recovered['payload']['id'] == 3 and recovered['payload']['still_paused'] is True
-    assert not any('chat' in k for e in sink.records() for k in e['payload'])
-    ev2.reset_for_tests()
+def test_no_owner_command_hooks_in_p1r():
+    assert not hasattr(main, '_v2_control')
 
 
 def _pause(monkeypatch):
@@ -94,7 +93,5 @@ def test_pause_command_behaviour_is_unchanged_by_recording(monkeypatch):
     on = _pause(monkeypatch)
     assert on == off and off[0] and off[1]
     rec.flush_now()
-    [event] = sink.records()
-    assert event['event_type'] == 'control.command'
-    assert event['state'] == {'command': 'pause', 'outcome': 'paused'}
+    assert sink.records() == []                    # P1-R: owner commands are not instrumented
     ev2.reset_for_tests()

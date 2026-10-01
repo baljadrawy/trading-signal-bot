@@ -1,6 +1,6 @@
-"""BEFORE/AFTER decision parity (P1-F): the develop (4e3eb0a) decision code and this branch, fed
-identical synthetic inputs, must decide identically. Runs only when P1_BEFORE_TREE points at a
-develop checkout. The branch runs with the v2 recorder ENABLED, so recording is proven inert."""
+"""BEFORE/AFTER decision parity (P1-F, P1-R hard gate): the develop (f973cace) decision code and
+this branch, fed identical synthetic inputs, must decide identically with forward instrumentation
+OFF and ON. Runs only when P1_BEFORE_TREE points at a develop checkout."""
 import sys; sys.path.insert(0, '.'); sys.path.insert(0, 'signal_engine'); sys.path.insert(0, 'analyzer')
 import asyncio
 import copy
@@ -61,30 +61,37 @@ def before_logic():
     return load('signal_logic_before', os.path.join(BEFORE, 'signal_engine', 'signal_logic.py'))
 
 
+@pytest.mark.parametrize('mode', ['off', 'on'])
 @pytest.mark.parametrize('seed', range(300))
-def test_signal_selection_before_after(seed, before_logic, monkeypatch):
+def test_signal_selection_before_after(seed, mode, before_logic, monkeypatch):
     import signal_logic as after_logic
     sc = scenario(seed)
     monkeypatch.setattr(config, 'EVIDENCE_V2_ENABLED', False)
     ev2.reset_for_tests()
     before = decide(before_logic, sc, monkeypatch)
-    inject_recorder(monkeypatch, 'signal_engine')
+    if mode == 'on':
+        inject_recorder(monkeypatch, 'signal_engine')
     after = decide(after_logic, sc, monkeypatch)
     ev2.reset_for_tests()
     assert after == before
 
 
+@pytest.mark.parametrize('mode', ['off', 'on'])
 @pytest.mark.parametrize('tf', ['15m', '4h', '1d'])
 @pytest.mark.parametrize('seed', range(8))
 @pytest.mark.parametrize('live', [True, False])
-def test_analyzer_before_after(tf, seed, live, monkeypatch):
+def test_analyzer_before_after(tf, seed, live, mode, monkeypatch):
     before_mod = load('technical_analyzer_before', os.path.join(BEFORE, 'analyzer', 'technical_analyzer.py'))
     after_mod = load('technical_analyzer_after', 'analyzer/technical_analyzer.py')
     monkeypatch.setattr(config, 'LIVE_LEARNING_MODE', live)
+    monkeypatch.setattr(config, 'EVIDENCE_V2_ENABLED', mode == 'on')
     rows, _ = synthetic_klines(tf, seed=seed)
     b = asyncio.run(before_mod.TechnicalAnalyzer(FakeClient(rows)).analyze('SYNTHUSDT', tf))
     a = asyncio.run(after_mod.TechnicalAnalyzer(FakeClient(rows)).analyze('SYNTHUSDT', tf))
-    assert b is not None and a is not None
-    assert 'pit' in a and 'pit' not in b
-    assert json.dumps({k: v for k, v in a.items() if k != 'pit'}, sort_keys=True, default=str) == \
-        json.dumps(b, sort_keys=True, default=str)
+    assert b is not None and a is not None and 'pit' not in b
+    if mode == 'off':                     # OFF: byte-identical analysis result (no pit at all)
+        assert json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
+    else:                                 # ON: pit is the only addition
+        assert 'pit' in a
+        assert json.dumps({k: v for k, v in a.items() if k != 'pit'}, sort_keys=True, default=str) == \
+            json.dumps(b, sort_keys=True, default=str)
