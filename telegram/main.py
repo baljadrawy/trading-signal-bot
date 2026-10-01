@@ -100,6 +100,8 @@ def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=No
                    else {'signal_id': None, 'outbox_event_id': event_id})
         if outcome == 'skipped' and reason is None:
             reason, outcome_code = evidence_v2.candidate_skip(claimed_event_type, signal)
+        elif outcome == 'refused' and outcome_code is None:      # classified inside the guard
+            outcome_code = evidence_v2.pause_outcome_code(reason)
         evidence_v2.emit('telegram', event_type, subject,
                          {'outbox_event_id': event_id, 'claimed_event_type': claimed_event_type,
                           'outcome_code': outcome_code, **extra},
@@ -240,21 +242,24 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
     delivery. The pause/B3 gate (can_deliver_candidate) runs before any delivery.
     Any error -> fail() so the outbox retries / dead-letters as before.
     """
+    # P1-FIX (MINOR-3): evidence that claims a completed outcome is emitted only AFTER the runtime
+    # ack succeeded. If anything (including ack) raises, the unchanged fail() runs and only a
+    # `delivery.failed` record (an attempt, not a success) is written.
+    signal = None
     try:
         signal = await Database.fetchrow(
             "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
         if not is_deliverable_for_event(event_type, signal):
-            _v2_delivery('delivery.skipped', signal, 'skipped', None, event['id'], event_type)
             await ack(event['id'], owner)
+            _v2_delivery('delivery.skipped', signal, 'skipped', None, event['id'], event_type)
             return False
         allowed, block_reason = await can_deliver_candidate()
         if not allowed:
-            _v2_delivery('delivery.refused', signal, 'refused', block_reason, event['id'], event_type,
-                         evidence_v2.pause_outcome_code(block_reason))
             logger.info(
                 "عدم إرسال المرشح %s إلى Telegram: %s",
                 signal['symbol'], block_reason)
             await ack(event['id'], owner)
+            _v2_delivery('delivery.refused', signal, 'refused', block_reason, event['id'], event_type)
             return False
         signal = dict(signal)
         action = await approval_mgr.process_signal(signal)
@@ -262,14 +267,16 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
             await send_signal_direct(bot, signal)
         elif action == 'awaiting_approval':
             await send_approval_request(bot, signal)
+        await ack(event['id'], owner)
         _v2_delivery('delivery.sent' if action == 'sent_direct' else 'delivery.approval_requested',
                      signal, action, None, event['id'], event_type,
                      'DELIVERED' if action == 'sent_direct' else 'AWAITING_APPROVAL')
-        await ack(event['id'], owner)
         await asyncio.sleep(DELIVERY_PACING_SECONDS)
         return True
     except Exception as event_error:
         await fail(event['id'], owner, event_error)
+        _v2_delivery('delivery.failed', signal, 'failed', type(event_error).__name__, event['id'],
+                     event_type, 'DELIVERY_FAILED')
         logger.error("outbox %s %s failed: %s",
                      event_type, event['id'], format_error(event_error))
         return False

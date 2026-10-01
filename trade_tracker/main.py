@@ -8,7 +8,7 @@ import sys
 import json
 import dataclasses
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 sys.path.append('/app')
 
 import aiohttp
@@ -154,6 +154,7 @@ _V2_LAST_OUTCOME_MAX = 10000
 _V2_PROCESS_STARTED = datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC like signal_time
 # Must match the admission window of register_new_signals (asserted by tests).
 V2_ADMISSION_WINDOW_SQL = "INTERVAL '2 hours'"
+_V2_ADMISSION_WINDOW = timedelta(hours=2)   # same window, for the watermark
 # Read-only twin of DELIVERY_TERMINAL_SQL that names WHY a delivered signal is terminal
 # (same conditions, same order of precedence; asserted equivalent by tests). NULL = not terminal.
 DELIVERY_OUTCOME_SQL = f"""
@@ -167,6 +168,12 @@ DELIVERY_OUTCOME_SQL = f"""
     END AS code
     FROM signals s WHERE s.id=$1
     """
+# P1-FIX (MINOR-1): keyset pagination over expired signals by a monotonic (signal_time, id)
+# watermark. Every signal has the same admission window, so signals expire in signal_time order:
+# each expired row is read once, in order, at most V2_EXPIRY_BATCH per sweep, so already-recorded
+# rows can never starve newer expiries (the old oldest-first LIMIT could). Read-only.
+V2_EXPIRY_BATCH = 200
+_V2_EXPIRY_STATE: dict = {}          # {'watermark': (signal_time, id)}; created only while ON
 # Signals whose admission window closed after this process started, still without a trade.
 V2_EXPIRED_SQL = f"""
     SELECT s.id, s.symbol, s.timeframe, s.trade_type, s.signal_time, s.features_snapshot,
@@ -179,9 +186,9 @@ V2_EXPIRED_SQL = f"""
       AND {READY_SQL_PREDICATE}
       AND at.id IS NULL
       AND s.signal_time <= NOW() - {V2_ADMISSION_WINDOW_SQL}
-      AND s.signal_time > $1::timestamp - {V2_ADMISSION_WINDOW_SQL}
-    ORDER BY s.signal_time
-    LIMIT 200
+      AND (s.signal_time, s.id) > ($1::timestamp, $2::int)
+    ORDER BY s.signal_time, s.id
+    LIMIT {V2_EXPIRY_BATCH}
     """
 
 
@@ -235,16 +242,26 @@ async def _v2_expiry_sweep() -> None:
     if not evidence_v2.enabled():
         return
     try:
-        rows = await Database.fetch(V2_EXPIRED_SQL, _V2_PROCESS_STARTED)
+        if 'watermark' not in _V2_EXPIRY_STATE:     # first sweep: windows closing after boot only
+            _V2_EXPIRY_STATE['watermark'] = (_V2_PROCESS_STARTED - _V2_ADMISSION_WINDOW, 0)
+        wm_time, wm_id = _V2_EXPIRY_STATE['watermark']
+        rows = await Database.fetch(V2_EXPIRED_SQL, wm_time, wm_id)
         for row in rows:
             last = _V2_LAST_OUTCOME.get(int(row['id']))
             code = ('BLACKLISTED' if row['blacklisted'] else 'REJECTED' if row['rejected']
                     else evidence_v2.expiry_outcome_code(last))
+            dropped_before = evidence_v2.dropped_count('trade_tracker')
             evidence_v2.emit('trade_tracker', 'entry.expired', _v2_signal_subject(row), {
                 'outcome_code': code, 'last_outcome_code': last,
                 'signal_time': row['signal_time'], 'admission_window': '2 hours',
                 'trade_type': row['trade_type'],
             }, state={'outcome_code': code}, dedup_key=f"expiry:{row['id']}")
+            if (not evidence_v2.is_recorded('trade_tracker', f"expiry:{row['id']}", {'outcome_code': code})
+                    and evidence_v2.dropped_count('trade_tracker') > dropped_before):
+                break       # dropped (queue full): keep the watermark here and retry on the next sweep
+            # recorded, or a non-retryable failure (counted in recorder errors): advance, so one bad
+            # row can never block later expiries
+            _V2_EXPIRY_STATE['watermark'] = (row['signal_time'], int(row['id']))   # advance past it
     except Exception as exc:
         evidence_v2.hook_error('trade_tracker', exc)
 
