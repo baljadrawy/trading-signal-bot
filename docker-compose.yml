@@ -67,10 +67,8 @@ services:
   # ==================== Analyzer ====================
   analyzer:
     <<: *hardened-runtime
-    build:
-      context: .
-      dockerfile: analyzer/Dockerfile
-      args: *build-args
+    image: tsb-aiohttp-test-analyzer:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay (D3B-1); base ce305ecd, /app unchanged
+    pull_policy: never
     container_name: trading_analyzer
     restart: unless-stopped
     logging: *default-logging
@@ -80,6 +78,9 @@ services:
     environment:
       SERVICE_NAME: analyzer
       HEALTH_MAX_AGE_SECONDS: "300"
+      # D3B-1: analyzer code never reads these; blank overrides keep the shared .env values out of this container
+      CMC_PRO_API_KEY: ""
+      COINGECKO_API_KEY: ""
     volumes:
       - logs_data:/app/logs
       - models_data:/app/models
