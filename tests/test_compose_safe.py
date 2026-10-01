@@ -75,6 +75,8 @@ class ComposeSafeTest(unittest.TestCase):
     def test_unknown_service_rejected(self):
         self.assert_refused("logs", "postgres", contains="unknown service")
         self.assert_refused("render-hash", "xsch", contains="unknown service")
+        # CR-2: claude_review is retired from the runtime definition.
+        self.assert_refused("inspect", "claude_review", contains="unknown service")
 
     def test_learner_rejected(self):
         for sub in ("logs", "inspect", "render-hash"):
@@ -264,7 +266,7 @@ class ComposeSafeTest(unittest.TestCase):
         self.assertEqual(cs.SERVICES, {
             "telegram": "trading_telegram", "trade_tracker": "trading_tracker",
             "scanner": "trading_scanner", "analyzer": "trading_analyzer",
-            "signal_engine": "trading_signal_engine", "claude_review": "trading_claude_review",
+            "signal_engine": "trading_signal_engine",
         })
 
     def test_no_mutation_subcommands_exist(self):
