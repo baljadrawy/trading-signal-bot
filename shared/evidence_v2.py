@@ -279,6 +279,7 @@ class RecorderV2:
         t0 = time.perf_counter()
         try:
             restated = False
+            digest = None
             if dedup_key is not None:
                 digest = sha256_hex(canonical_json(state))[:20]
                 prev = self._state.get(dedup_key)
@@ -286,11 +287,10 @@ class RecorderV2:
                     self.suppressed += 1
                     return False
                 restated = prev is None
-                self._state[dedup_key] = digest
-                self._state.move_to_end(dedup_key)
-                if len(self._state) > self.state_cache_size:
-                    self._state.popitem(last=False)
-                    self.state_evictions += 1
+                # P1-FIX (MINOR-2): the dedup state is committed only AFTER the queue has
+                # accepted the record (below). A dropped or unserializable event is not marked
+                # as seen, so a later identical emit can still record it (one attempt per call;
+                # no internal retry loop, never blocks).
             with self._qlock:
                 self._seq += 1                 # a dropped event still consumes a number: gaps = loss
                 seq = self._seq
@@ -313,10 +313,19 @@ class RecorderV2:
             line = canonical_json(record)       # frozen now: later caller mutations cannot leak in
             day = _dt.datetime.fromtimestamp(recorded / 1000, _dt.timezone.utc).strftime("%Y-%m-%d")
             with self._qlock:
+                if len(self._q) >= self.max_queue:   # filled up while serializing: drop, not seen
+                    self.dropped += 1
+                    return False
                 self._q.append((day, line))
                 self.emitted += 1
                 if len(self._q) > self.max_depth_seen:
                     self.max_depth_seen = len(self._q)
+            if dedup_key is not None:                # accepted: now it counts as seen
+                self._state[dedup_key] = digest
+                self._state.move_to_end(dedup_key)
+                if len(self._state) > self.state_cache_size:
+                    self._state.popitem(last=False)
+                    self.state_evictions += 1
             return True
         except Exception as exc:                # serialization or internal failure
             self.errors += 1
@@ -527,6 +536,26 @@ def emit(service: str, event_type: str, subject: dict, payload: dict | None = No
         return False
 
 
+def is_recorded(service: str, dedup_key: str, state: Any) -> bool:
+    """True when `state` is the state last ACCEPTED into the queue for `dedup_key` (P1-FIX: a
+    dropped event is never marked as seen). False when disabled or on any error. Never raises."""
+    try:
+        rec = _RECORDERS.get(service)
+        return bool(rec is not None and
+                    rec._state.get(dedup_key) == sha256_hex(canonical_json(state))[:20])
+    except Exception:
+        return False
+
+
+def dropped_count(service: str) -> int:
+    """Events dropped on a full queue by this service's recorder (0 when disabled). Never raises."""
+    try:
+        rec = _RECORDERS.get(service)
+        return int(rec.dropped) if rec is not None else 0
+    except Exception:
+        return 0
+
+
 def hook_error(service: str, exc: BaseException) -> None:
     try:
         rec = _RECORDERS.get(service)
@@ -660,6 +689,7 @@ OUTCOME_CODES = (
     "OPENED",              # paper trade registered (TRACKED)
     "DEFERRED_UNOBSERVED", # delivery event deferred; no admission attempt observed yet
     "UNKNOWN",             # unrecognized value (classification only; never a decision)
+    "DELIVERY_FAILED",     # telegram candidate handling raised; runtime fail() scheduled a retry
 )
 
 

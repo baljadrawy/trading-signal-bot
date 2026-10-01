@@ -88,10 +88,11 @@ def test_analyzer_before_after(tf, seed, live, mode, monkeypatch):
     rows, _ = synthetic_klines(tf, seed=seed)
     b = asyncio.run(before_mod.TechnicalAnalyzer(FakeClient(rows)).analyze('SYNTHUSDT', tf))
     a = asyncio.run(after_mod.TechnicalAnalyzer(FakeClient(rows)).analyze('SYNTHUSDT', tf))
-    assert b is not None and a is not None and 'pit' not in b
+    assert b is not None and a is not None
     if mode == 'off':                     # OFF: byte-identical analysis result (no pit at all)
+        assert 'pit' not in a and 'pit' not in b
         assert json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
-    else:                                 # ON: pit is the only addition
-        assert 'pit' in a
-        assert json.dumps({k: v for k, v in a.items() if k != 'pit'}, sort_keys=True, default=str) == \
-            json.dumps(b, sort_keys=True, default=str)
+    else:                                 # ON: identical apart from pit (reference may itself carry pit
+        assert 'pit' in a                 # when it already contains P1, e.g. develop da256f74)
+        strip = lambda d: json.dumps({k: v for k, v in d.items() if k != 'pit'}, sort_keys=True, default=str)
+        assert strip(a) == strip(b)
