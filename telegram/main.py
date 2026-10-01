@@ -24,6 +24,11 @@ from shared.telegram_messages import (
     runtime_status_message,
 )
 from shared.trading_state import get_pause_state
+from shared.signal_readiness import (
+    LEGACY_SIGNAL_REVIEWED_EVENT, READY_SQL_PREDICATE, SIGNAL_READY_EVENT,
+    decision_breakdown, decision_breakdown_lines, decision_label, is_deliverable_for_event,
+    is_ready_row,
+)
 from shared.risk_epoch import (
     LOSS_STREAK_HALTED, LOSS_STREAK_RECOVERY_REQUIRED, TRADING_PAUSED,
     RecoveryRejected, loss_streak_state, operational_state, record_recovery,
@@ -145,39 +150,21 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
 
             lifecycle_delivered = await deliver_trade_lifecycle_events(bot, owner)
 
-            events = await claim('signal.reviewed', owner, limit=5)
+            # CR-1: signal.ready هو المسار النشط؛ signal.reviewed يبقى مقبولاً للأحداث
+            # القديمة العالقة وللتراجع إلى claude_review (قبول مزدوج).
+            events_claimed = 0
             delivered = 0
-            for event in events:
-                try:
-                    signal = await Database.fetchrow(
-                        "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
-                    if not signal or signal['telegram_sent'] or not signal['claude_approved']:
-                        await ack(event['id'], owner)
-                        continue
-                    allowed, block_reason = await can_deliver_candidate()
-                    if not allowed:
-                        logger.info(
-                            "عدم إرسال المرشح %s إلى Telegram: %s",
-                            signal['symbol'], block_reason)
-                        await ack(event['id'], owner)
-                        continue
-                    signal = dict(signal)
-                    action = await approval_mgr.process_signal(signal)
-                    if action == 'sent_direct':
-                        await send_signal_direct(bot, signal)
-                    elif action == 'awaiting_approval':
-                        await send_approval_request(bot, signal)
-                    delivered += 1
-                    await ack(event['id'], owner)
-                    await asyncio.sleep(2)
-                except Exception as event_error:
-                    await fail(event['id'], owner, event_error)
-                    logger.error("outbox signal.reviewed %s failed: %s",
-                                 event['id'], format_error(event_error))
+            for event_type in CANDIDATE_EVENT_TYPES:
+                events = await claim(event_type, owner, limit=5)
+                events_claimed += len(events)
+                for event in events:
+                    if await handle_candidate_event(
+                            bot, approval_mgr, owner, event_type, event):
+                        delivered += 1
 
             consecutive_errors = 0
             await mark_success('telegram', {
-                'events_claimed': len(events), 'delivered': delivered,
+                'events_claimed': events_claimed, 'delivered': delivered,
                 'lifecycle_delivered': lifecycle_delivered,
                 'expired_requests': len(expired)})
             await asyncio.sleep(15)
@@ -198,6 +185,47 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                     level='critical', component='Telegram'
                 )
             await asyncio.sleep(wait)
+
+
+CANDIDATE_EVENT_TYPES = (SIGNAL_READY_EVENT, LEGACY_SIGNAL_REVIEWED_EVENT)
+DELIVERY_PACING_SECONDS = 2
+
+
+async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner: str,
+                                 event_type: str, event) -> bool:
+    """Gate and deliver one claimed candidate event; returns True when delivered.
+
+    Not ready (per event type), missing or already-sent signals are acked without
+    delivery. The pause/B3 gate (can_deliver_candidate) runs before any delivery.
+    Any error -> fail() so the outbox retries / dead-letters as before.
+    """
+    try:
+        signal = await Database.fetchrow(
+            "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
+        if not is_deliverable_for_event(event_type, signal):
+            await ack(event['id'], owner)
+            return False
+        allowed, block_reason = await can_deliver_candidate()
+        if not allowed:
+            logger.info(
+                "عدم إرسال المرشح %s إلى Telegram: %s",
+                signal['symbol'], block_reason)
+            await ack(event['id'], owner)
+            return False
+        signal = dict(signal)
+        action = await approval_mgr.process_signal(signal)
+        if action == 'sent_direct':
+            await send_signal_direct(bot, signal)
+        elif action == 'awaiting_approval':
+            await send_approval_request(bot, signal)
+        await ack(event['id'], owner)
+        await asyncio.sleep(DELIVERY_PACING_SECONDS)
+        return True
+    except Exception as event_error:
+        await fail(event['id'], owner, event_error)
+        logger.error("outbox %s %s failed: %s",
+                     event_type, event['id'], format_error(event_error))
+        return False
 
 
 async def send_signal_direct(bot: Bot, signal: dict):
@@ -839,10 +867,16 @@ def build_approval_message(signal: dict) -> str:
 
 @restricted
 async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أداء قرارات المراجعة، سواء كانت سياسة آلية أو Claude."""
+    """أداء قرارات الجاهزية حسب مصدرها الفعلي (decision_source) مع إبقاء التاريخ ظاهراً.
+
+    claude_approved=true منذ 2026-06 تعني «سياسة آلية عبر المرحِّل» لا موافقة Claude؛
+    لذلك نعدّ حسب المصدر بدل عرضها كموافقات Claude.
+    """
     total = await Database.fetchval("SELECT COUNT(*) FROM signals") or 0
-    approved = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = true") or 0
-    rejected = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE claude_approved = false") or 0
+    decision_rows = await Database.fetch(
+        "SELECT decision_source, claude_approved, COUNT(*) AS n FROM signals "
+        "GROUP BY decision_source, claude_approved")
+    breakdown = decision_breakdown(decision_rows or [])
     sent = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE telegram_sent = true") or 0
 
     # أداء آخر 7 أيام
@@ -855,15 +889,14 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_trades = wins + losses
     win_rate = f"{(wins/total_trades*100):.1f}%" if total_trades > 0 else "لا توجد بيانات بعد"
 
-    approval_rate = f"{(approved/total*100):.1f}%" if total > 0 else "0%"
+    decision_lines = "\n".join(decision_breakdown_lines(breakdown, total))
 
     await update.message.reply_text(
         f"🏆 أداء النظام\n"
         f"{'─'*28}\n\n"
-        f"🧭 قرارات المراجعة:\n"
+        f"🧭 قرارات الجاهزية حسب المصدر:\n"
         f"  إجمالي الإشارات: {total}\n"
-        f"  ✅ موافق عليها: {approved} ({approval_rate})\n"
-        f"  ❌ مرفوضة: {rejected}\n"
+        f"{decision_lines}\n"
         f"  📤 مرسلة: {sent}\n\n"
         f"📊 نتائج الصفقات (7 أيام):\n"
         f"  أرباح: {wins} ✅\n"
@@ -890,12 +923,13 @@ async def cmd_signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["📡 آخر المرشحين (ليست صفقات مفتوحة)\n" + "─"*28]
     for s in signals:
-        decision_icon = "✅" if s['claude_approved'] else "❌"
+        decision_icon = "✅" if is_ready_row(s) else "❌"
         sent_icon = "📤" if s['telegram_sent'] else "⏳"
         time_str = s['signal_time'].strftime("%H:%M") if s['signal_time'] else "؟"
+        decision_text = decision_label(s['decision_source'], s['claude_approved'])
         lines.append(
             f"\n{sent_icon} {s['symbol']} [{s['timeframe']}]\n"
-            f"  ⭐ {s['score']}/10 | القرار: {decision_icon} ({s['decision_source'] or 'غير معروف'}) | {time_str}\n"
+            f"  ⭐ {s['score']}/10 | القرار: {decision_icon} {decision_text} | {time_str}\n"
             f"  💬 {(s['claude_comment'] or '')[:60]}"
         )
 
@@ -911,12 +945,11 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     signals_today = await Database.fetchval(
         "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE"
     ) or 0
-    approved_today = await Database.fetchval(
-        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND claude_approved = true"
+    ready_today = await Database.fetchval(
+        "SELECT COUNT(*) FROM signals s WHERE s.signal_time::date = CURRENT_DATE "
+        f"AND {READY_SQL_PREDICATE}"
     ) or 0
-    rejected_today = await Database.fetchval(
-        "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND claude_approved = false"
-    ) or 0
+    not_ready_today = max(signals_today - ready_today, 0)
     sent_today = await Database.fetchval(
         "SELECT COUNT(*) FROM signals WHERE signal_time::date = CURRENT_DATE AND telegram_sent = true"
     ) or 0
@@ -964,8 +997,8 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌍 وضع السوق: {market_ar}\n\n"
         f"📊 المرشحون (ليست صفقات):\n"
         f"  إجمالي: {signals_today}\n"
-        f"  ✅ قرارات موافقة: {approved_today}\n"
-        f"  ❌ قرارات رفض: {rejected_today}\n"
+        f"  ✅ جاهزة (سياسة آلية/مسار قديم): {ready_today}\n"
+        f"  ❌ غير جاهزة أو مرفوضة: {not_ready_today}\n"
         f"  🛡️ عَبَروا إلى حارس المخاطر: {sent_today}\n"
         f"{best_line}\n\n"
         f"💰 الصفقات:\n"
