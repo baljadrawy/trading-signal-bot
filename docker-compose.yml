@@ -102,7 +102,7 @@ services:
   # ==================== Signal Engine ====================
   signal_engine:
     <<: *hardened-runtime
-    image: tsb-aiohttp-test-signal_engine:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay (D3B-2); base b3d4b623, /app unchanged
+    image: tsb-cr2-signal_engine:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on D3B-2 image 4b7f4a58 (+signal_logic.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
     pull_policy: never
     container_name: trading_signal_engine
     restart: unless-stopped
@@ -174,7 +174,7 @@ services:
   # ==================== Trade Tracker ====================
   trade_tracker:
     <<: *hardened-runtime
-    image: tsb-aiohttp-test-trade_tracker:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay; see deploy/aiohttp-3.14.3/IMAGES.md
+    image: tsb-cr2-trade_tracker:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on aiohttp 3.14.3 image af063314 (+main.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
     pull_policy: never
     container_name: trading_tracker
     restart: unless-stopped
@@ -270,7 +270,7 @@ services:
   # ==================== Telegram ====================
   telegram:
     <<: *hardened-runtime
-    image: tsb-aiohttp-test-telegram:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay; see deploy/aiohttp-3.14.3/IMAGES.md
+    image: tsb-cr2-telegram:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on aiohttp 3.14.3 image ef80d11c (+main.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
     pull_policy: never
     container_name: trading_telegram
     restart: unless-stopped
