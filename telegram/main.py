@@ -18,6 +18,7 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
+from shared import evidence_v2
 from shared.outbox import worker_id, claim, ack, fail, enqueue
 from shared.telegram_messages import (
     opened_message, target_message, closed_message, risk_halted_message,
@@ -68,6 +69,44 @@ MARKET_CONDITION_AR = {
     'strong_bullish': 'صاعد قوي 🚀',
     'strong_bearish': 'هابط قوي 🔻',
 }
+
+
+# ── Evidence recorder v2 (P1-D) — delivery refusals and owner risk controls. Helpers read their
+# inputs, never raise and are no-ops unless EVIDENCE_V2_ENABLED; delivery behaviour is unchanged.
+def _with_ev2(metadata: dict) -> dict:
+    """Heartbeat metadata plus recorder health when v2 is enabled (unchanged otherwise)."""
+    health = evidence_v2.health('telegram')
+    return {**metadata, 'evidence_v2': health} if health is not None else metadata
+
+
+def _v2_signal_subject(signal) -> dict:
+    features = signal['features_snapshot'] if 'features_snapshot' in signal.keys() else None
+    if isinstance(features, str):
+        features = json.loads(features)
+    identity = (features or {}).get('identity') or {}
+    return {'signal_id': signal['id'], 'candidate_id': identity.get('candidate_id'),
+            'symbol': signal['symbol'], 'timeframe': signal['timeframe']}
+
+
+def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=None,
+                 claimed_event_type=None, outcome_code=None, **extra) -> None:
+    """delivery.* — one event per signal and delivery state (idempotent by signal).
+    `claimed_event_type` is the runtime outbox event that was consumed (signal.ready, or the
+    legacy signal.reviewed kept for rollback); `outcome_code` is the shared P1-R vocabulary."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        subject = (_v2_signal_subject(signal) if signal is not None
+                   else {'signal_id': None, 'outbox_event_id': event_id})
+        if outcome == 'skipped' and reason is None:
+            reason, outcome_code = evidence_v2.candidate_skip(claimed_event_type, signal)
+        evidence_v2.emit('telegram', event_type, subject,
+                         {'outbox_event_id': event_id, 'claimed_event_type': claimed_event_type,
+                          'outcome_code': outcome_code, **extra},
+                         state={'outcome': outcome, 'reason': reason},
+                         dedup_key=f"delivery:{subject.get('signal_id') or event_id}")
+    except Exception as exc:
+        evidence_v2.hook_error('telegram', exc)
 
 
 async def main():
@@ -124,6 +163,7 @@ async def main():
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
         signal_task = asyncio.create_task(signal_loop(app.bot, whitelist_mgr, approval_mgr))
+        ev2_task = evidence_v2.start_flusher('telegram')   # None unless EVIDENCE_V2_ENABLED
         try:
             await asyncio.Event().wait()
         finally:
@@ -132,6 +172,7 @@ async def main():
                 await signal_task
             except asyncio.CancelledError:
                 pass
+            await evidence_v2.stop('telegram', ev2_task)
             await app.updater.stop()
             await app.stop()
 
@@ -163,10 +204,10 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                         delivered += 1
 
             consecutive_errors = 0
-            await mark_success('telegram', {
+            await mark_success('telegram', _with_ev2({
                 'events_claimed': events_claimed, 'delivered': delivered,
                 'lifecycle_delivered': lifecycle_delivered,
-                'expired_requests': len(expired)})
+                'expired_requests': len(expired)}))
             await asyncio.sleep(15)
 
         except Exception as e:
@@ -203,10 +244,13 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
         signal = await Database.fetchrow(
             "SELECT * FROM signals WHERE id=$1", event['aggregate_id'])
         if not is_deliverable_for_event(event_type, signal):
+            _v2_delivery('delivery.skipped', signal, 'skipped', None, event['id'], event_type)
             await ack(event['id'], owner)
             return False
         allowed, block_reason = await can_deliver_candidate()
         if not allowed:
+            _v2_delivery('delivery.refused', signal, 'refused', block_reason, event['id'], event_type,
+                         evidence_v2.pause_outcome_code(block_reason))
             logger.info(
                 "عدم إرسال المرشح %s إلى Telegram: %s",
                 signal['symbol'], block_reason)
@@ -218,6 +262,9 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
             await send_signal_direct(bot, signal)
         elif action == 'awaiting_approval':
             await send_approval_request(bot, signal)
+        _v2_delivery('delivery.sent' if action == 'sent_direct' else 'delivery.approval_requested',
+                     signal, action, None, event['id'], event_type,
+                     'DELIVERED' if action == 'sent_direct' else 'AWAITING_APPROVAL')
         await ack(event['id'], owner)
         await asyncio.sleep(DELIVERY_PACING_SECONDS)
         return True

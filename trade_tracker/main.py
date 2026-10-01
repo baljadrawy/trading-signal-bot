@@ -6,11 +6,14 @@ Trade Tracker - يراقب الإشارات المرسلة ويسجل نتائج
 import asyncio
 import sys
 import json
+import dataclasses
+from collections import OrderedDict
 from datetime import datetime, timezone
 sys.path.append('/app')
 
 import aiohttp
 from shared.config import config
+from shared import evidence_v2
 from shared.database import Database
 from shared.logger import setup_logger
 from shared.alerts import send_alert
@@ -79,6 +82,7 @@ async def main():
         )
         stream_task = asyncio.create_task(price_stream.run(), name='binance-price-stream')
     await publish_recovery_event()
+    ev2_task = evidence_v2.start_flusher('trade_tracker')   # None unless EVIDENCE_V2_ENABLED
 
     try:
         while True:
@@ -94,18 +98,22 @@ async def main():
                         event['aggregate_id'])
                     if active:
                         await ack(event['id'], owner)
+                        await _v2_delivery_consumed(event, 'opened')
                         continue
                     terminal = await Database.fetchval(
                         DELIVERY_TERMINAL_SQL, event['aggregate_id'])
                     if terminal:
                         await ack(event['id'], owner)
+                        await _v2_delivery_consumed(event, 'terminal')
                     else:
                         await fail(event['id'], owner,
                                    RuntimeError('trade registration deferred'), 300)
+                        await _v2_delivery_consumed(event, 'deferred')
+                await _v2_expiry_sweep()
                 consecutive_errors = 0
-                await mark_success('trade_tracker', {
+                await mark_success('trade_tracker', _with_ev2({
                     'delivery_events': len(delivery_events),
-                    'price_stream': price_stream.snapshot() if price_stream else None})
+                    'price_stream': price_stream.snapshot() if price_stream else None}))
                 # REST backup checker: catches missed WebSocket events and fills
                 # waiting limit candidates without making REST the primary feed.
                 await asyncio.sleep(config.PRICE_BACKUP_CHECK_SECONDS)
@@ -128,10 +136,281 @@ async def main():
                 await asyncio.sleep(wait)
 
     finally:
+        await evidence_v2.stop('trade_tracker', ev2_task)
         if stream_task:
             stream_task.cancel()
             await asyncio.gather(stream_task, return_exceptions=True)
         await Database.disconnect()
+
+
+
+# ── Evidence recorder v2 (P1-C) — admission, entry, lifecycle and risk events. Every helper
+# reads its inputs, never mutates them, never raises and is a no-op unless EVIDENCE_V2_ENABLED.
+_LAST_RISK_CONTEXT: dict = {}
+# P1-R: last observed outcome code per signal (bounded; memory only, used to explain deferrals
+# and to classify window expiry as NO_FILL). Filled only while instrumentation is ON.
+_V2_LAST_OUTCOME: "OrderedDict[int, str]" = OrderedDict()
+_V2_LAST_OUTCOME_MAX = 10000
+_V2_PROCESS_STARTED = datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC like signal_time
+# Must match the admission window of register_new_signals (asserted by tests).
+V2_ADMISSION_WINDOW_SQL = "INTERVAL '2 hours'"
+# Read-only twin of DELIVERY_TERMINAL_SQL that names WHY a delivered signal is terminal
+# (same conditions, same order of precedence; asserted equivalent by tests). NULL = not terminal.
+DELIVERY_OUTCOME_SQL = f"""
+    SELECT CASE
+        WHEN NOT s.telegram_sent THEN 'ENTRY_REJECTED'
+        WHEN NOT {READY_SQL_PREDICATE} THEN 'NOT_READY'
+        WHEN s.signal_time <= NOW()-{V2_ADMISSION_WINDOW_SQL} THEN 'STALE'
+        WHEN EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol) THEN 'BLACKLISTED'
+        WHEN EXISTS (SELECT 1 FROM approval_requests ar
+                     WHERE ar.signal_id=s.id AND ar.status='rejected') THEN 'REJECTED'
+    END AS code
+    FROM signals s WHERE s.id=$1
+    """
+# Signals whose admission window closed after this process started, still without a trade.
+V2_EXPIRED_SQL = f"""
+    SELECT s.id, s.symbol, s.timeframe, s.trade_type, s.signal_time, s.features_snapshot,
+           EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol) AS blacklisted,
+           EXISTS (SELECT 1 FROM approval_requests ar
+                   WHERE ar.signal_id=s.id AND ar.status='rejected') AS rejected
+    FROM signals s
+    LEFT JOIN active_trades at ON at.signal_id = s.id
+    WHERE s.telegram_sent = true
+      AND {READY_SQL_PREDICATE}
+      AND at.id IS NULL
+      AND s.signal_time <= NOW() - {V2_ADMISSION_WINDOW_SQL}
+      AND s.signal_time > $1::timestamp - {V2_ADMISSION_WINDOW_SQL}
+    ORDER BY s.signal_time
+    LIMIT 200
+    """
+
+
+def _v2_note_outcome(signal_id, code: str) -> None:
+    try:
+        _V2_LAST_OUTCOME[int(signal_id)] = code
+        _V2_LAST_OUTCOME.move_to_end(int(signal_id))
+        while len(_V2_LAST_OUTCOME) > _V2_LAST_OUTCOME_MAX:
+            _V2_LAST_OUTCOME.popitem(last=False)
+    except Exception:
+        pass
+
+
+async def _v2_delivery_consumed(event, kind: str) -> None:
+    """delivery.consumed — what happened to one claimed runtime `signal.delivered` event:
+    opened, terminal (with the named DELIVERY_TERMINAL_SQL condition) or deferred (with the
+    last observed admission/entry outcome and whether this was the final outbox attempt).
+    Read-only; runs after the runtime ack/fail and never changes it."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        sid = event['aggregate_id']
+        last = _V2_LAST_OUTCOME.get(int(sid))
+        attempts, max_attempts = event.get('attempts'), event.get('max_attempts')
+        payload = {'outbox_event_id': event['id'], 'attempts': attempts,
+                   'max_attempts': max_attempts, 'last_outcome_code': last}
+        if kind == 'opened':
+            code = 'OPENED'
+        elif kind == 'terminal':
+            code = await Database.fetchval(DELIVERY_OUTCOME_SQL, sid) or 'UNKNOWN'
+            if code == 'STALE' and last == 'AWAITING_FILL':
+                payload['resolved_code'] = 'NO_FILL'
+        else:
+            exists = await Database.fetchval("SELECT 1 FROM signals WHERE id=$1", sid)
+            code = 'SIGNAL_MISSING' if not exists else (last or 'DEFERRED_UNOBSERVED')
+            payload['final_attempt'] = bool(attempts is not None and max_attempts is not None
+                                            and attempts >= max_attempts)
+        payload['outcome_code'] = code
+        evidence_v2.emit('trade_tracker', 'delivery.consumed',
+                         {'signal_id': sid, 'outbox_event_id': event['id']}, payload,
+                         state={'kind': kind, 'outcome_code': code, 'attempts': attempts},
+                         dedup_key=f"consumed:{event['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+async def _v2_expiry_sweep() -> None:
+    """entry.expired — terminal record for a sent, ready signal that left the admission window
+    without a trade: NO_FILL when the last observed entry action was a limit wait. Read-only;
+    only signals whose window closed after this process started (no restated history)."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        rows = await Database.fetch(V2_EXPIRED_SQL, _V2_PROCESS_STARTED)
+        for row in rows:
+            last = _V2_LAST_OUTCOME.get(int(row['id']))
+            code = ('BLACKLISTED' if row['blacklisted'] else 'REJECTED' if row['rejected']
+                    else evidence_v2.expiry_outcome_code(last))
+            evidence_v2.emit('trade_tracker', 'entry.expired', _v2_signal_subject(row), {
+                'outcome_code': code, 'last_outcome_code': last,
+                'signal_time': row['signal_time'], 'admission_window': '2 hours',
+                'trade_type': row['trade_type'],
+            }, state={'outcome_code': code}, dedup_key=f"expiry:{row['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _with_ev2(metadata: dict) -> dict:
+    """Heartbeat metadata plus recorder health when v2 is enabled (unchanged otherwise)."""
+    health = evidence_v2.health('trade_tracker')
+    return {**metadata, 'evidence_v2': health} if health is not None else metadata
+
+
+def _v2_signal_subject(sig) -> dict:
+    features = sig['features_snapshot'] if 'features_snapshot' in sig.keys() else None
+    if isinstance(features, str):
+        features = json.loads(features)
+    identity = (features or {}).get('identity') or {}
+    return {'signal_id': sig['id'], 'candidate_id': identity.get('candidate_id'),
+            'symbol': sig['symbol'], 'timeframe': sig['timeframe']}
+
+
+def _v2_risk_payload(decision) -> dict:
+    ctx = dict(_LAST_RISK_CONTEXT)
+    out = {'risk_epoch_start': ctx.get('risk_epoch_start'), 'risk_snapshot': ctx.get('snapshot'),
+           'risk_limits': ctx.get('limits')}
+    if decision is not None:
+        out['risk_decision'] = (dataclasses.asdict(decision) if dataclasses.is_dataclass(decision)
+                                else {'allowed': getattr(decision, 'allowed', None),
+                                      'reason': getattr(decision, 'reason', None)})
+    return out
+
+
+def _v2_note_risk_context(risk_start, snapshot, limits) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        _LAST_RISK_CONTEXT.clear()
+        _LAST_RISK_CONTEXT.update({
+            'risk_epoch_start': evidence_v2.ms_to_iso(evidence_v2.to_ms(risk_start)),
+            'snapshot': dataclasses.asdict(snapshot), 'limits': dataclasses.asdict(limits)})
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_admission(sig, outcome: str, reason=None, decision=None, **extra) -> None:
+    """admission.decision — emitted when a signal's admission state changes."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        subject = _v2_signal_subject(sig)
+        payload = {**extra}
+        if isinstance(reason, BaseException):
+            reason = f"{type(reason).__name__}: {reason}"[:200]
+        if reason is None and outcome == 'risk_rejected':
+            reason = getattr(decision, 'reason', None)
+        if decision is not None or outcome == 'risk_rejected':
+            payload.update(_v2_risk_payload(decision))
+        code = evidence_v2.admission_outcome_code(outcome, reason)
+        payload['outcome_code'] = code
+        _v2_note_outcome(sig['id'], code)
+        evidence_v2.emit('trade_tracker', 'admission.decision', subject, payload,
+                         state={'outcome': outcome, 'reason': reason},
+                         dedup_key=f"admission:{sig['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_entry(sig, entry_decision, observed_price, features) -> None:
+    """entry.attempt — fill / limit_wait / reject, as decided by the unchanged fill model."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        code = evidence_v2.entry_outcome_code(getattr(entry_decision, 'action', None))
+        _v2_note_outcome(sig['id'], code)
+        evidence_v2.emit('trade_tracker', 'entry.attempt', _v2_signal_subject(sig), {
+            'outcome_code': code,
+            'planned_entry': float(sig['entry_price']), 'observed_price': observed_price,
+            'stop_loss': float(sig['stop_loss']),
+            'invalidation_price': (features or {}).get('stop_invalidation'),
+            'order_price': getattr(entry_decision, 'order_price', None),
+            'trade_type': sig['trade_type'],
+        }, state={'action': getattr(entry_decision, 'action', None),
+                  'reason': getattr(entry_decision, 'reason', None)},
+            dedup_key=f"entry:{sig['id']}")
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_capacity(blocked: bool, open_count, limit) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        evidence_v2.emit('trade_tracker', 'admission.capacity', {'stream': 'trade_tracker.capacity'},
+                         {'open_count': open_count, 'max_open_trades': limit},
+                         state={'blocked': blocked}, dedup_key='admission.capacity', transition=True)
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_trade_opened(sig, trade_id, bracket, fill_entry, entry_decision, risk_decision,
+                     min_notional, expiry) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        subject = {**_v2_signal_subject(sig), 'active_trade_id': trade_id}
+        evidence_v2.emit('trade_tracker', 'trade.opened', subject, {
+            'fill_price': fill_entry, 'planned_entry': float(sig['entry_price']),
+            'drift_pct': (fill_entry / float(sig['entry_price']) - 1) * 100,
+            'bracket': dict(bracket), 'entry_order_type': getattr(entry_decision, 'action', None),
+            'min_order_notional_usdt': min_notional,
+            'expiry_hours': {'max': expiry[0], 't1_stall': expiry[1], 'no_t1': expiry[2]},
+            'trade_amount_usdt': config.TRADE_AMOUNT_USDT,
+            **_v2_risk_payload(risk_decision)})
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_target_hits(trade, partial_fills, highest_target, current_price, source, effective_stop) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        for fill in partial_fills:
+            evidence_v2.emit('trade_tracker', 'trade.target_hit', {
+                'active_trade_id': trade['id'], 'signal_id': trade.get('signal_id'),
+                'target': fill.target}, {
+                'fill_price': fill.price, 'quantity_fraction': fill.fraction,
+                'notional_usdt': config.TRADE_AMOUNT_USDT * fill.fraction,
+                'gross_profit_percent_contribution': fill.gross_pct_contribution,
+                'gross_profit_usdt': fill.gross_usdt, 'observed_price': current_price,
+                'highest_target': highest_target, 'price_source': source,
+                'effective_stop_after': effective_stop})
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_trade_closed(trade, trade_result_id, reason, exit_price, weighted_exit, profit_pct,
+                     profit_usdt, hours_open, target_reached, stop_hit) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        fee_usdt = config.TRADE_AMOUNT_USDT * config.FEE_ROUNDTRIP_PCT / 100.0
+        evidence_v2.emit('trade_tracker', 'trade.closed', {
+            'active_trade_id': int(trade['id']), 'signal_id': trade.get('signal_id'),
+            'trade_result_id': trade_result_id}, {
+            'symbol': trade.get('symbol'), 'timeframe': trade.get('timeframe'),
+            'exit_reason': reason, 'trigger_price': exit_price, 'weighted_exit_price': weighted_exit,
+            'gross_profit_pct': profit_pct, 'gross_profit_usdt': profit_usdt,
+            'fee_roundtrip_usdt': fee_usdt, 'net_profit_usdt': profit_usdt - fee_usdt,
+            'result_label': 'WIN' if profit_usdt > 0 else 'LOSS',
+            'hours_open': hours_open, 'target_reached': target_reached, 'stop_hit': stop_hit,
+            'result_row_inserted': trade_result_id is not None})
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
+
+
+def _v2_risk_state(decision, paused: bool, was_paused: bool) -> None:
+    if not evidence_v2.enabled():
+        return
+    try:
+        payload = _v2_risk_payload(decision)
+        evidence_v2.emit('trade_tracker', 'risk.state', {'stream': 'trade_tracker.risk'}, payload,
+                         state={'allowed': decision.allowed, 'reason': decision.reason, 'paused': paused},
+                         dedup_key='risk.state', transition=True)
+        if paused and not was_paused:
+            evidence_v2.emit('trade_tracker', 'risk.transition', {'stream': 'trade_tracker.risk'},
+                             payload, state={'halted': True, 'reason': decision.reason}, transition=True)
+    except Exception as exc:
+        evidence_v2.hook_error('trade_tracker', exc)
 
 
 async def get_open_symbols() -> set[str]:
@@ -267,8 +546,10 @@ async def register_new_signals():
             "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
         ) or 0
         if open_count >= config.MAX_OPEN_TRADES:
+            _v2_capacity(True, open_count, config.MAX_OPEN_TRADES)
             logger.info(f"⏸️ وصلنا للحد الأقصى للصفقات المفتوحة: {open_count}/{config.MAX_OPEN_TRADES}")
             return
+        _v2_capacity(False, open_count, config.MAX_OPEN_TRADES)
 
     candle_case = candle_interval_case_sql('s.timeframe')
     new_signals = await Database.fetch(f"""
@@ -309,11 +590,13 @@ async def register_new_signals():
                 "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
             ) or 0
             if open_count >= config.MAX_OPEN_TRADES:
+                _v2_capacity(True, open_count, config.MAX_OPEN_TRADES)
                 logger.info(f"⏸️ توقف تسجيل إشارات جديدة — وصلنا الحد: {open_count}/{config.MAX_OPEN_TRADES}")
                 break
 
         fill_entry = await get_current_price(sig['symbol'])
         if not fill_entry:
+            _v2_admission(sig, 'no_price', 'no_current_fill_price')
             logger.warning(f"تعذر تسجيل {sig['symbol']}: لا يوجد سعر تعبئة حالي")
             continue
 
@@ -327,6 +610,7 @@ async def register_new_signals():
             stop_loss=float(sig['stop_loss']),
             invalidation_price=features.get('stop_invalidation'),
         )
+        _v2_entry(sig, entry_decision, fill_entry, features)
         if entry_decision.action == 'reject':
             logger.warning(
                 f"⛔ رفض تعبئة {sig['symbol']}: {entry_decision.reason} "
@@ -351,6 +635,7 @@ async def register_new_signals():
             sig['symbol'], trade_type=trade_type, regime=macro_state)
         await record_risk_decision(risk_decision)
         if not risk_decision.allowed:
+            _v2_admission(sig, 'risk_rejected', None, risk_decision, observed_price=fill_entry)
             logger.warning(
                 f"⛔ رفض صفقة {sig['symbol']} بواسطة حارس المخاطر: "
                 f"{risk_decision.reason} (daily={risk_decision.daily_pnl_pct:.2f}%, "
@@ -364,6 +649,7 @@ async def register_new_signals():
                 float(sig['stop_loss']),
             )
         except ValueError as exc:
+            _v2_admission(sig, 'bracket_invalid', exc)
             logger.error(f"رفض bracket غير صالح لـ {sig['symbol']}: {exc}")
             continue
 
@@ -379,6 +665,7 @@ async def register_new_signals():
                     # A recovery/halt transition landed between the risk check
                     # above and this lock; re-verify rather than trust the
                     # earlier read.
+                    _v2_admission(sig, 'halt_under_admission_lock', 'loss_streak_halt')
                     logger.warning(
                         f"⛔ إلغاء فتح {sig['symbol']}: قاطع سلسلة الخسائر أصبح نشطاً "
                         f"قبل تثبيت الصفقة")
@@ -407,6 +694,12 @@ async def register_new_signals():
                 if trade_id:
                     await enqueue(conn, 'trade.opened', 'active_trade', trade_id,
                                   {'active_trade_id': trade_id})
+        if trade_id:
+            _v2_admission(sig, 'admitted', None, risk_decision, active_trade_id=trade_id)
+            _v2_trade_opened(sig, trade_id, bracket, fill_entry, entry_decision, risk_decision,
+                             min_notional, (expiry_h, t1_expiry_h, no_t1_expiry_h))
+        else:
+            _v2_admission(sig, 'already_registered', 'active_trade_exists_for_signal')
         if trade_id:
             drift_pct = (fill_entry / float(sig['entry_price']) - 1) * 100
             logger.info(
@@ -481,7 +774,7 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
         max_drawdown_pct=config.MAX_DRAWDOWN_PERCENT,
         loss_halt_count=config.STOP_ON_CONSECUTIVE_LOSSES,
     )
-    return evaluate_new_trade(RiskSnapshot(
+    snapshot = RiskSnapshot(
         realized_total_usdt=cumulative,
         daily_pnl_usdt=daily,
         weekly_pnl_usdt=weekly,
@@ -496,7 +789,9 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
             1 for t in open_trades if regime and t['regime'] == regime),
         manually_paused=is_paused,
         manual_pause_reason=pause_reason,
-    ), limits)
+    )
+    _v2_note_risk_context(risk_start, snapshot, limits)
+    return evaluate_new_trade(snapshot, limits)
 
 
 async def record_risk_decision(decision):
@@ -547,6 +842,7 @@ async def record_risk_decision(decision):
                                   'consecutive_losses': decision.consecutive_losses,
                                   'loss_halt_limit': config.STOP_ON_CONSECUTIVE_LOSSES,
                               })
+    _v2_risk_state(decision, paused, was_paused)
 
 
 async def track_open_trades():
@@ -693,6 +989,11 @@ async def evaluate_trade(trade: dict, current_price: float,
                                       'remaining_fraction': max(
                                           0, previous_remaining - sold_fraction),
                                   })
+        try:
+            _v2_stop, _ = state.effective_stop(cfg) if evidence_v2.enabled() else (None, None)
+        except Exception:
+            _v2_stop = None
+        _v2_target_hits(trade, partial_fills, state.highest_target, current_price, source, _v2_stop)
         logger.info(
             f"🎯 {symbol} وصل T{state.highest_target} عبر {source}; "
             f"السعر={current_price:.6f}, شرائح={len(partial_fills)}")
@@ -789,6 +1090,8 @@ async def close_trade_barrier(
                         'active_trade_id': trade_id,
                     })
 
+        _v2_trade_closed(trade, inserted, reason, exit_price, weighted_exit, profit_pct,
+                         profit_usdt, hours_open, target_reached, stop_hit)
         result = 'WIN' if profit_usdt > 0 else 'LOSS'
     finally:
         _closing.discard(trade_id)

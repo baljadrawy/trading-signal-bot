@@ -14,6 +14,7 @@ from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
 from shared.signal_stop import plan_signal_stop
 from shared.regime import classify_regime
+from shared import evidence_v2
 from simple_entry import detect_trade_setup
 
 logger = setup_logger('technical_analyzer')
@@ -38,8 +39,13 @@ class TechnicalAnalyzer:
         tf = timeframe or config.TIMEFRAME
         try:
             df = await self._get_candles(symbol, tf)
+            # P1 point-in-time stamps exist only while forward instrumentation is ON
+            # (EVIDENCE_V2_ENABLED); OFF leaves the analysis result byte-identical to develop.
+            ev2_on = evidence_v2.enabled()
+            klines_fetched_at_ms = evidence_v2.now_ms() if ev2_on else None
             if df is None or len(df) < indicator_warmup_bars():
                 return None
+            pit = evidence_v2.candle_pit(df, tf, klines_fetched_at_ms) if ev2_on else None   # reads index/close_time only
 
             df = self._calculate_indicators(df)
             regime = dict(classify_regime(df))
@@ -95,6 +101,10 @@ class TechnicalAnalyzer:
                 'volume_ratio': float(df['volume_ratio'].iloc[-1]),
                 'trend_ok': trend_ok,
                 'trade_type': trade_type,
+                # P1 point-in-time identity (instrumentation only; no decision reads it;
+                # written to analysis_data.pit only while EVIDENCE_V2_ENABLED)
+                **({'pit': evidence_v2.candidate_pit(pit, symbol, tf, trade_type, config, weights)}
+                   if pit is not None else {}),
             }
         except Exception as e:
             logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {format_error(e)}")

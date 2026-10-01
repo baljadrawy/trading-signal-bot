@@ -12,6 +12,7 @@ from shared.outbox import enqueue
 from shared.signal_readiness import (
     READY_DECISION_SOURCE, SIGNAL_READY_EVENT, assert_signal_complete, ready_payload)
 from shared.learning_governance import exploration_selected
+from shared import evidence_v2
 
 logger = setup_logger('signal_logic')
 
@@ -71,6 +72,172 @@ def _record_evidence(signal, source, decision="signal_generated"):
             logger.warning("evidence hook failed", exc_info=True)
         except Exception:
             pass
+
+
+# ── Evidence recorder v2 (P1) — point-in-time decision events. Every helper below reads its
+# inputs, never mutates them, never raises and is a no-op unless EVIDENCE_V2_ENABLED. ─────────
+_GEOMETRY_KEYS = ('entry_price', 'target_1', 'target_2', 'target_3', 'stop_loss',
+                  'stop_invalidation', 'stop_risk_pct', 'stop_policy', 'stop_valid',
+                  'stop_reject_reason')
+
+
+def _v2_macro_context(macro, macro_state=None) -> dict | None:
+    """Macro context and freshness as seen by this decision (pure reads)."""
+    if not evidence_v2.enabled():
+        return None
+    try:
+        snap = dict(macro.snapshot() or {})
+        valid_ts = getattr(macro, '_last_valid_ts', None)
+        age = snap.get('macro_age_seconds')
+        now = evidence_v2.now_ms()
+        return {
+            'decision_at_ms': now,
+            'macro_state': macro_state if macro_state is not None else macro.macro_state_key(),
+            'macro_data_valid': snap.get('macro_data_valid'),
+            'macro_age_seconds': age,
+            'macro_valid_at_ms': (int(valid_ts * 1000) if valid_ts
+                                  else (now - int(age * 1000) if age is not None else None)),
+            'macro_snapshot': snap,
+            'macro_trend_state': dict(macro.state() or {}),
+        }
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+        return None
+
+
+def _v2_candidate(data, decision: str, reason: str | None, ctx: dict | None, **extra) -> None:
+    """candidate.evaluated — emitted only when this candidate's decision state changes."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+        pit = data.get('pit') or {}
+        ob = data.get('order_book') or {}
+        cid = pit.get('candidate_id')
+        subject = {'candidate_id': cid, 'candle_id': pit.get('candle_id'),
+                   'symbol': data.get('symbol'), 'timeframe': data.get('timeframe')}
+        ctx = ctx or {}
+        payload = {
+            'geometry': {k: data.get(k) for k in _GEOMETRY_KEYS},
+            'trade_type': data.get('trade_type'),
+            'entry_reason': data.get('entry_reason'),
+            'total_score': data.get('total_score'),
+            'order_book': {k: ob.get(k) for k in ('valid', 'spread_pct', 'score')},
+            'macro': {k: ctx.get(k) for k in ('macro_state', 'macro_data_valid',
+                                              'macro_age_seconds', 'macro_valid_at_ms')},
+            'pit': pit,
+            'identity_status': 'ok' if cid else 'missing_pit',
+            **extra,
+        }
+        evidence_v2.emit('signal_engine', 'candidate.evaluated', subject, payload,
+                         state={'decision': decision, 'reason': reason},
+                         dedup_key='eval:' + (cid or f"{subject['symbol']}|{subject['timeframe']}|nopit"),
+                         event_time_ms=ctx.get('decision_at_ms'))
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+
+
+def _v2_macro_block(results, ctx: dict | None) -> None:
+    """All candidates of a macro-blocked cycle (rows read inside the guard)."""
+    if ctx is None:
+        return
+    try:
+        ctx['macro_blocked'] = True
+        for r in results:
+            _v2_candidate(r['analysis_data'], 'rejected', 'macro_block', ctx)
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+
+
+def _v2_selection(eligible: list, best, key, ctx: dict | None) -> None:
+    """Rank every eligible candidate by the SAME fixed key the selection uses (read-only)."""
+    if not evidence_v2.enabled() or not eligible:
+        return
+    try:
+        ranked = sorted(eligible, key=key)
+        for rank, cand in enumerate(ranked, start=1):
+            selected = cand is best
+            _v2_candidate(cand, 'selected' if selected else 'rejected',
+                          None if selected else 'not_selected_capacity', ctx,
+                          selection={'rank': rank, 'eligible_count': len(ranked),
+                                     'rank_key': list(key(cand)),
+                                     'selection_volume_usdt': cand.get('_selection_volume_usdt')})
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
+
+
+def _v2_signal_refused(signal, exc: BaseException) -> None:
+    """signal.refused (INCOMPLETE_SIGNAL) — save_signal rejected the signal before any write."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        pit = (signal.get('pit') if isinstance(signal, dict) else None) or {}
+        subject = {'candidate_id': pit.get('candidate_id'), 'candle_id': pit.get('candle_id'),
+                   'symbol': signal.get('symbol') if isinstance(signal, dict) else None,
+                   'timeframe': signal.get('timeframe') if isinstance(signal, dict) else None}
+        evidence_v2.emit('signal_engine', 'signal.refused', subject,
+                         {'outcome_code': 'INCOMPLETE_SIGNAL',
+                          'error': f"{type(exc).__name__}: {exc}"[:300],
+                          'geometry': {k: (signal.get(k) if isinstance(signal, dict) else None)
+                                       for k in _GEOMETRY_KEYS + ('total_score',)},
+                          'pit': pit},
+                         state={'outcome': 'refused', 'reason': 'incomplete_signal'},
+                         dedup_key='refused:' + (pit.get('candidate_id') or
+                                                 f"{subject['symbol']}|{subject['timeframe']}"))
+    except Exception as hook_exc:
+        evidence_v2.hook_error('signal_engine', hook_exc)
+
+
+def signal_identity(signal: dict) -> dict | None:
+    """P1-A identity persisted with the signal (features_snapshot['identity']); None on error."""
+    try:
+        pit = signal.get('pit') or {}
+        own = evidence_v2.process_identity(config)
+        return {
+            'candle_open_time_ms': pit.get('candle_open_time_ms'),
+            'candle_close_time_ms': pit.get('candle_close_time_ms'),
+            'candle_id': pit.get('candle_id'),
+            'candidate_id': pit.get('candidate_id'),
+            'strategy_version': config.APP_VERSION,
+            'code_sha': own['code_sha'],
+            'config_hash': own['config_hash'],
+            'analyzer_code_sha': pit.get('code_sha'),
+            'analyzer_config_hash': pit.get('config_hash'),
+            'weights_hash': pit.get('weights_hash'),
+            'identity_version': 1,
+        }
+    except Exception:
+        return None
+
+
+def _v2_signal_ready(signal_id, signal: dict, context=None) -> None:
+    """P1-R evidence event `signal.ready`: the signal row (decision_source=policy_ready) and the
+    runtime outbox event `signal.ready` were committed in one transaction. Lineage link
+    candidate_id -> signal_id (entity event, idempotent by signal_id). Emitted after the commit."""
+    if not evidence_v2.enabled():
+        return
+    try:
+        pit = signal.get('pit') or {}
+        subject = {'signal_id': signal_id, 'candidate_id': pit.get('candidate_id'),
+                   'candle_id': pit.get('candle_id')}
+        payload = {
+            'outcome_code': 'POLICY_READY',
+            'decision_source': READY_DECISION_SOURCE,
+            'runtime_outbox_event': SIGNAL_READY_EVENT,
+            'symbol': signal.get('symbol'), 'timeframe': signal.get('timeframe'),
+            'trade_type': signal.get('trade_type'), 'selection_policy': signal.get('selection_policy'),
+            'geometry': {k: signal.get(k) for k in ('entry_price', 'target_1', 'target_2', 'target_3',
+                                                    'stop_loss', 'stop_invalidation', 'stop_risk_pct',
+                                                    'stop_policy')},
+            'macro_state': signal.get('macro_state'),
+            'identity': signal_identity(signal),
+            'pit': pit,
+        }
+        evidence_v2.emit('signal_engine', 'signal.ready', subject, payload,
+                         event_time_ms=(context or {}).get('decision_at_ms'))
+    except Exception as exc:
+        evidence_v2.hook_error('signal_engine', exc)
 
 
 class SignalEngine:
@@ -464,9 +631,12 @@ class SignalEngine:
         self.last_decisions = {}
         if await macro.should_block_now():
             self.last_decisions.update({r['symbol']: 'macro_block' for r in results})
+            self.last_v2_context = _v2_macro_context(macro)
+            _v2_macro_block(results, self.last_v2_context)
             logger.warning("⏸️ Macro block (BTC strong_bearish أو USDT.D rising_fast)")
             return None
         macro_state = macro.macro_state_key()
+        self.last_v2_context = _v2_ctx = _v2_macro_context(macro, macro_state)
         # خلايا متعلَّمة مخنوقة
         throttled = set()
         if config.LEARNING_GATES_ENABLED:
@@ -489,16 +659,20 @@ class SignalEngine:
             tt = data.get('trade_type')
             if not tt:
                 self.last_decisions.setdefault(symbol, 'no_trade_setup')
+                _v2_candidate(data, 'rejected', 'no_trade_setup', _v2_ctx)
                 continue
             order_book = data.get('order_book') or {}
             spread = order_book.get('spread_pct')
             if order_book.get('valid') is not True or spread is None:
                 self.last_decisions[symbol] = 'order_book_unavailable'
                 _record_evidence(data, source='live', decision='rejected_order_book_unavailable')
+                _v2_candidate(data, 'rejected', 'order_book_unavailable', _v2_ctx)
                 continue
             if float(spread) > config.MAX_SPREAD_PCT:
                 self.last_decisions[symbol] = 'spread_exceeds_limit'
                 _record_evidence(data, source='live', decision='rejected_spread_exceeds_limit')
+                _v2_candidate(data, 'rejected', 'spread_exceeds_limit', _v2_ctx,
+                              limit={'max_spread_pct': config.MAX_SPREAD_PCT})
                 continue
             # Legacy rows/test fixtures predate signal-aware stop metadata.
             # Only an explicit False is rejected; new analyzer output always
@@ -507,16 +681,19 @@ class SignalEngine:
                 reason = data.get('stop_reject_reason') or 'invalid_signal_stop'
                 self.last_decisions[symbol] = f'stop_rejected:{reason}'
                 _record_evidence(data, source='live', decision=f'rejected_{reason}')
+                _v2_candidate(data, 'rejected', f'stop_rejected:{reason}', _v2_ctx)
                 logger.info(
                     f"⛔ {symbol} {tt}/{data.get('timeframe')} وقف الإبطال مرفوض: {reason}")
                 continue
             if symbol in open_symbols:
                 self.last_decisions[symbol] = 'open_trade_exists'
                 _record_evidence(data, source='live', decision='rejected_open_trade_exists')
+                _v2_candidate(data, 'rejected', 'open_trade_exists', _v2_ctx)
                 continue
             if symbol in cooldown:
                 self.last_decisions[symbol] = 'symbol_cooldown'
                 _record_evidence(data, source='live', decision='rejected_symbol_cooldown')
+                _v2_candidate(data, 'rejected', 'symbol_cooldown', _v2_ctx)
                 continue
             if (tt, data.get('timeframe')) in throttled:
                 bucket = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')
@@ -528,6 +705,8 @@ class SignalEngine:
                     self.last_decisions.setdefault(symbol, 'learned_gate_throttled')
                     logger.debug(f"⏭️ {symbol} {tt}/{data.get('timeframe')} throttled (statistically negative)")
                     _record_evidence(data, source='live', decision='rejected_learned_gate')
+                    _v2_candidate(data, 'rejected',
+                                  self.last_decisions.get(symbol, 'learned_gate'), _v2_ctx)
                     continue
             selection_volume = await self._get_volume_usdt(symbol)
             selection_spread = float(spread)
@@ -545,6 +724,7 @@ class SignalEngine:
             eligible.append(candidate)
 
         best = min(eligible, key=self._fixed_candidate_key) if eligible else None
+        _v2_selection(eligible, best, self._fixed_candidate_key, _v2_ctx)
         for candidate in eligible:
             selected = candidate is best
             decision = 'selected_fixed_execution_policy' if selected else 'rejected_fixed_policy_rank'
@@ -616,7 +796,11 @@ class SignalEngine:
         (لا مستهلك له)؛ التراجع = إعادة هذا الملف لنشر signal.created.
         """
         # fail-closed: إشارة ناقصة/تالفة لا تُحفظ ولا تصبح قابلة للتداول.
-        assert_signal_complete(signal)
+        try:
+            assert_signal_complete(signal)
+        except Exception as exc:
+            _v2_signal_refused(signal, exc)   # P1-R: INCOMPLETE_SIGNAL evidence only
+            raise                             # the refusal itself is unchanged
         score_details = signal.get('score_details', {})
         if signal.get('order_book'):
             score_details['order_book'] = signal['order_book'].get('score', 0)
@@ -655,6 +839,10 @@ class SignalEngine:
             'research_features': research_features,
             'execution_features': execution_features,
         })
+        # P1-A lineage anchor in the DB row — persisted only while forward instrumentation is ON
+        _identity = signal_identity(signal) if evidence_v2.enabled() else None
+        if _identity is not None:
+            features_snapshot['identity'] = _identity
 
         async with Database.acquire() as conn:
             async with conn.transaction():
@@ -685,4 +873,5 @@ class SignalEngine:
                 await enqueue(conn, SIGNAL_READY_EVENT, 'signal', signal_id,
                               ready_payload(signal_id, config.APP_VERSION))
 
+        _v2_signal_ready(signal_id, signal, getattr(self, 'last_v2_context', None))   # after commit
         return signal_id
