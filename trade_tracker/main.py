@@ -29,6 +29,7 @@ from shared.risk_epoch import (
     tail_loss_streak,
 )
 from shared.trading_state import get_pause_state
+from shared.signal_readiness import READY_SQL_PREDICATE
 from shared.triple_barrier import (
     create_config_from_trade,
     create_state_from_trade,
@@ -94,15 +95,8 @@ async def main():
                     if active:
                         await ack(event['id'], owner)
                         continue
-                    terminal = await Database.fetchval("""
-                        SELECT 1 FROM signals s
-                        WHERE s.id=$1 AND (
-                            NOT s.telegram_sent OR NOT s.claude_approved
-                            OR s.signal_time <= NOW()-INTERVAL '2 hours'
-                            OR EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol)
-                            OR EXISTS (SELECT 1 FROM approval_requests ar
-                                       WHERE ar.signal_id=s.id AND ar.status='rejected'))
-                        """, event['aggregate_id'])
+                    terminal = await Database.fetchval(
+                        DELIVERY_TERMINAL_SQL, event['aggregate_id'])
                     if terminal:
                         await ack(event['id'], owner)
                     else:
@@ -250,6 +244,21 @@ async def enforce_max_open_trades():
                 f"تعذر إغلاق {trade_info['symbol']} لتجاوز الحد: لا يوجد سعر؛ ستبقى تحت المتابعة")
 
 
+# A delivered signal is terminal (ack, never registered) when it is not sent, NOT
+# READY (CR-1: decision_source='policy_ready' OR legacy claude_approved=true —
+# READY_SQL_PREDICATE is NULL-safe, so NOT never degrades to NULL/"retry"), stale,
+# blacklisted or rejected by the owner. Readiness never bypasses the risk guard.
+DELIVERY_TERMINAL_SQL = f"""
+    SELECT 1 FROM signals s
+    WHERE s.id=$1 AND (
+        NOT s.telegram_sent OR NOT {READY_SQL_PREDICATE}
+        OR s.signal_time <= NOW()-INTERVAL '2 hours'
+        OR EXISTS (SELECT 1 FROM symbol_blacklist b WHERE b.symbol=s.symbol)
+        OR EXISTS (SELECT 1 FROM approval_requests ar
+                   WHERE ar.signal_id=s.id AND ar.status='rejected'))
+    """
+
+
 async def register_new_signals():
     """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل (عملة، إطار) لكل شمعة"""
     # تحقق من حد الصفقات المفتوحة
@@ -270,7 +279,7 @@ async def register_new_signals():
         FROM signals s
         LEFT JOIN active_trades at ON s.id = at.signal_id
         WHERE s.telegram_sent = true
-        AND s.claude_approved = true
+        AND {READY_SQL_PREDICATE}
         AND at.id IS NULL
         AND s.signal_time > NOW() - INTERVAL '2 hours'
         AND NOT EXISTS (
