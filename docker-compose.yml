@@ -115,6 +115,8 @@ services:
       LEARNING_CLEAN_START: ${LEARNING_CLEAN_START:-2026-07-20T00:00:00}
       LEARNING_CONFIDENCE_Z: ${LEARNING_CONFIDENCE_Z:-1.96}
       LEARNING_EXPLORATION_RATE: ${LEARNING_EXPLORATION_RATE:-0.10}
+      CMC_PRO_API_KEY: ""
+      COINGECKO_API_KEY: ""
     volumes:
       - logs_data:/app/logs
       - models_data:/app/models
