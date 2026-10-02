@@ -102,7 +102,10 @@ class ConnActivity:
         self.count_in_sec = collections.OrderedDict()     # second -> number of data messages
         self.transitions = collections.deque(maxlen=512)  # (ms, up)
 
+    last_data_ms = None
+
     def data(self, recv_ms: int) -> None:
+        self.last_data_ms = recv_ms
         sec = recv_ms // 1000
         if sec not in self.first_in_sec:
             self.first_in_sec[sec] = recv_ms
@@ -126,6 +129,16 @@ class ConnActivity:
                 last = up
             else:
                 break
+        return last
+
+    def last_up_since(self, ms: int):
+        """Time of the most recent connect (up transition) at or before ms, or None (M3)."""
+        last = None
+        for t, up in self.transitions:
+            if t > ms:
+                break
+            if up:
+                last = t
         return last
 
     def rate(self, now: int) -> float:
@@ -185,6 +198,13 @@ class Collector:
         self.config_hash = C.config_hash(cfg)
         self.session_factory = None            # tests: offline fake session; production: aiohttp.ClientSession
         self.task_restart_delay_s = 1.0
+        self.stats["emit_failed"] = collections.Counter()
+        self.task_fail_ms = collections.deque(maxlen=100)
+        self.wall_step_ms = collections.deque(maxlen=100)
+        self.wall_offset = time.time() - time.monotonic()
+        self.data_stall_forced = {}
+        self.expired_syms = set()
+        self._lateness = None
 
     @property
     def stream_state(self) -> dict:
@@ -200,10 +220,12 @@ class Collector:
         if self.clock.suspect():
             rec["clock_suspect"] = True
         errs = R.validate(rec)
+        ok = not errs and self.enq.put(rec, priority(kind, tier))
         if errs:
             self.stats["rejected"][errs[0]] += 1
-            return False
-        return self.enq.put(rec, priority(kind, tier))
+        if not ok and kind not in ("book", "depth", "market"):     # sampled kinds get per-boundary gaps instead
+            self.stats["emit_failed"][kind] += 1
+        return ok
 
     def lifecycle(self, event: str, payload: dict) -> None:
         self.emit("lifecycle", R.make(type="lifecycle", obs_id=R.lifecycle_id(self.boot_id, self._seq(), event),
@@ -332,12 +354,15 @@ class Collector:
         res = tr.on_msg(recv_ns, data, seq)
         if res == "seq_regression":
             self.stats["rejected"]["seq_regression"] += 1           # older message (e.g. rotation overlap): ignore
+        elif res == "seq_reset":
+            self.stats["seq_reset"] = self.stats.get("seq_reset", 0) + 1
+            self.lifecycle("seq_reset", {"stream": tr.name, "seq": seq})
         elif res == "first":
             self._stream_ready(tr)
 
     def _stream_ready(self, tr) -> None:
-        self.lifecycle("stream_ready", {"stream": tr.name, "ready_ms": tr.ready_ms, "sub": tr.sub,
-                                        "late": tr.never_ready_reported})
+        self.lifecycle("stream_ready", {"stream": tr.name, "ready_ms": tr.ready_ms, "ready_ns": tr.ready_ns,
+                                        "sub": tr.sub, "late": tr.never_ready_reported})
         if self.ready_ms is None and all(t.ready_ms is not None for t in self.all_tracks()):
             self.ready_ms = now_ms()
             self.lifecycle("all_streams_ready", {"ready_ms": self.ready_ms})
@@ -479,15 +504,29 @@ class Collector:
             return bool(c is not None and c.connected)
         return up
 
-    def data_live_at(self, name: str, s: int) -> bool:
+    def last_up(self, name: str, s: int):
         a = self.activity.get(name)
-        return a is not None and a.data_in(s - self.cfg["conn_data_live_ms"], s)
+        return None if a is None else a.last_up_since(s)
+
+    def data_live_at(self, name: str, s: int) -> bool:
+        """Data message within the live window AND after the connection's most recent (re)connect (M3)."""
+        a = self.activity.get(name)
+        if a is None:
+            return False
+        lo = s - self.cfg["conn_data_live_ms"]
+        up = a.last_up_since(s)
+        if up is not None:
+            lo = max(lo, up)
+        return a.data_in(lo, s)
 
     def _deadline_abs(self, tr) -> int:
         return (self.ws_start_ms if self.ws_start_ms is not None else self.started_ms) + tr.deadline_rel_ms
 
     def _liveness_cause(self, tr, s: int):
-        """None when the stream's OWN connection is up and data-live at s; otherwise the missing cause."""
+        """None when the stream's OWN connection is up and data-live at s; otherwise the missing cause.
+        A boundary processed > 2 s late is attributed to the sampler / event loop (m4)."""
+        if self._lateness is not None and self._lateness > 2000:
+            return "sampler_stall"
         if self.ban_since_ms is not None and s >= self.ban_since_ms and self.rate.banned():
             return "banned_418"
         if not self.conn_up_at(tr.conn, s):
@@ -510,6 +549,10 @@ class Collector:
                 cause = "sampler_stall"                       # EVICTED: PIT proof older than the hold window
             elif s - val[0] // 1_000_000 > tr.stale_ms:
                 cause = "stale_stream"
+            else:
+                up = self.last_up(tr.conn, s)
+                if up is not None and val[0] // 1_000_000 < up:
+                    cause = "awaiting_post_reconnect_data"     # M3: value from before the reconnect is not live
         if cause is not None:
             tr.missing(s, cause)
             return
@@ -553,14 +596,18 @@ class Collector:
                 cause = "sampler_stall"
             else:
                 live = {k: v for k, v in comps.items() if v[0] <= s_ns and s - v[0] // 1_000_000 <= m.max_age_ms}
-                expired = len(comps) - len(live)
-                if expired:
-                    self.stats["market_component_expired"] = self.stats.get("market_component_expired", 0) + expired
+                new_exp = set(comps) - set(live) - self.expired_syms
+                if new_exp:
+                    self.expired_syms |= new_exp
+                    self.stats["market_component_expired"] = len(self.expired_syms)
                 newest = max((v[0] for v in live.values()), default=None)
+                up = self.last_up(m.conn, s)
                 if newest is None:
                     cause = "no_value"
                 elif s - newest // 1_000_000 > m.stale_ms:
                     cause = "stale_stream"
+                elif up is not None and newest // 1_000_000 < up:
+                    cause = "awaiting_post_reconnect_data"
         if cause is not None:
             m.missing(s, cause)
             return
@@ -589,12 +636,18 @@ class Collector:
             self._sample_market(sample_ms)
         self.last_sampled_ms = sample_ms
 
-    def sample_until(self, target_ms: int) -> int:
-        """F19: process EVERY boundary from the last processed one up to target (inclusive). Returns the count."""
+    def sample_until(self, target_ms: int, live: bool = False) -> int:
+        """F19: process EVERY boundary from the last processed one up to target (inclusive). Returns the count.
+        live=True (sampler task / stop): a boundary processed > 2 s after it passed is attributed to the sampler."""
         start = target_ms if self.last_sampled_ms is None else self.last_sampled_ms + 1000
         n = 0
         for s in range(start, target_ms + 1, 1000):
-            self.sample(s); n += 1
+            self._lateness = (now_ms() - s) if live else None
+            try:
+                self.sample(s)
+            finally:
+                self._lateness = None
+            n += 1
         return n
 
     async def sampler_task(self) -> None:
@@ -609,7 +662,7 @@ class Collector:
                 behind = (target - self.last_sampled_ms) // 1000
                 if behind > 1:
                     self.catchup_boundaries += behind - 1
-                self.sample_until(target)
+                self.sample_until(target, live=True)
                 self.loop_lag.append((m, m - target))
             for t, a, b, n in self.enq.closed_drop_intervals():
                 if t not in ("book", "depth", "market"):             # sampled streams already get per-boundary gaps
@@ -619,8 +672,21 @@ class Collector:
 
     # ---------- REST tasks ----------
     async def candle_job(self, sym: str, tf: str, open_ms: int, deadline_mono: float) -> None:
+        try:
+            await self._candle_job(sym, tf, open_ms, deadline_mono)
+        except asyncio.CancelledError:
+            self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_fetch_interrupted_at_stop", RECOVERABLE)
+            raise
+        except Exception as e:                                       # noqa: BLE001 - never swallowed silently
+            self.lifecycle("candle_exception", {"symbol": sym, "tf": tf, "open_ms": open_ms, "error": f"{type(e).__name__}: {e}"[:200]})
+            self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_exception", RECOVERABLE)
+
+    async def _candle_job(self, sym: str, tf: str, open_ms: int, deadline_mono: float) -> None:
         params = {"symbol": sym, "interval": tf, "startTime": open_ms, "endTime": open_ms, "limit": 1}
-        while not self.stop_event.is_set():
+        while True:
+            if self.stop_event.is_set():
+                self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_fetch_interrupted_at_stop", RECOVERABLE)
+                return
             status, data, recv_ns, *_ = await self.rest.get("/api/v3/klines", params)
             if status == 200:
                 if not (isinstance(data, list) and len(data) == 1 and int(data[0][0]) == open_ms and int(data[0][6]) < recv_ns // 1_000_000):
@@ -656,13 +722,20 @@ class Collector:
         window = 300.0 if len(tfs) > 1 else 120.0
         deadline = time.monotonic() + window + 600
         tasks = []
-        for s, tf, o in jobs:
-            await self._sleep(window / max(1, len(jobs)))
+        for i, (s, tf, o) in enumerate(jobs):
+            try:
+                await self._sleep(window / max(1, len(jobs)))
+            except asyncio.CancelledError:
+                self._candles_not_fetched(jobs[i:]); raise
             if self.stop_event.is_set():
-                break
+                self._candles_not_fetched(jobs[i:]); break
             tasks.append(self._track_task(self.candle_job(s, tf, o, deadline)))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _candles_not_fetched(self, jobs) -> None:
+        for s, tf, o in jobs:
+            self.simple_gap(f"candle|{tf}|{s}", o, o, TF_MS[tf], "candle_not_fetched_at_stop", RECOVERABLE)
 
     async def candle_task(self) -> None:
         self.beats["candles"] = time.monotonic()
@@ -702,6 +775,9 @@ class Collector:
                                           exchange_event_time_ms=best[0]))
             else:
                 self.stats["clock_probe_failures"] = self.stats.get("clock_probe_failures", 0) + 1
+                self.lifecycle("clock_round_failed", {"probes": self.cfg["clock_probes"]})
+                await self._sleep(30)                                 # retry soon; never wait a full period blind
+                continue
             await self._sleep(self.cfg["cadence_ms"]["clock"] / 1000)
 
     async def disk_task(self) -> None:
@@ -768,6 +844,8 @@ class Collector:
             fails.append(time.monotonic())
             while fails and time.monotonic() - fails[0] > 600:
                 fails.popleft()
+            self.task_fail_ms.append(now_ms())
+            self.stats["task_failed_total"] = self.stats.get("task_failed_total", 0) + 1
             self.lifecycle("task_failed", {"task": name, "error": err, "failures_10min": len(fails)})
             if len(fails) > 5:
                 self.fatal(f"task_failed_repeatedly:{name}", EXIT_TASK)
@@ -797,6 +875,23 @@ class Collector:
 
     def watchdog_once(self) -> None:
         m = now_ms()
+        off = time.time() - time.monotonic()                        # m3: wall-clock step detection
+        if abs(off - self.wall_offset) > 1.0:
+            self.wall_step_ms.append(m)
+            self.stats["wall_clock_steps"] = self.stats.get("wall_clock_steps", 0) + 1
+            self.lifecycle("wall_clock_step", {"delta_ms": round((off - self.wall_offset) * 1000, 1)})
+        self.wall_offset = off
+        live_ms = self.cfg["conn_data_live_ms"] + 5000                 # M2: data stall => forced reconnect
+        for c in list(self.conns):
+            a = self.activity.get(c.name)
+            up = a.last_up_since(m) if a else None
+            if getattr(c, "connected", False) and up is not None and m - up > live_ms and c.name not in self.rotating \
+                    and (a.last_data_ms is None or m - a.last_data_ms > live_ms) \
+                    and m - self.data_stall_forced.get(c.name, 0) > 30_000:
+                self.data_stall_forced[c.name] = m
+                self.stats["data_stall_reconnects"] = self.stats.get("data_stall_reconnects", 0) + 1
+                self.lifecycle("data_stall_reconnect", {"conn": c.name, "last_data_ms": a.last_data_ms})
+                self._spawn(c.force_reconnect("data_stall"))
         if self.writer.ident is not None and not self.writer.is_alive() and not self.writer.finished:
             self.fatal("writer_thread_dead", EXIT_WRITER)
             return
@@ -813,7 +908,8 @@ class Collector:
                     self.lifecycle("subscribe_timeout", {"conn": c.name, "id": rid, "streams": req["streams"]})
                     self._spawn(c.force_reconnect("subscribe_timeout"))
             task = getattr(c, "task", None)
-            if task is not None and task.done() and not getattr(c, "_closing", False) and not self.stop_event.is_set():
+            if task is not None and task.done() and not getattr(c, "_closing", False) and not self.stop_event.is_set() \
+                    and c.name not in self.rotating:
                 err = None if task.cancelled() else task.exception()
                 self.lifecycle("ws_task_dead", {"conn": c.name, "error": repr(err)[:200]})
                 new = self._new_conn(c.name, c.streams)
@@ -907,11 +1003,25 @@ class Collector:
             hard.append(f"clock_{self.clock.state.lower()}")
         if [x for x in self.handler_err_ms if m - x <= 600_000]:
             hard.append("handler_exceptions_10min")
+        if [x for x in self.task_fail_ms if m - x <= 600_000]:
+            hard.append("task_failed_10min")                          # M5
+        if [x for x in self.wall_step_ms if m - x <= 600_000]:
+            hard.append("wall_clock_step_10min")
+        if self.stats.get("seq_reset"):
+            hard.append("seq_reset")
+        if self.stats["segments_quarantined"]:
+            hard.append("segments_quarantined")
+        if sum(self.stats["emit_failed"].values()):
+            hard.append("emit_failed")
         if self.enq.drop_open:
             hard.append("queue_drops")
         for k in ("malformed", "unknown_stream", "unknown_event"):
             if self.stats[k]:
                 warn.append(f"{k}:{self.stats[k]}")
+        if self.stats.get("recv_clock_regression"):
+            warn.append(f"recv_clock_regression:{self.stats['recv_clock_regression']}")
+        if self.stats["rejected"].get("seq_regression"):
+            warn.append(f"seq_regression:{self.stats['rejected']['seq_regression']}")
         if self.stats.get("subscribe_failed") or self.stats.get("subscribe_timeout"):
             warn.append("subscription_errors_seen")
         if self.disk_state == "HARD_STOP" or self.writer.stop_writes.is_set():
@@ -955,7 +1065,7 @@ class Collector:
             "duplicates_dropped": self.stats["duplicates_dropped"], "rejected": dict(self.stats["rejected"]),
             "malformed": self.stats["malformed"], "unknown_stream": self.stats["unknown_stream"],
             "unknown_event": self.stats["unknown_event"], "handler_errors": self.stats["handler_errors"],
-            "write_errors": self.stats["write_errors"],
+            "write_errors": self.stats["write_errors"], "counters": self.counters(),
             "segments": {"open": sorted(self.writer.segments), "promoted": self.stats["segments_promoted"],
                          "quarantined": self.stats["segments_quarantined"]},
             "gaps_open": sum(1 for t in self.all_tracks() if t.gap is not None), "gaps_closed_total": self.gap_count,
@@ -970,6 +1080,22 @@ class Collector:
             "rotation": self.rotation,
         }
 
+    def counters(self) -> dict:
+        st = self.stats
+        return {"dropped": dict(st["dropped"]), "malformed": st["malformed"], "unknown_stream": st["unknown_stream"],
+                "unknown_event": st["unknown_event"], "handler_errors": st["handler_errors"],
+                "seq_regression": st["rejected"].get("seq_regression", 0), "seq_reset": st.get("seq_reset", 0),
+                "rejected": dict(st["rejected"]), "emit_failed": dict(st["emit_failed"]),
+                "writer_rejected": dict(st["writer_rejected"]), "write_errors": st["write_errors"],
+                "segments_quarantined": st["segments_quarantined"], "duplicates_dropped": st["duplicates_dropped"],
+                "recv_clock_regression": st.get("recv_clock_regression", 0), "wall_clock_steps": st.get("wall_clock_steps", 0),
+                "task_failures": st.get("task_failed_total", 0),
+                "data_stall_reconnects": st.get("data_stall_reconnects", 0),
+                "subscribe_failed": st.get("subscribe_failed", 0), "subscribe_timeout": st.get("subscribe_timeout", 0),
+                "never_ready": st.get("never_ready", 0), "clock_probe_failures": st.get("clock_probe_failures", 0),
+                "market_component_expired": st.get("market_component_expired", 0), "gaps": self.gap_count,
+                "catchup_boundaries": self.catchup_boundaries}
+
     def health_record(self, h: dict) -> None:
         """R02: compact historical health raw record (state at time T is reconstructable from raw data)."""
         compact = {k: h[k] for k in ("state", "reasons", "startup_reasons", "warnings", "uptime_s", "tasks", "task_failures",
@@ -982,6 +1108,7 @@ class Collector:
         compact["streams_by_state"] = dict(by_state)
         compact["streams_not_observing"] = {n: s for n, s in sorted(h["streams"].items()) if s["state"] != OBSERVING}
         compact["health_ts_ms"] = h["ts_ms"]
+        compact["counters"] = h["counters"]
         self.emit("health", R.make(type="health", obs_id=R.health_id(self.boot_id, self._seq()), symbol=None,
                                    payload=compact, boot_id=self.boot_id, endpoint="collector", transport="internal",
                                    recv_ts_ns=time.time_ns()))
@@ -1067,6 +1194,7 @@ class Collector:
             self.stop_event.set()
             if self.state != "FAILED":
                 self.state = "STOPPING"
+            self.write_health(record=True)                            # m2: health history reaches the stop
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -1075,7 +1203,7 @@ class Collector:
             await asyncio.gather(*self.candle_tasks, *self.aux_tasks, return_exceptions=True)
             final = ((stop_requested_ms - 1) // 1000) * 1000          # every boundary strictly before the stop
             if self.last_sampled_ms is not None and final > self.last_sampled_ms:
-                self.sample_until(final)
+                self.sample_until(final, live=True)
             for c in self.conns:
                 await c.close()
             await asyncio.gather(*[c.task for c in self.conns if getattr(c, "task", None)], return_exceptions=True)
@@ -1090,12 +1218,16 @@ class Collector:
         self.lifecycle("stop", {"reason": self.stop_reason, "stop_requested_ms": stop_requested_ms,
                                 "last_boundary_ms": self.last_sampled_ms, "ws_start_ms": self.ws_start_ms,
                                 "uptime_s": round(time.monotonic() - self.started_mono, 1),
-                                "counters": {"dropped": dict(self.stats["dropped"]), "gaps": self.gap_count,
-                                             "handler_errors": self.stats["handler_errors"],
-                                             "malformed": self.stats["malformed"]}})
+                                "counters": self.counters()})
         self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
         self.finalize_stop()
         self.write_health(record=False)
+        partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs if f.endswith(".partial")]
+        self.write_marker(f"stop-{self.boot_id[:8]}.json",                        # N1: final state outside the writer
+                          {"event": "final_stop_state", "boot_id": self.boot_id, "ts_ms": now_ms(), "state": self.state,
+                           "exit_code": self.exit_code, "reason": self.stop_reason,
+                           "writer_finished": self.writer.finished, "writer_alive": self.writer.is_alive(),
+                           "partials": len(partials), "counters": self.counters()})
         return self.exit_code
 
     writer_join_timeout_s = 120

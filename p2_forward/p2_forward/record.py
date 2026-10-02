@@ -103,8 +103,9 @@ def validate(rec: dict, now_ns: int | None = None) -> list:
     if rec["recv_ts_ns"] > now_ns + 1_000_000_000:
         errs.append("recv_in_future")
     ex = rec["exchange_event_time_ms"]
-    if ex is not None and (not isinstance(ex, int) or ex > rec["recv_ts_ns"] // 1_000_000 + FUTURE_TOLERANCE_MS):
-        errs.append("exchange_time_in_future")
+    if ex is not None and (not isinstance(ex, int) or
+                           (rec["type"] != "clock" and ex > rec["recv_ts_ns"] // 1_000_000 + FUTURE_TOLERANCE_MS)):
+        errs.append("exchange_time_in_future")              # clock: serverTime ahead of the host IS the measurement
     if rec["type"] in ("book", "depth") and ex is not None:
         errs.append("book_depth_have_no_exchange_time")           # spot bookTicker / partial depth carry no E
     if rec["available_at_ms"] < rec["observed_at_ms"] and rec["type"] != "candle":

@@ -126,3 +126,30 @@ Module abbreviations:
      tolerance.
    - The assertions are unchanged: first `S+1000`, last `S+7000`, 7 missing.
    - A no-false-gap jitter test is added (RG.depth_jitter_1039ms_no_gap).
+
+## Phase E: independent adversarial diff review (commit `2a7f4a2`) and resolutions
+
+A read-only reviewer agent (separate context) reviewed the diff and found that the revision was **not yet
+acceptable**: one blocker and six majors. Per Phase E, nothing was built or deployed; all findings are resolved in
+the follow-up commit.
+
+| ID | Severity | Finding (short) | Resolution | Test |
+|---|---|---|---|---|
+| B1 | BLOCKER | the verifier's PASS was not an acceptance verdict: the run's own config was trusted; no runtime, stop-reason, gap-budget, health-budget or alert checks | the verifier now has a pinned, predeclared acceptance spec `G2R_SPEC` (`--acceptance g2r`) covering: streams, cadences, depth N, deadlines, stale limits; runtime 7,200 ± 5 s with reason `max_runtime`; gap budget (≤ 0.5 % per stream, longest ≤ 120 s, allowed causes only); health budget (≤ 10 % non-HEALTHY, only network reasons); forbidden lifecycle alerts; zero error counters; clock excess ≤ 500 ms; final STOPPED marker; expected image ID and commit | `RV.test_B1_*` |
+| M1 | MAJOR | startup-excuse off-by-one when the first message lands in `[b, b+1 ms)` | `stream_ready.ready_ns`; the verifier excuses at ns resolution, using the claim to tighten only | `RV.test_M1_*` |
+| M2 | MAJOR | no reconnect when data stops (half-open socket) | the watchdog forces a reconnect after 15 s with no data on a connected connection (lifecycle `data_stall_reconnect`); WS heartbeat 30 s | `RC.test_M2_*` |
+| M3 | MAJOR | data-live window and held values spanned reconnects (stale persisted as live) | data liveness requires data after the most recent connect; a value from before the reconnect gives `awaiting_post_reconnect_data` | `RC.test_M3_*` |
+| M4 | MAJOR | clock-record count had no slack; the breaker doubled the loss | clock probes are exempt from the breaker; a failed round is lifecycle `clock_round_failed` with a retry after 30 s; the verifier checks spacing ≤ 1,200 s instead of a count | `RC.test_M4_*` |
+| M5 | MAJOR | a task failure was not a health reason | `task_failed_10min` hard reason; the acceptance spec forbids `task_failed` | `RC.test_M5_*` |
+| M6 | MAJOR | the verifier reused the collector's freshness judgement | independent age checks (depth 2 s, Tier-0 book 120 s, market 10 s), the book payload symbol, and Tier-0 symbols in the market after startup | `RV.test_M6_*` |
+| m1 | MINOR | control or candle losses only counted; candle exceptions swallowed; pending candles at stop silent | per-boot control-sequence contiguity check; `emit_failed` hard reason; candle exception and stop gaps | `RV.test_m1_*`, `RV.test_B1_acceptance_pass…` |
+| m2 | MINOR | health hole at stop | a health record is written as soon as the stop begins | e2e |
+| m3 | MINOR | recv clamp and wall-clock steps invisible | counters persisted; `wall_clock_step` lifecycle and health reason; documented in `SCHEMA.md` | `RC.test_m3_*` |
+| m4 | MINOR | stall causes mislabelled | a boundary processed more than 2 s late gets `sampler_stall` | `RC.test_m4_*` |
+| m5 | MINOR | a sequence regression was rejected permanently | reset after 20 consecutive regressions, with lifecycle `seq_reset` and a hard reason | `RC.test_m5_*` |
+| m6 | MINOR | quarantine not a health reason; clock future-time rejection; WS handshake 418/429; market expired recount | each fixed | G0 adjusted, plus the above |
+| N1 | NOTE | provenance / identity depends on the gate | `ops/p2f_gate_up.sh` checks the image ID before and after start; `--build-arg` for commit, tag and time; `control/stop-*.json` | gate evidence |
+| N2 | NOTE | doc beat limit; rotation vs watchdog restart race; negative-RTT probe | `SCHEMA.md` corrected; the watchdog skips rotating connections; the verifier uses the same `t1 ≥ t0` probe filter | – |
+
+`RV` / `RC` = `tests/test_review_fixes.py`. Two G0 tests were moved off the newly exempted clock type and
+`/api/v3/time` path, with the same assertions on a generic type and path.

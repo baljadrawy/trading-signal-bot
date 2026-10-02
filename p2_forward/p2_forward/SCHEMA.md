@@ -42,7 +42,7 @@ and later v2 writers.
 | `endpoint` | stream name, REST path, or `collector` |
 | `exchange_event_time_ms` | exchange-provided time, **never synthesized**. Always null for book / depth (Binance spot `bookTicker` and partial depth carry no event time). Market: max `E` among components. Candle: close time. Clock: `serverTime` |
 | `exchange_seq` | book `u`, depth `lastUpdateId`, else null |
-| `recv_ts_ns` | host wall-clock time when the collector processed the message (ns). Market: the newest component used |
+| `recv_ts_ns` | host wall-clock time when the collector processed the message (ns). Market: the newest component used. If the host wall clock steps **backwards**, a message's `recv_ts_ns` is clamped to the stream's previous value, so the order is never inverted and the clamp only ever moves a time later (PIT-safe). It is counted as `recv_clock_regression`; steps over 1 s produce a `wall_clock_step` lifecycle record and a health reason |
 | `queued_ts_ns` | time the record entered the writer queue |
 | `blk` | durable block number within the segment |
 | `observed_at_ms` | `recv_ts_ns // 1e6`: when the collector knew it |
@@ -77,8 +77,9 @@ Record-level v2 additions:
   before the first-observation deadline; after the deadline they are a `never_ready` gap.
 
 **Freshness.** A held value is persisted only if, at `S`:
-1. the stream's **own** connection was up and **data-live** (a data message within the last 10 s; WebSocket ping
-   / pong never counts);
+1. the stream's **own** connection was up and **data-live**: a data message within the last 10 s **and** after
+   the connection's most recent (re)connect. WebSocket ping / pong never counts. A value received before the most
+   recent reconnect is not persisted (`awaiting_post_reconnect_data`);
 2. the value's age is within its limit:
 
    | Stream | Limit |
@@ -149,11 +150,13 @@ the age limits above).
 | `ws_disconnect_reconnect` | the stream's own connection was down |
 | `conn_data_stale` | connection up but no data messages for 10 s |
 | `stale_stream` | stream's own value older than its limit |
-| `sampler_stall` | the hold window was exceeded, so the PIT value could not be proven (never guessed) |
+| `sampler_stall` | the boundary was processed more than 2 s late (event-loop stall), or the hold window was exceeded so the PIT value could not be proven (never guessed) |
+| `awaiting_post_reconnect_data` | the connection was back, but no value had yet been received since the reconnect |
 | `banned_418` | Binance ban; all activity stopped |
 | `disk_hard_stop` | observations refused by the disk guard |
 | `backpressure_or_rejected` | queue shed or record rejected |
-| `candle_fetch_failed:<status>` / `candle_unexpected_response` | candle not fetched |
+| `candle_fetch_failed:<status>` / `candle_unexpected_response` / `candle_exception` | candle not fetched |
+| `candle_fetch_interrupted_at_stop` / `candle_not_fetched_at_stop` | the run stopped before the candle was fetched (recoverable) |
 | `crash_recovery` | interval lost to a crash, from the `.partial` salvage |
 
 Book, depth and market gaps are **irreplaceable**: never bridged or interpolated.
@@ -171,13 +174,14 @@ Book, depth and market gaps are **irreplaceable**: never bridged or interpolated
 | State | Meaning |
 |---|---|
 | `HEALTHY` | **all** of the following hold: |
-| | - every required task (sampler, candles, clock, disk, health, watchdog) is alive with its beat ≤ max(2 × period, 3 s); |
+| | - every required task (sampler, candles, clock, disk, health, watchdog) is alive with its beat ≤ max(2 × period, 3 s), plus 30 s of scheduling slack for candles and clock; no task failure in the last 10 min; |
 | | - the writer thread is alive, its beat is ≤ 5 s old, durable lag ≤ 10 s, with no write errors and no rejected records; |
 | | - every expected stream is acknowledged (or subscribed via URL), observed, fresh, on a data-live connection, with no gap older than 3 × cadence; |
 | | - expected = acknowledged = observing; |
 | | - not at disk hard stop and not banned; |
 | | - the clock probe is ≤ 1,200 s old and `abs(skew) − uncertainty ≤ 500 ms`; |
-| | - no handler exception in the last 10 min and no open queue drops |
+| | - no handler exception in the last 10 min and no open queue drops; |
+| | - no wall-clock step in the last 10 min, no `seq_reset`, no quarantined segment, no failed emit. Warnings (not hard): malformed, unknown stream or event, `seq_regression`, `recv_clock_regression` |
 | `STARTING` | only startup reasons, each inside its deadline |
 | `DEGRADED` | any hard reason (listed) |
 | `DEGRADED_DISK` | disk hard stop |
@@ -186,6 +190,18 @@ Book, depth and market gaps are **irreplaceable**: never bridged or interpolated
 | `STOPPED` | the writer finished and 0 `.partial` files remain |
 | `STOPPED_INCOMPLETE` | the stop did not complete cleanly (exit code 2) |
 | `FAILED` | writer dead (exit 3) or a task failed repeatedly (exit 4) |
+
+**Final stop state.** Written out-of-band to `control/stop-<boot8>.json` after the writer has finished: state,
+exit code, reason, `writer_finished`, leftover partials, counters. The `stop` lifecycle record carries the full
+counters as well.
+
+**Sequence resets.** A per-stream `u` / `lastUpdateId` that goes backwards is rejected (`seq_regression`, a
+warning). After 20 consecutive regressions the new sequence is accepted as an exchange-side reset: lifecycle
+`seq_reset` plus a hard health reason.
+
+**Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
+host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as
+lifecycle `clock_round_failed` and is retried after 30 s.
 
 ## 8. Missing-data taxonomy
 
@@ -220,6 +236,30 @@ The start lifecycle record embeds the full run record and its SHA-256. It holds:
 - State thresholds apply to `abs(skew) − uncertainty`.
 - RTT asymmetry of the market-data endpoint is uncertainty, **not** host skew.
 - The payload includes every probe.
+
+## 10a. Verification contract (independent verifier, `verifier/verify_independent.py`)
+
+**Expected boundaries per stream.** Every cadence multiple `b` with `ws_start_ms < b < stop_requested_ms`. Each
+one must be one of:
+- persisted;
+- inside a gap;
+- startup-excused, only if `b` precedes the first-observation deadline, the receive time of the first persisted
+  value, **and** the claimed `stream_ready.ready_ns` (ns resolution).
+
+**Expected candles.** For each timeframe and symbol:
+- the catch-up candle, if `ws_start + 375 s < stop`;
+- every candle whose close boundary `B` satisfies `ws_start < B` and `B + 375 s < stop`.
+
+Each must be present or gap-covered. Fetches run at `B + 5–15 s`, with jobs spread over ≤ 300 s.
+
+**Clock records** are at most 1,200 s apart, from `ws_start` to stop, with the first within 120 s.
+
+**Health records** are at most `interval + 15 s` apart, from start to stop.
+
+**Control-record sequence numbers** (gap, lifecycle and health share one counter) must be contiguous `1..N`.
+
+**Acceptance** (`--acceptance g2r`) is a pinned, predeclared specification inside the verifier that the run's
+configuration cannot loosen.
 
 ## 11. Schema evolution policy
 

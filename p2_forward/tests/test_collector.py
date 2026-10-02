@@ -51,7 +51,9 @@ class Schema(unittest.TestCase):
         self.assertIn("book_depth_have_no_exchange_time", R.validate(rec(ex=r["recv_ts_ns"] // 1_000_000)))
 
     def test_future_timestamp_rejected(self):
-        r = rec(typ="clock"); r["exchange_event_time_ms"] = r["observed_at_ms"] + 60_000
+        # G2-Repeat: clock records are exempt (serverTime ahead of the host IS the measurement, review m6);
+        # the generic future-time rejection is exercised on a non-clock record.
+        r = rec(typ="lifecycle"); r["exchange_event_time_ms"] = r["observed_at_ms"] + 60_000
         self.assertIn("exchange_time_in_future", R.validate(r))
         r2 = rec(); r2["recv_ts_ns"] = time.time_ns() + 10 * 10**9
         self.assertIn("recv_in_future", R.validate(r2))
@@ -320,7 +322,7 @@ class Transport(unittest.TestCase):
             st = Wm.new_stats(); g = G.RateGuard()
             def boom(*a, **k): raise T.aiohttp.ClientConnectionError("x")
             rc = T.RestClient(mock.Mock(get=boom), g, st)
-            r = [ (await rc.get("/api/v3/time"))[0] for _ in range(4)]
+            r = [ (await rc.get("/api/v3/klines"))[0] for _ in range(4)]   # /api/v3/time is breaker-exempt (M4)
             g2 = G.RateGuard(); rc2 = T.RestClient(mock.Mock(get=lambda *a, **k: Resp(429, {"Retry-After": "10"})), g2, st)
             a = (await rc2.get("/api/v3/time"))[0]; b = (await rc2.get("/api/v3/time"))[0]
             g3 = G.RateGuard(); rc3 = T.RestClient(mock.Mock(get=lambda *a, **k: Resp(418, {"Retry-After": "60"})), g3, st)

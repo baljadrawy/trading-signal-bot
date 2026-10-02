@@ -79,20 +79,31 @@ class StreamTrack:
         self.gap = None                           # open gap: first/last missing boundary, count, causes
         self.never_ready_reported = False
         self.msgs = 0
+        self.regress_run = 0
 
     # ---- messages ----
     def on_msg(self, recv_ns: int, data, seq: int) -> str | None:
         latest = self.values.latest
         if latest is not None and seq < latest[2]:
-            return "seq_regression"
+            self.regress_run += 1
+            if self.regress_run < 20:
+                return "seq_regression"
+            self.regress_run = 0                  # persistent regression = exchange-side reset: accept, made visible
+            self.values.push((max(recv_ns, latest[0]), data, seq))
+            self.msgs += 1
+            return "seq_reset"
+        self.regress_run = 0
         if latest is not None and recv_ns < latest[0]:
             recv_ns = latest[0]                   # wall-clock step back: never reorder (counted by the caller)
         self.values.push((recv_ns, data, seq))
         self.msgs += 1
         if self.ready_ms is None:
             self.ready_ms = recv_ns // 1_000_000
+            self.ready_ns = recv_ns
             return "first"
         return None
+
+    ready_ns = None
 
     def last_recv_ms(self):
         return None if self.values.latest is None else self.values.latest[0] // 1_000_000
@@ -159,6 +170,7 @@ class MarketTrack(StreamTrack):
         self.msgs += 1
         if self.ready_ms is None:
             self.ready_ms = r // 1_000_000
+            self.ready_ns = r
             return "first"
         return None
 

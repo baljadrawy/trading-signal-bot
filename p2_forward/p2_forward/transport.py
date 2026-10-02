@@ -72,6 +72,8 @@ class RestClient:
             return "network_error", None, None, None, None
 
     def _failed(self, path: str) -> None:
+        if path == "/api/v3/time":                      # clock probes never trip the breaker (M4): weight 1
+            return
         self.fail[path] = self.fail.get(path, 0) + 1
         if self.fail[path] >= 3:
             self.open_until[path] = time.monotonic() + 600
@@ -117,7 +119,7 @@ class WSConnection:
             self.backoff.attempt()
             err = None
             try:
-                async with self.session.ws_connect(self.url(), autoping=True, heartbeat=None, max_msg_size=8 * 2**20,
+                async with self.session.ws_connect(self.url(), autoping=True, heartbeat=30.0, max_msg_size=8 * 2**20,
                                                    timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
                     self._ws = ws
                     if self.guard is not None and self.guard.banned():
@@ -132,6 +134,11 @@ class WSConnection:
             except asyncio.CancelledError:
                 self.connected = False; self._ws = None
                 raise
+            except aiohttp.WSServerHandshakeError as e:          # 418 / 429 at the handshake reach the guard (F23)
+                if self.guard is not None and e.status == 418:
+                    self.guard.on_418(e.headers.get("Retry-After") if e.headers else None)
+                elif self.guard is not None and e.status == 429:
+                    self.guard.on_429(e.headers.get("Retry-After") if e.headers else None)
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
                 pass
             except Exception as e:                                   # noqa: BLE001 - never die silently (F20)
