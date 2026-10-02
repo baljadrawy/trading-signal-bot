@@ -2,6 +2,7 @@
 
 Raw facts only: `payload` is the exchange message verbatim. Nothing derived (spread, imbalance, ...) is stored.
 Exchange time is NEVER synthesized: when a payload has no exchange timestamp the field stays None.
+Schema v2 (G2-Repeat revision): see SCHEMA.md. v1 raw history is never rewritten.
 """
 from __future__ import annotations
 
@@ -10,13 +11,18 @@ import time
 from .config import SCHEMA, SCHEMA_VERSION, VERSION
 
 FUTURE_TOLERANCE_MS = 5_000          # exchange time later than receive + tolerance => reject (quarantine)
-TYPES = {"book", "depth", "candle", "market", "clock", "universe", "gap", "lifecycle"}
+TYPES = {"book", "depth", "candle", "market", "clock", "universe", "gap", "lifecycle", "health"}
+SAMPLED = ("book", "depth", "market")
 REQUIRED = ("schema", "schema_version", "obs_id", "type", "symbol", "source", "transport", "endpoint",
             "exchange_event_time_ms", "exchange_seq", "recv_ts_ns", "observed_at_ms", "available_at_ms",
             "collector_version", "boot_id")
+EXTRA_FIELDS = {"depth_levels", "component_recv_ms", "startup_complete"}    # record-level, schema v2
 
 
-# ---- identities (no file offsets, no process identity) -------------------------------------------------------
+# ---- identities (no file offsets) ----------------------------------------------------------------------------
+# Observation identities are deterministic from exchange facts. Control-record identities (gap / lifecycle /
+# health) are scoped to the boot and carry a per-boot sequence number, so two legitimate records can never
+# collide (F55: v1 gap ids collided and 47 of 53 gaps were dropped as duplicates).
 def candle_id(symbol: str, tf: str, open_ms: int) -> str:
     return f"{symbol}|{tf}|{int(open_ms)}"                     # identical to P1 Evidence V2 candle_id
 
@@ -41,12 +47,16 @@ def universe_id(stamp: str, rule_version: str) -> str:
     return f"uni|{stamp}|{rule_version}"
 
 
-def gap_id(stream_key: str, start_ms: int, cause: str) -> str:
-    return f"gap|{stream_key}|{int(start_ms)}|{cause}"
+def gap_id(boot_id: str, seq: int, stream_key: str, first_missing_ms: int, last_missing_ms: int, cause: str) -> str:
+    return f"gap|{boot_id[:8]}|{int(seq)}|{stream_key}|{int(first_missing_ms)}|{int(last_missing_ms)}|{cause}"
 
 
-def lifecycle_id(boot_id: str, event: str) -> str:
-    return f"life|{boot_id}|{event}"
+def lifecycle_id(boot_id: str, seq: int, event: str) -> str:
+    return f"life|{boot_id}|{int(seq)}|{event}"
+
+
+def health_id(boot_id: str, seq: int) -> str:
+    return f"hlth|{boot_id}|{int(seq)}"
 
 
 # ---- construction --------------------------------------------------------------------------------------------
@@ -54,9 +64,9 @@ def make(*, type: str, obs_id: str, symbol: str | None, payload, boot_id: str, e
          recv_ts_ns: int, exchange_event_time_ms: int | None = None, exchange_seq: int | None = None,
          tier: int | None = None, cadence_ms: int | None = None, sample_ms: int | None = None,
          available_at_ms: int | None = None, unchanged: bool = False, clock_suspect: bool = False,
-         recoverability: str | None = None) -> dict:
+         recoverability: str | None = None, extra: dict | None = None) -> dict:
     observed = recv_ts_ns // 1_000_000
-    return {
+    rec = {
         "schema": SCHEMA, "schema_version": SCHEMA_VERSION, "obs_id": obs_id, "type": type, "symbol": symbol,
         "tier": tier, "cadence_ms": cadence_ms, "sample_ms": sample_ms, "source": "binance_spot_public",
         "transport": transport, "endpoint": endpoint, "exchange_event_time_ms": exchange_event_time_ms,
@@ -65,6 +75,11 @@ def make(*, type: str, obs_id: str, symbol: str | None, payload, boot_id: str, e
         "unchanged": bool(unchanged), "clock_suspect": bool(clock_suspect), "recoverability": recoverability,
         "collector_version": VERSION, "boot_id": boot_id, "payload": payload,
     }
+    for k, v in (extra or {}).items():
+        if k not in EXTRA_FIELDS:
+            raise ValueError(f"unknown record-level field {k}")
+        rec[k] = v
+    return rec
 
 
 def validate(rec: dict, now_ns: int | None = None) -> list:
@@ -94,6 +109,12 @@ def validate(rec: dict, now_ns: int | None = None) -> list:
         errs.append("book_depth_have_no_exchange_time")           # spot bookTicker / partial depth carry no E
     if rec["available_at_ms"] < rec["observed_at_ms"] and rec["type"] != "candle":
         errs.append("available_before_observed")
+    if rec["type"] in SAMPLED:                                     # PIT: never a value received after its boundary
+        s = rec.get("sample_ms")
+        if not isinstance(s, int) or rec["recv_ts_ns"] > s * 1_000_000:
+            errs.append("observed_after_sample")
+    if rec["type"] == "depth" and not (isinstance(rec.get("depth_levels"), int) and rec["depth_levels"] > 0):
+        errs.append("depth_levels_missing")
     if rec["type"] == "candle":
         p = rec["payload"]
         if not (isinstance(p, list) and len(p) >= 7 and rec["available_at_ms"] > int(p[6])):

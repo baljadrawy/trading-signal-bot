@@ -198,9 +198,15 @@ class Universe(unittest.TestCase):
         u3 = U.compute(cfg, ei, tk, prior_tier1={"ADAUSDT"}); self.assertIn("ADAUSDT", u3["hysteresis_members"])
 
 
+class _Conn:
+    """Synthetic connected connection (G2-Repeat: sampling requires the stream's OWN connection to be up, F3/F40)."""
+    def __init__(self, name, streams): self.name, self.streams, self.connected, self.reconnects = name, streams, True, 0
+
+
 def mk_collector(d, **over):
     cfg = {**C.DEFAULTS, "data_dir": d, "enabled": True, "max_runtime_s": 60, **over}
     c = A.Collector(cfg); c.universe = U.tier0_only(cfg); c.build_streams(); c.started_ms = A.now_ms()
+    c.conns = [_Conn(n, s) for n, s in c._conn_streams()]
     return c
 
 
@@ -229,9 +235,9 @@ class Sampling(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             c = mk_collector(d); t = (A.now_ms() // 1000) * 1000
             c.on_message(None, {"stream": "btcusdt@depth20", "data": {"lastUpdateId": 1, "bids": [], "asks": []}}, (t - 10_000) * 10**6)
-            c.sample(t); self.assertIn("depth|BTCUSDT", c.gaps_open)
+            c.sample(t); self.assertEqual(c.stream_state["btcusdt@depth20"]["state"], "GAP_OPEN")
             c.on_message(None, {"stream": "btcusdt@depth20", "data": {"lastUpdateId": 2, "bids": [], "asks": []}}, (t + 500) * 10**6)
-            c.sample(t + 1000); self.assertNotIn("depth|BTCUSDT", c.gaps_open)
+            c.sample(t + 1000); self.assertEqual(c.stream_state["btcusdt@depth20"]["state"], "OBSERVING")
             gaps = [r for r in [c.q.get_nowait() for _ in range(c.q.qsize())] if r["type"] == "gap"]
             self.assertEqual(gaps[0]["recoverability"], A.IRREPLACEABLE)
 

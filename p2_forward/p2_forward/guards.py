@@ -22,6 +22,7 @@ class RateGuard:
         self.rest_blocked_until = 0.0
         self.banned_until = 0.0
         self.events = collections.Counter()
+        self.ban_callbacks = []            # F23: called on 418 so every WS connection closes immediately
 
     def own_used(self) -> int:
         now = self.clock()
@@ -60,6 +61,8 @@ class RateGuard:
     def on_418(self, retry_after) -> None:
         ra = _num(retry_after, 120)
         self.banned_until = self.clock() + ra + 600; self.events["http_418"] += 1
+        for cb in list(self.ban_callbacks):
+            cb()
 
     def banned(self) -> bool:
         return self.clock() < self.banned_until
@@ -118,18 +121,37 @@ class DiskGuard:
 
 
 class ClockGuard:
-    """|skew| > warn -> WARN; > crit -> CRITICAL (records flagged clock_suspect; timestamps never rewritten)."""
+    """Host-vs-exchange clock check (F5 / R17). Method `min_rtt_of_3_midpoint_v1`: of N probes (server, t0, t1)
+    keep the minimum-RTT one; skew = server - (t0 + t1) / 2; uncertainty = rtt / 2 (the server stamp can lie
+    anywhere inside the round trip). The state uses |skew| - uncertainty, so RTT asymmetry is never reported as
+    host skew. Records are flagged clock_suspect only when CRITICAL; timestamps are never rewritten."""
 
-    def __init__(self, warn_ms=500, crit_ms=2000):
-        self.warn, self.crit = warn_ms, crit_ms
+    def __init__(self, warn_ms=500, crit_ms=2000, clock=time.monotonic):
+        self.warn, self.crit, self.clock = warn_ms, crit_ms, clock
         self.last_skew_ms = None
+        self.uncertainty_ms = None
+        self.rtt_ms = None
         self.state = "UNKNOWN"
+        self.last_ok_mono = None
+
+    def update_samples(self, probes: list) -> str:
+        good = [(s, t0, t1) for s, t0, t1 in probes if t1 >= t0]
+        if not good:
+            return self.state
+        s, t0, t1 = min(good, key=lambda p: (p[2] - p[1], p[1]))
+        self.rtt_ms = t1 - t0
+        self.last_skew_ms = s - (t0 + t1) / 2.0
+        self.uncertainty_ms = self.rtt_ms / 2.0
+        excess = max(0.0, abs(self.last_skew_ms) - self.uncertainty_ms)
+        self.state = "CRITICAL" if excess > self.crit else ("WARN" if excess > self.warn else "OK")
+        self.last_ok_mono = self.clock()
+        return self.state
 
     def update(self, server_ms: int, t0_ms: float, t1_ms: float) -> str:
-        self.last_skew_ms = server_ms - (t0_ms + t1_ms) / 2.0
-        a = abs(self.last_skew_ms)
-        self.state = "CRITICAL" if a > self.crit else ("WARN" if a > self.warn else "OK")
-        return self.state
+        return self.update_samples([(server_ms, t0_ms, t1_ms)])
+
+    def age_s(self):
+        return None if self.last_ok_mono is None else self.clock() - self.last_ok_mono
 
     def suspect(self) -> bool:
         return self.state == "CRITICAL"

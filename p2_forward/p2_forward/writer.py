@@ -5,6 +5,12 @@ Layout under <data_dir>:
   raw/<type>/<YYYY-MM-DD>/<type>-<YYYYMMDDTHH>Z-<boot8>-<seq>.jsonl.gz(.partial)   + .sha256 + .idx
   manifests/<YYYY-MM-DD>.jsonl      one line per certified segment (append + fsync)
   quarantine/                       failed/salvaged originals (never deleted)
+
+Durability (R16): every record is durable (sync-flush + fsync + .idx block line) within `flush_interval_s` of
+being written. A segment with no new records in the current block is NOT re-synced and gets no .idx line: its
+data is already durable at its last non-empty block. Closing always finalizes, fsyncs and certifies.
+Disk HARD_STOP (R03): only observation records are refused; control records (lifecycle / gap / health) are still
+written so the stop interval is visible in raw data.
 """
 from __future__ import annotations
 
@@ -20,6 +26,8 @@ import time
 import zlib
 
 from . import record as R
+
+CONTROL_TYPES = frozenset({"lifecycle", "gap", "health"})
 
 
 def _utc(ns: int) -> dt.datetime:
@@ -106,7 +114,10 @@ class _Segment:
         self.gz.write((json.dumps(rec, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8"))
         self.records += 1; self.block_records += 1
 
-    def sync(self) -> int:
+    def sync(self, force: bool = False):
+        """Make the current block durable. Idle block (no records since the last sync) => no-op (R16)."""
+        if self.block_records == 0 and not force:
+            return None
         self.gz.flush(zlib.Z_SYNC_FLUSH); self.fh.flush(); os.fsync(self.fh.fileno())
         durable = time.time_ns()
         self.idx.write(json.dumps({"blk": self.block, "end_offset": self.fh.tell(), "records": self.block_records,
@@ -124,39 +135,69 @@ class SegmentWriter(threading.Thread):
         self.segments: dict = {}
         self.seq = collections.Counter()
         self.recent = collections.OrderedDict()           # bounded cross-segment duplicate filter
-        self.stop_writes = threading.Event()               # disk hard stop / write failure gate
+        self.stop_writes = threading.Event()               # disk hard stop: observation records refused (R03)
         self._stop_evt = threading.Event()
         self.last_durable_ns = None
+        self.pending_since_ns = None                       # first not-yet-durable record (durable-lag, F43)
+        self.beat_ns = None                                # writer loop heartbeat (F43)
+        self.fatal = None                                  # fatal error text if the thread died (F43)
+        self.finished = False                              # run() completed normally (F51)
+        self.run_record = None                             # relpath of runs/<boot_id>.json (R01)
+        self.boot_id = boot_id
         self.lock = threading.Lock()
         for d in ("raw", "manifests", "quarantine", "universe", "health"):
             os.makedirs(os.path.join(self.base, d), exist_ok=True)
 
     # ---- lifecycle ----
     def run(self) -> None:
-        last_sync = time.monotonic()
-        while not (self._stop_evt.is_set() and self.q.empty()):
-            try:
-                rec = self.q.get(timeout=0.2)
-            except queue.Empty:
-                rec = None
-            if rec is not None:
-                self._write(rec)
-            if time.monotonic() - last_sync >= self.flush_interval_s:
-                self._sync_all(); self._rotate_due(); last_sync = time.monotonic()
-        self._sync_all()
-        self.close_all()
+        try:
+            last_sync = time.monotonic()
+            while not (self._stop_evt.is_set() and self.q.empty()):
+                self.beat_ns = time.time_ns()
+                try:
+                    rec = self.q.get(timeout=0.2)
+                except queue.Empty:
+                    rec = None
+                if rec is not None:
+                    self._write_guarded(rec)
+                if time.monotonic() - last_sync >= self.flush_interval_s:
+                    self._sync_all(); self._rotate_due(); last_sync = time.monotonic()
+            self._sync_all()
+            self.close_all()
+            self.finished = True
+        except BaseException as e:                         # noqa: BLE001 - recorded, made visible by the supervisor
+            self.fatal = f"{type(e).__name__}: {e}"[:300]
+            raise
+
+    def status(self) -> dict:
+        now = time.time_ns()
+        return {"alive": self.is_alive(), "finished": self.finished, "fatal": self.fatal,
+                "beat_age_ms": None if self.beat_ns is None else (now - self.beat_ns) // 1_000_000,
+                "durable_lag_ms": 0 if self.pending_since_ns is None else (now - self.pending_since_ns) // 1_000_000,
+                "last_durable_ms": None if self.last_durable_ns is None else self.last_durable_ns // 1_000_000,
+                "write_errors": self.stats["write_errors"], "rejected": self.stats["writer_rejected"]}
 
     def stop(self) -> None:
         self._stop_evt.set()
 
     # ---- core ----
+    def _write_guarded(self, rec) -> None:
+        """One bad record must never kill the writer (F43): non-I/O failures reject and count that record."""
+        try:
+            self._write(rec)
+        except OSError:
+            raise
+        except Exception as e:                             # noqa: BLE001
+            self.stats["writer_rejected"][type(e).__name__] += 1
+
     def _write(self, rec: dict) -> None:
-        if self.stop_writes.is_set():
+        if self.stop_writes.is_set() and rec.get("type") not in CONTROL_TYPES:
             self.stats["dropped"][rec.get("type", "?")] += 1
             return
         oid = rec.get("obs_id")
         if oid in self.recent:
             self.stats["duplicates_dropped"] += 1
+            self.stats["duplicates_by_type"][rec.get("type", "?")] += 1
             return
         self.recent[oid] = None
         if len(self.recent) > 200_000:
@@ -171,6 +212,8 @@ class SegmentWriter(threading.Thread):
                 self.seq[key] += 1
                 seg = self.segments[key] = _Segment(self.base, key, hour_key, self.boot8, self.seq[key])
             seg.write(rec)
+            if self.pending_since_ns is None:
+                self.pending_since_ns = time.time_ns()
             self.stats["written"][key] += 1
         except OSError as e:
             self._write_failure(key, e)
@@ -185,9 +228,12 @@ class SegmentWriter(threading.Thread):
     def _sync_all(self) -> None:
         for key, seg in list(self.segments.items()):
             try:
-                self.last_durable_ns = seg.sync()
+                d = seg.sync()
+                if d is not None:
+                    self.last_durable_ns = d
             except OSError as e:
                 self._write_failure(key, e)
+        self.pending_since_ns = None
 
     def _rotate_due(self) -> None:
         now_key = _utc(time.time_ns()).strftime("%Y%m%dT%H")
@@ -219,7 +265,9 @@ class SegmentWriter(threading.Thread):
         _fsync_dir(seg.dir)
         entry = {"segment": os.path.relpath(seg.final, self.base), "sha256": digest, "records": rep["records"],
                  "bytes": os.path.getsize(seg.final), "type": seg.typ, "first_recv_ns": rep["first_recv_ns"],
-                 "last_recv_ns": rep["last_recv_ns"], "boot": self.boot8}
+                 "last_recv_ns": rep["last_recv_ns"], "boot": self.boot8, "boot_id": self.boot_id,
+                 "run_record": self.run_record,
+                 "idx_bytes": os.path.getsize(seg.final[:-9] + ".idx")}
         mpath = os.path.join(self.base, "manifests", f"{seg.day}.jsonl")
         with open(mpath, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, sort_keys=True) + "\n"); fh.flush(); os.fsync(fh.fileno())
@@ -274,4 +322,6 @@ def new_stats() -> dict:
     """Shared counters (written by the writer thread and the async tasks; GIL-safe increments)."""
     return {"written": collections.Counter(), "dropped": collections.Counter(), "duplicates_dropped": 0,
             "write_errors": 0, "last_write_error": None, "segments_promoted": 0, "segments_quarantined": 0,
-            "recovered_records": 0, "malformed": 0, "rejected": collections.Counter()}
+            "recovered_records": 0, "malformed": 0, "rejected": collections.Counter(),
+            "writer_rejected": collections.Counter(), "duplicates_by_type": collections.Counter(),
+            "unknown_stream": 0, "unknown_event": 0, "handler_errors": 0}

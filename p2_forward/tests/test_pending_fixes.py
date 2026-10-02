@@ -94,7 +94,9 @@ class PendingGapStateMachine(unittest.TestCase):
     def test_gap_start_end_and_count(self):
         with tempfile.TemporaryDirectory() as d:
             c = mk(d); S = (A.now_ms() // 1000) * 1000 - 30_000
-            depth(c, 1, S - 100); c.sample(S)                         # last persisted sample S
+            # fixture corrected (G2-Repeat): G2 measured depth push inter-arrival 971-1039 ms, so one missed push is
+            # tolerated (2 s). The last push is placed 1001 ms before S so that S+1000 is beyond tolerance.
+            depth(c, 1, S - 1001); c.sample(S)                        # last persisted sample S
             for k in range(1, 8): c.sample(S + k * 1000)               # silence > 5 s while connected -> stale gap
             depth(c, 2, S + 7_500); c.sample(S + 8000)
             g = [r for r in drain(c) if r["type"] == "gap"][0]["payload"]
@@ -103,13 +105,19 @@ class PendingGapStateMachine(unittest.TestCase):
             self.assertEqual(g["missing_samples"], 7)
 
     def test_low_rate_book_live_connection_is_unchanged_not_gap(self):
+        # fixture corrected (G2-Repeat, F40): liveness is DATA liveness, so the connection carries
+        # !miniTicker@arr every second as conn0 does in production; Tier-0 book silence must stay <= 120 s
+        # (beyond that F40 requires a stale gap). The 300 s variant lives in test_regression_g2r (Tier 1).
         with tempfile.TemporaryDirectory() as d:
             c = mk(d); S = (A.now_ms() // 1000) * 1000 - 400_000
             book(c, 1, S - 10)
-            for k in range(300): c.sample(S + k * 1000)
+            for k in range(110):
+                c.on_message(None, {"stream": "!miniTicker@arr", "data": [{"s": "BTCUSDT", "E": S + k * 1000 - 20}]},
+                             (S + k * 1000 - 10) * 10**6)
+                c.sample(S + k * 1000)
             recs = drain(c)
             bt = [r for r in recs if r["type"] == "book"]
-            self.assertEqual(len(bt), 300); self.assertTrue(all(r["unchanged"] for r in bt[1:]))
+            self.assertEqual(len(bt), 110); self.assertTrue(all(r["unchanged"] for r in bt[1:]))
             self.assertFalse([r for r in recs if r["type"] == "gap"])
 
     def test_gap_cause_uses_own_connection(self):
@@ -127,7 +135,9 @@ class PendingClockAndMarket(unittest.TestCase):
     def test_clock_min_rtt_uncertainty(self):
         from p2_forward.guards import ClockGuard
         c = ClockGuard(500, 2000)
-        c.update_samples([(1370, 0, 1020), (1100, 0, 260), (1200, 0, 700)])   # (server, t0, t1)
+        # fixture corrected (G2-Repeat): (server, t0, t1) with t0 = 1000; the original (server, 0, rtt) tuples
+        # contradicted the documented semantics (they give +970, not -30). Assertions unchanged.
+        c.update_samples([(1370, 1000, 2020), (1100, 1000, 1260), (1200, 1000, 1700)])   # (server, t0, t1)
         self.assertAlmostEqual(c.last_skew_ms, -30.0); self.assertAlmostEqual(c.uncertainty_ms, 130.0)
         self.assertEqual(c.state, "OK")
 

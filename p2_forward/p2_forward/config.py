@@ -8,9 +8,11 @@ from __future__ import annotations
 import hashlib
 import json
 
-VERSION = "p2e1-collector-1.0.0"
+VERSION = "p2e1-collector-1.1.0"
 SCHEMA = "tsb.p2.forward"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)
+SAMPLE_SEMANTICS = "latest_received_at_or_before_sample_ms"
+CLOCK_METHOD = "min_rtt_of_3_midpoint_v1"
 
 WS_BASE = "wss://data-stream.binance.vision/stream"        # market-data-only WS endpoint (official)
 REST_BASE = "https://data-api.binance.vision"               # market-data-only REST endpoint (official)
@@ -53,6 +55,19 @@ DEFAULTS = {
     "clock_crit_ms": 2000,
     "ws_rotation_s": 23 * 3600,
     "rotation_test_at_s": 0,                 # > 0: one controlled overlap rollover of connection 0 (G3)
+    "host_label": "unlabelled",              # non-confidential host label persisted in the run record (R18)
+    "sample_hold_window_s": 120,             # boundary snapshots kept per stream for stall catch-up (F19)
+    "subscribe_ack_timeout_s": 10,           # SUBSCRIBE acknowledgement deadline (F37)
+    "first_obs_deadline_s": {"t0_book": 30, "depth": 30, "market": 30, "t12_book": 120},   # from WS start (F38)
+    "depth_stale_ms": 2000,                  # partial depth pushes every 1000 ms: one missed push tolerated
+    "book_t0_stale_ms": 120_000,             # Tier-0 book silent beyond this on a data-live connection = stale gap (F40)
+    "book_stale_suspect_ms": 900_000,        # Tier-1/2 book silent beyond this = health stale_suspect (F40)
+    "market_stale_ms": 10_000,               # newest market component older than this at S = market gap (F49)
+    "conn_data_live_ms": 10_000,             # connection data-live window (F40)
+    "market_startup_ms": 60_000,             # market snapshot startup_complete after this (F8)
+    "market_component_max_age_ms": 86_400_000,
+    "clock_probes": 3,                       # min-RTT of N probes (F5)
+    "health_record_interval_s": 60,          # historical health raw records (R02)
     "derivatives_enabled": False,
     "aggtrades_enabled": False,
 }
@@ -88,6 +103,17 @@ def validate(cfg: dict) -> None:
         raise ConfigError("queue/budget out of authorized range")
     if not (cfg["disk_stop_free_gb"] < cfg["disk_warn_free_gb"]):
         raise ConfigError("disk thresholds inconsistent")
+    for k, v in cfg["cadence_ms"].items():                  # the sample grid is 1000 ms (tracks.Held)
+        if not (isinstance(v, int) and v > 0 and v % 1000 == 0):
+            raise ConfigError(f"cadence {k} must be a positive multiple of 1000 ms")
+    for k in ("sample_hold_window_s", "subscribe_ack_timeout_s", "depth_stale_ms", "book_t0_stale_ms",
+              "book_stale_suspect_ms", "market_stale_ms", "conn_data_live_ms", "market_startup_ms",
+              "market_component_max_age_ms", "clock_probes", "health_record_interval_s"):
+        if not (isinstance(cfg[k], (int, float)) and cfg[k] > 0):
+            raise ConfigError(f"{k} must be > 0")
+    if set(cfg["first_obs_deadline_s"]) != {"t0_book", "depth", "market", "t12_book"} or \
+            not all(isinstance(v, (int, float)) and v > 0 for v in cfg["first_obs_deadline_s"].values()):
+        raise ConfigError("first_obs_deadline_s must define positive t0_book/depth/market/t12_book")
 
 
 def config_hash(cfg: dict) -> str:

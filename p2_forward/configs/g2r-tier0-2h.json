@@ -1,0 +1,1 @@
+{"enabled": true, "profile": "tier0_only", "max_runtime_s": 7200, "data_dir": "/data", "host_label": "netcup-vps-arm64-shared-host"}

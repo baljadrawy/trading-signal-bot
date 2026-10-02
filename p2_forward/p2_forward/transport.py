@@ -80,19 +80,28 @@ class RestClient:
 
 class WSConnection:
     """One combined-stream connection. Subscribes via SUBSCRIBE messages (<= 2 msgs/s, < 5 incoming limit).
-    Server pings are answered by aiohttp autoping (payload echoed). `serverShutdown` triggers on_shutdown."""
+    Server pings are answered by aiohttp autoping (payload echoed). `serverShutdown` triggers on_shutdown.
+
+    G2-Repeat: every SUBSCRIBE id is tracked and its ack/error routed to on_sub_result (F22 / F37); a handler
+    exception never kills the connection (counted via on_error, F20); any unexpected exception in the run loop
+    leads to reconnect with backoff; suspend() closes the socket on a 418 ban (F23) and run() waits for the ban
+    to end; force_reconnect() is the recovery path for ack timeouts and handler-error bursts."""
 
     SUB_CHUNK = 100
 
     def __init__(self, name: str, streams: list, session, on_message, on_shutdown, on_state,
-                 base: str = C.WS_BASE, backoff: Backoff | None = None, guard: RateGuard | None = None):
+                 base: str = C.WS_BASE, backoff: Backoff | None = None, guard: RateGuard | None = None,
+                 on_error=None, on_sub_sent=None, on_sub_result=None):
         self.name, self.streams, self.session = name, list(streams), session
         self.on_message, self.on_shutdown, self.on_state = on_message, on_shutdown, on_state
+        self.on_error, self.on_sub_sent, self.on_sub_result = on_error, on_sub_sent, on_sub_result
         self.base, self.backoff, self.guard = base, backoff or Backoff(), guard
         self.connected = False
         self.first_msg = asyncio.Event()
         self.reconnects = 0
         self.last_msg_ns = None
+        self.sub_requests = {}                 # id -> {"streams", "sent_ms", "resolved"} (current session)
+        self.handler_errors = 0
         self._closing = False
         self._ws = None
 
@@ -104,47 +113,92 @@ class WSConnection:
     async def run(self) -> None:
         while not self._closing:
             if self.guard is not None and self.guard.banned():
-                await asyncio.sleep(10); continue
+                await asyncio.sleep(1); continue
             self.backoff.attempt()
+            err = None
             try:
                 async with self.session.ws_connect(self.url(), autoping=True, heartbeat=None, max_msg_size=8 * 2**20,
                                                    timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
                     self._ws = ws
-                    await self._subscribe(ws)
+                    if self.guard is not None and self.guard.banned():
+                        await ws.close(); continue
                     self.connected = True; self.on_state(self, "connected")
+                    await self._subscribe(ws)
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
-                            recv_ns = time.time_ns()
-                            self.last_msg_ns = recv_ns
-                            try:
-                                obj = json.loads(msg.data)
-                            except ValueError:
-                                self.on_message(self, None, recv_ns); continue
-                            if isinstance(obj, dict) and (obj.get("stream") == "!serverShutdown" or
-                                                          (isinstance(obj.get("data"), dict) and obj["data"].get("e") == "serverShutdown")):
-                                self.on_shutdown(self, obj, recv_ns); continue
-                            if isinstance(obj, dict) and "result" in obj and "id" in obj:
-                                continue                         # SUBSCRIBE acknowledgement
-                            self.first_msg.set()
-                            self.backoff.succeeded()
-                            self.on_message(self, obj, recv_ns)
+                            self._handle_text(msg.data)
                         elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
                             break
+            except asyncio.CancelledError:
+                self.connected = False; self._ws = None
+                raise
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
                 pass
+            except Exception as e:                                   # noqa: BLE001 - never die silently (F20)
+                err = e
             was = self.connected
             self.connected = False; self._ws = None
             if self._closing:
                 break
+            if err is not None:
+                self._report(err)
             self.on_state(self, "disconnected" if was else "connect_failed")
             self.backoff.failed(); self.reconnects += 1
             await asyncio.sleep(self.backoff.next_delay())
 
+    def _report(self, err: BaseException) -> None:
+        self.handler_errors += 1
+        if self.on_error is not None:
+            try:
+                self.on_error(self, err)
+            except Exception:                                        # noqa: BLE001
+                pass
+
+    def _handle_text(self, raw) -> None:
+        recv_ns = time.time_ns()
+        self.last_msg_ns = recv_ns
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            obj = None
+        try:
+            if isinstance(obj, dict) and (obj.get("stream") == "!serverShutdown" or
+                                          (isinstance(obj.get("data"), dict) and obj["data"].get("e") == "serverShutdown")):
+                self.on_shutdown(self, obj, recv_ns); return
+            if isinstance(obj, dict) and "id" in obj and ("result" in obj or "error" in obj) and "stream" not in obj:
+                if self.on_sub_result is not None:
+                    self.on_sub_result(self, obj)
+                return
+            if obj is not None:
+                self.first_msg.set()
+                self.backoff.succeeded()
+            self.on_message(self, obj, recv_ns)
+        except Exception as e:                                       # noqa: BLE001 - one bad message never kills the stream
+            self._report(e)
+
     async def _subscribe(self, ws) -> None:
+        self.sub_requests = {}
         rest = self.streams[1:]
         for i in range(0, len(rest), self.SUB_CHUNK):
-            await ws.send_str(json.dumps({"method": "SUBSCRIBE", "params": rest[i:i + self.SUB_CHUNK], "id": i // self.SUB_CHUNK + 1}))
+            rid = i // self.SUB_CHUNK + 1
+            chunk = rest[i:i + self.SUB_CHUNK]
+            sent_ms = time.time_ns() // 1_000_000
+            self.sub_requests[rid] = {"streams": chunk, "sent_ms": sent_ms, "resolved": False}
+            await ws.send_str(json.dumps({"method": "SUBSCRIBE", "params": chunk, "id": rid}))
+            if self.on_sub_sent is not None:
+                self.on_sub_sent(self, rid, chunk, sent_ms)
             await asyncio.sleep(0.5)
+
+    async def suspend(self) -> None:
+        """Close the current socket (418 ban); run() stays alive and waits until the ban ends."""
+        ws = self._ws
+        if ws is not None and not ws.closed:
+            await ws.close()
+
+    async def force_reconnect(self, reason: str = "") -> None:
+        ws = self._ws
+        if ws is not None and not ws.closed and not self._closing:
+            await ws.close()
 
     async def close(self) -> None:
         self._closing = True

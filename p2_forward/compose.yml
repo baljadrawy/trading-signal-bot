@@ -1,4 +1,6 @@
 # Isolated compose project `tsb-p2-forward` (NOT the production compose). No autostart: restart "no".
+# G2-Repeat revision: the data directory is a per-run dataset identity (P2F_DATA_DIR); the image ID claim
+# (P2F_IMAGE_ID) is persisted in the run record and verified by the gate script against the running container.
 name: tsb-p2-forward
 services:
   collector:
@@ -16,8 +18,9 @@ services:
     tmpfs: ["/tmp:size=16m,mode=1777"]
     environment:
       P2F_CONFIG: /config/collector.json
+      P2F_IMAGE_ID: ${P2F_IMAGE_ID:?set P2F_IMAGE_ID to the reviewed image ID}
     volumes:
-      - /home/tradmin/research-data/trading-signal-bot/p2/forward:/data:rw
+      - ${P2F_DATA_DIR:?set P2F_DATA_DIR to the run dataset directory}:/data:rw
       - ${P2F_CONFIG_FILE:?set P2F_CONFIG_FILE}:/config/collector.json:ro
     networks: [p2f]
     logging:

@@ -1,0 +1,128 @@
+# P2-E1 consolidated fix matrix (G2-Repeat revision)
+
+Source of truth for the findings: evidence `p2e1-collector-bounded-20261002T114614Z/12_P2E1_CHECKPOINT.md`, and the
+documents `07d`, `08`, `08b`, `08c` and `08d` in that directory.
+
+**Column key:**
+- **Req** (when the fix is required): R = before the G2 Repeat; G3 = before G3; C = before continuous mode;
+  – = none.
+- **Status:** PLANNED, then IMPLEMENTED and TESTED (updated after Phase D); DEFERRED; or NO_CHANGE.
+- **Test:** `PF.*` = `tests/test_pending_fixes.py`, `RG.*` = `tests/test_regression_g2r.py`,
+  `VI.*` = `tests/test_verify_independent.py`, `G0.*` = `tests/test_collector.py`.
+
+Module abbreviations:
+
+| Abbreviation | Module(s) |
+|---|---|
+| app | `p2_forward/app.py` |
+| tracks | `p2_forward/tracks.py` (new: per-stream sampling and state machine) |
+| tr | `p2_forward/transport.py` |
+| wr | `p2_forward/writer.py` |
+| gd | `p2_forward/guards.py` |
+| rec | `p2_forward/record.py` |
+| cfg | `p2_forward/config.py` |
+| prov | `p2_forward/provenance.py` (new) |
+| VI | `verifier/verify_independent.py` (new; imports nothing from `p2_forward`) |
+| doc | `p2_forward/SCHEMA.md` (new; copied into the data directory) |
+
+## Reliability series (F)
+
+### Required before the G2 Repeat
+
+| ID | Title | Module | Correction | Test |
+|---|---|---|---|---|
+| F1 | 8-message ring skips high-rate samples | tracks | Per stream: the `latest` message plus `held` boundary snapshots. When a message arrives at `r`, for the largest boundary `B < r`, if `latest.recv_ms ≤ B` then `held[B] = latest`. The lookup for `S` returns `latest` if `latest.recv_ms ≤ S`, else the first held entry with `B ≥ S`. The result is re-checked: `recv_ms ≤ S` or no value. This is exact for any burst size, with O(boundaries) memory bounded by the hold window | PF.burst_8 / 100, PF.delayed_sampler_and_boundary_edges, PF.high_rate_no_skips, RG.burst_1000_exact_boundary |
+| F2 | gaps before first observation; wrong start; inflated duration | tracks | Explicit state machine. No gap before the first observation (startup excused until the deadline). A gap starts at the **first missing boundary** and ends at the last missing boundary; `missing_samples` and `duration_ms = last − first + cadence` | PF.never_observed_no_gap, PF.startup_transition…, PF.gap_start_end_and_count |
+| F3 | gap cause uses any connection | tracks / app | Each stream is mapped to its own connection; the cause comes from that connection's state at boundary `S` | PF.gap_cause_uses_own_connection |
+| F4 | low-rate book on a live connection treated as stale | tracks | Book on a **data-live** connection is persisted with `unchanged=true` (event-driven stream). Stale only beyond the per-tier limit (F40) | PF.low_rate_book… (Tier 0 ≤ 120 s), RG.tier1_low_rate_book_300s_unchanged |
+| F5 | clock midpoint biased by asymmetric RTT | gd / app | Three probes; keep the minimum-RTT one; `uncertainty_ms = rtt/2`; state from `abs(skew) − uncertainty` | PF.clock_min_rtt_uncertainty, RG.clock_uncertainty_not_skew |
+| F6 | `serverShutdown` rotation not idempotent | app | A per-connection `rotating` set; repeated events during a rotation are logged and ignored | RG.rotation_idempotent |
+| F7 | untracked candle tasks at shutdown | app | All candle rounds and jobs are kept in a tracked set; cancelled and awaited at stop | RG.candle_tasks_tracked_and_cancelled |
+| F8 | market component age / startup flag | app | Record-level `component_recv_ms` (per symbol), `startup_complete` (≥ 60 s after the market stream became ready), and components older than 24 h dropped and counted | PF.market_component_age_and_startup_flag, RG.market_component_24h_drop |
+| F9 | DEGRADED during normal start | app | State is `STARTING` while every not-ready stream is inside its first-observation deadline | RG.health_starting_then_healthy |
+| F19 | event-loop stall skips boundaries | app / tracks | The sampler processes **every** boundary from the last processed one up to `now − 1 ms` (`sample_until`). A boundary older than the hold window gets an explicit `sampler_stall` gap. `loop_lag_ms` is recorded | PF.sampler_stall_processes_every_boundary, RG.stall_beyond_hold_window_is_explicit_gap |
+| F20 | handler exception kills the connection | tr / app | A per-message try/except calls `on_error` (counted, lifecycle, health reason). A catch-all in the run loop leads to reconnect with backoff. A burst of ≥ 50 handler errors within 60 s forces a reconnect | PF.handler_exception_does_not_kill_connection, RG.handler_exception_visible_in_health |
+| F21 | crashed core task invisible | app | A supervisor wraps each required task: an exception leads to lifecycle `task_failed`, a health reason and a restart with backoff. More than 5 failures in 10 min leads to FAILED and a stop with a non-zero exit | RG.required_task_crash_supervised |
+| F22 | SUBSCRIBE error hidden | tr / app | The ack `{"result":null,"id":n}` maps to the streams of that request. An error response leads to lifecycle `subscribe_failed`, the streams going to FAILED, and DEGRADED | PF.subscribe_error_is_reported, RG.subscribe_error_degrades_health |
+| F23 | 418 leaves WebSockets open | gd / tr / app | `RateGuard.on_418` triggers the ban callbacks: every WS is closed immediately, run loops wait while banned, health is `BANNED_418`, and streams get a `banned_418` gap | RG.http_418_closes_all_ws |
+| F26 | verifier: idempotent vs conflicting duplicates | VI | candle / universe: identical payload = IDEMPOTENT (allowed), different payload = CONFLICTING (fail). Any other type duplicated = fail | VI.repeated_candle_fetch_idempotent, VI.conflicting_candle_fails |
+| F27 | verifier shares collector code | VI | A new standalone verifier using only the stdlib, with its own field list, `obs_id` formatter, SHA-256, cadence / boundary logic and gap reconciliation. A test asserts that it does not import `p2_forward` | VI.no_collector_imports |
+| F28 | message-rate / loop-lag metrics | app | Health and health records carry `msgs_per_s` per connection (60 s window), `loop_lag_ms` (last and max over 60 s) and the sampler catch-up count | RG.metrics_present |
+| F36 | health age from emit time | app | Per-stream `last_msg_age_ms` taken from the observation receive time | RG.health_age_from_observation |
+| F37 | no SUBSCRIBE ack deadline | app | Ack deadline 10 s from send. On timeout: lifecycle `subscribe_timeout`, streams FAILED, the connection forced to reconnect, health reason | RG.subscribe_no_ack_timeout |
+| F38 | no first-observation deadline | app / tracks | Deadline from WS start: 30 s for Tier-0 book, depth and market; 120 s for Tier-1/2 book. On expiry: lifecycle `never_ready` and a gap (`cause=never_ready`) from the first boundary at or after the deadline | RG.first_observation_absent_never_ready |
+| F39 | expected vs subscribed vs observing | app | Health computes `expected` (config + universe), `acked` and `observing` sets; HEALTHY requires equality | RG.partial_subscription_not_healthy |
+| F40 | socket / ping liveness instead of data liveness | tracks / app | A connection is data-live at `S` only if a data message arrived in `[S − 10 s, S]` and it was connected at `S`. Tier-0 book silent > 120 s is a stale gap; Tier-1/2 book silent > 15 min is `stale_suspect` in health | RG.ping_alive_data_stale, RG.tier0_book_silent_120s_gap |
+| F41 | unknown event types / streams only counted | app | Separate counters `unknown_stream` / `unknown_event` / `malformed`; health `warnings` list; the gate requires 0 or an explanation | RG.unknown_stream_counted_and_warned |
+| F43 | writer thread death invisible | wr / app | The writer catches failures per record (rejected and counted); a fatal error is recorded; beat plus durable-lag tracking. The supervisor detects a dead writer and then: marker file, stderr, FAILED, stop, exit code 3 | RG.writer_thread_death_detected, RG.writer_bad_record_rejected_not_fatal |
+| F48 | per-task heartbeats | app | `beats[task]`; HEALTHY requires every required task's beat ≤ max(2 × period, 3 s) | RG.required_task_crash_supervised, RG.health_invariant_task_beats |
+| F49 | market snapshot freshness | tracks | Market stale if the newest component is older than 10 s at `S`; this opens a market gap | RG.market_stale_gap |
+| F50 | clock-probe freshness | app | Clock fresh only if the last successful probe is ≤ 1,200 s old; otherwise a health reason (DEGRADED) | RG.clock_stale_degrades |
+| F51 | STOPPED despite writer timeout | app | `STOPPED` only if the writer thread has exited and 0 `.partial` files remain; otherwise `STOPPED_INCOMPLETE` and exit code 2 | RG.stopped_incomplete_on_writer_timeout |
+| F52 | verifier misses an absent stream | VI | Expected streams from the run record (config + universe) compared with the observed streams; an absent stream fails | VI.absent_stream_fails |
+| F53 | verifier completeness window | VI | The expected window is the full authorized window, `(ws_start, stop_requested)`. Startup is excused only before the first persisted sample and before the deadline | VI.full_window_missing_first_and_last_detected |
+| F54 | no explicit HEALTHY definition | app | `health_eval()` implements the pass-3 invariant (tasks, writer, streams, sets, deadlines, disk, ban, clock, freshness of the health record itself) | RG.health_invariant_* |
+| F55 | gap ID collision | rec / app | `gap_id = gap\|boot8\|seq\|key\|first\|last\|cause` (per-boot sequence). Lifecycle and health IDs also carry a per-boot sequence | RG.multiple_gap_ids_unique_and_all_persisted |
+
+### Deferred and closed items
+
+| ID | Title | Req | Status |
+|---|---|---|---|
+| F10 | daily universe refresh / tier transitions | C | DEFERRED |
+| F11 | rotation without overlap | – | NO_CHANGE (logged `overlap_ok`) |
+| F12–F18 | expected / no issue | – | NO_CHANGE (G0) |
+| F24 | proactive 24 h rotation | C | DEFERRED |
+| F25 | universe-load failure leads to an ungraceful stop | G3 | DEFERRED (G2 Repeat is `tier0_only`: no REST universe load) |
+| F29 | backup script: `.idx` files, partial-day guard, free-space check | C | DEFERRED (script not scheduled) |
+| F30–F35 | no issue / non-blocking | – | NO_CHANGE |
+| F42 | partial REST universe accepted | G3 | DEFERRED (not exercised by `tier0_only`) |
+| F44 | fsync / write failure | – | NO_CHANGE (G0) |
+| F45 | no external alert for health-writer failure | C | DEFERRED (alert for continuous mode) |
+| F46 / F47 | queue metrics; per-boot counters | – | NO_CHANGE |
+
+## Research-usability series (R)
+
+### Required before the G2 Repeat
+
+| ID | Title | Module | Correction | Test |
+|---|---|---|---|---|
+| R01 | provenance | prov / app | An immutable `runs/<boot_id>.json` written at start (0444, fsynced) holding: full effective config and hash, git commit, image tag and ID (build arguments or runtime environment), code SHA-256 per file, Python and package versions, schema, `SCHEMA.md` SHA-256, `sample_semantics`, cadences, tier rules / `RULE_VERSION`, universe, expected streams and endpoints, `depth_levels`, clock method, host label. Its SHA-256 and content are embedded in the `start` lifecycle record; manifest entries carry `boot_id` and `run_record` | RG.provenance_run_record_complete |
+| R02 | historical health | app | A `health` raw record every 60 s and on every state change (state, reasons, warnings, stream summary, tasks, writer, queue, counters, clock, disk) | RG.historical_health_records |
+| R03 | disk-stop invisible | wr / app | At HARD_STOP the writer refuses only market observations; control records (lifecycle, gap, health) are still written. Separately, a fsynced marker `control/disk_stop-<boot>-<ms>.json` plus a stderr line (not via the writer queue). Observing streams get a `disk_hard_stop` gap | RG.disk_stop_evidence |
+| R06 | `SCHEMA.md` / PIT documentation | doc / prov | `SCHEMA.md` (v2) is packaged and copied into `<data>/docs/SCHEMA-v2-<sha8>.md` (0444). Its hash goes in the run record | RG.schema_doc_installed |
+| R09 | explicit depth N | rec / app | Record-level `depth_levels` on every depth record; the verifier checks it equals the stream suffix and that the arrays have no more than that many levels | RG.depth_levels_explicit, VI.depth_levels_checked |
+| R16 | `.idx` amplification | wr | Sync and write an index line only for segments with records in the current block; idle segments are durable at their last non-empty block and are closed with a final sync. Per-record durability within `flush_interval_s` is unchanged | RG.idle_segment_no_idx_lines |
+| R17 | clock-method provenance | gd / app | Clock payload `method = "min_rtt_of_3_midpoint_v1"`, the probes, `uncertainty_ms`, `rtt_ms`; also in the run record | RG.clock_payload_method |
+
+### Deferred and closed items
+
+| ID | Title | Req | Status |
+|---|---|---|---|
+| R04 | universe ranking inputs / exclusions | G3 | DEFERRED |
+| R05 | tier-transition semantics | C | DEFERRED (document with F10) |
+| R07 | unchanged vs stale | (R02 + R06) | covered by R02 and `SCHEMA.md` |
+| R08 | PIT join rules | (R06) | documented in `SCHEMA.md` |
+| R10–R12 | cross-stream IDs, latency, candles | (R06) | documented in `SCHEMA.md` |
+| R13 | schema evolution | C | the policy is stated in `SCHEMA.md` now; full v2 reader support before continuous mode |
+| R14 | missing-data taxonomy | – | via R02, R03 and `SCHEMA.md` |
+| R15 | contamination | – | NO_ISSUE |
+| R18 | host label | – | via R01 (`host_label`) |
+
+## Test-fixture corrections (stated openly, with the assertions unchanged)
+
+1. **`PF.test_clock_min_rtt_uncertainty`.** The tuples `(server, 0, rtt)` contradict the documented `(server, t0, t1)`
+   semantics: the arithmetic gives a skew of +970, not −30. Fixture corrected to `t0 = 1000`, `t1 = 1000 + rtt`.
+   The same assertions are kept (skew −30, uncertainty 130, OK).
+2. **`PF.test_low_rate_book_live_connection_is_unchanged_not_gap`.** Written before pass 3. As written, the
+   connection has no data at all for 300 s and the stream is Tier-0 book, which requires a stale gap after 120 s
+   under F40. Fixture changes:
+   - feed `!miniTicker@arr` every second, as conn0 does in production (data liveness);
+   - keep the Tier-0 window ≤ 120 s.
+   A separate Tier-1 300 s test keeps the original 300 s intent (RG.tier1_low_rate_book_300s_unchanged).
+3. **`PF.test_gap_start_end_and_count`.** The fixture placed the last depth message 1.1 s before the first
+   asserted missing boundary. G2 evidence (`00_depth_push_jitter.txt`) shows depth push inter-arrival of
+   971–1,039 ms, so a 1-push tolerance is required to avoid false gaps.
+   - Fixture change: the message moves from `S−100` to `S−1001`, so the boundary `S+1000` is beyond the 2 s
+     tolerance.
+   - The assertions are unchanged: first `S+1000`, last `S+7000`, 7 missing.
+   - A no-false-gap jitter test is added (RG.depth_jitter_1039ms_no_gap).
