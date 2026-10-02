@@ -59,7 +59,17 @@ def validate_inputs(cfg: dict, exchange_info, tickers) -> tuple:
         qv, o, c = _num(t.get("quoteVolume")), _num(t.get("openPrice")), _num(t.get("lastPrice"))
         if qv is not None and qv >= 0 and o is not None and o >= 0 and c is not None and c >= 0:
             valid_tk.add(t["symbol"])
-    stats = {"exchangeinfo_symbols": len(ei_syms), "usdt_trading": len(usdt_trading), "tickers": len(tk_syms),
+    # M3: reverse completeness — a liquid USDT ticker absent from exchangeInfo means exchangeInfo is partial
+    missing_liquid = sorted(t["symbol"] for t in tickers if isinstance(t, dict) and isinstance(t.get("symbol"), str)
+                            and t["symbol"].endswith("USDT") and t["symbol"] not in ei_syms
+                            and (_num(t.get("quoteVolume")) or 0) >= cfg["tier1_min_quote_volume"])
+    if missing_liquid:
+        problems.append(f"liquid_ticker_missing_from_exchangeinfo:{len(missing_liquid)}:{','.join(missing_liquid[:5])}")
+    st = {s["symbol"]: s.get("status") for s in exchange_info["symbols"] if isinstance(s, dict) and isinstance(s.get("symbol"), str)}
+    for t0 in cfg["tier0"]:                                         # m6: Tier 0 must be TRADING with a valid ticker
+        if st.get(t0) != "TRADING" or t0 not in valid_tk:
+            problems.append(f"tier0_unavailable:{t0}")
+    stats = {"exchangeinfo_symbols": len(ei_syms), "liquid_tickers_missing_from_exchangeinfo": len(missing_liquid), "usdt_trading": len(usdt_trading), "tickers": len(tk_syms),
              "tickers_valid": len(valid_tk), "dup_exchangeinfo": dup_ei, "dup_tickers": dup_tk,
              "malformed_exchangeinfo_entries": bad_ei, "malformed_ticker_entries": bad_tk}
     if not exchange_info["symbols"] or not tickers:
@@ -95,12 +105,12 @@ def evaluate(cfg: dict, exchange_info: dict, tickers: list, prior: dict | None =
         qv = _num(t.get("quoteVolume")) if t else None
         o = _num(t.get("openPrice")) if t else None
         c = _num(t.get("lastPrice")) if t else None
-        change = (c / o - 1.0) if (o and c is not None and o > 0) else (0.0 if t else None)
+        change = (c / o - 1.0) if (o and c is not None and o > 0) else (0.0 if t else None)   # unrounded for ranking
         rec = {"symbol": sym, "status": e.get("status") if e else None, "base": e.get("baseAsset") if e else None,
                "in_exchangeinfo": e is not None, "in_ticker": t is not None,
                "quote_volume_raw": t.get("quoteVolume") if t else None, "open_raw": t.get("openPrice") if t else None,
                "last_raw": t.get("lastPrice") if t else None, "quote_volume": qv,
-               "change": None if change is None else round(change, 10),
+               "change": change,
                "eligible": False, "excluded_reason": None, "volume_rank": None, "tier": None, "hysteresis_reason": None}
         if sym in tier0:
             rec["excluded_reason"] = None if e and e.get("status") == "TRADING" else "tier0_not_trading"

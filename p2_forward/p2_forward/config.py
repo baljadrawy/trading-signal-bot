@@ -70,9 +70,9 @@ DEFAULTS = {
     "health_record_interval_s": 60,          # historical health raw records (R02)
     "universe_load_attempts": 3,             # F25: bounded initial universe load, then fail closed
     "universe_retry_backoff_s": [5, 15],     # F25: sleep before attempt 2, 3 (last value repeats)
-    "universe_min_usdt_trading": 200,        # F42: fewer TRADING USDT symbols than this = suspicious/partial
-    "universe_min_ticker_coverage": 0.95,    # F42: share of TRADING USDT symbols with a valid 24h ticker
-    "universe_max_invalid_fraction": 0.01,   # F42: invalid numeric tickers tolerated
+    "universe_min_usdt_trading": 350,        # F42: fewer TRADING USDT symbols = partial (live ~500 seen in G2R market data)
+    "universe_min_ticker_coverage": 0.99,    # F42: share of TRADING USDT symbols with a valid 24h ticker
+    "universe_max_invalid_fraction": 0.005,  # F42: invalid numeric tickers tolerated
     "universe_max_tier1_change": 0.5,        # F42: refresh changing Tier 1/2 membership by more = suspicious
     "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
     "reconnect_test_conn": "conn0-book",

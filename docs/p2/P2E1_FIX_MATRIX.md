@@ -166,3 +166,16 @@ itself:
 | NB2 | MAJOR | a 0.5 % gap budget meant zero tolerance for market (about 120 boundaries) | declared floor: allowance per stream = max(2, 0.5 % of expected boundaries) | – (spec constant) |
 | D | NOTE | a single candle 5xx failed with no retry | 5xx and malformed responses are retried until the round deadline | – |
 | B | NOTE | an external monitor stop before the self-stop would give reason `signal` | monitor deadline set to 7,500 s (self-stop at 7,200 s) | gate evidence |
+
+## Pre-G3 closure (after G2 Repeat owner acceptance)
+
+| ID | Resolution | Tests |
+|---|---|---|
+| R04 | CLOSED: universe `tiers-v2` with a per-candidate evaluation; raw REST bodies persisted; effective-from lifecycle; the verifier rebuilds candidates from the raw bodies and recomputes tiers, ranks, reasons, hysteresis and PIT | `test_g3_prereqs`: UniverseR04, G3EndToEnd, `PreG3ReviewVerifier.test_M2*` |
+| F25 | CLOSED: bounded attempts with backoff; fail closed (`startup_failed`, FAILED, writer stop, exit 5, even after SIGTERM) | StartupF25, `test_m1*` |
+| F42 | CLOSED: sanity checks (malformed, missing, empty, partial including reverse completeness, duplicate, invalid, inconsistent, Tier 0); deterministic refresh policy (keep previous, DEGRADED) | SanityF42, `test_M3*` |
+
+**Bounded pre-G3 review** (independent reviewer). It found B1 (HEALTHY before every stream observed again after a
+reconnect), B2 (a new listing's candle), M1 (reconnect exemption too broad), M2 (raw inputs not persisted), M3
+(partial `exchangeInfo`), and m1–m3, m5–m7. All are fixed with tests, and the spec is re-pinned as
+`g3-recommended-6h-v2`.

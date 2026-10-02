@@ -235,7 +235,7 @@ def g3_test_spec(runtime=16, reconnect_at=7):
     s["reconnect"].update(at_s=reconnect_at, recover_within_s=6, reconnect_within_s=6)
     s["resources"]["require_monitor"] = False
     s["health"]["startup_s"] = 3
-    s["health"]["max_non_healthy_fraction"] = 0.5          # 16 s run: the reconnect is a large share of it
+    s["health"]["max_non_healthy_time_fraction"] = 0.5     # 16 s run: startup/stop dominate the short window
     return s
 
 
@@ -378,5 +378,154 @@ class SpecPin(unittest.TestCase):
     def test_exported_spec_files_equal_pinned_constants(self):
         import pathlib
         d = pathlib.Path(__file__).resolve().parents[1] / "verifier" / "specs"
-        self.assertEqual(json.loads((d / "g3-recommended-6h-v1.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v2.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
         self.assertEqual(json.loads((d / "g2r-tier0-2h-v1.json").read_text()), json.loads(json.dumps(VI.G2R_SPEC)))
+
+
+# ------------------------------------------------------------------------------------------------ review round (pre-G3)
+from p2_forward import transport as T, writer as Wm   # noqa: E402
+
+
+class PreG3Review(unittest.TestCase):
+    def test_B1_health_awaits_post_reconnect_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = healthy_collector(d)
+            try:
+                c.activity["conn0-book"].transitions.append((A.now_ms(), True))      # reconnect after the last data
+                st, hard, _, _ = c.health_eval()
+                self.assertEqual(st, "DEGRADED"); self.assertIn("awaiting_post_reconnect:btcusdt@bookTicker", hard)
+                self.assertNotIn("expected_ne_observing", hard)
+            finally:
+                stop_writer(c)
+
+    def test_B2_new_listing_candle(self):
+        class Rest:
+            weight_used_total = 0
+            def __init__(self, first): self.first = first
+            async def get(self, path, params=None, urgent=False):
+                if params.get("startTime") == 0:
+                    return 200, [[self.first, "1", "1", "1", "1", "1", self.first + 1]], time.time_ns(), 0, 0
+                return 200, [], time.time_ns(), 0, 0
+        async def go(d, first):
+            c = mk(d); c.rest = Rest(first)
+            await c.candle_job("NEWUSDT", "1d", 1_790_000_000_000 - 86_400_000, time.monotonic() + 5)
+            return c
+        with tempfile.TemporaryDirectory() as d:
+            c = asyncio.run(go(d, 1_790_000_000_000))
+            g = [r["payload"] for r in drain(c) if r["type"] == "gap"][0]
+            self.assertEqual(g["cause"], "candle_not_listed_yet"); self.assertGreater(g["first_open_ms"], g["first_missing_ms"])
+            self.assertEqual(c.stats["rejected"].get("candle_unexpected", 0), 0)
+        with tempfile.TemporaryDirectory() as d:
+            c = asyncio.run(go(d, 1_000))
+            g = [r["payload"] for r in drain(c) if r["type"] == "gap"][0]
+            self.assertEqual(g["cause"], "candle_unexpected_response"); self.assertEqual(c.stats["rejected"]["candle_unexpected"], 1)
+
+    def test_M3_partial_exchangeinfo_and_tier0(self):
+        ei = exchange_info(); ei["symbols"] = [s for s in ei["symbols"] if s["symbol"] != "A03USDT"]
+        ok, problems, _ = U.validate_inputs(cfg_with(), ei, tickers())
+        self.assertFalse(ok); self.assertTrue(any(p.startswith("liquid_ticker_missing_from_exchangeinfo") for p in problems))
+        ei = exchange_info(); [s.update(status="BREAK") for s in ei["symbols"] if s["symbol"] == "ETHUSDT"]
+        ok, problems, _ = U.validate_inputs(cfg_with(), ei, tickers())
+        self.assertIn("tier0_unavailable:ETHUSDT", problems)
+
+    def test_m1_signal_during_universe_load_still_fails_closed(self):
+        async def failing(self):
+            self.stop_reason = "signal"; self.startup_failure = ["x"]; return False
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(A.Collector, "establish_universe", new=failing):
+            cfg = g3_test_cfg(d, runtime=4, reconnect_at=0); c = A.Collector(cfg); c.session_factory = FakeExchange
+            with mock.patch.dict(os.environ, ENV), contextlib.redirect_stderr(io.StringIO()):
+                code = asyncio.run(c.run())
+            self.assertEqual((code, c.state), (A.EXIT_STARTUP, "FAILED"))
+
+    def test_m2_m3_rest_counters(self):
+        class Resp:
+            status, headers = 200, {"x-mbx-used-weight-1m": "777"}
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def read(self): return b"not json"
+        async def go():
+            st = Wm.new_stats(); g = G.RateGuard()
+            rc = T.RestClient(mock.Mock(get=lambda *a, **k: Resp()), g, st)
+            r = await rc.get("/api/v3/klines"); g.observe_header("5")
+            return r[0], st, g
+        status, st, g = asyncio.run(go())
+        self.assertEqual(status, "malformed"); self.assertEqual(st["malformed"], 0); self.assertEqual(st["rest_malformed"], 1)
+        self.assertEqual((g.observed, g.observed_max), (5, 777))
+
+
+class PreG3ReviewVerifier(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.base = os.path.join(cls.tmp.name, "data"); os.makedirs(cls.base)
+        cls.col, cls.code, cls.sess = run_g3_e2e(cls.base)
+        cls.rep = VI.verify(cls.base, spec=g3_test_spec())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def copy(self):
+        d = tempfile.mkdtemp(dir=self.tmp.name); dst = os.path.join(d, "data"); shutil.copytree(self.base, dst)
+        return dst
+
+    def test_baseline_passes(self):
+        self.assertTrue(self.rep["PASS"] and self.rep["acceptance"], self.rep["failures"])
+
+    def test_B1_healthy_during_open_gap_detected(self):
+        d = self.copy()
+        g = [x for x in self.rep["gaps"] if x["stream_key"].startswith(("book|", "depth|"))][0]
+        t = g["first_missing_ms"] + 600
+        def fake(ls):
+            x = ls[3]; x["payload"]["state"] = "HEALTHY"; x["payload"]["reasons"] = []
+            x["recv_ts_ns"] = t * 1_000_000; x["observed_at_ms"] = x["available_at_ms"] = t
+            return ls
+        recertify(d, segs_of(d, "health")[0], fake)
+        self.assertIn("HEALTHY_DURING_OPEN_GAP", VI.verify(d)["failures"])
+
+    def test_M1_gap_on_other_connection_inside_window_not_exempt(self):
+        d = self.copy()
+        cr = self.rep["controlled_reconnect"]
+        segs = segs_of(d, "depth")
+        by = {}
+        for s_ in segs:
+            for l in gzip.open(s_, "rt"):
+                x = json.loads(l); by.setdefault((x["endpoint"], x["symbol"]), []).append(x["sample_ms"])
+        (stream, sym), ms = max(((k, sorted(v)) for k, v in by.items() if k[0].endswith("@depth10")),
+                                key=lambda kv: (len([m for m in kv[1] if m > cr["trigger_ms"]]), kv[0]))
+        key = f"depth|{sym}"
+        drop = [m for m in ms if m > cr["trigger_ms"]][:3]
+        self.assertEqual(len(drop), 3)                               # conn1 (depth) stream, NOT the reconnected conn0
+        for s_ in segs:
+            recertify(d, s_, lambda ls: [x for x in ls if not (x["endpoint"] == stream and x["sample_ms"] in drop)])
+        life = segs_of(d, "lifecycle")[0]
+        boot = json.loads(gzip.open(life, "rt").readline())["boot_id"]
+        cad = ms[1] - ms[0]
+        def add(ls):
+            b = dict(ls[0]); n = (drop[-1] - drop[0]) // cad + 1
+            p = {"stream_key": key, "stream": stream, "first_missing_ms": drop[0], "last_missing_ms": drop[-1], "missing_samples": n,
+                 "cadence_ms": cad, "duration_ms": drop[-1] - drop[0] + cad, "cause": "stale_stream", "causes": ["stale_stream"],
+                 "open_at_stop": False}
+            return ls + [{**b, "type": "gap", "obs_id": f"gap|{boot[:8]}|99999|{key}|{drop[0]}|{drop[-1]}|stale_stream",
+                          "payload": p, "symbol": "A10USDT", "cadence_ms": cad, "recoverability": VI.IRR}]
+        recertify(d, life, add)
+        f = VI.verify(d, spec=g3_test_spec())["failures"]
+        self.assertTrue(any(k.startswith("ACC_GAP_BUDGET") for k in f), f)
+
+    def test_M2_candidates_rebuilt_from_raw_bodies(self):
+        d = self.copy()
+        ufile = [f for f in os.listdir(os.path.join(d, "universe")) if f.startswith("universe-")][0]
+        up = os.path.join(d, "universe", ufile)
+        doc = json.load(open(up)); doc["candidates"] = [c for c in doc["candidates"] if c["symbol"] != "USDCUSDT"]
+        doc["candidate_count"] -= 1
+        os.chmod(up, 0o644); open(up, "w").write(json.dumps(doc, sort_keys=True)); os.chmod(up, 0o444)
+        sha = VI.sha256(up)
+        recertify(d, segs_of(d, "universe")[0], lambda ls: [{**ls[0], "payload": {**doc, "file": "universe/" + ufile, "sha256": sha}}])
+        def act(ls):
+            for x in ls:
+                if x["payload"].get("event") == "universe_active":
+                    x["payload"]["sha256"] = sha
+            return ls
+        recertify(d, segs_of(d, "lifecycle")[0], act)
+        f = VI.verify(d)["failures"]
+        self.assertIn("UNIVERSE_CANDIDATES_NE_RAW_INPUTS", f)    # inputs_sha256 is recomputed from the raw bodies (intact)

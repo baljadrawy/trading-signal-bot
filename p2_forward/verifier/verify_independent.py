@@ -34,6 +34,7 @@ Usage: python3 verify_independent.py <data_dir> [--boot BOOT_ID] [--acceptance g
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import gzip
 import hashlib
@@ -79,7 +80,7 @@ G2R_SPEC = {
 
 
 G3_SPEC = {
-    "name": "g3-recommended-6h-v1",
+    "name": "g3-recommended-6h-v2",
     "profile": "recommended", "tier0": ["BTCUSDT", "ETHUSDT"], "tier1": None, "tier2": None,  # None: from the
     # independently reconstructed universe (R04); limits below
     "universe": {"min_quote_volume": 10_000_000, "tier1_max": 150, "tier2": [20, 10, 30], "expect_no_prior": True,
@@ -94,9 +95,11 @@ G3_SPEC = {
     "gap_budget": {"max_fraction_per_stream": 0.005, "min_allowance_boundaries": 2, "max_gap_ms": 120000,
                    "allowed_causes": ["ws_disconnect_reconnect", "conn_data_stale", "stale_stream",
                                       "awaiting_post_reconnect_data"]},
-    "candle_gap_allowed_causes": ["candle_fetch_interrupted_at_stop", "candle_not_fetched_at_stop"],
-    "health": {"max_non_healthy_fraction": 0.10, "startup_s": 150,
-               "allowed_degraded_reason_prefixes": ["stale:", "conn_not_data_live:", "gap_open:", "gap_short:", "not_acked:"]},
+    "candle_gap_allowed_causes": ["candle_fetch_interrupted_at_stop", "candle_not_fetched_at_stop",
+                                  "candle_not_listed_yet"],
+    "health": {"max_non_healthy_time_fraction": 0.05, "startup_s": 150,
+               "allowed_degraded_reason_prefixes": ["stale:", "conn_not_data_live:", "gap_open:", "gap_short:", "not_acked:",
+                                                    "awaiting_post_reconnect:"]},
     "reconnect": {"at_s": 10800, "conn": "conn0-book", "trigger_tolerance_s": 5, "detect_within_s": 5,
                   "reconnect_within_s": 60, "recover_within_s": 180},
     "forbidden_lifecycle": ["fatal", "task_failed", "handler_exception", "subscribe_failed", "subscribe_timeout",
@@ -280,6 +283,41 @@ def check_universe(rp: Report, by: dict, ev: dict, run: dict, base: str, ws_star
         rp.info["universe"] = {"profile": "tier0_only", "tier0": u["tier0"]}
         return
     cfg = run["config"]
+    src = u.get("source") or {}
+    raw = {}
+    for k in ("exchangeinfo", "ticker"):                         # M2: rebuild candidates from the raw REST bodies
+        sk = src.get(k) or {}
+        rf = os.path.join(base, sk.get("raw_file") or "-")
+        if not os.path.exists(rf):
+            rp.fail("UNIVERSE_RAW_INPUTS_MISSING", k); continue
+        if sha256(rf) != sk.get("raw_file_sha256"):
+            rp.fail("UNIVERSE_RAW_FILE_SHA_MISMATCH", k); continue
+        with gzip.open(rf, "rb") as fh:
+            body = fh.read()
+        if hashlib.sha256(body).hexdigest() != sk.get("body_sha256"):
+            rp.fail("UNIVERSE_RAW_BODY_SHA_MISMATCH", k); continue
+        raw[k] = json.loads(body)
+        if sk.get("recv_ns") is None or sk["recv_ns"] > ws_start * 1_000_000:
+            rp.fail("UNIVERSE_SOURCE_AFTER_EFFECTIVE_FROM", k)        # m7: PIT
+    if u.get("evaluated_ms") is None or u["evaluated_ms"] > ws_start:
+        rp.fail("UNIVERSE_EVALUATED_AFTER_EFFECTIVE_FROM")
+    if len(raw) == 2:
+        ei = {x["symbol"]: x for x in raw["exchangeinfo"].get("symbols", []) if isinstance(x, dict) and x.get("quoteAsset") == "USDT"}
+        tk = {x["symbol"]: x for x in raw["ticker"] if isinstance(x, dict) and isinstance(x.get("symbol"), str)}
+        nm = sorted(set(ei) | {x for x in tk if x.endswith("USDT")} | set(cfg["tier0"]))
+        rebuilt = [[x, (ei.get(x) or {}).get("status"), (ei.get(x) or {}).get("baseAsset"), x in ei, x in tk,
+                    (tk.get(x) or {}).get("quoteVolume"), (tk.get(x) or {}).get("openPrice"), (tk.get(x) or {}).get("lastPrice")]
+                   for x in nm]
+        stored = [[c.get("symbol"), c.get("status"), c.get("base"), c.get("in_exchangeinfo"), c.get("in_ticker"),
+                   c.get("quote_volume_raw"), c.get("open_raw"), c.get("last_raw")] for c in cands]
+        if rebuilt != stored:
+            rp.fail("UNIVERSE_CANDIDATES_NE_RAW_INPUTS", {"rebuilt": len(rebuilt), "stored": len(stored),
+                                                          "diff": sorted({r[0] for r in rebuilt} ^ {r[0] for r in stored})[:10]})
+        ih = hashlib.sha256(json.dumps([[r[0], r[1], r[2], r[5], r[6], r[7]] for r in rebuilt]).encode()).hexdigest()
+        if ih != u.get("inputs_sha256"):
+            rp.fail("UNIVERSE_INPUTS_SHA_MISMATCH")
+    if u.get("candidate_count") != len(cands):
+        rp.fail("UNIVERSE_CANDIDATE_COUNT_MISMATCH")
     th = u.get("thresholds", {})
     if (th.get("min_quote_volume"), th.get("tier1_max"), th.get("tier2")) != \
             (cfg["tier1_min_quote_volume"], cfg["tier1_max"], [cfg["tier2_top_volume"], cfg["tier2_top_movers"], cfg["tier2_max"]]):
@@ -318,14 +356,28 @@ def check_universe(rp: Report, by: dict, ev: dict, run: dict, base: str, ws_star
     order = sorted(elig, key=lambda x: (-elig[x][0], x))
     rank = {x: i + 1 for i, x in enumerate(order)}
     above = [x for x in order if elig[x][0] >= cfg["tier1_min_quote_volume"]][: cfg["tier1_max"]]
+    if u.get("eligible_count") != len(elig):
+        rp.fail("UNIVERSE_ELIGIBLE_COUNT_MISMATCH", [u.get("eligible_count"), len(elig)])
     prior = set()
-    if u.get("prior_universe_id"):
+    if u.get("prior_universe_id"):                                 # load the prior artifact itself (M2)
         rp.info["universe_prior"] = u.get("prior_universe_id")
-        prior = set(u.get("hysteresis_members") or [])              # validated below against eligibility
-        for h_ in prior:
-            if h_ not in elig:
-                rp.fail("UNIVERSE_HYSTERESIS_NOT_ELIGIBLE", h_)
-    t1all = set(above) | (prior - set(above))
+        pu = None
+        ud = os.path.join(base, "universe")
+        for f in sorted(os.listdir(ud)) if os.path.isdir(ud) else []:
+            if f.endswith(".json"):
+                with open(os.path.join(ud, f), encoding="utf-8") as fh:
+                    d_ = json.load(fh)
+                if isinstance(d_, dict) and d_.get("universe_id") == u["prior_universe_id"]:
+                    pu = d_
+        if pu is None:
+            rp.fail("UNIVERSE_PRIOR_ARTIFACT_MISSING", u["prior_universe_id"])
+        else:
+            prior = (set(pu.get("tier1", [])) | set(pu.get("tier2", []))) & set(elig)
+            prior -= set(t0)
+    prior -= set(above)
+    if sorted(prior) != sorted(u.get("hysteresis_members") or []):
+        rp.fail("UNIVERSE_HYSTERESIS_RECOMPUTE_MISMATCH")
+    t1all = set(above) | prior
     vol = sorted(t1all, key=lambda x: (-elig[x][0], x))[: cfg["tier2_top_volume"]]
     mov = sorted(t1all - set(vol), key=lambda x: (-abs(elig[x][1]), x))[: cfg["tier2_top_movers"]]
     t2 = sorted((vol + mov)[: cfg["tier2_max"]])
@@ -345,7 +397,7 @@ def check_universe(rp: Report, by: dict, ev: dict, run: dict, base: str, ws_star
                                               else "below_min_quote_volume")
             if c.get("excluded_reason") != want:
                 rp.fail("UNIVERSE_EXCLUSION_RECOMPUTE_MISMATCH", f"{sym}:{c.get('excluded_reason')}!={want}")
-            if (sym in prior and sym not in above) != bool(c.get("hysteresis_reason")):
+            if (sym in prior) != bool(c.get("hysteresis_reason")):
                 rp.fail("UNIVERSE_HYSTERESIS_REASON_MISMATCH", sym)
     rp.info["universe"] = {"universe_id": a.get("universe_id"), "candidates": len(cands), "eligible": len(elig),
                            "tier0": sorted(t0), "tier1": len(t1), "tier2": len(t2), "hysteresis": sorted(prior),
@@ -697,6 +749,19 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
         cov[name] = dict(c)
         for k in ("expected", "persisted", "gap_covered", "startup_excused", "unexplained"):
             totals[k] += c[k]
+    # B1 general rule: a HEALTHY health record can never be written while any stream has an open gap
+    hl_all = sorted(((r["observed_at_ms"], r["payload"].get("state")) for r in by["health"]))
+    pers_by_key = {e["key"]: sorted(x["sample_ms"] for x in streams.get(n, [])) for n, e in exp.items()}
+    for key, glist in gaps.items():
+        ps = pers_by_key.get(key)
+        if ps is None:
+            continue
+        for g in glist:
+            i = bisect.bisect_right(ps, g["last_missing_ms"])
+            close = ps[i] if i < len(ps) else stop_req
+            for t_, st_ in hl_all:
+                if st_ == "HEALTHY" and g["first_missing_ms"] + 500 <= t_ < close:
+                    rp.fail("HEALTHY_DURING_OPEN_GAP", f"{key}@{t_}")
     known_keys = {e["key"] for e in exp.values()}
     for k in gaps:
         if k not in known_keys and not str(k).startswith(("candle|", "backpressure|", "crash|")):
@@ -903,7 +968,8 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     # REST policy
     rs = spec.get("rest")
     if rs:
-        seen = [((p.get("rest") or {}).get("ip_used_weight_1m_seen") or 0) for p in ctx["health"]]
+        seen = [max((p.get("rest") or {}).get("ip_used_weight_1m_seen") or 0,
+                    (p.get("rest") or {}).get("ip_used_weight_1m_max") or 0) for p in ctx["health"]]
         evs = collections.Counter()
         for p in ctx["health"]:
             for k, v in ((p.get("rest") or {}).get("events") or {}).items():
@@ -946,13 +1012,14 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
         if not rwin and c.get("gap_covered", 0) > allowance:
             rp.fail("ACC_GAP_BUDGET_EXCEEDED", f"{name}:{c.get('gap_covered')}>{allowance} of {exp_n}")
         n_rc = 0
+        on_rc = bool(rwin) and ctx["conn_of"].get(name) == (spec.get("reconnect") or {}).get("conn")
+        inwin = (lambda g: on_rc and rwin[0] <= g["first_missing_ms"] and g["last_missing_ms"] <= rwin[1])
         if rwin:
-            n_rc = sum(g["missing_samples"] for g in ctx["gaps_by_key"].get(e["key"], [])
-                       if rwin[0] <= g["first_missing_ms"] <= rwin[1])
+            n_rc = sum(g["missing_samples"] for g in ctx["gaps_by_key"].get(e["key"], []) if inwin(g))
         if c.get("gap_covered", 0) - n_rc > allowance:
             rp.fail("ACC_GAP_BUDGET_EXCLUDING_RECONNECT_EXCEEDED", f"{name}:{c.get('gap_covered') - n_rc}>{allowance}")
         for g in ctx["gaps_by_key"].get(e["key"], []):
-            if rwin and rwin[0] <= g["first_missing_ms"] <= rwin[1]:
+            if rwin and inwin(g):
                 if set(g.get("causes") or [g.get("cause")]) - set(gb["allowed_causes"]):
                     rp.fail("ACC_GAP_CAUSE_FORBIDDEN", f"{name}:{g.get('causes')}")
                 continue                                           # reconnect-window gap: checked by check_reconnect
@@ -966,6 +1033,9 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
             for g in gl:
                 if g.get("cause") not in spec["candle_gap_allowed_causes"]:
                     rp.fail("ACC_CANDLE_GAP_CAUSE", f"{k}:{g.get('cause')}")
+                if g.get("cause") == "candle_not_listed_yet" and not (
+                        isinstance(g.get("first_open_ms"), int) and g["first_open_ms"] > g["first_missing_ms"]):
+                    rp.fail("ACC_CANDLE_NOT_LISTED_UNPROVEN", k)
         elif str(k).startswith(("backpressure|", "crash|")):
             rp.fail("ACC_GAP_FORBIDDEN_KEY", k)
     # health history budget
@@ -982,7 +1052,28 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
                (r.startswith(("gap_short:", "gap_open:")) and r.rsplit(":", 1)[-1] not in gb["allowed_causes"])]
         if st != "DEGRADED" or not reasons or bad:
             rp.fail("ACC_HEALTH_STATE_FORBIDDEN", {"t": t, "state": st, "reasons": reasons[:5]})
-    if hs and non_ok / len(hs) > h["max_non_healthy_fraction"]:
+    if "max_non_healthy_time_fraction" in h:                   # G3: time-based (records bunch around blips)
+        pts = list(zip(ts, [p.get("state") for p in hs])) + [(stop_req, "END")]
+        bad_ms = tot_ms = 0
+        for (t1_, s1_), (t2_, _) in zip(pts, pts[1:]):
+            lo, hi = max(t1_, ws_start + 1000 * h["startup_s"]), t2_
+            if rwin:
+                if lo < rwin[1] and hi > rwin[0]:
+                    segs_ = [(lo, min(hi, rwin[0])), (max(lo, rwin[1]), hi)]
+                else:
+                    segs_ = [(lo, hi)]
+            else:
+                segs_ = [(lo, hi)]
+            for a_, b_ in segs_:
+                if b_ > a_:
+                    tot_ms += b_ - a_
+                    if s1_ not in ("HEALTHY", "STOPPING"):
+                        bad_ms += b_ - a_
+        frac = bad_ms / tot_ms if tot_ms else 0.0
+        rp.info["health_non_healthy_time_fraction"] = round(frac, 5)
+        if frac > h["max_non_healthy_time_fraction"]:
+            rp.fail("ACC_HEALTH_TIME_BUDGET_EXCEEDED", round(frac, 5))
+    elif hs and non_ok / len(hs) > h["max_non_healthy_fraction"]:
         rp.fail("ACC_HEALTH_BUDGET_EXCEEDED", f"{non_ok}/{len(hs)}")
     if not any(p.get("state") == "HEALTHY" for p in hs):
         rp.fail("ACC_NEVER_HEALTHY")
@@ -1047,8 +1138,9 @@ def check_reconnect(rp: Report, rc: dict, ctx: dict, ws_start: int):
     if not any(d0 <= t_ <= rec_t and p.get("state") == "DEGRADED" for t_, p in hs):
         rp.fail("ACC_RECONNECT_HEALTH_NOT_DEGRADED")
     first_ok = [t_ for t_, p in hs if t_ > d0 and p.get("state") == "HEALTHY"]
-    if not first_ok or first_ok[0] < rec_t:
-        rp.fail("ACC_RECONNECT_HEALTHY_TOO_EARLY", {"first_healthy": first_ok[:1], "recovered": rec_t})
+    if not first_ok or first_ok[0] < u0:                         # never HEALTHY while the connection is down; the
+        rp.fail("ACC_RECONNECT_HEALTHY_TOO_EARLY", {"first_healthy": first_ok[:1], "reconnect": u0})   # gap rule
+    # (HEALTHY_DURING_OPEN_GAP, all streams) covers HEALTHY before every stream observes again
     recov = ev.get("controlled_reconnect_recovered", [])
     if len(recov) != 1:
         rp.fail("ACC_RECONNECT_RECOVERED_RECORD", len(recov))

@@ -296,7 +296,7 @@ class EndToEnd(unittest.TestCase):
             elif isinstance(n, ast.ImportFrom):
                 mods.add((n.module or "").split(".")[0]); self.assertEqual(n.level, 0)
         self.assertNotIn("p2_forward", mods)
-        self.assertLessEqual(mods, {"__future__", "argparse", "collections", "gzip", "hashlib", "json", "os", "stat", "sys"})
+        self.assertLessEqual(mods, {"__future__", "argparse", "bisect", "collections", "gzip", "hashlib", "json", "os", "stat", "sys"})
 
 
 if __name__ == "__main__":

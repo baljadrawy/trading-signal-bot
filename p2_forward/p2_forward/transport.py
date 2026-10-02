@@ -39,6 +39,8 @@ class RestClient:
         self.open_until = {}       # path -> monotonic time
         self.weight_used_total = 0
         self.last_body_sha256 = {}  # path -> SHA-256 of the last 200 body (universe input provenance, R04)
+        self.keep_body = {"/api/v3/exchangeInfo", "/api/v3/ticker/24hr"}
+        self.last_body = {}         # path -> raw bytes of the last 200 body (universe paths only; persisted, M2)
 
     async def get(self, path: str, params: dict | None = None, urgent: bool = False, timeout: float = 15.0):
         """Return (status, json|None, recv_ns, t0_ms, t1_ms) or (reason_str, None, ...) when not sent."""
@@ -66,9 +68,12 @@ class RestClient:
                 try:
                     data = json.loads(body)
                 except ValueError:
-                    self.stats["malformed"] += 1; self._failed(path); return "malformed", None, recv_ns, t0, t1
+                    self.stats["rest_malformed"] = self.stats.get("rest_malformed", 0) + 1     # m2: REST-specific
+                    self._failed(path); return "malformed", None, recv_ns, t0, t1
                 self.fail[path] = 0
                 self.last_body_sha256[path] = hashlib.sha256(body).hexdigest()
+                if path in self.keep_body:
+                    self.last_body[path] = body
                 return 200, data, recv_ns, t0, t1
         except (aiohttp.ClientError, asyncio.TimeoutError):
             self._failed(path)

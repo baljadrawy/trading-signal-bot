@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import collections
 import datetime as dt
+import gzip
+import hashlib
 import json
 import os
 import queue
@@ -305,6 +307,8 @@ class Collector:
             return None, problems
         uni = U.evaluate(self.cfg, ei, tk, prior)
         uni["validation"] = stats
+        uni["_raw"] = {"exchangeinfo": self.rest.last_body.get("/api/v3/exchangeInfo"),
+                       "ticker": self.rest.last_body.get("/api/v3/ticker/24hr")}
         uni["source"] = {"exchangeinfo": {"path": "/api/v3/exchangeInfo", "params": params_ei, "recv_ns": r1,
                                           "body_sha256": self.rest.last_body_sha256.get("/api/v3/exchangeInfo")},
                          "ticker": {"path": "/api/v3/ticker/24hr", "params": params_tk, "recv_ns": r2,
@@ -317,7 +321,11 @@ class Collector:
         if self.cfg["profile"] == "tier0_only":
             self.persist_universe(U.tier0_only(self.cfg), applied=True)
             return True
-        prior = self._prior_universe()
+        try:
+            prior = self._prior_universe()
+        except Exception as e:                                        # noqa: BLE001 - m5
+            self.startup_failure = [f"prior_universe_unreadable:{type(e).__name__}"]
+            return False
         n, backoff, problems = self.cfg["universe_load_attempts"], self.cfg["universe_retry_backoff_s"], []
         for attempt in range(1, n + 1):
             try:
@@ -325,8 +333,11 @@ class Collector:
             except Exception as e:                                    # noqa: BLE001 - malformed shapes etc.
                 uni, problems = None, [f"exception:{type(e).__name__}: {e}"[:200]]
             if uni is not None and not problems:
-                self.persist_universe(uni, applied=True)
-                return True
+                try:
+                    self.persist_universe(uni, applied=True)
+                    return True
+                except Exception as e:                                # noqa: BLE001 - m5: durable reason, then retry
+                    problems = [f"persist_failed:{type(e).__name__}: {e}"[:200]]
             self.lifecycle("universe_attempt_failed", {"attempt": attempt, "of": n, "problems": problems[:20]})
             if attempt < n:
                 await self._sleep(backoff[min(attempt - 1, len(backoff) - 1)])
@@ -356,6 +367,18 @@ class Collector:
     def persist_universe(self, uni: dict, applied: bool) -> dict:
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         uid = R.universe_id(stamp, uni["rule_version"])
+        raw = uni.pop("_raw", None) or {}
+        for k, body in raw.items():                                  # M2: raw REST bodies, immutable, for re-derivation
+            if body is None:
+                continue
+            rp = os.path.join(self.base, "universe", f"raw-{stamp}-{self.boot_id[:8]}-{k}.json.gz")
+            data = gzip.compress(body, mtime=0)
+            with open(rp + ".partial", "wb") as fh:
+                fh.write(data); fh.flush(); os.fsync(fh.fileno())
+            os.rename(rp + ".partial", rp); os.chmod(rp, 0o444)
+            uni.setdefault("source", {}).setdefault(k, {}).update(
+                raw_file=os.path.relpath(rp, self.base), raw_file_sha256=hashlib.sha256(data).hexdigest(),
+                body_bytes=len(body))
         doc = {**uni, "universe_id": uid, "stamp": stamp, "evaluated_ms": now_ms(), "boot_id": self.boot_id,
                "config_hash": self.config_hash, "applied": applied, "trusted": True}
         path = os.path.join(self.base, "universe", f"universe-{stamp}-{self.boot_id[:8]}.json")
@@ -387,6 +410,8 @@ class Collector:
                 with open(os.path.join(d, f), encoding="utf-8") as fh:
                     u = json.load(fh)
             except (OSError, ValueError):
+                continue
+            if not isinstance(u, dict):
                 continue
             if u.get("trusted") and u.get("applied") and u.get("rule_version") == U.RULE_VERSION \
                     and u.get("evaluated_ms", 0) >= cutoff_ms and (best is None or u["evaluated_ms"] > best["evaluated_ms"]):
@@ -766,6 +791,16 @@ class Collector:
                 self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_fetch_interrupted_at_stop", RECOVERABLE)
                 return
             status, data, recv_ns, *_ = await self.rest.get("/api/v3/klines", params)
+            if status == 200 and data == []:                        # B2: no candle at all for that window
+                first = await self._first_candle_open(sym, tf)
+                if first is not None and first > open_ms:
+                    self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_not_listed_yet",
+                                    RECOVERABLE, {"first_open_ms": first})
+                else:
+                    self.stats["rejected"]["candle_unexpected"] += 1
+                    self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_unexpected_response",
+                                    RECOVERABLE, {"first_open_ms": first})
+                return
             if status == 200:
                 if not (isinstance(data, list) and len(data) == 1 and int(data[0][0]) == open_ms and int(data[0][6]) < recv_ns // 1_000_000):
                     self.stats["rejected"]["candle_unexpected"] += 1
@@ -786,6 +821,17 @@ class Collector:
                 return
             self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], f"candle_fetch_failed:{status}", RECOVERABLE)
             return
+
+    async def _first_candle_open(self, sym: str, tf: str):
+        """Open time of the symbol's first-ever candle (one klines call from startTime=0), or None if unknown."""
+        for _ in range(5):
+            status, data, *_ = await self.rest.get("/api/v3/klines", {"symbol": sym, "interval": tf, "startTime": 0, "limit": 1})
+            if status == 200:
+                return int(data[0][0]) if isinstance(data, list) and data and isinstance(data[0], list) else None
+            if self.stop_event.is_set():
+                return None
+            await self._sleep(2 + random.random() * 3)
+        return None
 
     def _candle_symbols(self) -> list:
         u = self.universe
@@ -1070,6 +1116,10 @@ class Collector:
             else:
                 fresh = age is not None and age <= t.stale_ms
             live = self.conn_up_at(t.conn, m) and self.data_live_at(t.conn, m)
+            up = self.last_up(t.conn, m)
+            if up is not None and (last is None or last < up):          # B1: no own data since the (re)connect
+                hard.append(f"awaiting_post_reconnect:{t.name}")
+                continue
             gap_old = t.gap is not None and (t.gap["last"] - t.gap["first"] + t.cadence) > 3 * t.cadence
             if not fresh:
                 hard.append(f"stale:{t.name}")
@@ -1084,7 +1134,7 @@ class Collector:
             (startup if m < self.ws_start_ms + 1000 * self.cfg["subscribe_ack_timeout_s"] else hard).append(
                 f"not_acked:{','.join(missing_ack[:10])}")
         if expected != observing and not any(r.startswith(("stale:", "gap_open:", "gap_short:", "conn_not", "stream_failed",
-                                                            "not_ready")) for r in hard + startup):
+                                                            "not_ready", "awaiting_post_reconnect:")) for r in hard + startup):
             hard.append("expected_ne_observing")
         if self.disk_state == "HARD_STOP" or self.writer.stop_writes.is_set():  # 4.
             hard.append("disk_hard_stop")
@@ -1169,7 +1219,8 @@ class Collector:
             "gaps_open": sum(1 for t in self.all_tracks() if t.gap is not None), "gaps_closed_total": self.gap_count,
             "universe": {k: len(self.universe[k]) for k in ("tier0", "tier1", "tier2")} if self.universe else None,
             "rest": {"own_weight_1m": self.rate.own_used(), "budget": self.cfg["rest_budget_weight_per_min"],
-                     "ip_used_weight_1m_seen": self.rate.observed, "events": dict(self.rate.events),
+                     "ip_used_weight_1m_seen": self.rate.observed, "ip_used_weight_1m_max": self.rate.observed_max,
+                     "events": dict(self.rate.events),
                      "total_weight": self.rest.weight_used_total if self.rest else 0},
             "clock": {"state": self.clock.state, "skew_ms": self.clock.last_skew_ms,
                       "uncertainty_ms": self.clock.uncertainty_ms, "age_s": self.clock.age_s(), "method": C.CLOCK_METHOD},
@@ -1378,7 +1429,9 @@ class Collector:
                                  "max_runtime_s": self.cfg["max_runtime_s"], "recovered": rec_gaps,
                                  "run_record_file": rel, "run_record_sha256": self.run_record_sha,
                                  "run_record": self.run_record, "startup_failed": True})
-        self.lifecycle("startup_failed", {"reason": "universe_unavailable", "problems": self.startup_failure[:20]})
+        self.lifecycle("startup_failed", {"reason": "universe_unavailable", "problems": self.startup_failure[:20],
+                                          "signal_received": self.stop_reason == "signal"})
+        self.stop_reason = None                                       # m1: always FAILED / exit 5, even after SIGTERM
         self.fatal("startup_failed:universe_unavailable", EXIT_STARTUP)
         self.write_health(record=True)
         self.lifecycle("stop", {"reason": self.stop_reason, "stop_requested_ms": now_ms(), "last_boundary_ms": None,

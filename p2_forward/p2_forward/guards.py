@@ -20,6 +20,7 @@ class RateGuard:
         self.reserve = urgent_reserve      # non-urgent calls may not consume the last `reserve` weight
         self.window = collections.deque()
         self.observed = 0
+        self.observed_max = 0               # m3: peak IP-wide used weight seen in any response header
         self.rest_blocked_until = 0.0
         self.banned_until = 0.0
         self.events = collections.Counter()
@@ -52,6 +53,7 @@ class RateGuard:
     def observe_header(self, used_weight) -> None:
         try:
             self.observed = int(used_weight)
+            self.observed_max = max(self.observed_max, self.observed)
         except (TypeError, ValueError):
             pass
 

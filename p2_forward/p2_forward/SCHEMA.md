@@ -157,6 +157,7 @@ the age limits above).
 | `backpressure_or_rejected` | queue shed or record rejected |
 | `candle_fetch_failed:<status>` / `candle_unexpected_response` / `candle_exception` | candle not fetched |
 | `candle_fetch_interrupted_at_stop` / `candle_not_fetched_at_stop` | the run stopped before the candle was fetched (recoverable) |
+| `candle_not_listed_yet` | klines returned `[]` and the symbol's first-ever candle (`first_open_ms`, in the gap) opens later: nothing exists to capture |
 | `crash_recovery` | interval lost to a crash, from the `.partial` salvage |
 
 Book, depth and market gaps are **irreplaceable**: never bridged or interpolated.
@@ -183,6 +184,7 @@ Book, depth and market gaps are **irreplaceable**: never bridged or interpolated
 | | - no handler exception in the last 10 min and no open queue drops; |
 | | - no wall-clock step in the last 10 min, no `seq_reset`, no quarantined segment, no failed emit. Warnings (not hard): malformed, unknown stream or event, `seq_regression`, `recv_clock_regression` |
 | `STARTING` | only startup reasons, each inside its deadline |
+| (`awaiting_post_reconnect:<stream>`) | hard reason: the stream has received nothing since its connection's most recent (re)connect, so it is not yet observing again |
 | `DEGRADED` | any hard reason (listed) |
 | `DEGRADED_DISK` | disk hard stop |
 | `BANNED_418` | Binance ban |
@@ -237,8 +239,9 @@ Every evaluation is an immutable artifact `universe/universe-<stamp>-<boot8>.jso
 - `tier0`, `tier1`, `tier2`, `hysteresis_members`, `eligible_count`, `candidate_count`, `inputs_sha256`;
 - `thresholds`, including the stablecoin and fiat bases;
 - `ranking` rule, `prior_universe_id`, `validation` statistics;
-- `source`: REST path, params, `recv_ns` and SHA-256 of the raw response body, for `exchangeInfo`
-  (`permissions=SPOT`, **all statuses**) and `ticker/24hr?type=MINI`;
+- `source`: for `exchangeInfo` (`permissions=SPOT`, **all statuses**) and `ticker/24hr?type=MINI`, the REST path,
+  params, `recv_ns`, SHA-256 of the raw body, `raw_file` (`universe/raw-<stamp>-<boot8>-<k>.json.gz`, 0444),
+  `raw_file_sha256` and `body_bytes`. The raw bodies are kept so the evaluation can be re-derived exactly;
 - `evaluated_ms`, `applied`, `trusted`.
 
 **`candidates`** is one entry per candidate, sorted by symbol: every USDT-quoted symbol in `exchangeInfo` (any
@@ -259,6 +262,9 @@ status), plus USDT tickers absent from `exchangeInfo`, plus Tier 0. Each entry h
 - **Tier 2** is the top `tier2_top_volume` of that set by volume, plus the top `tier2_top_movers` by
   `|last/open − 1|`, capped at `tier2_max`. Tier 2 members are removed from Tier 1.
 
+`inputs_sha256 = sha256(json.dumps([[symbol, status, base, quoteVolume_raw, openPrice_raw, lastPrice_raw], …]))`
+over all candidates in symbol order. `change` is stored unrounded and used for ranking.
+
 **Effective from.** The lifecycle record `universe_active` carries `universe_id`, `file`, `sha256` and
 `effective_from_ms = ws_start_ms`. This answers "which symbols were eligible at T and exactly why" from the data
 directory alone. The candidate set is what the exchange reported at evaluation time; delisted symbols are never
@@ -271,7 +277,10 @@ reconstructed from today's exchange data.
 - at least `universe_min_usdt_trading` TRADING USDT symbols;
 - ticker coverage of those symbols at least `universe_min_ticker_coverage`;
 - invalid numeric fraction at most `universe_max_invalid_fraction`;
-- Tier 1/2 membership change against the prior universe at most `universe_max_tier1_change`.
+- Tier 1/2 membership change against the prior universe at most `universe_max_tier1_change`;
+- no USDT ticker with quote volume ≥ the Tier-1 minimum is missing from `exchangeInfo` (so `exchangeInfo` is not
+  partial);
+- Tier 0 is TRADING with a valid ticker.
 
 **Initial load (F25).** At most `universe_load_attempts` attempts, with `universe_retry_backoff_s`. Each failure is
 a lifecycle `universe_attempt_failed` with its problems. If every attempt fails, the collector **fails closed**:
