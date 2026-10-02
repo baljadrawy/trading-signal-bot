@@ -162,3 +162,7 @@ Each check below is covered by both a synthetic negative fixture and a run over 
 | Irreplaceable | the P1-BG `trading_signals` dumps; Evidence V2 JSONL; future P2-E forward raw market data | backed up (P1-BG; P2-E to be decided) |
 | Certified source | ds-0928 (and the P2-B extension) | read-only, manifest plus sha256 per file; re-verified (2,384 files, 0 mismatches) |
 | Reproducible | the entire `p2/` store (raw, canonical, derived, manifests, quarantine) | **not** added to P1-BG; rebuilt from the backup set, ds-0928 and this code (determinism verified) |
+
+## P2-B extension
+See `MARKET_SPEC.md`: certified W2 spot candles (dataset `p2b-53de1a98c2792cd74206`), seam with ds-0928, W2
+decision coverage and stored-snapshot parity.
