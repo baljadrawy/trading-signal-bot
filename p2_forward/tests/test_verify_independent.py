@@ -111,7 +111,10 @@ ENV = {"P2F_GIT_COMMIT": "e2etest", "P2F_IMAGE_TAG": "tsb-p2-forward:e2e", "P2F_
 def run_e2e(d, runtime=8, **over):
     cfg = {**C.DEFAULTS, "enabled": True, "profile": "tier0_only", "max_runtime_s": runtime, "data_dir": d,
            "flush_interval_s": 0.2, "health_interval_s": 1.0, "health_record_interval_s": 2, "host_label": "e2e",
-           "cadence_ms": {**C.DEFAULTS["cadence_ms"], "market": 2000}, "candle_timeframes": ["15m"], **over}
+           "cadence_ms": {**C.DEFAULTS["cadence_ms"], "market": 2000}, "candle_timeframes": ["15m"],
+           # test-only disk thresholds: the suite also runs inside the image on a 512 MB tmpfs, where the production
+           # 60 GB floor would (correctly) trigger DISK_HARD_STOP
+           "disk_warn_free_gb": 0.02, "disk_stop_free_gb": 0.01, **over}
     C.validate(cfg)
     c = A.Collector(cfg); sess = FakeSession(); c.session_factory = lambda: sess
     with mock.patch.dict(os.environ, ENV), contextlib.redirect_stderr(io.StringIO()):
@@ -277,6 +280,7 @@ class EndToEnd(unittest.TestCase):
         d = tempfile.mkdtemp(dir=self.tmp.name)
         with mock.patch.dict(os.environ, {k: "" for k in ENV}):
             cfg = {**C.DEFAULTS, "enabled": True, "max_runtime_s": 3, "data_dir": d, "flush_interval_s": 0.2,
+                   "disk_warn_free_gb": 0.02, "disk_stop_free_gb": 0.01,
                    "health_interval_s": 1.0, "health_record_interval_s": 2, "candle_timeframes": []}
             c = A.Collector(cfg); c.session_factory = FakeSession
             with contextlib.redirect_stderr(io.StringIO()):
