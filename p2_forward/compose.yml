@@ -1,0 +1,29 @@
+# Isolated compose project `tsb-p2-forward` (NOT the production compose). No autostart: restart "no".
+name: tsb-p2-forward
+services:
+  collector:
+    image: ${P2F_IMAGE:?set P2F_IMAGE to the reviewed image}
+    container_name: tsb-p2-forward-collector
+    restart: "no"
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 0.5
+    mem_limit: 384m
+    memswap_limit: 384m
+    pids_limit: 64
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    environment:
+      P2F_CONFIG: /config/collector.json
+    volumes:
+      - /home/tradmin/research-data/trading-signal-bot/p2/forward:/data:rw
+      - ${P2F_CONFIG_FILE:?set P2F_CONFIG_FILE}:/config/collector.json:ro
+    networks: [p2f]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+networks:
+  p2f:
+    name: tsb-p2-forward-net
+    driver: bridge
