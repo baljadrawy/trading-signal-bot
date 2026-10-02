@@ -61,12 +61,12 @@ G2R_SPEC = {
     "first_obs_deadline_s": {"t0_book": 30, "depth": 30, "market": 30},
     "stale_ms": {"depth": 2000, "book_t0": 120000, "market": 10000}, "conn_data_live_ms": 10000,
     "health_record_interval_s": 60, "max_runtime_s": 7200, "runtime_tolerance_s": 5,
-    "gap_budget": {"max_fraction_per_stream": 0.005, "max_gap_ms": 120000,
+    "gap_budget": {"max_fraction_per_stream": 0.005, "min_allowance_boundaries": 2, "max_gap_ms": 120000,
                    "allowed_causes": ["ws_disconnect_reconnect", "conn_data_stale", "stale_stream",
                                       "awaiting_post_reconnect_data"]},
     "candle_gap_allowed_causes": ["candle_fetch_interrupted_at_stop", "candle_not_fetched_at_stop"],
     "health": {"max_non_healthy_fraction": 0.10, "startup_s": 130,
-               "allowed_degraded_reason_prefixes": ["stale:", "conn_not_data_live:", "gap_open:", "not_acked:"]},
+               "allowed_degraded_reason_prefixes": ["stale:", "conn_not_data_live:", "gap_open:", "gap_short:", "not_acked:"]},
     "forbidden_lifecycle": ["fatal", "task_failed", "handler_exception", "subscribe_failed", "subscribe_timeout",
                             "never_ready", "ws_task_dead", "binance_ban_418", "disk_hard_stop", "seq_reset",
                             "wall_clock_step", "candle_exception"],
@@ -658,8 +658,9 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     for name, e in ctx["exp"].items():
         c = ctx["cov"].get(name, {})
         exp_n = max(1, c.get("expected", 0) - c.get("startup_excused", 0))
-        if c.get("gap_covered", 0) / exp_n > gb["max_fraction_per_stream"]:
-            rp.fail("ACC_GAP_BUDGET_EXCEEDED", f"{name}:{c.get('gap_covered')}/{exp_n}")
+        allowance = max(gb["min_allowance_boundaries"], int(gb["max_fraction_per_stream"] * exp_n))   # NB2: declared floor
+        if c.get("gap_covered", 0) > allowance:
+            rp.fail("ACC_GAP_BUDGET_EXCEEDED", f"{name}:{c.get('gap_covered')}>{allowance} of {exp_n}")
         for g in ctx["gaps_by_key"].get(e["key"], []):
             if g.get("duration_ms", 0) > gb["max_gap_ms"]:
                 rp.fail("ACC_GAP_TOO_LONG", f"{name}:{g.get('duration_ms')}")
@@ -683,7 +684,9 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
             continue
         non_ok += 1
         reasons = p.get("reasons") or []
-        if st != "DEGRADED" or not reasons or any(not r.startswith(tuple(h["allowed_degraded_reason_prefixes"])) for r in reasons):
+        bad = [r for r in reasons if not r.startswith(tuple(h["allowed_degraded_reason_prefixes"])) or
+               (r.startswith(("gap_short:", "gap_open:")) and r.rsplit(":", 1)[-1] not in gb["allowed_causes"])]
+        if st != "DEGRADED" or not reasons or bad:
             rp.fail("ACC_HEALTH_STATE_FORBIDDEN", {"t": t, "state": st, "reasons": reasons[:5]})
     if hs and non_ok / len(hs) > h["max_non_healthy_fraction"]:
         rp.fail("ACC_HEALTH_BUDGET_EXCEEDED", f"{non_ok}/{len(hs)}")

@@ -700,8 +700,9 @@ class Collector:
                                            available_at_ms=max(int(k[6]) + 1, recv_ns // 1_000_000),
                                            recoverability=RECOVERABLE))
                 return
-            if status in ("own_budget", "deferred_ip_weight", "rest_blocked", "paused_ip_weight", "circuit_open", "network_error", 429) \
-                    and time.monotonic() < deadline_mono:
+            transient = status in ("own_budget", "deferred_ip_weight", "rest_blocked", "paused_ip_weight", "circuit_open",
+                                   "network_error", "malformed", 429) or (isinstance(status, int) and 500 <= status < 600)
+            if transient and time.monotonic() < deadline_mono:
                 await self._sleep(2 + random.random() * 3); continue
             if self.stop_event.is_set():
                 return
@@ -979,16 +980,16 @@ class Collector:
                 hard.append(f"stale:{t.name}")
             if not live:
                 hard.append(f"conn_not_data_live:{t.conn}")
-            if gap_old:
-                hard.append(f"gap_open:{t.name}")
+            if t.gap is not None:                                    # NB1: an open gap is always named, with its cause
+                hard.append(f"{'gap_open' if gap_old else 'gap_short'}:{t.name}:{t.gap['cause']}")
             if fresh and live and t.gap is None:
                 observing.add(t.name)
         if not (expected == acked):
             missing_ack = sorted(expected - acked)
             (startup if m < self.ws_start_ms + 1000 * self.cfg["subscribe_ack_timeout_s"] else hard).append(
                 f"not_acked:{','.join(missing_ack[:10])}")
-        if expected != observing and not any(r.startswith(("stale:", "gap_open:", "conn_not", "stream_failed", "not_ready"))
-                                              for r in hard + startup):
+        if expected != observing and not any(r.startswith(("stale:", "gap_open:", "gap_short:", "conn_not", "stream_failed",
+                                                            "not_ready")) for r in hard + startup):
             hard.append("expected_ne_observing")
         if self.disk_state == "HARD_STOP" or self.writer.stop_writes.is_set():  # 4.
             hard.append("disk_hard_stop")

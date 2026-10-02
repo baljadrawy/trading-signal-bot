@@ -77,6 +77,17 @@ class ReviewCollector(unittest.TestCase):
             c = asyncio.run(go2(d))
             self.assertTrue(lifes(drain(c), "clock_round_failed"))
 
+    def test_NB1_open_short_gap_named_with_cause(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = healthy_collector(d)
+            try:
+                c.tracks["ethusdt@depth20"].missing((A.now_ms() // 1000) * 1000, "stale_stream")
+                st, hard, _, _ = c.health_eval()
+                self.assertEqual(st, "DEGRADED"); self.assertIn("gap_short:ethusdt@depth20:stale_stream", hard)
+                self.assertNotIn("expected_ne_observing", hard)
+            finally:
+                stop_writer(c)
+
     def test_M5_task_failure_is_a_hard_health_reason(self):
         with tempfile.TemporaryDirectory() as d:
             c = healthy_collector(d)
@@ -170,6 +181,21 @@ class ReviewVerifier(unittest.TestCase):
         recertify(d, hseg, degrade)
         f = VI.verify(d, spec=test_spec())["failures"]
         self.assertIn("ACC_HEALTH_STATE_FORBIDDEN", f); self.assertIn("ACC_HEALTH_BUDGET_EXCEEDED", f)
+
+    def test_NB1_short_network_gap_health_is_acceptable_but_internal_cause_is_not(self):
+        d = self.copy()
+        hseg = segs_of(d, "health")[0]
+        def short(cause):
+            def f(ls):
+                x = ls[2]; x["payload"]["state"] = "DEGRADED"
+                x["payload"]["reasons"] = [f"gap_short:ethusdt@depth20:{cause}"]
+                return ls
+            return f
+        recertify(d, hseg, short("stale_stream"))
+        self.assertNotIn("ACC_HEALTH_STATE_FORBIDDEN", VI.verify(d, spec=test_spec())["failures"])
+        d2 = self.copy()
+        recertify(d2, segs_of(d2, "health")[0], short("sampler_stall"))
+        self.assertIn("ACC_HEALTH_STATE_FORBIDDEN", VI.verify(d2, spec=test_spec())["failures"])
 
     def test_M1_first_message_inside_boundary_ms_is_excused(self):
         d = self.copy()

@@ -153,3 +153,16 @@ the follow-up commit.
 
 `RV` / `RC` = `tests/test_review_fixes.py`. Two G0 tests were moved off the newly exempted clock type and
 `/api/v3/time` path, with the same assertions on a generic type and path.
+
+### Phase E confirmation pass (commit `94434e3`)
+
+The reviewer confirmed that the B1 false-PASS hole and M1–M6, m1–m6 and N2 are **CLOSED**; N1 is procedural. No
+silent loss or false PASS was found in the new mechanisms. It found two issues created by the acceptance spec
+itself:
+
+| ID | Severity | Finding | Resolution | Test |
+|---|---|---|---|---|
+| NB1 | BLOCKER | a short legitimate gap showed as health reason `expected_ne_observing`, which the spec did not allow; this would spuriously fail a correct run | health now names every open gap as `gap_short:` / `gap_open:<stream>:<cause>`; acceptance allows these only for allowed network causes | `RV.test_NB1_*`, `RC.test_NB1_*` |
+| NB2 | MAJOR | a 0.5 % gap budget meant zero tolerance for market (about 120 boundaries) | declared floor: allowance per stream = max(2, 0.5 % of expected boundaries) | – (spec constant) |
+| D | NOTE | a single candle 5xx failed with no retry | 5xx and malformed responses are retried until the round deadline | – |
+| B | NOTE | an external monitor stop before the self-stop would give reason `signal` | monitor deadline set to 7,500 s (self-stop at 7,200 s) | gate evidence |
