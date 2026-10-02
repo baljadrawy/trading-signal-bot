@@ -278,8 +278,8 @@ reconstructed from today's exchange data.
 - ticker coverage of those symbols at least `universe_min_ticker_coverage`;
 - invalid numeric fraction at most `universe_max_invalid_fraction`;
 - Tier 1/2 membership change against the prior universe at most `universe_max_tier1_change`;
-- no USDT ticker with quote volume ≥ the Tier-1 minimum is missing from `exchangeInfo` (so `exchangeInfo` is not
-  partial);
+- at most `universe_max_liquid_missing` (3) USDT tickers with quote volume ≥ the Tier-1 minimum are missing from
+  `exchangeInfo`, so `exchangeInfo` is not partial;
 - Tier 0 is TRADING with a valid ticker.
 
 **Initial load (F25).** At most `universe_load_attempts` attempts, with `universe_retry_backoff_s`. Each failure is

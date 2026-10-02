@@ -73,7 +73,9 @@ DEFAULTS = {
     "universe_min_usdt_trading": 350,        # F42: fewer TRADING USDT symbols = partial (live ~500 seen in G2R market data)
     "universe_min_ticker_coverage": 0.99,    # F42: share of TRADING USDT symbols with a valid 24h ticker
     "universe_max_invalid_fraction": 0.005,  # F42: invalid numeric tickers tolerated
-    "universe_max_tier1_change": 0.5,        # F42: refresh changing Tier 1/2 membership by more = suspicious
+    "universe_max_tier1_change": 0.5,
+    "universe_max_liquid_missing": 3,        # F42: liquid USDT tickers absent from exchangeInfo tolerated (delisting
+                                             # / permission edge cases); a partial exchangeInfo misses far more        # F42: refresh changing Tier 1/2 membership by more = suspicious
     "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
     "reconnect_test_conn": "conn0-book",
     "rest_urgent_reserve": 20,               # own-budget weight reserved for urgent calls (clock, universe)

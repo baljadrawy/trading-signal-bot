@@ -307,8 +307,8 @@ class Collector:
             return None, problems
         uni = U.evaluate(self.cfg, ei, tk, prior)
         uni["validation"] = stats
-        uni["_raw"] = {"exchangeinfo": self.rest.last_body.get("/api/v3/exchangeInfo"),
-                       "ticker": self.rest.last_body.get("/api/v3/ticker/24hr")}
+        uni["_raw"] = {"exchangeinfo": self.rest.last_body.pop("/api/v3/exchangeInfo", None),     # released once
+                       "ticker": self.rest.last_body.pop("/api/v3/ticker/24hr", None)}            # persisted
         uni["source"] = {"exchangeinfo": {"path": "/api/v3/exchangeInfo", "params": params_ei, "recv_ns": r1,
                                           "body_sha256": self.rest.last_body_sha256.get("/api/v3/exchangeInfo")},
                          "ticker": {"path": "/api/v3/ticker/24hr", "params": params_tk, "recv_ns": r2,
@@ -792,7 +792,7 @@ class Collector:
                 return
             status, data, recv_ns, *_ = await self.rest.get("/api/v3/klines", params)
             if status == 200 and data == []:                        # B2: no candle at all for that window
-                first = await self._first_candle_open(sym, tf)
+                first = await self._first_candle_open(sym, tf, deadline_mono)
                 if first is not None and first > open_ms:
                     self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], "candle_not_listed_yet",
                                     RECOVERABLE, {"first_open_ms": first})
@@ -822,13 +822,14 @@ class Collector:
             self.simple_gap(f"candle|{tf}|{sym}", open_ms, open_ms, TF_MS[tf], f"candle_fetch_failed:{status}", RECOVERABLE)
             return
 
-    async def _first_candle_open(self, sym: str, tf: str):
-        """Open time of the symbol's first-ever candle (one klines call from startTime=0), or None if unknown."""
-        for _ in range(5):
+    async def _first_candle_open(self, sym: str, tf: str, deadline_mono: float):
+        """Open time of the symbol's first-ever candle (klines from startTime=0, limit 1), retried like the job
+        itself until its deadline (budget deferrals during the catch-up round are expected), else None."""
+        while not self.stop_event.is_set():
             status, data, *_ = await self.rest.get("/api/v3/klines", {"symbol": sym, "interval": tf, "startTime": 0, "limit": 1})
             if status == 200:
                 return int(data[0][0]) if isinstance(data, list) and data and isinstance(data[0], list) else None
-            if self.stop_event.is_set():
+            if time.monotonic() >= deadline_mono:
                 return None
             await self._sleep(2 + random.random() * 3)
         return None

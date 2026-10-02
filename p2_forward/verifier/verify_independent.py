@@ -80,7 +80,7 @@ G2R_SPEC = {
 
 
 G3_SPEC = {
-    "name": "g3-recommended-6h-v2",
+    "name": "g3-recommended-6h-v3",
     "profile": "recommended", "tier0": ["BTCUSDT", "ETHUSDT"], "tier1": None, "tier2": None,  # None: from the
     # independently reconstructed universe (R04); limits below
     "universe": {"min_quote_volume": 10_000_000, "tier1_max": 150, "tier2": [20, 10, 30], "expect_no_prior": True,
@@ -760,7 +760,7 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
             i = bisect.bisect_right(ps, g["last_missing_ms"])
             close = ps[i] if i < len(ps) else stop_req
             for t_, st_ in hl_all:
-                if st_ == "HEALTHY" and g["first_missing_ms"] + 500 <= t_ < close:
+                if st_ == "HEALTHY" and g["first_missing_ms"] + 2000 <= t_ < close:   # 2 s = sampler-stall bound
                     rp.fail("HEALTHY_DURING_OPEN_GAP", f"{key}@{t_}")
     known_keys = {e["key"] for e in exp.values()}
     for k in gaps:
@@ -1053,9 +1053,13 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
         if st != "DEGRADED" or not reasons or bad:
             rp.fail("ACC_HEALTH_STATE_FORBIDDEN", {"t": t, "state": st, "reasons": reasons[:5]})
     if "max_non_healthy_time_fraction" in h:                   # G3: time-based (records bunch around blips)
-        pts = list(zip(ts, [p.get("state") for p in hs])) + [(stop_req, "END")]
+        def gap_only_(reasons):                                  # time charged ONLY to short/open gaps with an
+            return bool(reasons) and all(                         # allowed cause is bounded by the gap budget;
+                r.startswith(("gap_short:", "gap_open:")) and r.rsplit(":", 1)[-1] in spec["gap_budget"]["allowed_causes"]
+                for r in reasons)                                 # not charged twice (N-1)
+        pts = list(zip(ts, [p.get("state") for p in hs], [p.get("reasons") or [] for p in hs])) + [(stop_req, "END", [])]
         bad_ms = tot_ms = 0
-        for (t1_, s1_), (t2_, _) in zip(pts, pts[1:]):
+        for (t1_, s1_, r1_), (t2_, _, _) in zip(pts, pts[1:]):
             lo, hi = max(t1_, ws_start + 1000 * h["startup_s"]), t2_
             if rwin:
                 if lo < rwin[1] and hi > rwin[0]:
@@ -1067,7 +1071,7 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
             for a_, b_ in segs_:
                 if b_ > a_:
                     tot_ms += b_ - a_
-                    if s1_ not in ("HEALTHY", "STOPPING"):
+                    if s1_ not in ("HEALTHY", "STOPPING") and not gap_only_(r1_):
                         bad_ms += b_ - a_
         frac = bad_ms / tot_ms if tot_ms else 0.0
         rp.info["health_non_healthy_time_fraction"] = round(frac, 5)

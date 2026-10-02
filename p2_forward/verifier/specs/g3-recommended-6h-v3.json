@@ -76,7 +76,7 @@
  },
  "health_record_interval_s": 60,
  "max_runtime_s": 21600,
- "name": "g3-recommended-6h-v2",
+ "name": "g3-recommended-6h-v3",
  "profile": "recommended",
  "reconnect": {
   "at_s": 10800,

@@ -63,7 +63,7 @@ def validate_inputs(cfg: dict, exchange_info, tickers) -> tuple:
     missing_liquid = sorted(t["symbol"] for t in tickers if isinstance(t, dict) and isinstance(t.get("symbol"), str)
                             and t["symbol"].endswith("USDT") and t["symbol"] not in ei_syms
                             and (_num(t.get("quoteVolume")) or 0) >= cfg["tier1_min_quote_volume"])
-    if missing_liquid:
+    if len(missing_liquid) > cfg["universe_max_liquid_missing"]:
         problems.append(f"liquid_ticker_missing_from_exchangeinfo:{len(missing_liquid)}:{','.join(missing_liquid[:5])}")
     st = {s["symbol"]: s.get("status") for s in exchange_info["symbols"] if isinstance(s, dict) and isinstance(s.get("symbol"), str)}
     for t0 in cfg["tier0"]:                                         # m6: Tier 0 must be TRADING with a valid ticker

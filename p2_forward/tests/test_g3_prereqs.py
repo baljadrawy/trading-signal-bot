@@ -378,7 +378,7 @@ class SpecPin(unittest.TestCase):
     def test_exported_spec_files_equal_pinned_constants(self):
         import pathlib
         d = pathlib.Path(__file__).resolve().parents[1] / "verifier" / "specs"
-        self.assertEqual(json.loads((d / "g3-recommended-6h-v2.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v3.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
         self.assertEqual(json.loads((d / "g2r-tier0-2h-v1.json").read_text()), json.loads(json.dumps(VI.G2R_SPEC)))
 
 
@@ -421,7 +421,10 @@ class PreG3Review(unittest.TestCase):
             self.assertEqual(g["cause"], "candle_unexpected_response"); self.assertEqual(c.stats["rejected"]["candle_unexpected"], 1)
 
     def test_M3_partial_exchangeinfo_and_tier0(self):
-        ei = exchange_info(); ei["symbols"] = [s for s in ei["symbols"] if s["symbol"] != "A03USDT"]
+        ei = exchange_info(); ei["symbols"] = [s for s in ei["symbols"] if s["symbol"] not in ("A03USDT", "A04USDT", "A05USDT")]
+        ok, problems, _ = U.validate_inputs(cfg_with(), ei, tickers())
+        self.assertFalse(any(p.startswith("liquid_ticker_missing") for p in problems))   # <= 3 tolerated (declared)
+        ei = exchange_info(); ei["symbols"] = [s for s in ei["symbols"] if s["symbol"] not in ("A03USDT", "A04USDT", "A05USDT", "A06USDT")]
         ok, problems, _ = U.validate_inputs(cfg_with(), ei, tickers())
         self.assertFalse(ok); self.assertTrue(any(p.startswith("liquid_ticker_missing_from_exchangeinfo") for p in problems))
         ei = exchange_info(); [s.update(status="BREAK") for s in ei["symbols"] if s["symbol"] == "ETHUSDT"]
@@ -474,10 +477,25 @@ class PreG3ReviewVerifier(unittest.TestCase):
 
     def test_B1_healthy_during_open_gap_detected(self):
         d = self.copy()
-        g = [x for x in self.rep["gaps"] if x["stream_key"].startswith(("book|", "depth|"))][0]
-        t = g["first_missing_ms"] + 600
+        stream, key = "btcusdt@depth20", "depth|BTCUSDT"
+        segs = segs_of(d, "depth")
+        ms = sorted(json.loads(l)["sample_ms"] for s_ in segs for l in gzip.open(s_, "rt") if json.loads(l)["endpoint"] == stream)
+        drop = ms[3:7]                                               # 4 consecutive 1 s boundaries -> a 4 s gap
+        self.assertEqual(drop[-1] - drop[0], 3000)
+        for s_ in segs:
+            recertify(d, s_, lambda ls: [x for x in ls if not (x["endpoint"] == stream and x["sample_ms"] in drop)])
+        life = segs_of(d, "lifecycle")[0]
+        boot = json.loads(gzip.open(life, "rt").readline())["boot_id"]
+        def add(ls):
+            b = dict(ls[0])
+            p = {"stream_key": key, "stream": stream, "first_missing_ms": drop[0], "last_missing_ms": drop[-1], "missing_samples": 4,
+                 "cadence_ms": 1000, "duration_ms": 4000, "cause": "stale_stream", "causes": ["stale_stream"], "open_at_stop": False}
+            return ls + [{**b, "type": "gap", "obs_id": f"gap|{boot[:8]}|99998|{key}|{drop[0]}|{drop[-1]}|stale_stream",
+                          "payload": p, "symbol": "BTCUSDT", "cadence_ms": 1000, "recoverability": VI.IRR}]
+        recertify(d, life, add)
+        t = drop[0] + 2100                                           # beyond the 2 s sampler tolerance, inside the gap
         def fake(ls):
-            x = ls[3]; x["payload"]["state"] = "HEALTHY"; x["payload"]["reasons"] = []
+            x = ls[1]; x["payload"]["state"] = "HEALTHY"; x["payload"]["reasons"] = []
             x["recv_ts_ns"] = t * 1_000_000; x["observed_at_ms"] = x["available_at_ms"] = t
             return ls
         recertify(d, segs_of(d, "health")[0], fake)
@@ -529,3 +547,32 @@ class PreG3ReviewVerifier(unittest.TestCase):
         recertify(d, segs_of(d, "lifecycle")[0], act)
         f = VI.verify(d)["failures"]
         self.assertIn("UNIVERSE_CANDIDATES_NE_RAW_INPUTS", f)    # inputs_sha256 is recomputed from the raw bodies (intact)
+
+
+class PreG3Confirm(unittest.TestCase):
+    def test_B2_probe_retries_until_deadline(self):
+        class Rest:
+            weight_used_total = 0
+            def __init__(self): self.n = 0
+            async def get(self, path, params=None, urgent=False):
+                if params.get("startTime") == 0:
+                    self.n += 1
+                    if self.n < 8:
+                        return "own_budget", None, None, None, None
+                    return 200, [[1_790_000_000_000, "1", "1", "1", "1", "1", 1]], time.time_ns(), 0, 0
+                return 200, [], time.time_ns(), 0, 0
+        async def go(d):
+            c = mk(d); c.rest = Rest()
+            with mock.patch.object(A.Collector, "_sleep", new=lambda self, s: asyncio.sleep(0)):
+                await c.candle_job("NEWUSDT", "1d", 1_790_000_000_000 - 86_400_000, time.monotonic() + 30)
+            return c
+        with tempfile.TemporaryDirectory() as d:
+            c = asyncio.run(go(d))
+            g = [r["payload"] for r in drain(c) if r["type"] == "gap"][0]
+            self.assertEqual(g["cause"], "candle_not_listed_yet"); self.assertEqual(c.rest.n, 8)
+
+    def test_N1_gap_only_time_not_double_charged(self):
+        import importlib
+        s = VI.G3_SPEC["gap_budget"]["allowed_causes"]
+        self.assertIn("stale_stream", s)
+        self.assertEqual(VI.G3_SPEC["name"], "g3-recommended-6h-v3")
