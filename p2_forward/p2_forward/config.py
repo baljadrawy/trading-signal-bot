@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-VERSION = "p2e1-collector-1.1.0"
+VERSION = "p2e1-collector-1.2.0"
 SCHEMA = "tsb.p2.forward"
 SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)
 SAMPLE_SEMANTICS = "latest_received_at_or_before_sample_ms"
@@ -68,6 +68,15 @@ DEFAULTS = {
     "market_component_max_age_ms": 86_400_000,
     "clock_probes": 3,                       # min-RTT of N probes (F5)
     "health_record_interval_s": 60,          # historical health raw records (R02)
+    "universe_load_attempts": 3,             # F25: bounded initial universe load, then fail closed
+    "universe_retry_backoff_s": [5, 15],     # F25: sleep before attempt 2, 3 (last value repeats)
+    "universe_min_usdt_trading": 200,        # F42: fewer TRADING USDT symbols than this = suspicious/partial
+    "universe_min_ticker_coverage": 0.95,    # F42: share of TRADING USDT symbols with a valid 24h ticker
+    "universe_max_invalid_fraction": 0.01,   # F42: invalid numeric tickers tolerated
+    "universe_max_tier1_change": 0.5,        # F42: refresh changing Tier 1/2 membership by more = suspicious
+    "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
+    "reconnect_test_conn": "conn0-book",
+    "rest_urgent_reserve": 20,               # own-budget weight reserved for urgent calls (clock, universe)
     "derivatives_enabled": False,
     "aggtrades_enabled": False,
 }
@@ -111,6 +120,14 @@ def validate(cfg: dict) -> None:
               "market_component_max_age_ms", "clock_probes", "health_record_interval_s"):
         if not (isinstance(cfg[k], (int, float)) and cfg[k] > 0):
             raise ConfigError(f"{k} must be > 0")
+    if cfg["rotation_test_at_s"] > 0 and cfg["reconnect_test_at_s"] > 0:
+        raise ConfigError("only one controlled connection test per run (rotation OR reconnect)")
+    if cfg["reconnect_test_conn"] not in ("conn0-book", "conn1-depth"):
+        raise ConfigError("reconnect_test_conn must be conn0-book or conn1-depth")
+    if not (1 <= cfg["universe_load_attempts"] <= 5) or not cfg["universe_retry_backoff_s"]:
+        raise ConfigError("universe_load_attempts must be 1..5 with a backoff list")
+    if not (0 <= cfg["rest_urgent_reserve"] < cfg["rest_budget_weight_per_min"]):
+        raise ConfigError("rest_urgent_reserve out of range")
     if set(cfg["first_obs_deadline_s"]) != {"t0_book", "depth", "market", "t12_book"} or \
             not all(isinstance(v, (int, float)) and v > 0 for v in cfg["first_obs_deadline_s"].values()):
         raise ConfigError("first_obs_deadline_s must define positive t0_book/depth/market/t12_book")

@@ -1,0 +1,151 @@
+{
+ "cadence_ms": {
+  "clock": 600000,
+  "market": 60000,
+  "t0_book": 1000,
+  "t0_depth": 1000,
+  "t1_book": 10000,
+  "t1_depth": 60000,
+  "t2_book": 2000,
+  "t2_depth": 5000
+ },
+ "candle_gap_allowed_causes": [
+  "candle_fetch_interrupted_at_stop",
+  "candle_not_fetched_at_stop"
+ ],
+ "candle_timeframes": [
+  "15m",
+  "1h",
+  "4h",
+  "1d"
+ ],
+ "clock_max_excess_ms": 500,
+ "clock_max_spacing_s": 1200,
+ "conn_data_live_ms": 10000,
+ "depth_levels": {
+  "t0": 20,
+  "t1": 10,
+  "t2": 10
+ },
+ "depth_levels_t0": 20,
+ "first_obs_deadline_s": {
+  "depth": 30,
+  "market": 30,
+  "t0_book": 30,
+  "t12_book": 120
+ },
+ "forbidden_lifecycle": [
+  "fatal",
+  "task_failed",
+  "handler_exception",
+  "subscribe_failed",
+  "subscribe_timeout",
+  "never_ready",
+  "ws_task_dead",
+  "binance_ban_418",
+  "disk_hard_stop",
+  "seq_reset",
+  "wall_clock_step",
+  "candle_exception",
+  "startup_failed",
+  "universe_refresh"
+ ],
+ "gap_budget": {
+  "allowed_causes": [
+   "ws_disconnect_reconnect",
+   "conn_data_stale",
+   "stale_stream",
+   "awaiting_post_reconnect_data"
+  ],
+  "max_fraction_per_stream": 0.005,
+  "max_gap_ms": 120000,
+  "min_allowance_boundaries": 2
+ },
+ "health": {
+  "allowed_degraded_reason_prefixes": [
+   "stale:",
+   "conn_not_data_live:",
+   "gap_open:",
+   "gap_short:",
+   "not_acked:"
+  ],
+  "max_non_healthy_fraction": 0.1,
+  "startup_s": 150
+ },
+ "health_record_interval_s": 60,
+ "max_runtime_s": 21600,
+ "name": "g3-recommended-6h-v1",
+ "profile": "recommended",
+ "reconnect": {
+  "at_s": 10800,
+  "conn": "conn0-book",
+  "detect_within_s": 5,
+  "reconnect_within_s": 60,
+  "recover_within_s": 180,
+  "trigger_tolerance_s": 5
+ },
+ "resources": {
+  "mem_max_mib": 345,
+  "pids_max": 64,
+  "require_monitor": true
+ },
+ "rest": {
+  "forbidden_events": [
+   "http_429",
+   "http_418"
+  ],
+  "ip_weight_max": 2400
+ },
+ "runtime_tolerance_s": 5,
+ "stale_ms": {
+  "book_t0": 120000,
+  "depth": 2000,
+  "market": 10000
+ },
+ "storage": {
+  "design_band_mb_day": [
+   122,
+   446
+  ],
+  "report_only": true
+ },
+ "tier0": [
+  "BTCUSDT",
+  "ETHUSDT"
+ ],
+ "tier1": null,
+ "tier2": null,
+ "universe": {
+  "expect_no_prior": true,
+  "max_attempt_failures": 2,
+  "min_quote_volume": 10000000,
+  "tier1_max": 150,
+  "tier2": [
+   20,
+   10,
+   30
+  ]
+ },
+ "zero_counter_maps": [
+  "dropped",
+  "emit_failed",
+  "writer_rejected"
+ ],
+ "zero_counters": [
+  "malformed",
+  "unknown_stream",
+  "unknown_event",
+  "handler_errors",
+  "seq_regression",
+  "seq_reset",
+  "write_errors",
+  "segments_quarantined",
+  "duplicates_dropped",
+  "recv_clock_regression",
+  "wall_clock_steps",
+  "task_failures",
+  "subscribe_failed",
+  "subscribe_timeout",
+  "never_ready"
+ ]
+}

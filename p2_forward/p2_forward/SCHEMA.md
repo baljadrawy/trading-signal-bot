@@ -19,7 +19,7 @@ and later v2 writers.
 | `….idx` | one line per durable block `{blk, end_offset, records, durable_ts_ns}`; a storage fact, never a research join key |
 | `manifests/<YYYY-MM-DD>.jsonl` | one line per certified segment: `segment`, `sha256`, `records`, `bytes`, `type`, `first_recv_ns`, `last_recv_ns`, `boot_id`, `run_record`, `idx_bytes` |
 | `runs/run-<boot_id>.json` | **run record** (provenance, below; 0444) |
-| `universe/universe-<stamp>-<boot8>.json` | universe snapshot used by the run |
+| `universe/universe-<stamp>-<boot8>.json` | immutable universe evaluation (tiers-v2, section 9a); `applied=true` for the universe actually used |
 | `docs/SCHEMA-v2-<sha8>.md` | this document |
 | `control/*.json` | out-of-band markers (disk hard stop, fatal); tiny, fsynced, 0444 |
 | `quarantine/` | failed or salvaged segment originals (never deleted) |
@@ -228,6 +228,81 @@ The start lifecycle record embeds the full run record and its SHA-256. It holds:
 - `expected_streams` (stream, kind, symbol, tier, cadence, depth N, connection);
 - `schema_doc` (file, SHA-256);
 - `host_label`.
+
+## 9a. Universe evaluation (`tiers-v2`, R04 / F25 / F42)
+
+Every evaluation is an immutable artifact `universe/universe-<stamp>-<boot8>.json`. It is also written as a raw
+`universe` record whose payload equals the file plus `file` and `sha256`. Its `universe_id` is
+`uni|<stamp>|tiers-v2`. Fields:
+- `tier0`, `tier1`, `tier2`, `hysteresis_members`, `eligible_count`, `candidate_count`, `inputs_sha256`;
+- `thresholds`, including the stablecoin and fiat bases;
+- `ranking` rule, `prior_universe_id`, `validation` statistics;
+- `source`: REST path, params, `recv_ns` and SHA-256 of the raw response body, for `exchangeInfo`
+  (`permissions=SPOT`, **all statuses**) and `ticker/24hr?type=MINI`;
+- `evaluated_ms`, `applied`, `trusted`.
+
+**`candidates`** is one entry per candidate, sorted by symbol: every USDT-quoted symbol in `exchangeInfo` (any
+status), plus USDT tickers absent from `exchangeInfo`, plus Tier 0. Each entry holds:
+- `symbol`, `status`, `base`, `in_exchangeinfo`, `in_ticker`;
+- `quote_volume_raw`, `open_raw`, `last_raw` (verbatim strings), `quote_volume`, `change`;
+- `eligible`;
+- `excluded_reason`: one of `not_in_exchangeinfo_spot`, `status_<X>`, `stable_or_fiat_base`,
+  `non_ascii_or_non_alnum`, `no_ticker`, `invalid_ticker`, `below_min_quote_volume`, `rank_cut`,
+  `tier0_not_trading`, or null;
+- `volume_rank` (among eligible symbols), `tier`, `hysteresis_reason`.
+
+**Rules:**
+- **Eligible** means TRADING, a non-stable base, an ASCII alphanumeric symbol and a valid ticker.
+- **Tier 1** is the eligible symbols with quote volume ≥ the threshold, top `tier1_max` by quote volume
+  (descending, ties by symbol ascending), plus hysteresis members: prior Tier 1/2 members still eligible, from the
+  newest trusted applied universe in the same data directory within `tier1_hysteresis_days`.
+- **Tier 2** is the top `tier2_top_volume` of that set by volume, plus the top `tier2_top_movers` by
+  `|last/open − 1|`, capped at `tier2_max`. Tier 2 members are removed from Tier 1.
+
+**Effective from.** The lifecycle record `universe_active` carries `universe_id`, `file`, `sha256` and
+`effective_from_ms = ws_start_ms`. This answers "which symbols were eligible at T and exactly why" from the data
+directory alone. The candidate set is what the exchange reported at evaluation time; delisted symbols are never
+reconstructed from today's exchange data.
+
+**Sanity checks (F42).** A response is never authoritative unless all of these hold:
+- well-formed, with the required fields;
+- non-empty, with no duplicate symbols;
+- symbol, quote and base consistent;
+- at least `universe_min_usdt_trading` TRADING USDT symbols;
+- ticker coverage of those symbols at least `universe_min_ticker_coverage`;
+- invalid numeric fraction at most `universe_max_invalid_fraction`;
+- Tier 1/2 membership change against the prior universe at most `universe_max_tier1_change`.
+
+**Initial load (F25).** At most `universe_load_attempts` attempts, with `universe_retry_backoff_s`. Each failure is
+a lifecycle `universe_attempt_failed` with its problems. If every attempt fails, the collector **fails closed**:
+- lifecycle `startup_failed` and `control/fatal-*.json`;
+- health FAILED, no WebSocket opened;
+- graceful writer stop, final `control/stop-*.json`, exit code 5.
+
+There is no fallback to an unknown or partial universe.
+
+**Refresh (F42).** Refresh is deterministic but not scheduled in E1; daily refresh and re-subscription are F10.
+- A trustworthy result is persisted with `applied=false` until F10 exists.
+- A failed or suspicious result never replaces the active universe: the previous one is kept, and the collector
+  is DEGRADED (`universe_refresh_failed`) until a refresh succeeds.
+
+`tiers-v1` data (the original G2 and the G2 Repeat) predates this section: tiers only, no candidates.
+
+## 9b. Controlled reconnect test (G3)
+
+`reconnect_test_at_s > 0` schedules exactly ONE internal, predeclared `force_reconnect` of `reconnect_test_conn` at
+`ws_start + reconnect_test_at_s`. It is recorded as lifecycle `controlled_reconnect_test`. The socket closes and the
+normal path must recover:
+- `ws_disconnected` lifecycle and an immediate health record;
+- backoff, then `ws_connected`;
+- the URL stream plus re-sent SUBSCRIBE requests, with `subscribe_ack`.
+
+Until a stream receives a value **after** the reconnect, its boundaries are gaps (`ws_disconnect_reconnect`, then
+`awaiting_post_reconnect_data` / `conn_data_stale`). Pre-reconnect values are never persisted after the reconnect.
+Health returns to HEALTHY only when every stream observes again. Lifecycle `controlled_reconnect_recovered` records
+the time all streams of the connection have a post-reconnect persisted sample.
+
+A rotation test and a reconnect test are mutually exclusive in one run.
 
 ## 10. Clock records
 

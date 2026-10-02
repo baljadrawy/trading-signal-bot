@@ -5,6 +5,7 @@ No API key, no signing, no order/account/user-data endpoint exists in this modul
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 import urllib.parse
@@ -37,6 +38,7 @@ class RestClient:
         self.fail = {}             # path -> consecutive failures
         self.open_until = {}       # path -> monotonic time
         self.weight_used_total = 0
+        self.last_body_sha256 = {}  # path -> SHA-256 of the last 200 body (universe input provenance, R04)
 
     async def get(self, path: str, params: dict | None = None, urgent: bool = False, timeout: float = 15.0):
         """Return (status, json|None, recv_ns, t0_ms, t1_ms) or (reason_str, None, ...) when not sent."""
@@ -66,6 +68,7 @@ class RestClient:
                 except ValueError:
                     self.stats["malformed"] += 1; self._failed(path); return "malformed", None, recv_ns, t0, t1
                 self.fail[path] = 0
+                self.last_body_sha256[path] = hashlib.sha256(body).hexdigest()
                 return 200, data, recv_ns, t0, t1
         except (aiohttp.ClientError, asyncio.TimeoutError):
             self._failed(path)

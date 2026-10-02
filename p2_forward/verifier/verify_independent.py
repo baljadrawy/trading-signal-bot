@@ -78,6 +78,41 @@ G2R_SPEC = {
 }
 
 
+G3_SPEC = {
+    "name": "g3-recommended-6h-v1",
+    "profile": "recommended", "tier0": ["BTCUSDT", "ETHUSDT"], "tier1": None, "tier2": None,  # None: from the
+    # independently reconstructed universe (R04); limits below
+    "universe": {"min_quote_volume": 10_000_000, "tier1_max": 150, "tier2": [20, 10, 30], "expect_no_prior": True,
+                 "max_attempt_failures": 2},
+    "cadence_ms": {"t0_book": 1000, "t0_depth": 1000, "t2_book": 2000, "t2_depth": 5000, "t1_book": 10000,
+                   "t1_depth": 60000, "market": 60000, "clock": 600000},
+    "depth_levels": {"t0": 20, "t1": 10, "t2": 10}, "depth_levels_t0": 20,
+    "candle_timeframes": ["15m", "1h", "4h", "1d"],
+    "first_obs_deadline_s": {"t0_book": 30, "depth": 30, "market": 30, "t12_book": 120},
+    "stale_ms": {"depth": 2000, "book_t0": 120000, "market": 10000}, "conn_data_live_ms": 10000,
+    "health_record_interval_s": 60, "max_runtime_s": 21600, "runtime_tolerance_s": 5,
+    "gap_budget": {"max_fraction_per_stream": 0.005, "min_allowance_boundaries": 2, "max_gap_ms": 120000,
+                   "allowed_causes": ["ws_disconnect_reconnect", "conn_data_stale", "stale_stream",
+                                      "awaiting_post_reconnect_data"]},
+    "candle_gap_allowed_causes": ["candle_fetch_interrupted_at_stop", "candle_not_fetched_at_stop"],
+    "health": {"max_non_healthy_fraction": 0.10, "startup_s": 150,
+               "allowed_degraded_reason_prefixes": ["stale:", "conn_not_data_live:", "gap_open:", "gap_short:", "not_acked:"]},
+    "reconnect": {"at_s": 10800, "conn": "conn0-book", "trigger_tolerance_s": 5, "detect_within_s": 5,
+                  "reconnect_within_s": 60, "recover_within_s": 180},
+    "forbidden_lifecycle": ["fatal", "task_failed", "handler_exception", "subscribe_failed", "subscribe_timeout",
+                            "never_ready", "ws_task_dead", "binance_ban_418", "disk_hard_stop", "seq_reset",
+                            "wall_clock_step", "candle_exception", "startup_failed", "universe_refresh"],
+    "zero_counters": ["malformed", "unknown_stream", "unknown_event", "handler_errors", "seq_regression", "seq_reset",
+                      "write_errors", "segments_quarantined", "duplicates_dropped", "recv_clock_regression",
+                      "wall_clock_steps", "task_failures", "subscribe_failed", "subscribe_timeout", "never_ready"],
+    "zero_counter_maps": ["dropped", "emit_failed", "writer_rejected"],
+    "clock_max_excess_ms": 500, "clock_max_spacing_s": 1200,
+    "rest": {"ip_weight_max": 2400, "forbidden_events": ["http_429", "http_418"]},
+    "resources": {"mem_max_mib": 345, "pids_max": 64, "require_monitor": True},
+    "storage": {"design_band_mb_day": [122, 446], "report_only": True},
+}
+
+
 def sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -99,6 +134,18 @@ class Report:
         self.failures[code] += 1
         if example is not None and len(self.examples[code]) < 5:
             self.examples[code].append(example)
+
+
+def compact(r):
+    """Memory: book/depth payloads are reduced to the fields this verifier checks (sizes kept)."""
+    if isinstance(r, dict) and r.get("type") in ("book", "depth") and isinstance(r.get("payload"), dict):
+        p = r["payload"]
+        if r["type"] == "book":
+            r["payload"] = {"s": p.get("s"), "u": p.get("u")}
+        else:
+            r["payload"] = {"lastUpdateId": p.get("lastUpdateId"), "_n_bids": len(p.get("bids") or []),
+                            "_n_asks": len(p.get("asks") or [])}
+    return r
 
 
 def load_files(base: str, rp: Report) -> list:
@@ -146,7 +193,7 @@ def load_files(base: str, rp: Report) -> list:
         try:
             with gzip.open(p, "rt", encoding="utf-8") as fh:
                 for line in fh:
-                    lines.append(json.loads(line))
+                    lines.append(compact(json.loads(line)))
         except (OSError, EOFError, ValueError) as e:
             rp.fail("DECODE_ERROR", f"{rel}:{type(e).__name__}")
             continue
@@ -183,6 +230,131 @@ def check_fields(r: dict, rp: Report) -> bool:
     return True
 
 
+EXCLUSION_REASONS = {None, "tier0_not_trading", "not_in_exchangeinfo_spot", "stable_or_fiat_base", "non_ascii_or_non_alnum",
+                     "no_ticker", "invalid_ticker", "rank_cut", "below_min_quote_volume"}
+
+
+def _f(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if x == x and x not in (float("inf"), float("-inf")) else None
+
+
+def check_universe(rp: Report, by: dict, ev: dict, run: dict, base: str, ws_start: int) -> None:
+    """R04: reconstruct the ACTIVE universe independently from the persisted per-candidate raw inputs (documented
+    tiers-v2 rules, re-implemented here) and require it to equal the persisted tiers and the run record."""
+    if (run.get("universe") or {}).get("rule_version") == "tiers-v1":
+        rp.info["universe"] = {"legacy": "tiers-v1 (pre-R04): per-candidate reconstruction not available; tiers from "
+                                         "the run record only"}
+        return
+    act = ev.get("universe_active", [])
+    if len(act) != 1:
+        rp.fail("UNIVERSE_ACTIVE_COUNT", len(act)); return
+    a = act[0]["payload"]
+    if a.get("effective_from_ms") != ws_start:
+        rp.fail("UNIVERSE_EFFECTIVE_FROM_NE_WS_START", [a.get("effective_from_ms"), ws_start])
+    recs = [r for r in by["universe"] if r["obs_id"] == a.get("universe_id")]
+    if len(recs) != 1:
+        rp.fail("UNIVERSE_RECORD_MISSING", a.get("universe_id")); return
+    u = recs[0]["payload"]
+    fp = os.path.join(base, a.get("file", "-"))
+    if not os.path.exists(fp) or sha256(fp) != a.get("sha256") or u.get("sha256") != a.get("sha256"):
+        rp.fail("UNIVERSE_FILE_MISSING_OR_SHA_MISMATCH", a.get("file"))
+    elif os.stat(fp).st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+        rp.fail("NOT_READ_ONLY", a.get("file"))
+    else:
+        with open(fp, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if {k: v for k, v in u.items() if k not in ("file", "sha256")} != doc:
+            rp.fail("UNIVERSE_RECORD_NE_FILE")
+    snap = run["universe"]["snapshot"] or {}
+    for k in ("tier0", "tier1", "tier2"):
+        if snap.get(k) != u.get(k):
+            rp.fail("UNIVERSE_RUN_RECORD_MISMATCH", k)
+    cands = u.get("candidates") or []
+    if u.get("profile") == "tier0_only":
+        if sorted(c["symbol"] for c in cands) != sorted(u["tier0"]):
+            rp.fail("UNIVERSE_TIER0_CANDIDATES")
+        rp.info["universe"] = {"profile": "tier0_only", "tier0": u["tier0"]}
+        return
+    cfg = run["config"]
+    th = u.get("thresholds", {})
+    if (th.get("min_quote_volume"), th.get("tier1_max"), th.get("tier2")) != \
+            (cfg["tier1_min_quote_volume"], cfg["tier1_max"], [cfg["tier2_top_volume"], cfg["tier2_top_movers"], cfg["tier2_max"]]):
+        rp.fail("UNIVERSE_THRESHOLDS_NE_CONFIG")
+    stable, t0 = set(cfg["stable_bases"]), set(cfg["tier0"])
+    names = [c["symbol"] for c in cands]
+    if names != sorted(set(names)):
+        rp.fail("UNIVERSE_CANDIDATES_NOT_UNIQUE_SORTED")
+    elig = {}
+    for c in cands:
+        sym = c["symbol"]
+        if c.get("excluded_reason") not in EXCLUSION_REASONS and not str(c.get("excluded_reason")).startswith("status_"):
+            rp.fail("UNIVERSE_UNKNOWN_EXCLUSION_REASON", sym)
+        if sym in t0:
+            continue
+        qv, o, l = _f(c.get("quote_volume_raw")), _f(c.get("open_raw")), _f(c.get("last_raw"))
+        if not c.get("in_exchangeinfo"):
+            want = "not_in_exchangeinfo_spot"
+        elif c.get("status") != "TRADING":
+            want = f"status_{c.get('status')}"
+        elif c.get("base") in stable:
+            want = "stable_or_fiat_base"
+        elif not (sym.isascii() and sym.isalnum()):
+            want = "non_ascii_or_non_alnum"
+        elif not c.get("in_ticker"):
+            want = "no_ticker"
+        elif qv is None or o is None or l is None or qv < 0:
+            want = "invalid_ticker"
+        else:
+            want = "ELIGIBLE"
+            elig[sym] = (qv, (l / o - 1.0) if o > 0 else 0.0)
+        if want != "ELIGIBLE" and c.get("excluded_reason") != want:
+            rp.fail("UNIVERSE_EXCLUSION_RECOMPUTE_MISMATCH", f"{sym}:{c.get('excluded_reason')}!={want}")
+        if bool(c.get("eligible")) != (want == "ELIGIBLE"):
+            rp.fail("UNIVERSE_ELIGIBILITY_MISMATCH", sym)
+    order = sorted(elig, key=lambda x: (-elig[x][0], x))
+    rank = {x: i + 1 for i, x in enumerate(order)}
+    above = [x for x in order if elig[x][0] >= cfg["tier1_min_quote_volume"]][: cfg["tier1_max"]]
+    prior = set()
+    if u.get("prior_universe_id"):
+        rp.info["universe_prior"] = u.get("prior_universe_id")
+        prior = set(u.get("hysteresis_members") or [])              # validated below against eligibility
+        for h_ in prior:
+            if h_ not in elig:
+                rp.fail("UNIVERSE_HYSTERESIS_NOT_ELIGIBLE", h_)
+    t1all = set(above) | (prior - set(above))
+    vol = sorted(t1all, key=lambda x: (-elig[x][0], x))[: cfg["tier2_top_volume"]]
+    mov = sorted(t1all - set(vol), key=lambda x: (-abs(elig[x][1]), x))[: cfg["tier2_top_movers"]]
+    t2 = sorted((vol + mov)[: cfg["tier2_max"]])
+    t1 = sorted(t1all - set(t2))
+    if t1 != u.get("tier1") or t2 != u.get("tier2") or sorted(t0) != u.get("tier0"):
+        rp.fail("UNIVERSE_TIERS_RECOMPUTE_MISMATCH", {"tier1_diff": sorted(set(t1) ^ set(u.get("tier1") or []))[:10],
+                                                      "tier2_diff": sorted(set(t2) ^ set(u.get("tier2") or []))[:10]})
+    for c in cands:
+        sym = c["symbol"]
+        if sym in elig and c.get("volume_rank") != rank[sym]:
+            rp.fail("UNIVERSE_RANK_MISMATCH", sym)
+        want_tier = 0 if sym in t0 else 2 if sym in t2 else 1 if sym in t1 else None
+        if c.get("tier") != want_tier:
+            rp.fail("UNIVERSE_CANDIDATE_TIER_MISMATCH", sym)
+        if sym in elig:                                             # eligible: selected, rank cut or below volume
+            want = None if sym in t1all else ("rank_cut" if elig[sym][0] >= cfg["tier1_min_quote_volume"]
+                                              else "below_min_quote_volume")
+            if c.get("excluded_reason") != want:
+                rp.fail("UNIVERSE_EXCLUSION_RECOMPUTE_MISMATCH", f"{sym}:{c.get('excluded_reason')}!={want}")
+            if (sym in prior and sym not in above) != bool(c.get("hysteresis_reason")):
+                rp.fail("UNIVERSE_HYSTERESIS_REASON_MISMATCH", sym)
+    rp.info["universe"] = {"universe_id": a.get("universe_id"), "candidates": len(cands), "eligible": len(elig),
+                           "tier0": sorted(t0), "tier1": len(t1), "tier2": len(t2), "hysteresis": sorted(prior),
+                           "exclusions": dict(collections.Counter(c.get("excluded_reason") for c in cands)),
+                           "source": {k: {"recv_ns": v.get("recv_ns"), "body_sha256": v.get("body_sha256")}
+                                      for k, v in (u.get("source") or {}).items()},
+                           "validation": u.get("validation")}
+
+
 def derive_expected(run: dict, rp: Report) -> dict:
     """Expected streams re-derived from the run's config (as data), cross-checked with its expected_streams list."""
     cfg = run["config"]
@@ -214,10 +386,31 @@ def derive_expected(run: dict, rp: Report) -> dict:
     return exp
 
 
+def read_monitor(tsv: str | None, log: str | None) -> dict | None:
+    """Gate-monitor evidence (docker stats every 60 s + container exit line). Plain data, parsed here."""
+    if not tsv or not log:
+        return None
+    mem, pids, cpu = [], [], []
+    with open(tsv, encoding="utf-8") as fh:
+        rows = [l.rstrip("\n").split("\t") for l in fh][1:]
+    for r in rows:
+        if len(r) > 3 and "MiB" in r[2]:
+            mem.append(float(r[2].split("MiB")[0])); pids.append(int(r[3] or 0)); cpu.append(float(r[1].rstrip("%") or 0))
+    out = {"samples": len(rows), "mem_max_mib": max(mem, default=None), "pids_max": max(pids, default=None),
+           "cpu_avg_pct": round(sum(cpu) / len(cpu), 2) if cpu else None, "cpu_max_pct": max(cpu, default=None)}
+    with open(log, encoding="utf-8") as fh:
+        last = [l for l in fh if "container exited:" in l][-1:]
+    if last:
+        kv = dict(x.split("=", 1) for x in last[0].split("container exited:")[1].split() if "=" in x)
+        out.update(exit=int(kv.get("exit", -1)), oom={"true": True, "false": False}.get(kv.get("oom")),
+                   restarts=int(kv.get("restarts", -1)), status=kv.get("status"))
+    return out
+
+
 def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_image: str | None = None,
-           expect_commit: str | None = None) -> dict:
+           expect_commit: str | None = None, monitor: dict | None = None) -> dict:
     rp = Report()
-    rp.spec, rp.expect_image, rp.expect_commit = spec, expect_image, expect_commit
+    rp.spec, rp.expect_image, rp.expect_commit, rp.monitor = spec, expect_image, expect_commit, monitor
     segs = load_files(base, rp)
     recs = []
     for rel, lines, _ in segs:
@@ -280,6 +473,21 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
     exp = derive_expected(run, rp)
     cfg = run["config"]
     tier0_syms = run["universe"]["snapshot"]["tier0"]
+    check_universe(rp, by, ev, run, base, ws_start)
+    conn_of = {}
+    for cname, streams in (wsr["payload"].get("conns") or {}).items():
+        for n in streams:
+            conn_of[n] = cname
+    for n, e in exp.items():
+        if conn_of.get(n) is None:
+            rp.fail("STREAM_WITHOUT_CONNECTION", n)
+    conn_ev = collections.defaultdict(list)                     # conn -> [(t_ms, up)] from lifecycle records
+    for name_, up in (("ws_connected", True), ("ws_disconnected", False), ("ws_connect_failed", False)):
+        for r in ev.get(name_, []):
+            conn_ev[r["payload"].get("conn")].append((r["observed_at_ms"], up))
+    for k in conn_ev:
+        conn_ev[k].sort()
+    rp.info["connection_events"] = {k: len(v) for k, v in conn_ev.items()}
 
     # ---- duplicates (F26) ----
     seen = {}
@@ -371,6 +579,16 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
                 rp.fail("OBSERVED_AFTER_SAMPLE", r["obs_id"])           # strict PIT (ns)
             if r["cadence_ms"] != cad:
                 rp.fail("CADENCE_MISMATCH", r["obs_id"])
+            st_up = None                                              # connection state at s (lifecycle data)
+            for t_, up_ in conn_ev.get(conn_of.get(name), []):
+                if t_ <= s:
+                    st_up = (t_, up_)
+                else:
+                    break
+            if st_up is None or not st_up[1]:
+                rp.fail("SAMPLE_WHILE_CONNECTION_DOWN", r["obs_id"])
+            elif r["observed_at_ms"] < st_up[0]:
+                rp.fail("PRE_RECONNECT_VALUE_PERSISTED", r["obs_id"])   # stale value from before the (re)connect
             lim = e["stale_ms"]
             if lim is not None and e["kind"] != "market" and s - r["observed_at_ms"] > lim:
                 rp.fail("STALE_VALUE_PERSISTED", r["obs_id"])              # independent freshness (review M6)
@@ -392,7 +610,7 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
                     pl = r["payload"]
                     if pl.get("lastUpdateId") != r["exchange_seq"]:
                         rp.fail("SEQ_NE_PAYLOAD", r["obs_id"])
-                    if len(pl.get("bids", [])) > e["levels"] or len(pl.get("asks", [])) > e["levels"]:
+                    if pl.get("_n_bids", 0) > e["levels"] or pl.get("_n_asks", 0) > e["levels"]:
                         rp.fail("DEPTH_ARRAY_EXCEEDS_N", r["obs_id"])
                 if r["obs_id"] != want:
                     rp.fail("OBS_ID_MISMATCH", r["obs_id"])
@@ -588,8 +806,12 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
     rp.info["stop_counters"] = stop["payload"].get("counters")
     rp.info["clock_excess_worst_ms"] = worst
     rp.info["_ctx"] = {"ev": {k: [x["payload"] for x in v] for k, v in ev.items()}, "health": [r["payload"] for r in hl],
+                       "ev_t": {k: [(x["observed_at_ms"], x["payload"]) for x in v] for k, v in ev.items()},
                        "health_t": [r["observed_at_ms"] for r in hl], "gaps_by_key": {k: v for k, v in gaps.items()},
                        "run": run, "ws_start": ws_start, "stop_req": stop_req, "exp": exp, "cov": cov,
+                       "conn_of": conn_of, "conn_ev": dict(conn_ev),
+                       "first_after": {n: sorted((x["sample_ms"], x["observed_at_ms"]) for x in streams.get(n, []))
+                                       for n in exp},
                        "candles_got": sorted(f"{a}|{b}|{c}" for a, b, c in got)}
     rp.info["by_type"] = {k: len(v) for k, v in sorted(by.items())}
     rp.info["gaps"] = [{k: g[k] for k in ("stream_key", "first_missing_ms", "last_missing_ms", "missing_samples", "cause",
@@ -606,13 +828,31 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     uni = run["universe"]["snapshot"]
     # pinned specification
     if cfg.get("profile") != spec["profile"] or sorted(uni["tier0"]) != sorted(spec["tier0"]) or \
-            sorted(uni["tier1"]) != spec["tier1"] or sorted(uni["tier2"]) != spec["tier2"]:
+            (spec["tier1"] is not None and sorted(uni["tier1"]) != spec["tier1"]) or \
+            (spec["tier2"] is not None and sorted(uni["tier2"]) != spec["tier2"]):
         rp.fail("ACC_UNIVERSE_NOT_SPEC", [cfg.get("profile"), uni["tier0"], uni["tier1"], uni["tier2"]])
     for k, v in spec["cadence_ms"].items():
         if cfg["cadence_ms"].get(k) != v:
             rp.fail("ACC_CADENCE_NOT_SPEC", f"{k}={cfg['cadence_ms'].get(k)}")
     if cfg["depth_levels"].get("t0") != spec["depth_levels_t0"]:
         rp.fail("ACC_DEPTH_N_NOT_SPEC")
+    for k, v in (spec.get("depth_levels") or {}).items():
+        if cfg["depth_levels"].get(k) != v:
+            rp.fail("ACC_DEPTH_N_NOT_SPEC", k)
+    us = spec.get("universe")
+    if us:
+        ui = rp.info.get("universe") or {}
+        if (cfg["tier1_min_quote_volume"], cfg["tier1_max"], [cfg["tier2_top_volume"], cfg["tier2_top_movers"],
+                                                               cfg["tier2_max"]]) != (us["min_quote_volume"], us["tier1_max"], us["tier2"]):
+            rp.fail("ACC_UNIVERSE_RULES_NOT_SPEC")
+        if not ui.get("universe_id"):
+            rp.fail("ACC_UNIVERSE_NOT_RECONSTRUCTED")
+        elif ui["tier1"] + ui["tier2"] > us["tier1_max"] or ui["tier2"] > us["tier2"][2] or ui["tier1"] + ui["tier2"] == 0:
+            rp.fail("ACC_UNIVERSE_SIZE", [ui["tier1"], ui["tier2"]])
+        if us.get("expect_no_prior") and (ui.get("hysteresis") or rp.info.get("universe_prior")):
+            rp.fail("ACC_UNIVERSE_UNEXPECTED_PRIOR")
+        if len(ev.get("universe_attempt_failed", [])) > us["max_attempt_failures"]:
+            rp.fail("ACC_UNIVERSE_ATTEMPTS", len(ev.get("universe_attempt_failed", [])))
     if list(cfg["candle_timeframes"]) != spec["candle_timeframes"]:
         rp.fail("ACC_CANDLE_TF_NOT_SPEC")
     for k, v in spec["first_obs_deadline_s"].items():
@@ -653,15 +893,69 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     rej = {k: v for k, v in (cnt.get("rejected") or {}).items() if v}
     if rej:
         rp.fail("ACC_COUNTER_REJECTED", rej)
+    # controlled reconnect (G3)
+    rc = spec.get("reconnect")
+    rwin = None
+    if rc:
+        rwin = check_reconnect(rp, rc, ctx, ws_start)
+    elif ev.get("controlled_reconnect_test"):
+        rp.fail("ACC_UNPLANNED_RECONNECT_TEST")
+    # REST policy
+    rs = spec.get("rest")
+    if rs:
+        seen = [((p.get("rest") or {}).get("ip_used_weight_1m_seen") or 0) for p in ctx["health"]]
+        evs = collections.Counter()
+        for p in ctx["health"]:
+            for k, v in ((p.get("rest") or {}).get("events") or {}).items():
+                evs[k] = max(evs[k], v)
+        if not any("rest" in p for p in ctx["health"]):
+            rp.fail("ACC_REST_EVIDENCE_MISSING")
+        if seen and max(seen) > rs["ip_weight_max"]:
+            rp.fail("ACC_REST_IP_WEIGHT", max(seen))
+        for k in rs["forbidden_events"]:
+            if evs.get(k):
+                rp.fail(f"ACC_REST_{k.upper()}", evs[k])
+        rp.info["rest_policy"] = {"ip_weight_max_seen": max(seen) if seen else None, "events_max": dict(evs)}
+    # resources (monitor evidence, container exit)
+    rr = spec.get("resources")
+    if rr:
+        mon = rp.monitor or {}
+        if not mon and rr.get("require_monitor"):
+            rp.fail("ACC_RESOURCES_NOT_PROVIDED")
+        elif mon:
+            if mon.get("mem_max_mib", 0) > rr["mem_max_mib"] or mon.get("pids_max", 0) > rr["pids_max"]:
+                rp.fail("ACC_RESOURCE_LIMIT", {k: mon.get(k) for k in ("mem_max_mib", "pids_max")})
+            if mon.get("exit") != 0 or mon.get("oom") is not False or mon.get("restarts") != 0:
+                rp.fail("ACC_CONTAINER_EXIT", {k: mon.get(k) for k in ("exit", "oom", "restarts")})
+            rp.info["resources"] = mon
+    st = spec.get("storage")
+    if st:
+        total = sum(rp.info.get("bytes_by_type", {}).values()) + sum(rp.info.get("idx_bytes_by_type", {}).values())
+        hours = (stop_req - ws_start) / 3_600_000
+        mbd = total / 1e6 * 24 / hours if hours else None
+        lo, hi = st["design_band_mb_day"]
+        rp.info["storage_projection"] = {"mb_per_day": None if mbd is None else round(mbd, 1), "design_band": [lo, hi],
+                                         "within_design_band": None if mbd is None else lo <= mbd <= hi,
+                                         "report_only": st.get("report_only", True)}
     # gap budget on sampled streams
     gb = spec["gap_budget"]
     for name, e in ctx["exp"].items():
         c = ctx["cov"].get(name, {})
         exp_n = max(1, c.get("expected", 0) - c.get("startup_excused", 0))
         allowance = max(gb["min_allowance_boundaries"], int(gb["max_fraction_per_stream"] * exp_n))   # NB2: declared floor
-        if c.get("gap_covered", 0) > allowance:
+        if not rwin and c.get("gap_covered", 0) > allowance:
             rp.fail("ACC_GAP_BUDGET_EXCEEDED", f"{name}:{c.get('gap_covered')}>{allowance} of {exp_n}")
+        n_rc = 0
+        if rwin:
+            n_rc = sum(g["missing_samples"] for g in ctx["gaps_by_key"].get(e["key"], [])
+                       if rwin[0] <= g["first_missing_ms"] <= rwin[1])
+        if c.get("gap_covered", 0) - n_rc > allowance:
+            rp.fail("ACC_GAP_BUDGET_EXCLUDING_RECONNECT_EXCEEDED", f"{name}:{c.get('gap_covered') - n_rc}>{allowance}")
         for g in ctx["gaps_by_key"].get(e["key"], []):
+            if rwin and rwin[0] <= g["first_missing_ms"] <= rwin[1]:
+                if set(g.get("causes") or [g.get("cause")]) - set(gb["allowed_causes"]):
+                    rp.fail("ACC_GAP_CAUSE_FORBIDDEN", f"{name}:{g.get('causes')}")
+                continue                                           # reconnect-window gap: checked by check_reconnect
             if g.get("duration_ms", 0) > gb["max_gap_ms"]:
                 rp.fail("ACC_GAP_TOO_LONG", f"{name}:{g.get('duration_ms')}")
             bad = set(g.get("causes") or [g.get("cause")]) - set(gb["allowed_causes"])
@@ -697,6 +991,72 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     if w is None or w > spec["clock_max_excess_ms"]:
         rp.fail("ACC_CLOCK_EXCESS", w)
     rp.info["acceptance_spec"] = spec["name"]
+
+
+def check_reconnect(rp: Report, rc: dict, ctx: dict, ws_start: int):
+    """G3 controlled reconnect: detection, health change, durable gap evidence, no stale pre-reconnect values,
+    re-subscription + acks, freshness of the first post-reconnect values, HEALTHY only after full recovery.
+    Returns the reconnect window [trigger, recovered] (ms) or None."""
+    ev = ctx["ev"]
+    tests = ev.get("controlled_reconnect_test", [])
+    if len(tests) != 1:
+        rp.fail("ACC_RECONNECT_TEST_COUNT", len(tests)); return None
+    t = tests[0]
+    trig = t.get("trigger_ms")
+    if t.get("conn") != rc["conn"] or abs(trig - (ws_start + 1000 * rc["at_s"])) > 1000 * rc["trigger_tolerance_s"]:
+        rp.fail("ACC_RECONNECT_NOT_AS_PLANNED", {"conn": t.get("conn"), "trigger_ms": trig})
+        return None
+    evs = ctx["conn_ev"].get(rc["conn"], [])
+    downs = [x for x, up in evs if not up and x >= trig]
+    if not downs or downs[0] - trig > 1000 * rc["detect_within_s"]:
+        rp.fail("ACC_RECONNECT_DISCONNECT_NOT_DETECTED"); return None
+    d0 = downs[0]
+    ups = [x for x, up in evs if up and x > d0]
+    if not ups or ups[0] - d0 > 1000 * rc["reconnect_within_s"]:
+        rp.fail("ACC_RECONNECT_NOT_RECONNECTED"); return None
+    u0 = ups[0]
+    streams = [n for n, c in ctx["conn_of"].items() if c == rc["conn"] and n in ctx["exp"]]
+    evt = ctx["ev_t"]
+    sent = set()
+    for t_, p in evt.get("subscribe_sent", []):
+        if p.get("conn") == rc["conn"] and t_ >= u0:
+            sent |= set(p.get("streams") or [])
+    acked = set()
+    for t_, p in evt.get("subscribe_ack", []):
+        if p.get("conn") == rc["conn"] and t_ >= u0:
+            acked |= set(p.get("streams") or [])
+    initial = set()
+    for t_, p in evt.get("subscribe_sent", []):
+        if p.get("conn") == rc["conn"] and t_ < d0:
+            initial |= set(p.get("streams") or [])
+    if not sent or sent != initial or not sent <= acked:
+        rp.fail("ACC_RECONNECT_RESUBSCRIBE_NOT_ACKED", {"not_acked": sorted(sent - acked)[:10],
+                                                        "not_resent": sorted(initial - sent)[:10]})
+    rec_t = u0
+    for n in streams:
+        post = [(s_, o_) for s_, o_ in ctx["first_after"].get(n, []) if s_ > d0]
+        if not post:
+            rp.fail("ACC_RECONNECT_STREAM_NOT_RECOVERED", n); continue
+        s1, o1 = post[0]
+        if o1 < u0:
+            rp.fail("ACC_RECONNECT_STALE_VALUE", n)
+        if s1 - u0 > 1000 * rc["recover_within_s"]:
+            rp.fail("ACC_RECONNECT_RECOVERY_SLOW", f"{n}:{(s1 - u0) / 1000}s")
+        rec_t = max(rec_t, s1)
+    hs = list(zip(ctx["health_t"], ctx["health"]))
+    if not any(d0 <= t_ <= rec_t and p.get("state") == "DEGRADED" for t_, p in hs):
+        rp.fail("ACC_RECONNECT_HEALTH_NOT_DEGRADED")
+    first_ok = [t_ for t_, p in hs if t_ > d0 and p.get("state") == "HEALTHY"]
+    if not first_ok or first_ok[0] < rec_t:
+        rp.fail("ACC_RECONNECT_HEALTHY_TOO_EARLY", {"first_healthy": first_ok[:1], "recovered": rec_t})
+    recov = ev.get("controlled_reconnect_recovered", [])
+    if len(recov) != 1:
+        rp.fail("ACC_RECONNECT_RECOVERED_RECORD", len(recov))
+    rp.info["controlled_reconnect"] = {"trigger_ms": trig, "disconnect_ms": d0, "reconnect_ms": u0, "recovered_ms": rec_t,
+                                       "outage_s": (u0 - d0) / 1000, "recovery_s": (rec_t - d0) / 1000,
+                                       "streams": len(streams), "first_healthy_after_ms": first_ok[:1],
+                                       "collector_recovered_record": recov[:1]}
+    return [trig, rec_t + 1000 * rc["recover_within_s"]]
 
 
 def finish(rp: Report, base: str, segs=None) -> dict:
@@ -739,14 +1099,19 @@ def finish(rp: Report, base: str, segs=None) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("data_dir"); ap.add_argument("--boot"); ap.add_argument("--json")
-    ap.add_argument("--acceptance", choices=["g2r"]); ap.add_argument("--spec")
+    ap.add_argument("--acceptance", choices=["g2r", "g3"]); ap.add_argument("--spec")
     ap.add_argument("--expect-image-id"); ap.add_argument("--expect-commit")
+    ap.add_argument("--resources-tsv"); ap.add_argument("--monitor-log")
+    ap.add_argument("--print-spec", action="store_true")
     a = ap.parse_args(argv)
-    spec = G2R_SPEC if a.acceptance == "g2r" else None
+    spec = {"g2r": G2R_SPEC, "g3": G3_SPEC}.get(a.acceptance)
+    if a.print_spec:
+        print(json.dumps(spec, indent=1, sort_keys=True)); return 0
     if a.spec:
         with open(a.spec, encoding="utf-8") as fh:
             spec = json.load(fh)
-    rep = verify(a.data_dir, a.boot, spec, a.expect_image_id, a.expect_commit)
+    rep = verify(a.data_dir, a.boot, spec, a.expect_image_id, a.expect_commit,
+                 monitor=read_monitor(a.resources_tsv, a.monitor_log))
     out = json.dumps(rep, indent=1, sort_keys=True, default=str)
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:

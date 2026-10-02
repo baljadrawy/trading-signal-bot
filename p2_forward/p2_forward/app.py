@@ -38,7 +38,7 @@ TF_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 IRREPLACEABLE = "IRREPLACEABLE_FORWARD_OBSERVATION"
 RECOVERABLE = "RECOVERABLE_WHERE_ARCHIVE_AVAILABLE"
 MARKET = "!miniTicker@arr"
-EXIT_OK, EXIT_INCOMPLETE, EXIT_WRITER, EXIT_TASK = 0, 2, 3, 4
+EXIT_OK, EXIT_INCOMPLETE, EXIT_WRITER, EXIT_TASK, EXIT_STARTUP = 0, 2, 3, 4, 5
 TASK_PERIOD_S = {"sampler": 1.0, "candles": 900.0, "clock": 600.0, "disk": 60.0, "health": 10.0, "watchdog": 1.0}
 
 
@@ -155,7 +155,8 @@ class Collector:
         self.q = queue.Queue(maxsize=cfg["queue_max"])
         self.enq = Enqueuer(self.q, cfg["queue_max"], self.stats)
         self.writer = SegmentWriter(self.base, self.boot_id, self.q, self.stats, cfg["flush_interval_s"])
-        self.rate = RateGuard(cfg["rest_budget_weight_per_min"], cfg["rest_defer_used_weight"], cfg["rest_pause_used_weight"])
+        self.rate = RateGuard(cfg["rest_budget_weight_per_min"], cfg["rest_defer_used_weight"], cfg["rest_pause_used_weight"],
+                              urgent_reserve=cfg["rest_urgent_reserve"])
         self.rate.ban_callbacks.append(self.on_ban)
         self.disk = DiskGuard(cfg["disk_warn_free_gb"], cfg["disk_stop_free_gb"], cfg["dir_stop_gb"])
         self.clock = ClockGuard(cfg["clock_warn_ms"], cfg["clock_crit_ms"])
@@ -205,6 +206,10 @@ class Collector:
         self.data_stall_forced = {}
         self.expired_syms = set()
         self._lateness = None
+        self.universe_meta = None          # {universe_id, file, sha256, stamp} of the ACTIVE universe (R04)
+        self.universe_degraded = None      # F42: reason while a refresh failed and the previous universe is kept
+        self.startup_failure = None        # F25: reasons when no trustworthy initial universe could be established
+        self.reconnect_test = None         # G3 controlled reconnect state
 
     @property
     def stream_state(self) -> dict:
@@ -278,6 +283,8 @@ class Collector:
                 "depth_levels": t.levels, "conn": t.conn, "stale_ms": t.stale_ms, "first_obs_deadline_ms": t.deadline_rel_ms}
                for n, t in sorted(self.tracks.items())]
         m = self.market
+        if m is None:
+            return out
         out.append({"stream": MARKET, "kind": "market", "symbol": None, "tier": None, "cadence_ms": m.cadence,
                     "depth_levels": None, "conn": m.conn, "stale_ms": m.stale_ms, "first_obs_deadline_ms": m.deadline_rel_ms})
         return out
@@ -285,42 +292,106 @@ class Collector:
     def all_tracks(self) -> list:
         return list(self.tracks.values()) + ([self.market] if self.market else [])
 
-    async def load_universe(self) -> None:
+    async def fetch_universe(self, prior: dict | None) -> tuple:
+        """One REST evaluation. Returns (universe | None, problems). F42: never authoritative unless sane."""
+        params_ei = {"permissions": "SPOT", "showPermissionSets": "false"}       # all statuses: survivorship (R04)
+        params_tk = {"type": "MINI"}
+        s1, ei, r1, *_ = await self.rest.get("/api/v3/exchangeInfo", params_ei, urgent=True)
+        s2, tk, r2, *_ = await self.rest.get("/api/v3/ticker/24hr", params_tk, urgent=True)
+        if s1 != 200 or s2 != 200:
+            return None, [f"http_status:{s1}/{s2}"]
+        ok, problems, stats = U.validate_inputs(self.cfg, ei, tk)
+        if not ok:
+            return None, problems
+        uni = U.evaluate(self.cfg, ei, tk, prior)
+        uni["validation"] = stats
+        uni["source"] = {"exchangeinfo": {"path": "/api/v3/exchangeInfo", "params": params_ei, "recv_ns": r1,
+                                          "body_sha256": self.rest.last_body_sha256.get("/api/v3/exchangeInfo")},
+                         "ticker": {"path": "/api/v3/ticker/24hr", "params": params_tk, "recv_ns": r2,
+                                    "body_sha256": self.rest.last_body_sha256.get("/api/v3/ticker/24hr")}}
+        return uni, U.plausible_vs_prior(self.cfg, uni, prior)
+
+    async def establish_universe(self) -> bool:
+        """F25: bounded attempts with backoff; every failed attempt is durable (lifecycle); no trustworthy universe
+        => False (the caller fails closed). No silent fallback to an unknown or partial universe."""
         if self.cfg["profile"] == "tier0_only":
-            self.universe = U.tier0_only(self.cfg)
+            self.persist_universe(U.tier0_only(self.cfg), applied=True)
+            return True
+        prior = self._prior_universe()
+        n, backoff, problems = self.cfg["universe_load_attempts"], self.cfg["universe_retry_backoff_s"], []
+        for attempt in range(1, n + 1):
+            try:
+                uni, problems = await self.fetch_universe(prior)
+            except Exception as e:                                    # noqa: BLE001 - malformed shapes etc.
+                uni, problems = None, [f"exception:{type(e).__name__}: {e}"[:200]]
+            if uni is not None and not problems:
+                self.persist_universe(uni, applied=True)
+                return True
+            self.lifecycle("universe_attempt_failed", {"attempt": attempt, "of": n, "problems": problems[:20]})
+            if attempt < n:
+                await self._sleep(backoff[min(attempt - 1, len(backoff) - 1)])
+                if self.stop_event.is_set():
+                    break
+        self.startup_failure = problems or ["stopped_during_universe_load"]
+        return False
+
+    async def refresh_universe(self) -> str:
+        """F42 refresh policy (deterministic; NOT scheduled in E1 — daily refresh / re-subscription is F10).
+        A suspicious or failed refresh never replaces the active universe; the collector is DEGRADED until a
+        refresh succeeds. A successful evaluation is persisted (applied=False: re-subscription is F10)."""
+        try:
+            uni, problems = await self.fetch_universe(self.universe)
+        except Exception as e:                                        # noqa: BLE001
+            uni, problems = None, [f"exception:{type(e).__name__}"]
+        keep, degraded, action = U.refresh_decision(self.universe, uni if not problems else None, problems)
+        if action == "accepted":
+            self.universe_degraded = None
+            self.persist_universe(uni, applied=False)
         else:
-            s1, ei, r1, *_ = await self.rest.get("/api/v3/exchangeInfo", {"permissions": "SPOT", "symbolStatus": "TRADING"}, urgent=True)
-            s2, tk, r2, *_ = await self.rest.get("/api/v3/ticker/24hr", {"type": "MINI"}, urgent=True)
-            if s1 != 200 or s2 != 200:
-                raise RuntimeError(f"universe refresh failed: {s1}/{s2}")
-            self.universe = U.compute(self.cfg, ei, tk, self._prior_tier1())
-            self.universe["source_recv_ns"] = [r1, r2]
-        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            self.universe_degraded = (problems or ["unknown"])[:5]
+        self.lifecycle("universe_refresh", {"action": action, "degraded": degraded, "problems": problems[:20],
+                                            "active_universe_id": (self.universe_meta or {}).get("universe_id")})
+        return action
+
+    def persist_universe(self, uni: dict, applied: bool) -> dict:
+        stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        uid = R.universe_id(stamp, uni["rule_version"])
+        doc = {**uni, "universe_id": uid, "stamp": stamp, "evaluated_ms": now_ms(), "boot_id": self.boot_id,
+               "config_hash": self.config_hash, "applied": applied, "trusted": True}
         path = os.path.join(self.base, "universe", f"universe-{stamp}-{self.boot_id[:8]}.json")
         tmp = path + ".partial"
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({**self.universe, "stamp": stamp, "boot_id": self.boot_id, "config_hash": self.config_hash}, fh, sort_keys=True)
+            json.dump(doc, fh, sort_keys=True)
             fh.flush(); os.fsync(fh.fileno())
         os.rename(tmp, path); os.chmod(path, 0o444)
-        self.emit("universe", R.make(type="universe", obs_id=R.universe_id(stamp, self.universe["rule_version"]), symbol=None,
-                                     payload={**self.universe, "file": os.path.basename(path), "sha256": sha256_file(path)},
-                                     boot_id=self.boot_id, endpoint="universe", transport="rest" if self.cfg["profile"] != "tier0_only" else "internal",
+        meta = {"universe_id": uid, "file": os.path.relpath(path, self.base), "sha256": sha256_file(path), "stamp": stamp,
+                "applied": applied}
+        self.emit("universe", R.make(type="universe", obs_id=uid, symbol=None, payload={**doc, "file": meta["file"],
+                                                                                       "sha256": meta["sha256"]},
+                                     boot_id=self.boot_id, endpoint="universe",
+                                     transport="rest" if self.cfg["profile"] != "tier0_only" else "internal",
                                      recv_ts_ns=time.time_ns()))
-        self.build_streams()
+        if applied:
+            self.universe, self.universe_meta = doc, meta
+            self.build_streams()
+        return meta
 
-    def _prior_tier1(self) -> set:
-        out, cutoff = set(), time.time() - self.cfg["tier1_hysteresis_days"] * 86400
+    def _prior_universe(self):
+        """Most recent trustworthy APPLIED universe in this data directory within the hysteresis window."""
+        cutoff_ms, best = now_ms() - self.cfg["tier1_hysteresis_days"] * 86_400_000, None
         d = os.path.join(self.base, "universe")
         for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-            p = os.path.join(d, f)
-            if f.endswith(".json") and os.path.getmtime(p) >= cutoff:
-                try:
-                    with open(p, encoding="utf-8") as fh:
-                        u = json.load(fh)
-                    out |= set(u.get("tier1", [])) | set(u.get("tier2", []))
-                except (OSError, ValueError):
-                    pass
-        return out
+            if not f.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    u = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            if u.get("trusted") and u.get("applied") and u.get("rule_version") == U.RULE_VERSION \
+                    and u.get("evaluated_ms", 0) >= cutoff_ms and (best is None or u["evaluated_ms"] > best["evaluated_ms"]):
+                best = u
+        return best
 
     # ---------- websocket callbacks ----------
     def on_message(self, conn, obj, recv_ns: int) -> None:
@@ -427,6 +498,11 @@ class Collector:
                 if t is not None and t.sub not in ("FAILED",):
                     t.sub = "PENDING"
         self.lifecycle(f"ws_{state}", {"conn": conn.name, "reconnects": getattr(conn, "reconnects", 0)})
+        if self.state == "RUNNING" and self.ws_start_ms is not None:
+            try:
+                self.write_health()                    # connection transitions are reflected in health immediately
+            except OSError:
+                pass
 
     def on_ban(self) -> None:
         """F23: HTTP 418 => stop ALL Binance activity, including open WebSockets, until the ban ends."""
@@ -457,6 +533,8 @@ class Collector:
         self.ws_start_ms = now_ms()
         self.lifecycle("ws_start", {"ws_start_ms": self.ws_start_ms,
                                     "conns": {n: s for n, s in self._conn_streams()}})
+        self.lifecycle("universe_active", {**(self.universe_meta or {}), "effective_from_ms": self.ws_start_ms,
+                                           "tiers": {k: len(self.universe[k]) for k in ("tier0", "tier1", "tier2")}})
         for name, streams in self._conn_streams():
             if len(streams) > 300:
                 raise RuntimeError("stream budget exceeded (<= 300 per connection)")
@@ -738,10 +816,26 @@ class Collector:
         for s, tf, o in jobs:
             self.simple_gap(f"candle|{tf}|{s}", o, o, TF_MS[tf], "candle_not_fetched_at_stop", RECOVERABLE)
 
+    async def candle_round_jobs(self, jobs: list, window: float) -> None:
+        deadline = time.monotonic() + window + 600
+        tasks = []
+        for i, (s, tf, o) in enumerate(jobs):
+            try:
+                await self._sleep(window / max(1, len(jobs)))
+            except asyncio.CancelledError:
+                self._candles_not_fetched(jobs[i:]); raise
+            if self.stop_event.is_set():
+                self._candles_not_fetched(jobs[i:]); break
+            tasks.append(self._track_task(self.candle_job(s, tf, o, deadline)))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def candle_task(self) -> None:
         self.beats["candles"] = time.monotonic()
-        for tf in self.cfg["candle_timeframes"]:                    # catch-up: last closed candle of every TF
-            self._track_task(self.candle_round((now_ms() // TF_MS[tf]) * TF_MS[tf], [tf]))
+        m0 = now_ms()                                               # catch-up: last closed candle of every TF,
+        jobs = [(s, tf, (m0 // TF_MS[tf]) * TF_MS[tf] - TF_MS[tf])    # one budget-spread round (300 s)
+                for tf in self.cfg["candle_timeframes"] for s in self._candle_symbols()]
+        self._track_task(self.candle_round_jobs(jobs, 300.0))
         while not self.stop_event.is_set():
             self.beats["candles"] = time.monotonic()
             nxt = (now_ms() // TF_MS["15m"] + 1) * TF_MS["15m"]
@@ -876,6 +970,7 @@ class Collector:
 
     def watchdog_once(self) -> None:
         m = now_ms()
+        self._check_reconnect_recovered()
         off = time.time() - time.monotonic()                        # m3: wall-clock step detection
         if abs(off - self.wall_offset) > 1.0:
             self.wall_step_ms.append(m)
@@ -1014,6 +1109,8 @@ class Collector:
             hard.append("segments_quarantined")
         if sum(self.stats["emit_failed"].values()):
             hard.append("emit_failed")
+        if self.universe_degraded:
+            hard.append("universe_refresh_failed")                  # F42: previous universe kept, DEGRADED
         if self.enq.drop_open:
             hard.append("queue_drops")
         for k in ("malformed", "unknown_stream", "unknown_event"):
@@ -1110,6 +1207,8 @@ class Collector:
         compact["streams_not_observing"] = {n: s for n, s in sorted(h["streams"].items()) if s["state"] != OBSERVING}
         compact["health_ts_ms"] = h["ts_ms"]
         compact["counters"] = h["counters"]
+        compact["rest"] = h["rest"]
+        compact["universe_id"] = (self.universe_meta or {}).get("universe_id")
         self.emit("health", R.make(type="health", obs_id=R.health_id(self.boot_id, self._seq()), symbol=None,
                                    payload=compact, boot_id=self.boot_id, endpoint="collector", transport="internal",
                                    recv_ts_ns=time.time_ns()))
@@ -1145,6 +1244,42 @@ class Collector:
     async def _sleep_until(self, target_ms: int) -> None:
         await self._sleep(max(0.0, (target_ms - now_ms()) / 1000))
 
+    async def reconnect_test_task(self) -> None:
+        """G3: exactly ONE predeclared controlled reconnect of `reconnect_test_conn` at ws_start + reconnect_test_at_s.
+        Triggered internally (no external action on the running collector): the socket is closed, the normal
+        reconnect path (backoff, re-subscribe, acks, post-reconnect freshness) must recover."""
+        at = self.cfg["reconnect_test_at_s"]
+        if at <= 0:
+            return
+        await self._sleep_until(self.ws_start_ms + int(at * 1000))
+        if self.stop_event.is_set():
+            return
+        c = self._conn_obj(self.cfg["reconnect_test_conn"])
+        if c is None:
+            self.lifecycle("controlled_reconnect_test", {"conn": self.cfg["reconnect_test_conn"], "error": "conn_missing"})
+            return
+        m = now_ms()
+        self.reconnect_test = {"conn": c.name, "trigger_ms": m, "recovered_ms": None}
+        self.lifecycle("controlled_reconnect_test", {"conn": c.name, "trigger_ms": m, "planned_at_s": at,
+                                                     "planned_ms": self.ws_start_ms + int(at * 1000)})
+        await c.force_reconnect("controlled_reconnect_test")
+
+    def _check_reconnect_recovered(self) -> None:
+        rt = self.reconnect_test
+        if rt is None or rt["recovered_ms"] is not None:
+            return
+        a = self.activity.get(rt["conn"])
+        up = a.last_up_since(now_ms()) if a else None
+        if up is None or up <= rt["trigger_ms"]:
+            return
+        trs = [t for t in self.all_tracks() if t.conn == rt["conn"]]
+        if all(t.gap is None and t.last_persisted_sample_ms is not None and t.last_persisted_sample_ms >= up
+               and (t.last_recv_ms() or 0) >= up for t in trs):
+            rt["recovered_ms"] = now_ms()
+            self.lifecycle("controlled_reconnect_recovered", {"conn": rt["conn"], "trigger_ms": rt["trigger_ms"],
+                                                              "reconnected_ms": up, "recovered_ms": rt["recovered_ms"],
+                                                              "streams": len(trs)})
+
     async def rotation_test_task(self) -> None:
         at = self.cfg["rotation_test_at_s"]
         if at <= 0:
@@ -1168,7 +1303,8 @@ class Collector:
             aiohttp.ClientSession(timeout=timeout, headers={"User-Agent": "tsb-p2-forward/" + C.VERSION})
         async with sess as self.session:
             self.rest = RestClient(self.session, self.rate, self.stats)
-            await self.load_universe()
+            if not await self.establish_universe():                  # F25: fail closed, graceful stop
+                return await self._startup_failed(rec_gaps)
             self.run_record, rel, self.run_record_sha = P.write_run_record(self)
             self.writer.run_record = rel
             self.lifecycle("start", {"config_hash": self.config_hash, "profile": self.cfg["profile"],
@@ -1185,6 +1321,7 @@ class Collector:
                      (("sampler", self.sampler_task), ("candles", self.candle_task), ("clock", self.clock_task),
                       ("disk", self.disk_task), ("health", self.health_task), ("watchdog", self.watchdog_task))]
             tasks.append(asyncio.create_task(self.rotation_test_task(), name="rotation_test"))
+            tasks.append(asyncio.create_task(self.reconnect_test_task(), name="reconnect_test"))
             try:
                 await asyncio.wait_for(self.stop_event.wait(), timeout=self.cfg["max_runtime_s"])
             except asyncio.TimeoutError:
@@ -1232,6 +1369,29 @@ class Collector:
         return self.exit_code
 
     writer_join_timeout_s = 120
+
+    async def _startup_failed(self, rec_gaps) -> int:
+        """F25: no trustworthy initial universe => durable reason, FAILED, graceful writer stop, exit 5."""
+        self.run_record, rel, self.run_record_sha = P.write_run_record(self)
+        self.writer.run_record = rel
+        self.lifecycle("start", {"config_hash": self.config_hash, "profile": self.cfg["profile"],
+                                 "max_runtime_s": self.cfg["max_runtime_s"], "recovered": rec_gaps,
+                                 "run_record_file": rel, "run_record_sha256": self.run_record_sha,
+                                 "run_record": self.run_record, "startup_failed": True})
+        self.lifecycle("startup_failed", {"reason": "universe_unavailable", "problems": self.startup_failure[:20]})
+        self.fatal("startup_failed:universe_unavailable", EXIT_STARTUP)
+        self.write_health(record=True)
+        self.lifecycle("stop", {"reason": self.stop_reason, "stop_requested_ms": now_ms(), "last_boundary_ms": None,
+                                "ws_start_ms": None, "uptime_s": round(time.monotonic() - self.started_mono, 1),
+                                "counters": self.counters()})
+        self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
+        self.finalize_stop()
+        self.write_health(record=False)
+        self.write_marker(f"stop-{self.boot_id[:8]}.json",
+                          {"event": "final_stop_state", "boot_id": self.boot_id, "ts_ms": now_ms(), "state": self.state,
+                           "exit_code": self.exit_code, "reason": self.stop_reason, "writer_finished": self.writer.finished,
+                           "writer_alive": self.writer.is_alive(), "partials": 0, "counters": self.counters()})
+        return self.exit_code
 
     def finalize_stop(self) -> str:
         """F51: STOPPED only if the writer thread finished cleanly and no .partial remains; else STOPPED_INCOMPLETE."""

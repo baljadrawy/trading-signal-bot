@@ -15,8 +15,9 @@ class RateGuard:
     - HTTP 418: BANNED -> all Binance activity stops for Retry-After + 600 s.
     """
 
-    def __init__(self, budget=300, defer=2400, pause=3600, clock=time.monotonic):
+    def __init__(self, budget=300, defer=2400, pause=3600, clock=time.monotonic, urgent_reserve=0):
         self.budget, self.defer, self.pause, self.clock = budget, defer, pause, clock
+        self.reserve = urgent_reserve      # non-urgent calls may not consume the last `reserve` weight
         self.window = collections.deque()
         self.observed = 0
         self.rest_blocked_until = 0.0
@@ -42,7 +43,7 @@ class RateGuard:
         if self.observed >= self.defer and not urgent:
             self.events["defer_40pct"] += 1
             return False, "deferred_ip_weight"
-        if self.own_used() + weight > self.budget:
+        if self.own_used() + weight > self.budget - (0 if urgent else self.reserve):
             self.events["own_budget"] += 1
             return False, "own_budget"
         self.window.append((now, weight))
