@@ -1032,8 +1032,8 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
         for v_ in (cnt_.get("writer_max_durable_lag_ms"), rp.info.get("durable_lag_max_ms")):
             if v_ is None or v_ > spec["writer"]["max_durable_lag_ms"]:
                 rp.fail("ACC_DURABLE_LAG", v_)
-        peak_p = max([(p.get("certifier") or {}).get("pending", 0) for p in ctx["health"]] or [0])
-        peak_a = max([(p.get("certifier") or {}).get("oldest_pending_age_ms", 0) for p in ctx["health"]] or [0])
+        peak_p = max([(p.get("certifier") or {}).get("pending") or 0 for p in ctx["health"]] or [0])
+        peak_a = max([(p.get("certifier") or {}).get("oldest_pending_age_ms") or 0 for p in ctx["health"]] or [0])
         if not any("certifier" in p for p in ctx["health"]):
             rp.fail("ACC_CERTIFIER_EVIDENCE_MISSING")
         if peak_p > cs_["max_pending"] or peak_a > 1000 * cs_["max_pending_age_s"]:
