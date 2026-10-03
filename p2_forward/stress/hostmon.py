@@ -67,6 +67,8 @@ def main():
     fcg.write("t_ms\tusage_usec\tuser_usec\tsystem_usec\tnr_periods\tnr_throttled\tthrottled_usec\tmem_current\t"
               "mem_peak\tpids_current\tcpu_pressure_some_total\n")
     fid = open(os.path.join(a.out, "cgroup_identity.jsonl"), "a", buffering=1)
+    fth = open(os.path.join(a.out, "threads.jsonl"), "a", buffering=1)
+    last_th = 0.0
     flc = open(os.path.join(a.out, "lifecycle.jsonl"), "a", buffering=1)
     finj = open(os.path.join(a.out, "inject.jsonl"), "a", buffering=1)
     seen = {}
@@ -89,6 +91,19 @@ def main():
                                                  st.get("throttled_usec"), rd(os.path.join(cg, "memory.current")),
                                                  rd(os.path.join(cg, "memory.peak")), rd(os.path.join(cg, "pids.current")),
                                                  some[0][6:] if some else "")) + "\n")
+        if now - last_th >= 0.25 and alive:                  # per-process / per-thread CPU ticks (host /proc)
+            last_th = now
+            row = {"t_ms": int(now * 1000), "p": {}}
+            for pid in (rd(os.path.join(cg, "cgroup.procs")) or "").split():
+                try:
+                    for tid in os.listdir(f"/proc/{pid}/task"):
+                        f = (rd(f"/proc/{pid}/task/{tid}/stat") or "").rsplit(")", 1)
+                        if len(f) == 2:
+                            v = f[1].split()
+                            row["p"][f"{pid}/{tid}"] = [f[0].split("(", 1)[1], int(v[11]) + int(v[12])]
+                except OSError:
+                    pass
+            fth.write(json.dumps(row, separators=(",", ":")) + "\n")
         if now - last_id >= 30.0 and alive:
             last_id = now
             fid.write(json.dumps(identity(cg)) + "\n")

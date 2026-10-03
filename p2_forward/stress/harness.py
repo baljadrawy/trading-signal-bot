@@ -51,15 +51,16 @@ class GcProbe:
     def cb(self, phase, info):
         g = info.get("generation")
         if phase == "start":
-            self.t0[g] = time.perf_counter()
+            self.t0[g] = (time.perf_counter(), time.thread_time())
         else:
             t = self.t0.pop(g, None)
             if t is not None:
-                d = (time.perf_counter() - t) * 1000
+                d = (time.perf_counter() - t[0]) * 1000
+                cpu = (time.thread_time() - t[1]) * 1000            # main-thread CPU actually spent in this GC
                 self.count[g] += 1; self.total_ms += d
                 self.max_ms = max(self.max_ms, d); self.win_max_ms = max(self.win_max_ms, d)
                 if d >= 20:
-                    self.win.append([g, round(d, 1), time.time_ns() // 1_000_000])
+                    self.win.append([g, round(d, 1), time.time_ns() // 1_000_000, round(cpu, 1)])
 
 
 async def telemetry(c, path, gp):
