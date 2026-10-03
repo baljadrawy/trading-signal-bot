@@ -232,3 +232,12 @@ from the deterministic 3 × cadence rule, not from fitting this data. Tier 0 del
 manifest append), F2/F4/F5 (crash-order strandings), F3 (torn manifest), F6 (a failure during the drain could
 still report success), F7 (backlog limit 8 below the 9 record types), F8/F9/F10 and F11 (stop grace). All are fixed
 with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pinned as v6.
+
+## G3-F4: sampler / event-loop stall during the hourly workload (G3-v6, NOT ACCEPTED)
+
+- **Event:** 13:00:09Z, one Tier-0 boundary processed more than 2 s late, giving `sampler_stall` × 4 (forbidden).
+- **Forensics** (evidence `p2e1-g3f4-forensics-*`):
+  - the stall coincides with the certifier's depth-segment certification;
+  - candle REST activity started only after the stall, so the candle-overlap hypothesis is refuted;
+  - no GC or cgroup-throttle telemetry exists, so the mechanism is unproven.
+- **Status:** OPEN; owner decision on the corrective direction is required.
