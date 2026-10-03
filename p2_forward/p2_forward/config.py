@@ -81,6 +81,8 @@ DEFAULTS = {
     "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
     "reconnect_test_conn": "conn0-book",
     "rest_urgent_reserve": 20,
+    "certifier_mode": "process",
+    "certifier_ready_timeout_s": 10,         # G3-F4-D1: child must publish readiness within this, else unhealthy             # G3-F4: certification in a separate worker process (same cgroup)
     "certify_shutdown_grace_s": 300,         # G3-F3: bounded wait for the certifier to drain at shutdown
     "certify_max_pending": 24,               # G3-F3: > 2 x the 9 record types (one hour may finalize 9 at once)
     "certify_max_pending_age_s": 900,        # G3-F3: oldest pending segment older than this = DEGRADED
@@ -134,6 +136,8 @@ def validate(cfg: dict) -> None:
         raise ConfigError("depth_stale_ms_by_tier must define t0/t1/t2 >= 1000 ms with t0 == depth_stale_ms")
     if not (cfg["book_stale_suspect_ms"] < cfg["book_t12_dead_ms"]):
         raise ConfigError("book_stale_suspect_ms must be below book_t12_dead_ms")
+    if cfg["certifier_mode"] not in ("process", "thread"):
+        raise ConfigError("certifier_mode must be process or thread")
     if cfg["rotation_test_at_s"] > 0 and cfg["reconnect_test_at_s"] > 0:
         raise ConfigError("only one controlled connection test per run (rotation OR reconnect)")
     if cfg["reconnect_test_conn"] not in ("conn0-book", "conn1-depth"):

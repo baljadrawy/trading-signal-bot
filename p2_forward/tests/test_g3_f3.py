@@ -87,7 +87,7 @@ class AsyncCertification(unittest.TestCase):
 
     def test_certifier_crash_detected_and_restarted(self):
         with tempfile.TemporaryDirectory() as d:
-            c = healthy_collector(d)
+            c = healthy_collector(d, certifier_mode="thread")
             try:
                 def boom(cert): raise RuntimeError("certifier crashed")
                 c.writer.certifier.slow_test_hook = boom
@@ -126,7 +126,7 @@ class AsyncCertification(unittest.TestCase):
 
     def test_backlog_degrades(self):
         with tempfile.TemporaryDirectory() as d:
-            c = healthy_collector(d, certify_max_pending=0)
+            c = healthy_collector(d, certify_max_pending=0, certifier_mode="thread")
             try:
                 c.writer.certifier.slow_test_hook = lambda cert: time.sleep(3)
                 one_segment(d).finalize(); c.writer.certifier.submit("x"); time.sleep(0.3)
@@ -197,7 +197,7 @@ class Shutdown(unittest.TestCase):
 
     def test_shutdown_timeout_preserves_pending_and_reports_incomplete(self):
         with tempfile.TemporaryDirectory() as d:
-            c = mk(d, flush_interval_s=0.1, certify_shutdown_grace_s=1)
+            c = mk(d, flush_interval_s=0.1, certify_shutdown_grace_s=1, certifier_mode="thread")
             c.writer.certify_grace_s = 1
             c.writer.certifier.slow_test_hook = lambda cert: time.sleep(4)
             c.writer.start(); c.q.put(rec(1)); time.sleep(0.3); c.writer.stop(); c.writer.join(30)

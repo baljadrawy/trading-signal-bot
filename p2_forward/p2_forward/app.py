@@ -159,7 +159,7 @@ class Collector:
         self.q = queue.Queue(maxsize=cfg["queue_max"])
         self.enq = Enqueuer(self.q, cfg["queue_max"], self.stats)
         self.writer = SegmentWriter(self.base, self.boot_id, self.q, self.stats, cfg["flush_interval_s"],
-                                    certify_grace_s=cfg["certify_shutdown_grace_s"])
+                                    certify_grace_s=cfg["certify_shutdown_grace_s"], certifier_mode=cfg["certifier_mode"])
         self.writer_join_timeout_s = cfg["certify_shutdown_grace_s"] + 120
         self.certifier_dead_ms = collections.deque(maxlen=50)
         self.rate = RateGuard(cfg["rest_budget_weight_per_min"], cfg["rest_defer_used_weight"], cfg["rest_pause_used_weight"],
@@ -1164,6 +1164,10 @@ class Collector:
         cs = self.writer.certifier.status()                           # G3-F3: certifier health, separate from writer
         if self.writer.is_alive() and not cs["alive"]:
             hard.append("certifier_dead")
+        elif cs.get("beat_age_ms") is None:                         # G3-F4-D1: readiness = child heartbeat published
+            st0 = getattr(self.writer.certifier, "start_mono", None)
+            (startup if st0 is not None and time.monotonic() - st0 < self.cfg["certifier_ready_timeout_s"]
+             else hard).append("certifier_not_ready")
         elif cs["beat_age_ms"] > self.cfg["certifier_beat_limit_ms"]:
             hard.append("certifier_stale")
         if cs.get("scan_error"):

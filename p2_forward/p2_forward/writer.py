@@ -384,7 +384,7 @@ class Certifier(threading.Thread):
 
 class SegmentWriter(threading.Thread):
     def __init__(self, data_dir: str, boot_id: str, q: queue.Queue, stats: dict, flush_interval_s: float = 2.0,
-                 certify_grace_s: float = 300.0):
+                 certify_grace_s: float = 300.0, certifier_mode: str = "thread"):
         super().__init__(name="segment-writer", daemon=True)
         self.base, self.boot8, self.q, self.stats = data_dir, boot_id[:8], q, stats
         self.flush_interval_s = flush_interval_s
@@ -407,8 +407,15 @@ class SegmentWriter(threading.Thread):
         self.lock = threading.Lock()
         for d in ("raw", "manifests", "quarantine", "universe", "health"):
             os.makedirs(os.path.join(self.base, d), exist_ok=True)
-        self.certifier = Certifier(self.base, boot_id, stats, lambda: self.run_record)
+        self.certifier_mode = certifier_mode
+        self.certifier = self._new_certifier()
         self.certifier_restarts = 0
+
+    def _new_certifier(self):
+        if self.certifier_mode == "process":                       # G3-F4: separate process, same cgroup
+            from .certproc import ProcessCertifier
+            return ProcessCertifier(self.base, self.boot_id, self.stats, lambda: self.run_record)
+        return Certifier(self.base, self.boot_id, self.stats, lambda: self.run_record)
 
     # ---- lifecycle ----
     def start(self) -> None:
@@ -417,7 +424,7 @@ class SegmentWriter(threading.Thread):
 
     def restart_certifier(self) -> None:
         old = self.certifier
-        self.certifier = Certifier(self.base, self.boot_id, self.stats, lambda: self.run_record)
+        self.certifier = self._new_certifier()
         self.certifier.slow_test_hook = old.slow_test_hook
         self.certifier_restarts += 1
         self.certifier.start()
