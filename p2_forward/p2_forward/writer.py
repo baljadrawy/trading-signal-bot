@@ -171,7 +171,29 @@ def _manifest_has(base: str, day: str, rel: str) -> bool:
     if not os.path.exists(mp):
         return False
     with open(mp, encoding="utf-8") as fh:
-        return any(json.loads(l).get("segment") == rel for l in fh if l.strip())
+        for l in fh:
+            try:
+                if json.loads(l).get("segment") == rel:
+                    return True
+            except ValueError:                                         # torn line (repaired at startup)
+                continue
+    return False
+
+
+def repair_manifests(base: str, stats: dict) -> None:
+    """F3: a crash mid-append can leave a torn trailing line: keep it in quarantine, truncate to the last newline."""
+    md = os.path.join(base, "manifests")
+    for f in sorted(os.listdir(md)) if os.path.isdir(md) else []:
+        p = os.path.join(md, f)
+        data = open(p, "rb").read()
+        if data and not data.endswith(b"\n"):
+            cut = data.rfind(b"\n") + 1
+            qdir = os.path.join(base, "quarantine"); os.makedirs(qdir, exist_ok=True)
+            with open(os.path.join(qdir, f + f".torn-{time.time_ns()}"), "wb") as fh:
+                fh.write(data[cut:])
+            with open(p, "r+b") as fh:
+                fh.truncate(cut); fh.flush(); os.fsync(fh.fileno())
+            stats["manifest_repairs"] = stats.get("manifest_repairs", 0) + 1
 
 
 def quarantine_files(base: str, paths: list, reason: str, name: str, stats: dict) -> None:
@@ -197,13 +219,16 @@ def certify(base: str, cert_path: str, stats: dict, boot_id: str, run_record=Non
     rel = os.path.relpath(final, base)
     day = os.path.basename(d)
     if os.path.exists(final):                                         # never two certified copies of one name
-        quarantine_files(base, [cert_path], "conflict:certified_copy_exists", name, stats)
+        quarantine_files(base, [cert_path, idx_pend if os.path.exists(idx_pend) else None],
+                         "conflict:certified_copy_exists", name, stats)
         return False
+    # idx source: .idx.pending, or .idx already renamed by an interrupted certification (final data not yet renamed)
+    idx_src = idx_pend if os.path.exists(idx_pend) else (idx_final if os.path.exists(idx_final) else None)
     t0 = time.monotonic()
-    expected = _idx_records(idx_pend)
+    expected = _idx_records(idx_src) if idx_src else None
     rep = validate_segment(cert_path, progress=progress, throttle=throttle)
     if rep["decode_error"] or rep["invalid"] or rep["duplicates"] or expected is None or rep["records"] != expected:
-        quarantine_files(base, [cert_path, idx_pend], f"certification:{json.dumps({**rep, 'expected': expected}, sort_keys=True)}",
+        quarantine_files(base, [cert_path, idx_src], f"certification:{json.dumps({**rep, 'expected': expected}, sort_keys=True)}",
                          name, stats)
         stats["certification_failures"] += 1
         return False
@@ -211,8 +236,9 @@ def certify(base: str, cert_path: str, stats: dict, boot_id: str, run_record=Non
     with open(final + ".sha256.tmp", "w", encoding="utf-8") as fh:
         fh.write(f"{digest}  {name}\n"); fh.flush(); os.fsync(fh.fileno())
     os.rename(final + ".sha256.tmp", final + ".sha256")
-    os.rename(cert_path, final)
-    os.rename(idx_pend, idx_final)
+    if idx_src != idx_final:
+        os.rename(idx_src, idx_final)
+    os.rename(cert_path, final)                                       # the final data name is ALWAYS the last rename
     for p in (final, final + ".sha256", idx_final):
         os.chmod(p, 0o444)
     _fsync_dir(d)
@@ -242,7 +268,11 @@ def _manifest_append(base, final, rel, day, digest, rep, run_record, boot_id, re
 def scan_lifecycle(base: str) -> dict:
     """Classify every segment file under raw/ by its lifecycle state (names are authoritative)."""
     out = {"active": [], "pending": [], "certifying": [], "certified": []}
-    for root, _, files in os.walk(os.path.join(base, "raw")):
+    def _err(e):
+        raise e
+    if not os.path.isdir(os.path.join(base, "raw")):
+        return out
+    for root, _, files in os.walk(os.path.join(base, "raw"), onerror=_err):
         for f in files:
             p = os.path.join(root, f)
             if f.endswith(".jsonl.gz.partial"):
@@ -279,7 +309,13 @@ class Certifier(threading.Thread):
 
     def status(self) -> dict:
         now = time.time_ns()
-        pend = self.pending()
+        try:
+            pend = self.pending()
+        except OSError:
+            return {"alive": self.is_alive(), "fatal": self.fatal, "beat_age_ms": (now - self.beat_ns) // 1_000_000,
+                    "pending": None, "oldest_pending_age_ms": None, "scan_error": True, "busy_ms": None,
+                    "last_ms": None, "max_ms": None, "failures": self.stats["certification_failures"],
+                    "certified": self.stats["segments_promoted"]}
         ages = []
         for p in pend:
             try:
@@ -327,15 +363,19 @@ class Certifier(threading.Thread):
             raise
 
     def drain(self, timeout_s: float) -> bool:
-        """Shutdown: certify everything pending within the grace; True if nothing remains."""
+        """Shutdown (F1): certify everything within the grace. True only if the certifier thread has STOPPED (joined,
+        so no certification is mid-flight, incl. its manifest append) and nothing is pending/certifying."""
         end = time.monotonic() + timeout_s
-        while time.monotonic() < end:
-            if not self.pending():
-                return True
-            if not self.is_alive():
-                self.run_once()
-            else:
-                self.nudge.set(); time.sleep(0.2)
+        while time.monotonic() < end and self.is_alive():
+            if not self.pending() and self.busy_since_ns is None:
+                break
+            self.nudge.set(); time.sleep(0.2)
+        self.stop()
+        self.join(max(0.0, end - time.monotonic()))
+        if self.is_alive():
+            return False
+        if self.pending() and time.monotonic() < end:
+            self.run_once()                                           # thread gone: finish inline within the grace
         return not self.pending()
 
     def stop(self) -> None:
@@ -403,9 +443,8 @@ class SegmentWriter(threading.Thread):
                     self._sync_all(); self._rotate_due(); last_sync = time.monotonic()
             self._sync_all()
             self.close_all()
+            self.certified_all = self.certifier.drain(self.certify_grace_s) is True
             self.finished = True
-            self.certified_all = self.certifier.drain(self.certify_grace_s)
-            self.certifier.stop()
         except BaseException as e:                         # noqa: BLE001 - recorded, made visible by the supervisor
             self.fatal = f"{type(e).__name__}: {e}"[:300]
             raise
@@ -454,8 +493,8 @@ class SegmentWriter(threading.Thread):
                 self.seq[key] += 1
                 seg = self.segments[key] = _Segment(self.base, key, hour_key, self.boot8, self.seq[key])
             seg.write(rec)
-            if self.pending_since_ns is None:
-                self.pending_since_ns = time.time_ns()
+            if self.pending_since_ns is None:                          # F8: from ENQUEUE (queue time included)
+                self.pending_since_ns = rec.get("queued_ts_ns") or time.time_ns()
             self.stats["written"][key] += 1
         except OSError as e:
             self._write_failure(key, e)
@@ -495,7 +534,13 @@ class SegmentWriter(threading.Thread):
             p = seg.finalize()
         except OSError as e:
             self.stats["write_errors"] += 1
-            self._quarantine(seg, f"finalize_failure:{type(e).__name__}"); return
+            if os.path.exists(seg.final + PENDING):                    # handed off already: certifier owns it
+                self.certifier.submit(seg.final + PENDING); return
+            self._quarantine(seg, f"finalize_failure:{type(e).__name__}")
+            for orphan in (seg.final[:-9] + ".idx" + PENDING,):
+                if os.path.exists(orphan):
+                    quarantine_files(self.base, [orphan], "finalize_failure:orphan_idx", seg.name, self.stats)
+            return
         self.stats["segments_finalized"] += 1
         self.certifier.submit(p)
 
@@ -520,6 +565,14 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
     gaps = []
     raw = os.path.join(data_dir, "raw")
     os.makedirs(os.path.join(data_dir, "quarantine"), exist_ok=True)
+    repair_manifests(data_dir, stats)                                 # F3
+    for root, _, files in os.walk(raw):                               # F4: finalize renames interrupted midway
+        for f in files:
+            p = os.path.join(root, f)
+            if f.endswith(".jsonl.gz" + PENDING):
+                stem = p[: -len(".jsonl.gz" + PENDING)]
+                if os.path.exists(stem + ".idx.partial") and not os.path.exists(stem + ".idx" + PENDING):
+                    os.rename(stem + ".idx.partial", stem + ".idx" + PENDING)
     for root, _, files in os.walk(raw):
         for f in sorted(files):
             if not f.endswith(".jsonl.gz.partial"):
@@ -527,9 +580,11 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
             p = os.path.join(root, f)
             stem = p[: -len(".jsonl.gz.partial")]
             rep = validate_segment(p)
-            expected = _idx_records(stem + ".idx.partial")
+            idx_now = stem + ".idx.partial" if os.path.exists(stem + ".idx.partial") else stem + ".idx" + PENDING
+            expected = _idx_records(idx_now)
             if not rep["decode_error"] and not rep["invalid"] and expected is not None and rep["records"] == expected:
-                os.rename(stem + ".idx.partial", stem + ".idx" + PENDING)
+                if idx_now != stem + ".idx" + PENDING:
+                    os.rename(idx_now, stem + ".idx" + PENDING)
                 os.rename(p, stem + ".jsonl.gz" + PENDING)
                 stats["recovered_finalized"] = stats.get("recovered_finalized", 0) + 1
                 continue
@@ -544,8 +599,9 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
             last = max((r["recv_ts_ns"] for r in recs), default=None)
             qdir = os.path.join(data_dir, "quarantine")
             os.rename(p, os.path.join(qdir, f + ".orig"))
-            if os.path.exists(stem + ".idx.partial"):
-                os.rename(stem + ".idx.partial", os.path.join(qdir, os.path.basename(stem) + ".idx.partial.orig"))
+            for ix in (stem + ".idx.partial", stem + ".idx" + PENDING):
+                if os.path.exists(ix):
+                    os.rename(ix, os.path.join(qdir, os.path.basename(ix) + ".orig"))
             stats["recovered_records"] += len(recs)
             gaps.append({"type": typ, "salvaged": len(recs), "last_salvaged_recv_ns": last, "source": f})
     st = scan_lifecycle(data_dir)
@@ -566,12 +622,29 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
             quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_without_valid_sidecar",
                              os.path.basename(p), stats)
             continue
+        if not os.path.exists(p[:-9] + ".idx") and os.path.exists(p[:-9] + ".idx" + PENDING):   # F2
+            os.rename(p[:-9] + ".idx" + PENDING, p[:-9] + ".idx")
         rep = validate_segment(p)
+        exp = _idx_records(p[:-9] + ".idx")
+        if rep["decode_error"] or rep["invalid"] or rep["duplicates"] or exp is None or rep["records"] != exp:  # F10
+            quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_failed_validation",
+                             os.path.basename(p), stats)
+            continue
         for q in (p, p + ".sha256", p[:-9] + ".idx"):
             if os.path.exists(q):
                 os.chmod(q, 0o444)
         _manifest_append(data_dir, p, rel, day, side, rep, None, boot_id, True)
         stats["recovered_manifest_completed"] = stats.get("recovered_manifest_completed", 0) + 1
+    for root, _, files in os.walk(raw):                               # F4: orphan sidecars are never left silently
+        for f in files:
+            p = os.path.join(root, f)
+            for suf in (".idx.partial", ".idx" + PENDING, ".idx", ".jsonl.gz.sha256"):
+                if f.endswith(suf):
+                    stem = p[: -len(suf)] if suf != ".jsonl.gz.sha256" else p[: -len(".sha256")][:-9]
+                    if not any(os.path.exists(stem + ".jsonl.gz" + x) for x in ("", ".partial", PENDING, CERTIFYING)):
+                        quarantine_files(data_dir, [p], "recovery:orphan_sidecar", f, stats)
+                        stats["orphan_sidecars"] = stats.get("orphan_sidecars", 0) + 1
+                    break
     return gaps
 
 

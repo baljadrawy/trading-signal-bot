@@ -80,8 +80,8 @@ G2R_SPEC = {
 
 
 G3_SPEC = {
-    "name": "g3-recommended-6h-v5",
-    "certifier": {"max_pending": 8, "max_pending_age_s": 900, "beat_limit_ms": 10000, "shutdown_grace_s": 300},
+    "name": "g3-recommended-6h-v6",
+    "certifier": {"max_pending": 24, "max_pending_age_s": 900, "beat_limit_ms": 10000, "shutdown_grace_s": 300},
     "writer": {"max_beat_gap_ms": 5000, "max_durable_lag_ms": 10000},
     "depth_stale_ms_by_tier": {"t0": 2000, "t1": 180000, "t2": 15000}, "book_t12_dead_ms": 600000,
     "freshness_justification": (
@@ -183,6 +183,10 @@ def load_files(base: str, rp: Report) -> list:
                 rp.fail("UNCERTIFIED_SEGMENT_PRESENT", rel)
             elif f.endswith(".sha256.tmp"):
                 rp.fail("UNRENAMED_SIDECAR_PRESENT", rel)
+            elif f.endswith((".idx", ".jsonl.gz.sha256")):
+                data_ = os.path.join(root, f[:-4] + ".jsonl.gz") if f.endswith(".idx") else os.path.join(root, f[:-7])
+                if not os.path.exists(data_):
+                    rp.fail("ORPHAN_SIDECAR", rel)                       # F9
             elif f.endswith(".jsonl.gz"):
                 segs.append(rel)
     for p in partials:
@@ -227,13 +231,19 @@ def load_files(base: str, rp: Report) -> list:
             rp.fail("IDX_UNREADABLE", rel)
         lagmax = rp.info.setdefault("durable_lag_max_ms", 0)               # independent: enqueue -> fsync of its block
         for r in lines:
-            if isinstance(r, dict) and isinstance(r.get("queued_ts_ns"), int) and r.get("blk") in durable:
+            if not isinstance(r, dict):
+                continue
+            if r.get("blk") not in durable:
+                if "-recovered-" not in rel:
+                    rp.fail("DURABLE_BLOCK_MISSING", rel)              # F9: every record belongs to a durable block
+            elif isinstance(r.get("queued_ts_ns"), int):
                 lagmax = max(lagmax, (durable[r["blk"]] - r["queued_ts_ns"]) // 1_000_000)
         rp.info["durable_lag_max_ms"] = lagmax
         m_ = manifest.get(rel, {})
-        if "certifier" in m_ and not (isinstance(m_.get("certified_ms"), int) and m_.get("last_recv_ns") is not None
-                                      and m_["certified_ms"] * 1_000_000 >= m_["last_recv_ns"]):
-            rp.fail("CERTIFICATION_METADATA_INVALID", rel)
+        if ("certifier" in m_ or rp.require_cert_meta) and not (
+                m_.get("certifier") == "certifier-v1" and "recovered" in m_ and isinstance(m_.get("certified_ms"), int)
+                and m_.get("last_recv_ns") is not None and m_["certified_ms"] * 1_000_000 >= m_["last_recv_ns"]):
+            rp.fail("CERTIFICATION_METADATA_INVALID", rel)                # F9: mandatory for spec with certifier
         if idx_records != len(lines):
             rp.fail("IDX_RECORD_COUNT_MISMATCH", f"{rel}:{idx_records}!={len(lines)}")
         if manifest.get(rel, {}).get("records") != len(lines):
@@ -500,6 +510,7 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
            expect_commit: str | None = None, monitor: dict | None = None) -> dict:
     rp = Report()
     rp.spec, rp.expect_image, rp.expect_commit, rp.monitor = spec, expect_image, expect_commit, monitor
+    rp.require_cert_meta = bool(spec and spec.get("certifier"))
     segs = load_files(base, rp)
     recs = []
     for rel, lines, _ in segs:
@@ -1012,6 +1023,10 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
                                                          cs_["shutdown_grace_s"]):
             rp.fail("ACC_CERTIFIER_POLICY_NOT_SPEC")
         cnt_ = stop.get("counters") or {}
+        fin_ = [m for n, m in (rp.info.get("control_markers_data") or {}).items() if n.startswith("stop-")]
+        for k in spec["zero_counters"]:                               # F6: counters AFTER the shutdown drain too
+            if fin_ and (fin_[0].get("counters") or {}).get(k):
+                rp.fail(f"ACC_FINAL_COUNTER_{k.upper()}", fin_[0]["counters"][k])
         if cnt_.get("writer_max_beat_gap_ms") is None or cnt_["writer_max_beat_gap_ms"] > spec["writer"]["max_beat_gap_ms"]:
             rp.fail("ACC_WRITER_BEAT_GAP", cnt_.get("writer_max_beat_gap_ms"))
         for v_ in (cnt_.get("writer_max_durable_lag_ms"), rp.info.get("durable_lag_max_ms")):

@@ -1109,7 +1109,9 @@ class Collector:
             hard.append("certifier_dead")
         elif cs["beat_age_ms"] > self.cfg["certifier_beat_limit_ms"]:
             hard.append("certifier_stale")
-        if cs["pending"] > self.cfg["certify_max_pending"] or \
+        if cs.get("scan_error"):
+            hard.append("certifier_scan_error")
+        elif cs["pending"] > self.cfg["certify_max_pending"] or \
                 cs["oldest_pending_age_ms"] > 1000 * self.cfg["certify_max_pending_age_s"]:
             hard.append("certifier_backlog")
         if cs["failures"]:
@@ -1452,6 +1454,7 @@ class Collector:
                                 "last_boundary_ms": self.last_sampled_ms, "ws_start_ms": self.ws_start_ms,
                                 "uptime_s": round(time.monotonic() - self.started_mono, 1),
                                 "counters": self.counters()})
+        self._stop_snapshot = (self.stats["certification_failures"], self.stats["segments_quarantined"])
         self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
         self.finalize_stop()
         self.write_health(record=False)
@@ -1482,6 +1485,7 @@ class Collector:
         self.lifecycle("stop", {"reason": self.stop_reason, "stop_requested_ms": now_ms(), "last_boundary_ms": None,
                                 "ws_start_ms": None, "uptime_s": round(time.monotonic() - self.started_mono, 1),
                                 "counters": self.counters()})
+        self._stop_snapshot = (self.stats["certification_failures"], self.stats["segments_quarantined"])
         self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
         self.finalize_stop()
         self.write_health(record=False)
@@ -1495,8 +1499,10 @@ class Collector:
         """F51: STOPPED only if the writer thread finished cleanly and no .partial remains; else STOPPED_INCOMPLETE."""
         partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs
                     if f.endswith((".partial", ".pending", ".certifying"))]          # G3-F3: uncertified = incomplete
-        complete = (not self.writer.is_alive()) and self.writer.finished and self.writer.certified_all is not False \
-            and not partials
+        snap = getattr(self, "_stop_snapshot", None)
+        no_new_failures = snap is None or snap == (self.stats["certification_failures"], self.stats["segments_quarantined"])
+        complete = (not self.writer.is_alive()) and self.writer.finished and self.writer.certified_all is True \
+            and self.writer.fatal is None and no_new_failures and not partials                     # F6
         if self.state != "FAILED":
             self.state = "STOPPED" if complete else "STOPPED_INCOMPLETE"
             if not complete:

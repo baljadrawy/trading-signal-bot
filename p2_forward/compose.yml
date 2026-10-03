@@ -7,6 +7,7 @@ services:
     image: ${P2F_IMAGE:?set P2F_IMAGE to the reviewed image}
     container_name: tsb-p2-forward-collector
     restart: "no"
+    stop_grace_period: 450s           # > certify_shutdown_grace_s (300) + close_all (F11)
     read_only: true
     user: "1000:1000"
     cap_drop: [ALL]

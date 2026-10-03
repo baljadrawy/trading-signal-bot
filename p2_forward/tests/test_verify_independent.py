@@ -137,7 +137,11 @@ def recertify(base, seg, transform):
     for p in (seg, idx, side):
         os.chmod(p, 0o644)
     seg.write_bytes(data); side.write_text(f"{digest}  {seg.name}\n")
-    idx.write_text(json.dumps({"blk": 0, "end_offset": len(data), "records": len(lines), "durable_ts_ns": 1}) + "\n")
+    blks = {}
+    for r in lines:                                               # one idx line per block, durable after its records
+        b = r.get("blk", 0); n, t = blks.get(b, (0, 0)); blks[b] = (n + 1, max(t, r.get("queued_ts_ns") or 0))
+    idx.write_text("".join(json.dumps({"blk": b, "end_offset": len(data), "records": n, "durable_ts_ns": t + 1}) + "\n"
+                           for b, (n, t) in sorted(blks.items())))
     for p in (seg, idx, side):
         os.chmod(p, 0o444)
     rel = str(seg.relative_to(base))

@@ -10,7 +10,7 @@ while docker ps --filter name=$C --filter status=running -q | /usr/bin/grep -q .
   echo -e "$(date -u +%FT%TZ)\t$S\t$(cut -d' ' -f1 /proc/loadavg)\t$(df -BG --output=avail / | tail -1 | tr -dc 0-9)\t$H\t$DH" >> $OUT
   if [ $(( $(date +%s) - START )) -ge $DEADLINE_S ]; then
     echo "$(date -u +%FT%TZ) DEADLINE reached: external stop" >> $E/${G}_monitor.log
-    docker stop -t 150 $C >> $E/${G}_monitor.log 2>&1; break
+    docker stop -t 450 $C >> $E/${G}_monitor.log 2>&1; break
   fi
   sleep 60
 done

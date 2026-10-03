@@ -82,7 +82,7 @@ DEFAULTS = {
     "reconnect_test_conn": "conn0-book",
     "rest_urgent_reserve": 20,
     "certify_shutdown_grace_s": 300,         # G3-F3: bounded wait for the certifier to drain at shutdown
-    "certify_max_pending": 8,                # G3-F3: pending/certifying segments beyond this = DEGRADED (backlog)
+    "certify_max_pending": 24,               # G3-F3: > 2 x the 9 record types (one hour may finalize 9 at once)
     "certify_max_pending_age_s": 900,        # G3-F3: oldest pending segment older than this = DEGRADED
     "certifier_beat_limit_ms": 10_000,       # G3-F3: certifier heartbeat (beats every <=1 s idle, every 500 lines busy)               # own-budget weight reserved for urgent calls (clock, universe)
     "derivatives_enabled": False,

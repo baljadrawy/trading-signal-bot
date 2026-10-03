@@ -227,3 +227,8 @@ from the deterministic 3 × cadence rule, not from fitting this data. Tier 0 del
     files.
   - Spec `g3-recommended-6h-v5` adds certifier and writer criteria; v4 is unaltered.
 - **Tests:** `tests/test_g3_f3.py` (12).
+
+**G3-F3 bounded review (f2dc2ff)** — no hot-path blocking. It found 9 issues: F1 (shutdown success before the
+manifest append), F2/F4/F5 (crash-order strandings), F3 (torn manifest), F6 (a failure during the drain could
+still report success), F7 (backlog limit 8 below the 9 record types), F8/F9/F10 and F11 (stop grace). All are fixed
+with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pinned as v6.

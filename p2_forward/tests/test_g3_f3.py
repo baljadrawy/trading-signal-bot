@@ -71,7 +71,9 @@ class AsyncCertification(unittest.TestCase):
                 self.assertGreaterEqual(pend_seen, 1)                 # backlog visible
                 self.assertGreater(durable_seen, 50)                  # new-hour records durably written meanwhile
                 w.stop(); w.join(90)
-            self.assertTrue(w.certified_all)
+            self.assertTrue(w.certified_all, {"alive": w.is_alive(), "fatal": w.fatal, "life": {k: len(v) for k, v in Wm.scan_lifecycle(d).items()},
+                                              "fail": st["certification_failures"], "err": st.get("last_certify_error"),
+                                              "q": os.listdir(os.path.join(d, "quarantine"))})
             m = manifest(d)
             self.assertEqual(sum(e["records"] for e in m), i)        # nothing lost across the rotation
             ids = []
@@ -211,3 +213,101 @@ class Shutdown(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewFindings(unittest.TestCase):
+    def test_F1_drain_waits_for_manifest_append(self):
+        with tempfile.TemporaryDirectory() as d:
+            orig = Wm._manifest_append
+            def slow(*a, **k):
+                time.sleep(1.0); return orig(*a, **k)
+            with mock.patch.object(Wm, "_manifest_append", slow):
+                st = Wm.new_stats(); q = queue.Queue(); w = Wm.SegmentWriter(d, BOOT, q, st, 0.1, certify_grace_s=30)
+                w.start(); q.put(rec(1)); time.sleep(0.3); w.stop(); w.join(60)
+            self.assertTrue(w.certified_all); self.assertFalse(w.certifier.is_alive()); self.assertEqual(len(manifest(d)), 1)
+
+    def test_F2_crash_between_idx_and_data_rename(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = one_segment(d).finalize(); stem = p[: -len(".jsonl.gz.pending")]
+            os.rename(p, stem + ".jsonl.gz.certifying"); os.rename(stem + ".idx.pending", stem + ".idx")   # new order crash
+            st = Wm.new_stats(); Wm.recover_partials(d, BOOT, st)
+            self.assertEqual(len(manifest(d)), 1); self.assertEqual(st["certification_failures"], 0)
+        with tempfile.TemporaryDirectory() as d:                                                     # old order crash
+            p = one_segment(d).finalize(); st = Wm.new_stats(); stem = p[: -len(".jsonl.gz.pending")]
+            Wm.certify(d, p, st, BOOT)
+            os.chmod(stem + ".idx", 0o644); os.rename(stem + ".idx", stem + ".idx.pending")
+            for f in glob.glob(os.path.join(d, "manifests", "*")): os.remove(f)
+            Wm.recover_partials(d, BOOT, st)
+            self.assertEqual(len(manifest(d)), 1); self.assertTrue(os.path.exists(stem + ".idx"))
+
+    def test_F3_torn_manifest_repaired(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = one_segment(d).finalize(); st = Wm.new_stats(); Wm.certify(d, p, st, BOOT)
+            mf = glob.glob(os.path.join(d, "manifests", "*.jsonl"))[0]
+            open(mf, "a").write('{"segment": "raw/x/torn')
+            Wm.recover_partials(d, BOOT, st)
+            self.assertEqual(st["manifest_repairs"], 1); self.assertEqual(len(manifest(d)), 1)
+
+    def test_F4_idx_renamed_data_still_partial_and_orphan_sweep(self):
+        with tempfile.TemporaryDirectory() as d:
+            seg = one_segment(d); seg.gz.close(); seg.fh.close(); seg.idx.close()
+            stem = seg.final[:-9]; os.rename(stem + ".idx.partial", stem + ".idx.pending")
+            st = Wm.new_stats(); gaps = Wm.recover_partials(d, BOOT, st)
+            self.assertEqual(gaps, []); self.assertEqual(manifest(d)[0]["records"], 50)
+            lone = os.path.join(os.path.dirname(stem), "lifecycle-20261003T02Z-xxxxxxxx-0009.idx.pending")
+            open(lone, "w").write("{}\n"); Wm.recover_partials(d, BOOT, st)
+            self.assertFalse(os.path.exists(lone)); self.assertEqual(st["orphan_sidecars"], 1)
+
+    def test_F5_conflict_quarantines_idx_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = one_segment(d).finalize(); st = Wm.new_stats(); Wm.certify(d, p, st, BOOT)
+            open(p, "wb").write(b"x"); stem = p[: -len(".jsonl.gz.pending")]; open(stem + ".idx.pending", "w").write("{}\n")
+            Wm.certify(d, p, st, BOOT)
+            self.assertFalse(os.path.exists(stem + ".idx.pending"))
+
+    def test_F6_failure_during_drain_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = mk(d, flush_interval_s=0.1); c.writer.start(); c.writer.stop(); c.writer.join(30)
+            c._stop_snapshot = (0, 0); c.stats["segments_quarantined"] = 1
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(c.finalize_stop(), "STOPPED_INCOMPLETE")
+
+    def test_F7_backlog_limit_covers_all_types(self):
+        from p2_forward import config as C
+        self.assertGreaterEqual(C.DEFAULTS["certify_max_pending"], 2 * len(R.TYPES))
+        self.assertEqual(VI.G3_SPEC["certifier"]["max_pending"], C.DEFAULTS["certify_max_pending"])
+
+    def test_F8_durable_lag_counts_queue_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = Wm.new_stats(); q = queue.Queue(); w = Wm.SegmentWriter(d, BOOT, q, st, 0.1)
+            r = rec(1); r["queued_ts_ns"] = time.time_ns() - 3_000_000_000
+            w.start(); q.put(r); time.sleep(0.4); w.stop(); w.join(30)
+            self.assertGreaterEqual(w.max_durable_lag_ms, 3000)
+
+    def test_F9_verifier_orphan_and_mandatory_cert_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = one_segment(d).finalize(); st = Wm.new_stats(); Wm.certify(d, p, st, BOOT)
+            open(os.path.join(os.path.dirname(p), "lifecycle-20261003T05Z-zzzzzzzz-0001.idx"), "w").write("{}\n")
+            mf = glob.glob(os.path.join(d, "manifests", "*.jsonl"))[0]
+            e = json.loads(open(mf).read()); e.pop("certifier"); open(mf, "w").write(json.dumps(e) + "\n")
+            r = VI.verify(d, spec=VI.G3_SPEC)
+            self.assertIn("ORPHAN_SIDECAR", r["failures"]); self.assertIn("CERTIFICATION_METADATA_INVALID", r["failures"])
+
+    def test_F10_recovery_validates_before_manifest(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = one_segment(d).finalize(); st = Wm.new_stats(); Wm.certify(d, p, st, BOOT)
+            final = p[: -len(".pending")]
+            os.chmod(final, 0o644); open(final, "wb").write(gzip.compress(b'{"not": "a record"}\n'))
+            os.chmod(final + ".sha256", 0o644); open(final + ".sha256", "w").write(Wm.sha256_file(final) + "  x\n")
+            for f in glob.glob(os.path.join(d, "manifests", "*")): os.remove(f)
+            Wm.recover_partials(d, BOOT, st)
+            self.assertEqual(manifest(d), []); self.assertFalse(os.path.exists(final))
+
+    def test_F12_scan_error_visible(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = healthy_collector(d)
+            try:
+                with mock.patch.object(Wm, "scan_lifecycle", side_effect=PermissionError("raw")):
+                    self.assertIn("certifier_scan_error", c.health_eval()[1])
+            finally:
+                stop_writer(c)
