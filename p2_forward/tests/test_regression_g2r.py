@@ -441,6 +441,8 @@ def healthy_collector(d, **over):
     """A collector in RUNNING state with every invariant satisfied, using real-time synthetic data."""
     c = mk(d, flush_interval_s=0.05, **over)
     c.writer.start()
+    if hasattr(c.writer.certifier, "wait_ready"):                    # G3-F4: HEALTHY requires REAL certifier readiness;
+        assert c.writer.certifier.wait_ready(20), "certifier not ready"   # cold image imports can take > 1 s
     m = A.now_ms()
     c.state = "RUNNING"; c.ws_start_ms = m - 60_000; c.started_mono = time.monotonic() - 120
     for n in A.TASK_PERIOD_S:
