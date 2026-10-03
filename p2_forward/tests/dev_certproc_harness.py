@@ -15,6 +15,9 @@ def main():
         seg.finalize(); ph("pending segment created")
         st = Wm.new_stats(); c = ProcessCertifier(d, "c"*32, st, lambda: None)
         c.start(); ph(f"process started pid={c.ident}")
+        ph(f"ready={c.wait_ready(10)}")
+        pc = open(f"/proc/{os.getpid()}/cgroup").read().strip(); cc = open(f"/proc/{c.ident}/cgroup").read().strip()
+        ph(f"cgroup parent pid={os.getpid()} {pc} | child pid={c.ident} {cc} | SAME_CGROUP={pc == cc}")
         for _ in range(100):
             if c.is_alive() and (time.time_ns() - c.beat_ns) < 500_000_000 and c.beat_ns: break
             time.sleep(0.05)
