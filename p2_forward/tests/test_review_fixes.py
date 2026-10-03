@@ -22,6 +22,8 @@ def test_spec():
     s = copy.deepcopy(VI.G2R_SPEC)
     s.update(name="e2e-test-spec", max_runtime_s=8, health_record_interval_s=2, candle_timeframes=["15m"], runtime_tolerance_s=2)
     s["cadence_ms"]["market"] = 2000
+    # runs of collector >= 1.2.x carry per-tier freshness; a spec without it fails closed (review F1)
+    s["depth_stale_ms_by_tier"] = dict(C.DEFAULTS["depth_stale_ms_by_tier"]); s["book_t12_dead_ms"] = C.DEFAULTS["book_t12_dead_ms"]
     s["clock_max_excess_ms"] = 500
     return s
 
