@@ -235,9 +235,15 @@ with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pi
 
 ## G3-F4: sampler / event-loop stall during the hourly workload (G3-v6, NOT ACCEPTED)
 
-- **Event:** 13:00:09Z, one Tier-0 boundary processed more than 2 s late, giving `sampler_stall` × 4 (forbidden).
-- **Forensics** (evidence `p2e1-g3f4-forensics-*`):
-  - the stall coincides with the certifier's depth-segment certification;
-  - candle REST activity started only after the stall, so the candle-overlap hypothesis is refuted;
-  - no GC or cgroup-throttle telemetry exists, so the mechanism is unproven.
-- **Status:** OPEN; owner decision on the corrective direction is required.
+- **Event:** at 13:00:09Z one Tier-0 boundary was processed more than 2 s late, giving `sampler_stall` × 4 (forbidden
+  by spec v6).
+- **Forensics:** evidence `p2e1-g3f4-forensics-20261003T155425Z`, SHA256SUMS `cb249cb5…`.
+- **G3-F4 root cause not proven.** The observed sampler stall temporally overlaps background certification. Candle REST
+  activity and file rotation are ruled out by the available evidence.
+- Certification is **not** established as the cause. GC and cgroup-throttle telemetry did not exist.
+- **Owner-approved direction:**
+  1. instrumentation first: exact sampler lateness, GC pauses, cgroup `cpu.stat`, an event-loop lag detector that
+     catches single long pauses;
+  2. certification moved to a separate worker PROCESS inside the same container cgroup;
+  3. no adaptive certification pause and no candle-scheduling change in this fix.
+- **Status:** IN PROGRESS. Pre-G3 owner gate required.
