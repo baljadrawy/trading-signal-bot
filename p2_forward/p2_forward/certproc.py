@@ -14,19 +14,28 @@ import time
 CTX = mp.get_context("spawn")                      # no fork of a threaded process; child imports cleanly
 
 
-def _worker(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready, err):
+def _worker(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready, err,
+            inject):
     # G3-F4-D1: SIGTERM must NOT be ignored (multiprocessing's exit handling terminates leftover children with
     # SIGTERM then joins; an ignoring child hangs the parent forever). Graceful shutdown = the stop event (drain).
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        _loop(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready)
+        if inject[0] == 1:                                        # test: exception before readiness
+            raise RuntimeError("injected init failure")
+        if inject[0] == 2:                                        # test: exit before readiness
+            os._exit(7)
+        if inject[0] == 3:                                        # test: slow initialization (alive, not ready)
+            time.sleep(2.0)
+        _loop(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready,
+              inject)
     except BaseException:                                         # never silent: traceback to the parent
         import traceback
         err.value = traceback.format_exc().encode()[-4000:]
         raise
 
 
-def _loop(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready):
+def _loop(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, stop, nudge, slow_s, crash, ready,
+          inject):
     from . import writer as W
     stats = W.new_stats()
     parent = os.getppid()
@@ -46,6 +55,12 @@ def _loop(base, boot_id, rr, beat, busy, failures, promoted, last_ms, max_ms, st
                 busy.value = time.time_ns()
                 if crash.value:
                     os._exit(3)                                   # test: abrupt certifier death mid-certification
+                if inject[1]:                                     # test: CPU-heavy pure-Python work (GIL proof)
+                    end = time.monotonic() + inject[1] / 1000.0; x = 0
+                    while time.monotonic() < end:
+                        for i in range(20000):
+                            x += i * i
+                        hb()
                 if slow_s.value:
                     end = time.monotonic() + slow_s.value
                     while time.monotonic() < end:
@@ -74,12 +89,13 @@ class ProcessCertifier:
         self._fail, self._prom, self._last, self._max = V("q", 0), V("q", 0), V("q", 0), V("q", 0)
         self._rr = CTX.Array("c", 1024)
         self._ready, self._err = V("b", 0), CTX.Array("c", 4096)
+        self.inject = CTX.Array("q", [0, 0])                      # tests only: [init_mode, burn_ms]
         self._stop, self._nudge = CTX.Event(), CTX.Event()
         self.slow_s, self.crash = V("d", 0.0), V("b", 0)
         self.proc = CTX.Process(target=_worker, name="segment-certifier",
                                 args=(base, boot_id, self._rr, self._beat, self._busy, self._fail, self._prom,
                                       self._last, self._max, self._stop, self._nudge, self.slow_s, self.crash,
-                                      self._ready, self._err),
+                                      self._ready, self._err, self.inject),
                                 daemon=True)
         self.slow_test_hook = None                                 # (thread-mode API compatibility; unused)
 
