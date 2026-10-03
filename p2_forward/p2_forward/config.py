@@ -75,18 +75,18 @@ DEFAULTS = {
     "universe_min_usdt_trading": 350,        # F42: fewer TRADING USDT symbols = partial (live ~500 seen in G2R market data)
     "universe_min_ticker_coverage": 0.99,    # F42: share of TRADING USDT symbols with a valid 24h ticker
     "universe_max_invalid_fraction": 0.005,  # F42: invalid numeric tickers tolerated
-    "universe_max_tier1_change": 0.5,
+    "universe_max_tier1_change": 0.5,        # F42: refresh changing Tier 1/2 membership by more = suspicious
     "universe_max_liquid_missing": 3,        # F42: liquid USDT tickers absent from exchangeInfo tolerated (delisting
-                                             # / permission edge cases); a partial exchangeInfo misses far more        # F42: refresh changing Tier 1/2 membership by more = suspicious
+                                             # / permission edge cases); a partial exchangeInfo misses far more
     "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
     "reconnect_test_conn": "conn0-book",
-    "rest_urgent_reserve": 20,
-    "certifier_mode": "process",
-    "certifier_ready_timeout_s": 10,         # G3-F4-D1: child must publish readiness within this, else unhealthy             # G3-F4: certification in a separate worker process (same cgroup)
+    "rest_urgent_reserve": 20,               # own-budget weight reserved for urgent calls (clock, universe)
+    "certifier_mode": "process",             # G3-F4: certification in a separate worker process (same cgroup)
+    "certifier_ready_timeout_s": 10,         # G3-F4-D1: child must publish readiness within this, else unhealthy
     "certify_shutdown_grace_s": 300,         # G3-F3: bounded wait for the certifier to drain at shutdown
     "certify_max_pending": 24,               # G3-F3: > 2 x the 9 record types (one hour may finalize 9 at once)
     "certify_max_pending_age_s": 900,        # G3-F3: oldest pending segment older than this = DEGRADED
-    "certifier_beat_limit_ms": 10_000,       # G3-F3: certifier heartbeat (beats every <=1 s idle, every 500 lines busy)               # own-budget weight reserved for urgent calls (clock, universe)
+    "certifier_beat_limit_ms": 10_000,       # G3-F3: certifier heartbeat (beats every <=1 s idle, every 500 lines busy)
     "derivatives_enabled": False,
     "aggtrades_enabled": False,
 }
@@ -138,6 +138,8 @@ def validate(cfg: dict) -> None:
         raise ConfigError("book_stale_suspect_ms must be below book_t12_dead_ms")
     if cfg["certifier_mode"] not in ("process", "thread"):
         raise ConfigError("certifier_mode must be process or thread")
+    if not (isinstance(cfg["certifier_ready_timeout_s"], (int, float)) and 0 < cfg["certifier_ready_timeout_s"] <= 120):
+        raise ConfigError("certifier_ready_timeout_s must be in (0, 120]")
     if cfg["rotation_test_at_s"] > 0 and cfg["reconnect_test_at_s"] > 0:
         raise ConfigError("only one controlled connection test per run (rotation OR reconnect)")
     if cfg["reconnect_test_conn"] not in ("conn0-book", "conn1-depth"):

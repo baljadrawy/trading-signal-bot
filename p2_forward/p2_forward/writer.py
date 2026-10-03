@@ -424,6 +424,8 @@ class SegmentWriter(threading.Thread):
 
     def restart_certifier(self) -> None:
         old = self.certifier
+        if hasattr(old, "_sync_stats"):                               # G3-F4 review: keep the dead worker's counters
+            old._sync_stats()
         self.certifier = self._new_certifier()
         self.certifier.slow_test_hook = old.slow_test_hook
         self.certifier_restarts += 1
@@ -561,6 +563,43 @@ class SegmentWriter(threading.Thread):
         quarantine_files(self.base, [seg.partial, seg.idx_partial], reason, seg.name, self.stats)
 
 
+def complete_manifests(data_dir: str, boot_id: str, stats: dict, run_record=None) -> int:
+    """Certified file without a manifest entry (a certifier died after the final rename, before the manifest
+    append): checksum re-verified against its sidecar, fully re-validated, then the manifest entry is completed
+    (recovered=True); mismatch -> quarantine. Used at startup recovery and by a RESTARTED certifier process before it
+    reports ready (G3-F4 review), so a live certifier restart can never leave an unlisted certified segment."""
+    n = 0
+    for p in sorted(scan_lifecycle(data_dir)["certified"]):
+        rel = os.path.relpath(p, data_dir); day = os.path.basename(os.path.dirname(p))
+        if os.path.exists(p + ".sha256.tmp"):                         # an unrenamed temp sidecar is never authoritative
+            os.remove(p + ".sha256.tmp")
+        if _manifest_has(data_dir, day, rel):
+            continue
+        side = None
+        if os.path.exists(p + ".sha256"):
+            with open(p + ".sha256", encoding="utf-8") as fh:
+                side = fh.read().split()[0]
+        if side is None or side != sha256_file(p):
+            quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_without_valid_sidecar",
+                             os.path.basename(p), stats)
+            continue
+        if not os.path.exists(p[:-9] + ".idx") and os.path.exists(p[:-9] + ".idx" + PENDING):   # F2
+            os.rename(p[:-9] + ".idx" + PENDING, p[:-9] + ".idx")
+        rep = validate_segment(p)
+        exp = _idx_records(p[:-9] + ".idx")
+        if rep["decode_error"] or rep["invalid"] or rep["duplicates"] or exp is None or rep["records"] != exp:  # F10
+            quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_failed_validation",
+                             os.path.basename(p), stats)
+            continue
+        for q in (p, p + ".sha256", p[:-9] + ".idx"):
+            if os.path.exists(q):
+                os.chmod(q, 0o444)
+        _manifest_append(data_dir, p, rel, day, side, rep, run_record, boot_id, True)
+        stats["recovered_manifest_completed"] = stats.get("recovered_manifest_completed", 0) + 1
+        n += 1
+    return n
+
+
 def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
     """Startup crash recovery; every segment is classified deterministically (names are authoritative):
     - ACTIVE .partial: if the gzip stream is complete and matches its .idx it was finalized-but-not-handed-off ->
@@ -615,33 +654,7 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
     for p in sorted(st["certifying"] + st["pending"]):
         certify(data_dir, p, stats, boot_id, recovered=True)
         stats["recovered_pending_certified"] = stats.get("recovered_pending_certified", 0) + 1
-    for p in sorted(scan_lifecycle(data_dir)["certified"]):
-        rel = os.path.relpath(p, data_dir); day = os.path.basename(os.path.dirname(p))
-        if os.path.exists(p + ".sha256.tmp"):                         # an unrenamed temp sidecar is never authoritative
-            os.remove(p + ".sha256.tmp")
-        if _manifest_has(data_dir, day, rel):
-            continue
-        side = None
-        if os.path.exists(p + ".sha256"):
-            with open(p + ".sha256", encoding="utf-8") as fh:
-                side = fh.read().split()[0]
-        if side is None or side != sha256_file(p):
-            quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_without_valid_sidecar",
-                             os.path.basename(p), stats)
-            continue
-        if not os.path.exists(p[:-9] + ".idx") and os.path.exists(p[:-9] + ".idx" + PENDING):   # F2
-            os.rename(p[:-9] + ".idx" + PENDING, p[:-9] + ".idx")
-        rep = validate_segment(p)
-        exp = _idx_records(p[:-9] + ".idx")
-        if rep["decode_error"] or rep["invalid"] or rep["duplicates"] or exp is None or rep["records"] != exp:  # F10
-            quarantine_files(data_dir, [p, p + ".sha256", p[:-9] + ".idx"], "recovery:certified_failed_validation",
-                             os.path.basename(p), stats)
-            continue
-        for q in (p, p + ".sha256", p[:-9] + ".idx"):
-            if os.path.exists(q):
-                os.chmod(q, 0o444)
-        _manifest_append(data_dir, p, rel, day, side, rep, None, boot_id, True)
-        stats["recovered_manifest_completed"] = stats.get("recovered_manifest_completed", 0) + 1
+    complete_manifests(data_dir, boot_id, stats)
     for root, _, files in os.walk(raw):                               # F4: orphan sidecars are never left silently
         for f in files:
             p = os.path.join(root, f)

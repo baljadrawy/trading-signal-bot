@@ -1469,6 +1469,8 @@ class Collector:
                 return await self._startup_failed(rec_gaps)
             self.run_record, rel, self.run_record_sha = P.write_run_record(self)
             self.writer.run_record = rel
+            if hasattr(self.writer.certifier, "set_run_record"):      # G3-F4 review A1: before any rotation
+                self.writer.certifier.set_run_record()
             self.lifecycle("start", {"config_hash": self.config_hash, "profile": self.cfg["profile"],
                                      "max_runtime_s": self.cfg["max_runtime_s"], "recovered": rec_gaps,
                                      "run_record_file": rel, "run_record_sha256": self.run_record_sha,
@@ -1539,6 +1541,8 @@ class Collector:
         """F25: no trustworthy initial universe => durable reason, FAILED, graceful writer stop, exit 5."""
         self.run_record, rel, self.run_record_sha = P.write_run_record(self)
         self.writer.run_record = rel
+        if hasattr(self.writer.certifier, "set_run_record"):
+            self.writer.certifier.set_run_record()
         self.lifecycle("start", {"config_hash": self.config_hash, "profile": self.cfg["profile"],
                                  "max_runtime_s": self.cfg["max_runtime_s"], "recovered": rec_gaps,
                                  "run_record_file": rel, "run_record_sha256": self.run_record_sha,

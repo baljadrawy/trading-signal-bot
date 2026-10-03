@@ -79,7 +79,7 @@ G2R_SPEC = {
 }
 
 
-G3_SPEC = {
+G3_SPEC_V6 = {
     "name": "g3-recommended-6h-v6",
     "certifier": {"max_pending": 24, "max_pending_age_s": 900, "beat_limit_ms": 10000, "shutdown_grace_s": 300},
     "writer": {"max_beat_gap_ms": 5000, "max_durable_lag_ms": 10000},
@@ -126,6 +126,27 @@ G3_SPEC = {
     "resources": {"mem_max_mib": 345, "pids_max": 64, "require_monitor": True},
     "storage": {"design_band_mb_day": [122, 446], "report_only": True},
 }
+
+
+def _spec_v7(v6: dict) -> dict:
+    """v7 (G3-F4) = v6 UNCHANGED + process-isolated certifier, cgroup and observability requirements. No v6 value is
+    altered or relaxed; every addition is a new requirement or report-only evidence."""
+    s = json.loads(json.dumps(v6))
+    s["name"] = "g3-recommended-6h-v7"
+    s["certifier"].update({"mode": "process", "ready_timeout_s": 10})
+    s["cgroup"] = {"require_capture": True, "cpu_max": "50000 100000", "memory_max": 402653184, "pids_max": 64,
+                   "max_sample_interval_s": 20, "require_process_roles": True,
+                   "running_roles": {"collector": 1, "certifier": 1}, "allowed_extra_roles": ["tracker"],
+                   "throttling": "report_only"}
+    s["instrumentation"] = {"require": True, "lateness_thresholds_ms": [100, 200, 500, 1000, 2000],
+                            "required_keys": ["sampler_lateness_max_ms", "sampler_lateness_counts_ge",
+                                              "loop_lag_max_ms", "loop_lag_counts_ge", "gc_pause_max_ms",
+                                              "gc_pauses_ge_100ms"],
+                            "distributions": "report_only"}
+    return s
+
+
+G3_SPEC = _spec_v7(G3_SPEC_V6)
 
 
 def sha256(path: str) -> str:
@@ -506,10 +527,48 @@ def read_monitor(tsv: str | None, log: str | None) -> dict | None:
     return out
 
 
+def read_cgroup(tsv: str | None) -> dict | None:
+    """Gate-monitor cgroup evidence (v7): cpu.max / cpu.stat / limits / process roles of the container's own cgroup
+    scope, sampled every 5 s by the HOST. Old 3-column files (v6 monitor) parse without limits or roles."""
+    if not tsv:
+        return None
+    rows = []
+    with open(tsv, encoding="utf-8") as fh:
+        for line in list(fh)[1:]:
+            r = line.rstrip("\n").split("\t")
+            if len(r) < 3 or not r[0].isdigit():
+                continue
+            st = dict(kv.split("=", 1) for kv in r[2].split(",") if "=" in kv)
+            row = {"t_ms": int(r[0]) // 1_000_000, "cpu_max": r[1], "stat": {k: int(v) for k, v in st.items() if v.isdigit()}}
+            if len(r) >= 8:
+                row.update(memory_max=r[3], pids_max=r[4], memory_current=int(r[5]) if r[5].isdigit() else None,
+                           pids_current=int(r[6]) if r[6].isdigit() else None,
+                           procs=[tuple(x.split("=", 1)) for x in r[7].split(",") if "=" in x])
+            rows.append(row)
+    if not rows:
+        return {"samples": 0, "rows": []}
+    a, b = rows[0]["stat"], rows[-1]["stat"]
+    d = {k: b.get(k, 0) - a.get(k, 0) for k in ("usage_usec", "nr_periods", "nr_throttled", "throttled_usec")}
+    span = (rows[-1]["t_ms"] - rows[0]["t_ms"]) / 1000 or None
+    return {"samples": len(rows), "rows": rows,
+            "max_interval_s": max([(y["t_ms"] - x["t_ms"]) / 1000 for x, y in zip(rows, rows[1:])] or [0]),
+            "cpu_max": sorted({r["cpu_max"] for r in rows}),
+            "memory_max": sorted({r.get("memory_max") for r in rows if "memory_max" in r}),
+            "pids_max": sorted({r.get("pids_max") for r in rows if "pids_max" in r}),
+            "has_roles": all("procs" in r for r in rows),
+            "throttling": {"window_s": span, "avg_cpu_cores": round(d["usage_usec"] / 1e6 / span, 3) if span else None,
+                           "nr_periods": d["nr_periods"], "nr_throttled": d["nr_throttled"],
+                           "throttled_period_fraction": round(d["nr_throttled"] / d["nr_periods"], 4) if d["nr_periods"] else None,
+                           "throttled_s_summed_over_cpus": round(d["throttled_usec"] / 1e6, 2)},
+            "memory_current_max_mib": max([r["memory_current"] / 2**20 for r in rows if r.get("memory_current")] or [0]),
+            "pids_current_max": max([r["pids_current"] for r in rows if r.get("pids_current")] or [0])}
+
+
 def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_image: str | None = None,
-           expect_commit: str | None = None, monitor: dict | None = None) -> dict:
+           expect_commit: str | None = None, monitor: dict | None = None, cgroup: dict | None = None) -> dict:
     rp = Report()
     rp.spec, rp.expect_image, rp.expect_commit, rp.monitor = spec, expect_image, expect_commit, monitor
+    rp.cgroup = cgroup
     rp.require_cert_meta = bool(spec and spec.get("certifier"))
     segs = load_files(base, rp)
     recs = []
@@ -557,6 +616,14 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
         run = json.load(fh)
     if run != start["payload"].get("run_record"):
         rp.fail("RUN_RECORD_EMBED_MISMATCH")
+    if rp.require_cert_meta:                                         # G3-F4 review A1: per-segment provenance
+        for rel_, _, m_ in segs:
+            if m_.get("boot_id") != boot or "certifier" not in m_ or m_.get("recovered"):
+                continue
+            pre_run = m_.get("run_record") is None and isinstance(m_.get("last_recv_ns"), int) and \
+                m_["last_recv_ns"] // 1_000_000 <= start["observed_at_ms"]   # finalized before the run record existed
+            if m_.get("run_record") != rr_rel and not pre_run:
+                rp.fail("MANIFEST_RUN_RECORD_MISMATCH", [rel_, m_.get("run_record")])
     for k in ("build", "code", "runtime", "config", "config_hash", "semantics", "sampling_profile", "universe",
               "endpoints", "expected_streams", "schema_doc", "host_label"):
         if k not in run:
@@ -918,7 +985,16 @@ def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_
     rp.info["totals"] = dict(totals)
     rp.info["stop_counters"] = stop["payload"].get("counters")
     rp.info["clock_excess_worst_ms"] = worst
+    lat_b = {}                                                      # v7: independent sampler lateness (enqueue - S)
+    for t_ in ("book", "depth", "market"):
+        for r in by[t_]:
+            s_, q_ = r.get("sample_ms"), r.get("queued_ts_ns")
+            if isinstance(s_, int) and isinstance(q_, int):
+                l_ = q_ // 1_000_000 - s_                           # first record of a boundary ~ sampler start
+                if s_ not in lat_b or l_ < lat_b[s_]:
+                    lat_b[s_] = l_
     rp.info["_ctx"] = {"ev": {k: [x["payload"] for x in v] for k, v in ev.items()}, "health": [r["payload"] for r in hl],
+                       "lat_b": lat_b,
                        "ev_t": {k: [(x["observed_at_ms"], x["payload"]) for x in v] for k, v in ev.items()},
                        "health_t": [r["observed_at_ms"] for r in hl], "gaps_by_key": {k: v for k, v in gaps.items()},
                        "run": run, "ws_start": ws_start, "stop_req": stop_req, "exp": exp, "cov": cov,
@@ -1043,6 +1119,58 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
                                          "writer_max_beat_gap_ms": cnt_.get("writer_max_beat_gap_ms"),
                                          "writer_max_durable_lag_ms": cnt_.get("writer_max_durable_lag_ms"),
                                          "independent_durable_lag_max_ms": rp.info.get("durable_lag_max_ms")}
+        if "mode" in cs_ and (cfg.get("certifier_mode"), cfg.get("certifier_ready_timeout_s")) != (cs_["mode"], cs_["ready_timeout_s"]):
+            rp.fail("ACC_CERTIFIER_ARCHITECTURE_NOT_SPEC", [cfg.get("certifier_mode"), cfg.get("certifier_ready_timeout_s")])
+    cg_ = spec.get("cgroup")                                       # v7 (G3-F4): one 0.5-CPU cgroup for both processes
+    if cg_:
+        c = getattr(rp, "cgroup", None)
+        if not c or not c.get("samples"):
+            if cg_.get("require_capture"):
+                rp.fail("ACC_CGROUP_NOT_PROVIDED")
+        else:
+            if c["cpu_max"] != [cg_["cpu_max"]]:
+                rp.fail("ACC_CGROUP_CPU_MAX", c["cpu_max"])
+            if cg_.get("require_process_roles") and not c["has_roles"]:
+                rp.fail("ACC_CGROUP_PROCESS_EVIDENCE_MISSING")
+            elif c["memory_max"] != [str(cg_["memory_max"])] or c["pids_max"] != [str(cg_["pids_max"])]:
+                rp.fail("ACC_CGROUP_LIMITS", [c["memory_max"], c["pids_max"]])
+            if c["max_interval_s"] > cg_["max_sample_interval_s"]:
+                rp.fail("ACC_CGROUP_SAMPLING_GAP", c["max_interval_s"])
+            if c["has_roles"]:
+                bad, cert_pids, lo = [], set(), ws_start + 1000 * spec["health"]["startup_s"]
+                for row in c["rows"]:
+                    if not (lo <= row["t_ms"] <= stop_req):
+                        continue
+                    roles = collections.Counter(r for _, r in row["procs"])
+                    cert_pids |= {p for p, r in row["procs"] if r == "certifier"}
+                    extra = set(roles) - set(cg_["running_roles"]) - set(cg_["allowed_extra_roles"])
+                    if any(roles.get(k, 0) != n for k, n in cg_["running_roles"].items()) or extra:
+                        bad.append([row["t_ms"], dict(roles)])
+                if bad:
+                    rp.fail("ACC_CGROUP_PROCESS_SET", bad[:5])
+                if len(cert_pids) > 1:
+                    rp.fail("ACC_CERTIFIER_PID_CHANGED", sorted(cert_pids))
+            rp.info["cgroup"] = {k: c[k] for k in ("samples", "max_interval_s", "cpu_max", "memory_max", "pids_max",
+                                                   "throttling", "memory_current_max_mib", "pids_current_max")}
+    ins_ = spec.get("instrumentation")                               # v7 (G3-F4): observability, report-only values
+    if ins_ and ins_.get("require"):
+        keys = ins_["required_keys"]
+        ic = (stop.get("counters") or {}).get("instrumentation")
+        if not isinstance(ic, dict) or any(k not in ic for k in keys):
+            rp.fail("ACC_INSTRUMENTATION_MISSING", "stop_counters")
+        hs = [p for t_, p in zip(ctx["health_t"], ctx["health"])
+              if t_ - ws_start > 1000 * spec["health"]["startup_s"] and t_ <= stop_req]
+        if not hs or any(not isinstance(p.get("instrumentation"), dict) or any(k not in p["instrumentation"] for k in keys)
+                         for p in hs):
+            rp.fail("ACC_INSTRUMENTATION_MISSING", "health_records")
+        lb = sorted(ctx.get("lat_b", {}).values())
+        def q(f):
+            return lb[min(len(lb) - 1, int(round(f * (len(lb) - 1))))] if lb else None
+        rp.info["instrumentation"] = {
+            "collector": ic, "report_only": True,
+            "independent_sampler_lateness_ms": {"boundaries": len(lb), "p50": q(.5), "p95": q(.95), "p99": q(.99),
+                                                "max": lb[-1] if lb else None,
+                                                "ge": {str(t): sum(1 for x in lb if x >= t) for t in ins_["lateness_thresholds_ms"]}}}
     # controlled reconnect (G3)
     rc = spec.get("reconnect")
     rwin = None
@@ -1291,7 +1419,7 @@ def main(argv=None) -> int:
     ap.add_argument("data_dir"); ap.add_argument("--boot"); ap.add_argument("--json")
     ap.add_argument("--acceptance", choices=["g2r", "g3"]); ap.add_argument("--spec")
     ap.add_argument("--expect-image-id"); ap.add_argument("--expect-commit")
-    ap.add_argument("--resources-tsv"); ap.add_argument("--monitor-log")
+    ap.add_argument("--resources-tsv"); ap.add_argument("--monitor-log"); ap.add_argument("--cgroup-tsv")
     ap.add_argument("--print-spec", action="store_true")
     a = ap.parse_args(argv)
     spec = {"g2r": G2R_SPEC, "g3": G3_SPEC}.get(a.acceptance)
@@ -1301,7 +1429,7 @@ def main(argv=None) -> int:
         with open(a.spec, encoding="utf-8") as fh:
             spec = json.load(fh)
     rep = verify(a.data_dir, a.boot, spec, a.expect_image_id, a.expect_commit,
-                 monitor=read_monitor(a.resources_tsv, a.monitor_log))
+                 monitor=read_monitor(a.resources_tsv, a.monitor_log), cgroup=read_cgroup(a.cgroup_tsv))
     out = json.dumps(str_keys(rep), indent=1, sort_keys=True, default=str)       # G3-F2: never fail on key types
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:

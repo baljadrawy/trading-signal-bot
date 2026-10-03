@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import copy
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -234,6 +235,7 @@ def g3_test_spec(runtime=16, reconnect_at=7):
     s["universe"].update(min_quote_volume=6.5e9, tier1_max=12, tier2=[4, 2, 6])
     s["reconnect"].update(at_s=reconnect_at, recover_within_s=6, reconnect_within_s=6)
     s["resources"]["require_monitor"] = False
+    s["cgroup"]["require_capture"] = False                  # v7: no host gate monitor in the 16 s offline e2e run
     s["health"]["startup_s"] = 3
     s["health"]["max_non_healthy_time_fraction"] = 0.5     # 16 s run: startup/stop dominate the short window
     return s
@@ -378,7 +380,10 @@ class SpecPin(unittest.TestCase):
     def test_exported_spec_files_equal_pinned_constants(self):
         import pathlib
         d = pathlib.Path(__file__).resolve().parents[1] / "verifier" / "specs"
-        self.assertEqual(json.loads((d / "g3-recommended-6h-v6.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v7.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v6.json").read_text()), json.loads(json.dumps(VI.G3_SPEC_V6)))
+        self.assertEqual(hashlib.sha256((d / "g3-recommended-6h-v6.json").read_bytes()).hexdigest(),
+                         "20c95733e83e3eb23192ffb3d7f757e13d633b5c75b77c947591f2befcc06793")   # v6 file unaltered
         self.assertEqual(json.loads((d / "g2r-tier0-2h-v1.json").read_text()), json.loads(json.dumps(VI.G2R_SPEC)))
 
 
@@ -573,6 +578,7 @@ class PreG3Confirm(unittest.TestCase):
 
     def test_N1_gap_only_time_not_double_charged(self):
         import importlib
-        s = VI.G3_SPEC["gap_budget"]["allowed_causes"]
-        self.assertIn("stale_stream", s)
-        self.assertEqual(VI.G3_SPEC["name"], "g3-recommended-6h-v6")
+        for spec, name in ((VI.G3_SPEC_V6, "g3-recommended-6h-v6"), (VI.G3_SPEC, "g3-recommended-6h-v7")):
+            self.assertIn("stale_stream", spec["gap_budget"]["allowed_causes"])
+            self.assertEqual(spec["name"], name)
+        self.assertEqual(VI.G3_SPEC["gap_budget"], VI.G3_SPEC_V6["gap_budget"])          # v7 keeps v6's gap budget
