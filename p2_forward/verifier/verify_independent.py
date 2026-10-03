@@ -80,7 +80,15 @@ G2R_SPEC = {
 
 
 G3_SPEC = {
-    "name": "g3-recommended-6h-v3",
+    "name": "g3-recommended-6h-v4",
+    "depth_stale_ms_by_tier": {"t0": 2000, "t1": 180000, "t2": 15000}, "book_t12_dead_ms": 600000,
+    "freshness_justification": (
+        "Tier0 depth 2 s: G2R-validated (push inter-arrival 971-1039 ms, one missed push tolerated). Tier1/2 depth "
+        "3 x cadence (P2-E0 rule 'depth: 3x cadence'): T2 5 s -> 15 s, T1 60 s -> 180 s; diagnostic G3 showed "
+        "~0.9 pushes/s per stream with ~1.4 % of boundaries > 2 s old, i.e. 2 s misclassified a quiet book as "
+        "missing; 3 x cadence still detects a dead stream within 15 s / 180 s. Tier1/2 bookTicker is event-driven "
+        "(diagnostic max age 40.7 s, p99 19.8 s); a hard dead-stream bound of 600 s (~15 x observed max) replaces "
+        "the former warning-only path so a dead book stream cannot hide behind a live shared connection."),
     "profile": "recommended", "tier0": ["BTCUSDT", "ETHUSDT"], "tier1": None, "tier2": None,  # None: from the
     # independently reconstructed universe (R04); limits below
     "universe": {"min_quote_volume": 10_000_000, "tier1_max": 150, "tier2": [20, 10, 30], "expect_no_prior": True,
@@ -401,7 +409,8 @@ def check_universe(rp: Report, by: dict, ev: dict, run: dict, base: str, ws_star
                 rp.fail("UNIVERSE_HYSTERESIS_REASON_MISMATCH", sym)
     rp.info["universe"] = {"universe_id": a.get("universe_id"), "candidates": len(cands), "eligible": len(elig),
                            "tier0": sorted(t0), "tier1": len(t1), "tier2": len(t2), "hysteresis": sorted(prior),
-                           "exclusions": dict(collections.Counter(c.get("excluded_reason") for c in cands)),
+                           "exclusions": {str(k): v for k, v in collections.Counter(c.get("excluded_reason") or "selected"
+                                                                                    for c in cands).items()},
                            "source": {k: {"recv_ns": v.get("recv_ns"), "body_sha256": v.get("body_sha256")}
                                       for k, v in (u.get("source") or {}).items()},
                            "validation": u.get("validation")}
@@ -420,11 +429,11 @@ def derive_expected(run: dict, rp: Report) -> dict:
             exp[f"{s.lower()}@bookTicker"] = {"kind": "book", "symbol": s, "tier": tier, "cadence": cad[f"{t}_book"],
                                               "deadline_ms": 1000 * (dl["t0_book"] if tier == 0 else dl["t12_book"]),
                                               "key": f"book|{s}", "levels": None,
-                                              "stale_ms": cfg["book_t0_stale_ms"] if tier == 0 else None}
+                                              "stale_ms": cfg["book_t0_stale_ms"] if tier == 0 else cfg.get("book_t12_dead_ms")}
             n = lv[t]
             exp[f"{s.lower()}@depth{n}"] = {"kind": "depth", "symbol": s, "tier": tier, "cadence": cad[f"{t}_depth"],
                                             "deadline_ms": 1000 * dl["depth"], "key": f"depth|{s}", "levels": n,
-                                            "stale_ms": cfg["depth_stale_ms"]}
+                                            "stale_ms": (cfg.get("depth_stale_ms_by_tier") or {}).get(t, cfg["depth_stale_ms"])}
     exp["!miniTicker@arr"] = {"kind": "market", "symbol": None, "tier": None, "cadence": cad["market"],
                               "deadline_ms": 1000 * dl["market"], "key": "market|ALL", "levels": None,
                               "stale_ms": cfg["market_stale_ms"]}
@@ -927,6 +936,16 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
             (spec["stale_ms"]["depth"], spec["stale_ms"]["book_t0"], spec["stale_ms"]["market"]) or \
             cfg["conn_data_live_ms"] != spec["conn_data_live_ms"]:
         rp.fail("ACC_STALE_LIMITS_NOT_SPEC")
+    if "depth_stale_ms_by_tier" in spec and (cfg.get("depth_stale_ms_by_tier") != spec["depth_stale_ms_by_tier"]
+                                             or cfg.get("book_t12_dead_ms") != spec["book_t12_dead_ms"]):
+        rp.fail("ACC_FRESHNESS_THRESHOLDS_NOT_SPEC", [cfg.get("depth_stale_ms_by_tier"), cfg.get("book_t12_dead_ms")])
+    for n_, e_ in ctx["exp"].items():                          # verifier applies the PINNED values, not the run's
+        if "depth_stale_ms_by_tier" in spec:
+            want = (spec["depth_stale_ms_by_tier"][f"t{e_['tier']}"] if e_["kind"] == "depth" else
+                    spec["stale_ms"]["book_t0"] if e_["kind"] == "book" and e_["tier"] == 0 else
+                    spec["book_t12_dead_ms"] if e_["kind"] == "book" else spec["stale_ms"]["market"])
+            if e_["stale_ms"] != want:
+                rp.fail("ACC_STREAM_FRESHNESS_NOT_SPEC", n_)
     if cfg["health_record_interval_s"] != spec["health_record_interval_s"] or cfg["max_runtime_s"] != spec["max_runtime_s"]:
         rp.fail("ACC_RUNTIME_OR_HEALTH_INTERVAL_NOT_SPEC")
     # bounded runtime + clean stop
@@ -1192,6 +1211,15 @@ def finish(rp: Report, base: str, segs=None) -> dict:
             "acceptance": None if rp.spec is None else not any(k.startswith("ACC_") for k in rp.failures), **info}
 
 
+def str_keys(o):
+    """JSON export: every mapping key as a string (None / int keys must never break or drop a report)."""
+    if isinstance(o, dict):
+        return {("null" if k is None else str(k)): str_keys(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [str_keys(v) for v in o]
+    return o
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("data_dir"); ap.add_argument("--boot"); ap.add_argument("--json")
@@ -1208,7 +1236,7 @@ def main(argv=None) -> int:
             spec = json.load(fh)
     rep = verify(a.data_dir, a.boot, spec, a.expect_image_id, a.expect_commit,
                  monitor=read_monitor(a.resources_tsv, a.monitor_log))
-    out = json.dumps(rep, indent=1, sort_keys=True, default=str)
+    out = json.dumps(str_keys(rep), indent=1, sort_keys=True, default=str)       # G3-F2: never fail on key types
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             fh.write(out + "\n")

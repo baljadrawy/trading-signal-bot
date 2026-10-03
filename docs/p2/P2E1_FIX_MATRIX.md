@@ -179,3 +179,19 @@ itself:
 reconnect), B2 (a new listing's candle), M1 (reconnect exemption too broad), M2 (raw inputs not persisted), M3
 (partial `exchangeInfo`), and m1–m3, m5–m7. All are fixed with tests, and the spec is re-pinned as
 `g3-recommended-6h-v2`.
+
+## G3 diagnostic stop (2026-10-03) and resolutions
+
+| ID | Finding | Resolution | Tests |
+|---|---|---|---|
+| G3-F1 | Depth staleness of 2 s (calibrated on BTC/ETH only) misclassified quiet Tier-1/2 depth books as missing: 19 gaps in 211 s; G3 could not pass. Tier-1/2 bookTicker had no hard bound (only a 15 min warning), so a dead book stream could hide behind its live shared connection | Per-tier `depth_stale_ms_by_tier` = {t0: 2 s, t1: 180 s, t2: 15 s}; Tier-1/2 book `book_t12_dead_ms` = 600 s (hard); freshness vocabulary in health; persisted values keep their original timestamps; pinned in spec v4 and applied by the verifier from the pinned spec | `tests/test_g3_f1.py` |
+| G3-F2 | Verifier CLI `--json` crashed on a `None` key (exclusion reason) | `str_keys()` export, and `"selected"` replaces the `None` reason key | `test_cli_json_export_with_none_key` (real CLI subprocess) |
+
+**Calibration** (diagnostic 211 s run plus G2R; persisted sample ages are censored at the old 2 s limit):
+
+| Stream | Cadence | Observed | Threshold | Justification |
+|---|---|---|---|---|
+| Tier-0 depth20 | 1 s | G2R inter-arrival 971–1,039 ms; diagnostic age p99 849 ms | 2 s (unchanged) | validated by G2R; one missed push |
+| Tier-2 depth10 | 5 s | age p50 548, p99 1,619, max 1,866 ms (persisted); ≈ 0.9 pushes/s per stream; ~1.4 % of Tier-1/2 boundaries > 2 s | 15 s | P2-E0 "depth: 3 × cadence"; a value no older than 3 sampling periods; a dead stream is detected within 15 s |
+| Tier-1 depth10 | 60 s | age p50 503, p99 1,731, max 1,890 ms (persisted) | 180 s | 3 × cadence; detects a dead stream within 3 min at 60 s resolution |
+| Tier-1/2 bookTicker | 10 s / 2 s | Tier-1 p99 19.8 s, max 40.7 s; Tier-2 max 26.2 s | 600 s (hard) | event-driven; about 15 × the observed maximum; closes the dead-book-behind-live-connection path |

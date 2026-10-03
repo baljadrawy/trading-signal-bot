@@ -82,12 +82,30 @@ Record-level v2 additions:
    recent reconnect is not persisted (`awaiting_post_reconnect_data`);
 2. the value's age is within its limit:
 
-   | Stream | Limit |
+   | Stream | Limit (`stale_ms`, G3-F1) |
    |---|---|
-   | depth | 2 s (partial depth is pushed every 1 s; one missed push tolerated) |
+   | Tier-0 depth20 (cadence 1 s) | 2 s: pushes every ~1 s (G2R inter-arrival 971–1,039 ms); one missed push tolerated |
+   | Tier-2 depth10 (cadence 5 s) | 15 s = 3 × cadence |
+   | Tier-1 depth10 (cadence 60 s) | 180 s = 3 × cadence |
    | Tier-0 book | 120 s; within it, `unchanged = true` means no top-of-book change was received |
-   | Tier-1/2 book | none (event-driven; silence > 15 min is flagged `stale_suspect` in health) |
+   | Tier-1/2 book | 600 s: a dead-stream bound for an event-driven stream; health warns at 120 s (`stale_suspect`) |
    | market | the newest component ≤ 10 s |
+
+   A held value within its limit is persisted with its **original** `recv_ts_ns` / `observed_at_ms`, never
+   re-stamped, so its age (`sample_ms − observed_at_ms`) stays measurable. Health reports a per-stream
+   `freshness`:
+
+   | Freshness | Meaning |
+   |---|---|
+   | `fresh` | age ≤ cadence |
+   | `aging` | cadence < age ≤ limit |
+   | `stale` | age > limit |
+   | `disconnected` | the stream's connection is down |
+   | `reconnecting` | no data since the latest connect |
+   | `not_ready` | no observation yet |
+
+   A stale required stream is a hard health reason, so HEALTHY is impossible. A dead stream cannot hide behind
+   other traffic on its shared connection, because freshness is per stream.
 
 3. writes are not stopped by the disk guard.
 

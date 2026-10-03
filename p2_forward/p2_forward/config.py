@@ -59,9 +59,11 @@ DEFAULTS = {
     "sample_hold_window_s": 120,             # boundary snapshots kept per stream for stall catch-up (F19)
     "subscribe_ack_timeout_s": 10,           # SUBSCRIBE acknowledgement deadline (F37)
     "first_obs_deadline_s": {"t0_book": 30, "depth": 30, "market": 30, "t12_book": 120},   # from WS start (F38)
-    "depth_stale_ms": 2000,                  # partial depth pushes every 1000 ms: one missed push tolerated
+    "depth_stale_ms": 2000,                  # Tier-0 depth (= depth_stale_ms_by_tier.t0); G2R-validated
+    "depth_stale_ms_by_tier": {"t0": 2000, "t1": 180_000, "t2": 15_000},   # G3-F1: 3 x cadence for Tier 1/2
+    "book_t12_dead_ms": 600_000,             # G3-F1: Tier-1/2 bookTicker silent beyond this = stale (dead stream)
     "book_t0_stale_ms": 120_000,             # Tier-0 book silent beyond this on a data-live connection = stale gap (F40)
-    "book_stale_suspect_ms": 900_000,        # Tier-1/2 book silent beyond this = health stale_suspect (F40)
+    "book_stale_suspect_ms": 120_000,        # Tier-1/2 book silent beyond this = health warning stale_suspect
     "market_stale_ms": 10_000,               # newest market component older than this at S = market gap (F49)
     "conn_data_live_ms": 10_000,             # connection data-live window (F40)
     "market_startup_ms": 60_000,             # market snapshot startup_complete after this (F8)
@@ -122,6 +124,12 @@ def validate(cfg: dict) -> None:
               "market_component_max_age_ms", "clock_probes", "health_record_interval_s"):
         if not (isinstance(cfg[k], (int, float)) and cfg[k] > 0):
             raise ConfigError(f"{k} must be > 0")
+    d = cfg["depth_stale_ms_by_tier"]
+    if set(d) != {"t0", "t1", "t2"} or any(not (isinstance(v, int) and v >= 1000) for v in d.values()) \
+            or d["t0"] != cfg["depth_stale_ms"]:
+        raise ConfigError("depth_stale_ms_by_tier must define t0/t1/t2 >= 1000 ms with t0 == depth_stale_ms")
+    if not (cfg["book_stale_suspect_ms"] < cfg["book_t12_dead_ms"]):
+        raise ConfigError("book_stale_suspect_ms must be below book_t12_dead_ms")
     if cfg["rotation_test_at_s"] > 0 and cfg["reconnect_test_at_s"] > 0:
         raise ConfigError("only one controlled connection test per run (rotation OR reconnect)")
     if cfg["reconnect_test_conn"] not in ("conn0-book", "conn1-depth"):

@@ -270,9 +270,9 @@ class Collector:
                 st[nb] = {"kind": "book", "symbol": s, "tier": tier, "cadence": cad[f"{t}_book"]}
                 st[nd] = {"kind": "depth", "symbol": s, "tier": tier, "cadence": cad[f"{t}_depth"], "levels": n}
                 tracks[nb] = StreamTrack(nb, "book", s, tier, cad[f"{t}_book"], "conn0-book",
-                                         cfg["book_t0_stale_ms"] if tier == 0 else 10 ** 15,
+                                         cfg["book_t0_stale_ms"] if tier == 0 else cfg["book_t12_dead_ms"],
                                          1000 * (dl["t0_book"] if tier == 0 else dl["t12_book"]), hold)
-                tracks[nd] = StreamTrack(nd, "depth", s, tier, cad[f"{t}_depth"], "conn1-depth", cfg["depth_stale_ms"],
+                tracks[nd] = StreamTrack(nd, "depth", s, tier, cad[f"{t}_depth"], "conn1-depth", cfg["depth_stale_ms_by_tier"][t],
                                          1000 * dl["depth"], hold, levels=n)
         self.streams, self.tracks = st, tracks
         self.market = MarketTrack(cad["market"], "conn0-book", cfg["market_stale_ms"], 1000 * dl["market"], hold,
@@ -1110,12 +1110,9 @@ class Collector:
                 (startup if m < self._deadline_abs(t) else hard).append(f"not_ready:{t.name}")
                 continue
             age = None if last is None else m - last
-            if t.kind == "book" and t.tier != 0:
-                if age is not None and age > self.cfg["book_stale_suspect_ms"]:
-                    warn.append(f"stale_suspect:{t.name}")
-                fresh = True
-            else:
-                fresh = age is not None and age <= t.stale_ms
+            if t.kind == "book" and t.tier != 0 and age is not None and age > self.cfg["book_stale_suspect_ms"]:
+                warn.append(f"stale_suspect:{t.name}")
+            fresh = age is not None and age <= t.stale_ms          # G3-F1: every stream has a hard freshness bound
             live = self.conn_up_at(t.conn, m) and self.data_live_at(t.conn, m)
             up = self.last_up(t.conn, m)
             if up is not None and (last is None or last < up):          # B1: no own data since the (re)connect
@@ -1200,6 +1197,7 @@ class Collector:
                     "data_live": self.data_live_at(c.name, m), "msgs_per_s": self.activity[c.name].rate(m)}
                    for c in self.conns],
             "streams": {t.name: {"state": t.state(), "sub": t.sub, "ready_ms": t.ready_ms,
+                                 "freshness": self.freshness(t, m), "stale_ms": t.stale_ms,
                                  "last_msg_age_ms": None if t.last_recv_ms() is None else m - t.last_recv_ms(),
                                  "gap_open": None if t.gap is None else {"first": t.gap["first"], "n": t.gap["n"],
                                                                          "cause": t.gap["cause"]}}
@@ -1246,6 +1244,20 @@ class Collector:
                 "market_component_expired": st.get("market_component_expired", 0), "gaps": self.gap_count,
                 "catchup_boundaries": self.catchup_boundaries}
 
+    def freshness(self, t, m: int) -> str:
+        """G3-F1 vocabulary: fresh (age <= cadence) | aging (cadence < age <= threshold) | stale (> threshold) |
+        disconnected | reconnecting (connected, no data since the connect) | not_ready."""
+        last = t.last_recv_ms()
+        if last is None:
+            return "not_ready"
+        if not self.conn_up_at(t.conn, m):
+            return "disconnected"
+        up = self.last_up(t.conn, m)
+        if up is not None and last < up:
+            return "reconnecting"
+        age = m - last
+        return "fresh" if age <= t.cadence else ("aging" if age <= t.stale_ms else "stale")
+
     def health_record(self, h: dict) -> None:
         """R02: compact historical health raw record (state at time T is reconstructable from raw data)."""
         compact = {k: h[k] for k in ("state", "reasons", "startup_reasons", "warnings", "uptime_s", "tasks", "task_failures",
@@ -1257,6 +1269,7 @@ class Collector:
         by_state = collections.Counter(s["state"] for s in h["streams"].values())
         compact["streams_by_state"] = dict(by_state)
         compact["streams_not_observing"] = {n: s for n, s in sorted(h["streams"].items()) if s["state"] != OBSERVING}
+        compact["streams_by_freshness"] = dict(collections.Counter(s["freshness"] for s in h["streams"].values()))
         compact["health_ts_ms"] = h["ts_ms"]
         compact["counters"] = h["counters"]
         compact["rest"] = h["rest"]

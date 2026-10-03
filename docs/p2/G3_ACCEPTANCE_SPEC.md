@@ -1,11 +1,14 @@
-# P2-E1 G3 acceptance specification `g3-recommended-6h-v3` (pinned BEFORE the run)
+# P2-E1 G3 acceptance specification `g3-recommended-6h-v4` (pinned BEFORE the run)
+
+v4 adds the per-tier freshness thresholds (G3-F1, owner decision Option a). v3 remains unaltered in
+`specs/g3-recommended-6h-v3.json`; its run was stopped as diagnostic only.
 
 v3 supersedes v1 and v2 after the bounded pre-G3 review and its confirmation pass. Neither earlier version was
 used for a run.
 
 **Machine-readable source:**
 - `p2_forward/verifier/verify_independent.py` constant `G3_SPEC`;
-- exported, byte-identical, as `p2_forward/verifier/specs/g3-recommended-6h-v3.json` (a test enforces equality).
+- exported, byte-identical, as `p2_forward/verifier/specs/g3-recommended-6h-v4.json` (a test enforces equality).
 
 **Evaluation:**
 ```
@@ -36,7 +39,8 @@ Thresholds are fixed here and are NOT derived from G3 results.
 | Startup | boundaries before a stream's first message are excused only before the first-observation deadline (Tier-0 book, depth, market: 30 s; Tier-1/2 book: 120 s, measured from WS start). STARTING health is allowed only in the first 150 s; `never_ready` is forbidden |
 | Gaps | every non-persisted boundary after readiness lies in exactly one unique gap record. Allowed causes: `ws_disconnect_reconnect`, `conn_data_stale`, `stale_stream`, `awaiting_post_reconnect_data`. Per stream, outside the controlled reconnect: ≤ max(2, 0.5 % of expected boundaries); each gap ≤ 120 s. Unexplained misses: 0 |
 | Candle gaps | only `candle_fetch_interrupted_at_stop` / `candle_not_fetched_at_stop` (round still running at the stop) and `candle_not_listed_yet`. The last is a new listing: klines returned `[]` and the symbol's first-ever candle opens after that window, with the evidence (`first_open_ms`) in the gap. The first-candle probe retries until the job deadline. Any fetch failure fails |
-| PIT | `recv_ts_ns ≤ sample_ms·10⁶` for every sampled record. Independent ages: depth ≤ 2 s, Tier-0 book ≤ 120 s, market newest component ≤ 10 s. No persisted sample while its connection was down. No persisted value received before its connection's most recent (re)connect |
+| Freshness (v4) | depth: Tier 0 2 s, Tier 2 15 s, Tier 1 180 s; book: Tier 0 120 s, Tier 1/2 600 s (hard); market newest component 10 s. Pinned in the spec, applied by the verifier from the spec (not from the run's config), and checked against config equality. Calibration and justification are in `P2E1_FIX_MATRIX.md` §G3 |
+| PIT | `recv_ts_ns ≤ sample_ms·10⁶` for every sampled record. Independent ages checked against the pinned limits above. No persisted sample while its connection was down. No persisted value received before its connection's most recent (re)connect |
 | Health | records ≤ 75 s apart; ≥ 1 HEALTHY. Non-HEALTHY **time** ≤ 5 % of the run, excluding the first 150 s, the reconnect window, and time whose only reasons are `gap_short:` / `gap_open:` with an allowed cause. Those gaps are already bounded per stream by the gap budget and are not charged twice. Records are not counted because they bunch around blips. Only DEGRADED with network reasons is allowed (`stale:`, `conn_not_data_live:`, `gap_open:` / `gap_short:` with an allowed cause, `not_acked:`, `awaiting_post_reconnect:`). **General rule:** a HEALTHY record never falls inside any open gap of any stream, from first missing boundary + 2 s (the sampler-stall bound) until the closing sample |
 | Forbidden lifecycle | `fatal`, `task_failed`, `handler_exception`, `subscribe_failed`, `subscribe_timeout`, `never_ready`, `ws_task_dead`, `binance_ban_418`, `disk_hard_stop`, `seq_reset`, `wall_clock_step`, `candle_exception`, `startup_failed`, `universe_refresh` |
 | Zero counters | malformed, unknown stream / event, handler errors, `seq_regression`, `seq_reset`, write errors, quarantined segments, duplicates, `recv_clock_regression`, wall-clock steps, task failures, subscribe failed / timeout, `never_ready`, drops, emit failures, writer rejections, rejected records |
