@@ -437,6 +437,15 @@ def derive_expected(run: dict, rp: Report) -> dict:
     exp["!miniTicker@arr"] = {"kind": "market", "symbol": None, "tier": None, "cadence": cad["market"],
                               "deadline_ms": 1000 * dl["market"], "key": "market|ALL", "levels": None,
                               "stale_ms": cfg["market_stale_ms"]}
+    sp = getattr(rp, "spec", None)                              # review F1: pinned values win over the run's config
+    if sp is not None:
+        if "depth_stale_ms_by_tier" in sp:
+            for n_, e_ in exp.items():
+                e_["stale_ms"] = (sp["depth_stale_ms_by_tier"][f"t{e_['tier']}"] if e_["kind"] == "depth" else
+                                  sp["stale_ms"]["book_t0"] if e_["kind"] == "book" and e_["tier"] == 0 else
+                                  sp["book_t12_dead_ms"] if e_["kind"] == "book" else sp["stale_ms"]["market"])
+        elif "depth_stale_ms_by_tier" in cfg:
+            rp.fail("ACC_SPEC_MISSING_FRESHNESS")                   # fail closed: spec predates per-tier freshness
     listed = {e["stream"]: e for e in run.get("expected_streams", [])}
     if set(listed) != set(exp):
         rp.fail("RUN_RECORD_EXPECTED_STREAMS_DISAGREE", sorted(set(listed) ^ set(exp))[:10])

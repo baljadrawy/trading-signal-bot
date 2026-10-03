@@ -160,6 +160,14 @@ class VerifierFreshnessAndCli(unittest.TestCase):
         recertify(dst, segs_of(dst, "depth")[0], old)
         self.assertIn("STALE_VALUE_PERSISTED", VI.verify(dst)["failures"])
 
+    def test_str_keys_direct(self):
+        self.assertEqual(json.loads(json.dumps(VI.str_keys({None: 1, 2: {None: 3}, "a": [{None: 4}]}), sort_keys=True)),
+                         {"null": 1, "2": {"null": 3}, "a": [{"null": 4}]})
+
+    def test_spec_without_freshness_fails_closed_for_per_tier_run(self):
+        s = g3_test_spec(); del s["depth_stale_ms_by_tier"]; del s["book_t12_dead_ms"]
+        self.assertIn("ACC_SPEC_MISSING_FRESHNESS", VI.verify(self.base, spec=s)["failures"])
+
     def test_cli_json_export_with_none_key(self):
         out = os.path.join(self.tmp.name, "rep.json")
         spec = os.path.join(self.tmp.name, "spec.json")

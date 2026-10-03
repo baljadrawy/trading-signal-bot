@@ -195,3 +195,15 @@ reconnect), B2 (a new listing's candle), M1 (reconnect exemption too broad), M2 
 | Tier-2 depth10 | 5 s | age p50 548, p99 1,619, max 1,866 ms (persisted); ≈ 0.9 pushes/s per stream; ~1.4 % of Tier-1/2 boundaries > 2 s | 15 s | P2-E0 "depth: 3 × cadence"; a value no older than 3 sampling periods; a dead stream is detected within 15 s |
 | Tier-1 depth10 | 60 s | age p50 503, p99 1,731, max 1,890 ms (persisted) | 180 s | 3 × cadence; detects a dead stream within 3 min at 60 s resolution |
 | Tier-1/2 bookTicker | 10 s / 2 s | Tier-1 p99 19.8 s, max 40.7 s; Tier-2 max 26.2 s | 600 s (hard) | event-driven; about 15 × the observed maximum; closes the dead-book-behind-live-connection path |
+
+**Censoring note (review F2).** The 19 diagnostic depth gaps were all 1–2 boundaries long: 12 × 5 s and 1 × 10 s
+on Tier 2; 5 × 60 s and 1 × 120 s on Tier 1. Each closed at the next boundary or the one after, so the true
+silences were below 2 s + one cadence (Tier 2 < 7 s, Tier 1 < 122 s), within 15 s and 180 s. The thresholds come
+from the deterministic 3 × cadence rule, not from fitting this data. Tier 0 deliberately keeps the G2R-validated
+2 s, which is stricter than 3 s.
+
+**Review notes:**
+- F1: the verifier now takes the freshness limits from the pinned spec and fails closed if a spec lacks them.
+- F3: `stale_stream` time is charged to the health time budget.
+- F6–F8: accepted notes.
+- F9: the F40 row's '15 min `stale_suspect`' is superseded; the warning is now at 120 s, with a hard 600 s bound.
