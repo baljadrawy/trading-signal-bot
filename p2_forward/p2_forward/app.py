@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import gc
 import datetime as dt
 import gzip
 import hashlib
@@ -41,7 +42,8 @@ IRREPLACEABLE = "IRREPLACEABLE_FORWARD_OBSERVATION"
 RECOVERABLE = "RECOVERABLE_WHERE_ARCHIVE_AVAILABLE"
 MARKET = "!miniTicker@arr"
 EXIT_OK, EXIT_INCOMPLETE, EXIT_WRITER, EXIT_TASK, EXIT_STARTUP = 0, 2, 3, 4, 5
-TASK_PERIOD_S = {"sampler": 1.0, "candles": 900.0, "clock": 600.0, "disk": 60.0, "health": 10.0, "watchdog": 1.0}
+TASK_PERIOD_S = {"sampler": 1.0, "candles": 900.0, "clock": 600.0, "disk": 60.0, "health": 10.0, "watchdog": 1.0,
+                 "loopmon": 0.1}
 
 
 def now_ms() -> int:
@@ -215,6 +217,14 @@ class Collector:
         self.universe_degraded = None      # F42: reason while a refresh failed and the previous universe is kept
         self.startup_failure = None        # F25: reasons when no trustworthy initial universe could be established
         self.reconnect_test = None         # G3 controlled reconnect state
+        # G3-F4 instrumentation (observability only; no behaviour change)
+        self.lat_max_ms = 0; self.lat_recent = collections.deque(maxlen=600)
+        self.lat_counts = {t: 0 for t in (100, 200, 500, 1000, 2000)}
+        self.looplag_max_ms = 0; self.looplag_recent = collections.deque(maxlen=600)
+        self.looplag_counts = {t: 0 for t in (100, 200, 500, 1000, 2000)}
+        self.gc_pause_max_ms = 0; self.gc_pauses_100ms = collections.deque(maxlen=1000); self.gc_long = 0
+        self._gc_t0 = {}
+        self._gc_reported = 0
 
     @property
     def stream_state(self) -> dict:
@@ -749,12 +759,59 @@ class Collector:
         n = 0
         for s in range(start, target_ms + 1, 1000):
             self._lateness = (now_ms() - s) if live else None
+            if live:
+                self._record_lateness(self._lateness)
             try:
                 self.sample(s)
             finally:
                 self._lateness = None
             n += 1
         return n
+
+    def _record_lateness(self, lat: int) -> None:
+        self.lat_max_ms = max(self.lat_max_ms, lat); self.lat_recent.append((now_ms(), lat))
+        for t in self.lat_counts:
+            if lat >= t:
+                self.lat_counts[t] += 1
+
+    def _gc_cb(self, phase, info) -> None:                      # G3-F4: GC pause timing (main process)
+        if phase == "start":
+            self._gc_t0[info.get("generation")] = (time.perf_counter(), time.time_ns())
+        else:
+            st = self._gc_t0.pop(info.get("generation"), None)
+            if st:
+                d = (time.perf_counter() - st[0]) * 1000
+                self.gc_pause_max_ms = max(self.gc_pause_max_ms, round(d, 1))
+                if d >= 100:
+                    self.gc_long += 1
+                    self.gc_pauses_100ms.append({"generation": info.get("generation"), "start_ns": st[1],
+                                                 "end_ns": time.time_ns(), "duration_ms": round(d, 1),
+                                                 "collected": info.get("collected")})
+
+    async def loopmon_task(self) -> None:
+        """G3-F4: event-loop pause detector. Ticks every 100 ms; any oversleep is a loop pause (catches one long
+        pause exactly, unlike sampling the processed boundary)."""
+        while not self.stop_event.is_set():
+            self.beats["loopmon"] = time.monotonic()
+            t0 = time.monotonic()
+            await asyncio.sleep(0.1)
+            lag = int((time.monotonic() - t0 - 0.1) * 1000)
+            self.looplag_max_ms = max(self.looplag_max_ms, lag); self.looplag_recent.append((now_ms(), lag))
+            for t in self.looplag_counts:
+                if lag >= t:
+                    self.looplag_counts[t] += 1
+            while self._gc_reported < len(self.gc_pauses_100ms) and self._gc_reported < 1000:
+                self.lifecycle("gc_pause", self.gc_pauses_100ms[self._gc_reported]); self._gc_reported += 1
+
+    def instrumentation(self) -> dict:
+        m = now_ms()
+        return {"sampler_lateness_max_ms": self.lat_max_ms,
+                "sampler_lateness_max_60s_ms": max((l for t, l in self.lat_recent if m - t <= 60_000), default=0),
+                "sampler_lateness_counts_ge": {str(k): v for k, v in self.lat_counts.items()},
+                "loop_lag_max_ms": self.looplag_max_ms,
+                "loop_lag_max_60s_ms": max((l for t, l in self.looplag_recent if m - t <= 60_000), default=0),
+                "loop_lag_counts_ge": {str(k): v for k, v in self.looplag_counts.items()},
+                "gc_pause_max_ms": self.gc_pause_max_ms, "gc_pauses_ge_100ms": self.gc_long}
 
     async def sampler_task(self) -> None:
         if self.last_sampled_ms is None:
@@ -1230,6 +1287,7 @@ class Collector:
             "tasks": {k: round(time.monotonic() - v, 1) for k, v in sorted(self.beats.items())},
             "task_failures": {k: len(v) for k, v in self.task_failures.items()},
             "writer": self.writer.status(), "certifier": self.writer.certifier.status(),
+            "instrumentation": self.instrumentation(),
             "queue_depth": self.q.qsize(), "queue_peak": self.enq.peak,
             "loop_lag_ms": {"last": lags[-1] if lags else None, "max_60s": max(lags) if lags else None},
             "catchup_boundaries": self.catchup_boundaries, "last_sampled_ms": self.last_sampled_ms,
@@ -1272,7 +1330,8 @@ class Collector:
                 "certifier_restarts": self.writer.certifier_restarts,
                 "writer_max_beat_gap_ms": self.writer.max_beat_gap_ms,
                 "writer_max_durable_lag_ms": self.writer.max_durable_lag_ms,
-                "certify_max_ms": st.get("certify_max_ms"), "segments_finalized": st.get("segments_finalized", 0)}
+                "certify_max_ms": st.get("certify_max_ms"), "segments_finalized": st.get("segments_finalized", 0),
+                "instrumentation": self.instrumentation()}
 
     def freshness(self, t, m: int) -> str:
         """G3-F1 vocabulary: fresh (age <= cadence) | aging (cadence < age <= threshold) | stale (> threshold) |
@@ -1297,6 +1356,7 @@ class Collector:
         compact["writer"] = {k: h["writer"][k] for k in ("alive", "beat_age_ms", "durable_lag_ms", "write_errors", "fatal",
                                                          "max_beat_gap_ms", "max_durable_lag_ms")}
         compact["certifier"] = h["certifier"]
+        compact["instrumentation"] = h["instrumentation"]
         compact["ws"] = [{k: c[k] for k in ("conn", "connected", "reconnects", "data_live", "msgs_per_s")} for c in h["ws"]]
         by_state = collections.Counter(s["state"] for s in h["streams"].values())
         compact["streams_by_state"] = dict(by_state)
@@ -1400,6 +1460,7 @@ class Collector:
             aiohttp.ClientSession(timeout=timeout, headers={"User-Agent": "tsb-p2-forward/" + C.VERSION})
         async with sess as self.session:
             self.rest = RestClient(self.session, self.rate, self.stats)
+            gc.callbacks.append(self._gc_cb)
             if not await self.establish_universe():                  # F25: fail closed, graceful stop
                 return await self._startup_failed(rec_gaps)
             self.run_record, rel, self.run_record_sha = P.write_run_record(self)
@@ -1416,7 +1477,8 @@ class Collector:
             await self.start_ws()
             tasks = [asyncio.create_task(self.supervise(n, f), name=n) for n, f in
                      (("sampler", self.sampler_task), ("candles", self.candle_task), ("clock", self.clock_task),
-                      ("disk", self.disk_task), ("health", self.health_task), ("watchdog", self.watchdog_task))]
+                      ("disk", self.disk_task), ("health", self.health_task), ("watchdog", self.watchdog_task),
+                      ("loopmon", self.loopmon_task))]
             tasks.append(asyncio.create_task(self.rotation_test_task(), name="rotation_test"))
             tasks.append(asyncio.create_task(self.reconnect_test_task(), name="reconnect_test"))
             try:
