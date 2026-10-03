@@ -27,6 +27,47 @@ and later v2 writers.
 
 `.partial` files are uncertified and never research data.
 
+## 1a. Segment lifecycle and certification (G3-F3, collector ≥ 1.3.0)
+
+File names are the authoritative, crash-safe state.
+
+| State | Files | Owner |
+|---|---|---|
+| ACTIVE | `….jsonl.gz.partial` + `….idx.partial` | writer; durable within `flush_interval_s` |
+| FINALIZED_PENDING_CERTIFICATION | `….jsonl.gz.pending` + `….idx.pending` | the writer closed and fsynced it and handed it off by atomic rename; never research data |
+| CERTIFYING | `….jsonl.gz.certifying` + `….idx.pending` | the certifier (one at a time, throttled) |
+| CERTIFIED | `….jsonl.gz` + `.sha256` + `.idx`, 0444, manifest entry | research data |
+| FAILED | `quarantine/` + `quarantine_log.jsonl` | never deleted |
+
+Certification, done by the certifier (`certifier-v1`), is unchanged in strength:
+- full gzip / JSONL decode;
+- per-record schema validation and in-segment duplicate check;
+- record count equal to the `.idx` total;
+- SHA-256 sidecar (temp file, then rename);
+- atomic promotion and read-only permissions;
+- an idempotent manifest entry with `certified_ms`, `certifier` and `recovered`.
+
+The writer never decodes or hashes a finished segment, so the hot path is never blocked by certification.
+
+**Crash recovery at startup** (deterministic):
+- A `.partial` whose gzip stream is complete and matches its `.idx` becomes `.pending` (finalized, not handed off).
+  Otherwise it is salvaged to a `-recovered-` segment and the original is quarantined.
+- `.pending` and `.certifying` files are certified.
+- A certified file without a manifest entry has its checksum re-verified against its sidecar and the entry is
+  completed; on a mismatch it is quarantined.
+- A second copy under an already-certified name is quarantined and never certified.
+
+**Shutdown:** the active segments are finalized, then the certifier drains within `certify_shutdown_grace_s`.
+Anything still uncertified gives `STOPPED_INCOMPLETE` (exit 2) and is preserved for recovery.
+
+**Health:** writer and certifier health are separate.
+- The writer heartbeat is the hot path only.
+- The certifier has its own heartbeat (≤ `certifier_beat_limit_ms`), backlog limits (`certify_max_pending`,
+  `certify_max_pending_age_s`) and failure counter.
+- Hard reasons: `certifier_dead`, `certifier_stale`, `certifier_backlog`, `certification_failed`,
+  `certifier_restarted_10min`. A dead certifier is restarted at most 3 times, after which the collector fails
+  (exit 4).
+
 ## 2. Common record fields (every type)
 
 | Field | Meaning |

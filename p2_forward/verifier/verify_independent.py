@@ -80,7 +80,9 @@ G2R_SPEC = {
 
 
 G3_SPEC = {
-    "name": "g3-recommended-6h-v4",
+    "name": "g3-recommended-6h-v5",
+    "certifier": {"max_pending": 8, "max_pending_age_s": 900, "beat_limit_ms": 10000, "shutdown_grace_s": 300},
+    "writer": {"max_beat_gap_ms": 5000, "max_durable_lag_ms": 10000},
     "depth_stale_ms_by_tier": {"t0": 2000, "t1": 180000, "t2": 15000}, "book_t12_dead_ms": 600000,
     "freshness_justification": (
         "Tier0 depth 2 s: G2R-validated (push inter-arrival 971-1039 ms, one missed push tolerated). Tier1/2 depth "
@@ -112,10 +114,12 @@ G3_SPEC = {
                   "reconnect_within_s": 60, "recover_within_s": 180},
     "forbidden_lifecycle": ["fatal", "task_failed", "handler_exception", "subscribe_failed", "subscribe_timeout",
                             "never_ready", "ws_task_dead", "binance_ban_418", "disk_hard_stop", "seq_reset",
-                            "wall_clock_step", "candle_exception", "startup_failed", "universe_refresh"],
+                            "wall_clock_step", "candle_exception", "startup_failed", "universe_refresh",
+                            "certifier_dead"],
     "zero_counters": ["malformed", "unknown_stream", "unknown_event", "handler_errors", "seq_regression", "seq_reset",
                       "write_errors", "segments_quarantined", "duplicates_dropped", "recv_clock_regression",
-                      "wall_clock_steps", "task_failures", "subscribe_failed", "subscribe_timeout", "never_ready"],
+                      "wall_clock_steps", "task_failures", "subscribe_failed", "subscribe_timeout", "never_ready",
+                      "certification_failures", "certifier_restarts"],
     "zero_counter_maps": ["dropped", "emit_failed", "writer_rejected"],
     "clock_max_excess_ms": 500, "clock_max_spacing_s": 1200,
     "rest": {"ip_weight_max": 2400, "forbidden_events": ["http_429", "http_418"]},
@@ -175,6 +179,10 @@ def load_files(base: str, rp: Report) -> list:
             rel = os.path.relpath(os.path.join(root, f), base)
             if f.endswith(".partial"):
                 partials.append(rel)
+            elif f.endswith((".pending", ".certifying")):              # G3-F3 lifecycle: never certified input
+                rp.fail("UNCERTIFIED_SEGMENT_PRESENT", rel)
+            elif f.endswith(".sha256.tmp"):
+                rp.fail("UNRENAMED_SIDECAR_PRESENT", rel)
             elif f.endswith(".jsonl.gz"):
                 segs.append(rel)
     for p in partials:
@@ -209,12 +217,23 @@ def load_files(base: str, rp: Report) -> list:
             rp.fail("DECODE_ERROR", f"{rel}:{type(e).__name__}")
             continue
         idx_records = 0
+        durable = {}
         try:
             with open(p[:-9] + ".idx", encoding="utf-8") as fh:
                 for line in fh:
-                    idx_records += json.loads(line)["records"]
+                    j = json.loads(line)
+                    idx_records += j["records"]; durable[j["blk"]] = j["durable_ts_ns"]
         except (OSError, ValueError, KeyError):
             rp.fail("IDX_UNREADABLE", rel)
+        lagmax = rp.info.setdefault("durable_lag_max_ms", 0)               # independent: enqueue -> fsync of its block
+        for r in lines:
+            if isinstance(r, dict) and isinstance(r.get("queued_ts_ns"), int) and r.get("blk") in durable:
+                lagmax = max(lagmax, (durable[r["blk"]] - r["queued_ts_ns"]) // 1_000_000)
+        rp.info["durable_lag_max_ms"] = lagmax
+        m_ = manifest.get(rel, {})
+        if "certifier" in m_ and not (isinstance(m_.get("certified_ms"), int) and m_.get("last_recv_ns") is not None
+                                      and m_["certified_ms"] * 1_000_000 >= m_["last_recv_ns"]):
+            rp.fail("CERTIFICATION_METADATA_INVALID", rel)
         if idx_records != len(lines):
             rp.fail("IDX_RECORD_COUNT_MISMATCH", f"{rel}:{idx_records}!={len(lines)}")
         if manifest.get(rel, {}).get("records") != len(lines):
@@ -986,6 +1005,29 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
     rej = {k: v for k, v in (cnt.get("rejected") or {}).items() if v}
     if rej:
         rp.fail("ACC_COUNTER_REJECTED", rej)
+    cs_ = spec.get("certifier")                                    # G3-F3 certifier / writer acceptance
+    if cs_:
+        if (cfg.get("certify_max_pending"), cfg.get("certify_max_pending_age_s"), cfg.get("certifier_beat_limit_ms"),
+                cfg.get("certify_shutdown_grace_s")) != (cs_["max_pending"], cs_["max_pending_age_s"], cs_["beat_limit_ms"],
+                                                         cs_["shutdown_grace_s"]):
+            rp.fail("ACC_CERTIFIER_POLICY_NOT_SPEC")
+        cnt_ = stop.get("counters") or {}
+        if cnt_.get("writer_max_beat_gap_ms") is None or cnt_["writer_max_beat_gap_ms"] > spec["writer"]["max_beat_gap_ms"]:
+            rp.fail("ACC_WRITER_BEAT_GAP", cnt_.get("writer_max_beat_gap_ms"))
+        for v_ in (cnt_.get("writer_max_durable_lag_ms"), rp.info.get("durable_lag_max_ms")):
+            if v_ is None or v_ > spec["writer"]["max_durable_lag_ms"]:
+                rp.fail("ACC_DURABLE_LAG", v_)
+        peak_p = max([(p.get("certifier") or {}).get("pending", 0) for p in ctx["health"]] or [0])
+        peak_a = max([(p.get("certifier") or {}).get("oldest_pending_age_ms", 0) for p in ctx["health"]] or [0])
+        if not any("certifier" in p for p in ctx["health"]):
+            rp.fail("ACC_CERTIFIER_EVIDENCE_MISSING")
+        if peak_p > cs_["max_pending"] or peak_a > 1000 * cs_["max_pending_age_s"]:
+            rp.fail("ACC_CERTIFIER_BACKLOG", [peak_p, peak_a])
+        rp.info["certifier_measured"] = {"health_peak_pending": peak_p, "health_peak_oldest_age_ms": peak_a,
+                                         "certify_max_ms": cnt_.get("certify_max_ms"),
+                                         "writer_max_beat_gap_ms": cnt_.get("writer_max_beat_gap_ms"),
+                                         "writer_max_durable_lag_ms": cnt_.get("writer_max_durable_lag_ms"),
+                                         "independent_durable_lag_max_ms": rp.info.get("durable_lag_max_ms")}
     # controlled reconnect (G3)
     rc = spec.get("reconnect")
     rwin = None

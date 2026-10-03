@@ -156,7 +156,10 @@ class Collector:
         self.stats = new_stats()
         self.q = queue.Queue(maxsize=cfg["queue_max"])
         self.enq = Enqueuer(self.q, cfg["queue_max"], self.stats)
-        self.writer = SegmentWriter(self.base, self.boot_id, self.q, self.stats, cfg["flush_interval_s"])
+        self.writer = SegmentWriter(self.base, self.boot_id, self.q, self.stats, cfg["flush_interval_s"],
+                                    certify_grace_s=cfg["certify_shutdown_grace_s"])
+        self.writer_join_timeout_s = cfg["certify_shutdown_grace_s"] + 120
+        self.certifier_dead_ms = collections.deque(maxlen=50)
         self.rate = RateGuard(cfg["rest_budget_weight_per_min"], cfg["rest_defer_used_weight"], cfg["rest_pause_used_weight"],
                               urgent_reserve=cfg["rest_urgent_reserve"])
         self.rate.ban_callbacks.append(self.on_ban)
@@ -1038,6 +1041,14 @@ class Collector:
         if self.writer.ident is not None and not self.writer.is_alive() and not self.writer.finished:
             self.fatal("writer_thread_dead", EXIT_WRITER)
             return
+        cert = self.writer.certifier                                   # G3-F3: certifier supervised separately
+        if self.writer.is_alive() and cert.ident is not None and not cert.is_alive() and not self.stop_event.is_set():
+            self.certifier_dead_ms.append(m)
+            self.lifecycle("certifier_dead", {"fatal": cert.fatal, "restarts": self.writer.certifier_restarts})
+            if self.writer.certifier_restarts >= 3:
+                self.fatal("certifier_failed_repeatedly", EXIT_TASK)
+                return
+            self.writer.restart_certifier()
         tmo = self.cfg["subscribe_ack_timeout_s"] * 1000
         for c in list(self.conns):
             for rid, req in list(getattr(c, "sub_requests", {}).items()):
@@ -1093,6 +1104,18 @@ class Collector:
             hard.append("writer_stale")
         if ws["durable_lag_ms"] > 10_000:
             hard.append("writer_not_durable")
+        cs = self.writer.certifier.status()                           # G3-F3: certifier health, separate from writer
+        if self.writer.is_alive() and not cs["alive"]:
+            hard.append("certifier_dead")
+        elif cs["beat_age_ms"] > self.cfg["certifier_beat_limit_ms"]:
+            hard.append("certifier_stale")
+        if cs["pending"] > self.cfg["certify_max_pending"] or \
+                cs["oldest_pending_age_ms"] > 1000 * self.cfg["certify_max_pending_age_s"]:
+            hard.append("certifier_backlog")
+        if cs["failures"]:
+            hard.append("certification_failed")
+        if [x for x in self.certifier_dead_ms if m - x <= 600_000]:
+            hard.append("certifier_restarted_10min")
         if self.stats["write_errors"]:
             hard.append("write_errors")
         if sum(self.stats["writer_rejected"].values()):
@@ -1204,7 +1227,7 @@ class Collector:
                         for t in self.all_tracks()},
             "tasks": {k: round(time.monotonic() - v, 1) for k, v in sorted(self.beats.items())},
             "task_failures": {k: len(v) for k, v in self.task_failures.items()},
-            "writer": self.writer.status(),
+            "writer": self.writer.status(), "certifier": self.writer.certifier.status(),
             "queue_depth": self.q.qsize(), "queue_peak": self.enq.peak,
             "loop_lag_ms": {"last": lags[-1] if lags else None, "max_60s": max(lags) if lags else None},
             "catchup_boundaries": self.catchup_boundaries, "last_sampled_ms": self.last_sampled_ms,
@@ -1242,7 +1265,12 @@ class Collector:
                 "subscribe_failed": st.get("subscribe_failed", 0), "subscribe_timeout": st.get("subscribe_timeout", 0),
                 "never_ready": st.get("never_ready", 0), "clock_probe_failures": st.get("clock_probe_failures", 0),
                 "market_component_expired": st.get("market_component_expired", 0), "gaps": self.gap_count,
-                "catchup_boundaries": self.catchup_boundaries}
+                "catchup_boundaries": self.catchup_boundaries,
+                "certification_failures": st.get("certification_failures", 0),
+                "certifier_restarts": self.writer.certifier_restarts,
+                "writer_max_beat_gap_ms": self.writer.max_beat_gap_ms,
+                "writer_max_durable_lag_ms": self.writer.max_durable_lag_ms,
+                "certify_max_ms": st.get("certify_max_ms"), "segments_finalized": st.get("segments_finalized", 0)}
 
     def freshness(self, t, m: int) -> str:
         """G3-F1 vocabulary: fresh (age <= cadence) | aging (cadence < age <= threshold) | stale (> threshold) |
@@ -1264,7 +1292,9 @@ class Collector:
                                      "queue_depth", "queue_peak", "loop_lag_ms", "catchup_boundaries", "last_sampled_ms",
                                      "dropped", "rejected", "malformed", "unknown_stream", "unknown_event",
                                      "handler_errors", "write_errors", "gaps_open", "gaps_closed_total", "clock", "disk")}
-        compact["writer"] = {k: h["writer"][k] for k in ("alive", "beat_age_ms", "durable_lag_ms", "write_errors", "fatal")}
+        compact["writer"] = {k: h["writer"][k] for k in ("alive", "beat_age_ms", "durable_lag_ms", "write_errors", "fatal",
+                                                         "max_beat_gap_ms", "max_durable_lag_ms")}
+        compact["certifier"] = h["certifier"]
         compact["ws"] = [{k: c[k] for k in ("conn", "connected", "reconnects", "data_live", "msgs_per_s")} for c in h["ws"]]
         by_state = collections.Counter(s["state"] for s in h["streams"].values())
         compact["streams_by_state"] = dict(by_state)
@@ -1425,7 +1455,8 @@ class Collector:
         self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
         self.finalize_stop()
         self.write_health(record=False)
-        partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs if f.endswith(".partial")]
+        partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs
+                    if f.endswith((".partial", ".pending", ".certifying"))]
         self.write_marker(f"stop-{self.boot_id[:8]}.json",                        # N1: final state outside the writer
                           {"event": "final_stop_state", "boot_id": self.boot_id, "ts_ms": now_ms(), "state": self.state,
                            "exit_code": self.exit_code, "reason": self.stop_reason,
@@ -1433,7 +1464,7 @@ class Collector:
                            "partials": len(partials), "counters": self.counters()})
         return self.exit_code
 
-    writer_join_timeout_s = 120
+    writer_join_timeout_s = 420
 
     async def _startup_failed(self, rec_gaps) -> int:
         """F25: no trustworthy initial universe => durable reason, FAILED, graceful writer stop, exit 5."""
@@ -1462,8 +1493,10 @@ class Collector:
 
     def finalize_stop(self) -> str:
         """F51: STOPPED only if the writer thread finished cleanly and no .partial remains; else STOPPED_INCOMPLETE."""
-        partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs if f.endswith(".partial")]
-        complete = (not self.writer.is_alive()) and self.writer.finished and not partials
+        partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs
+                    if f.endswith((".partial", ".pending", ".certifying"))]          # G3-F3: uncertified = incomplete
+        complete = (not self.writer.is_alive()) and self.writer.finished and self.writer.certified_all is not False \
+            and not partials
         if self.state != "FAILED":
             self.state = "STOPPED" if complete else "STOPPED_INCOMPLETE"
             if not complete:

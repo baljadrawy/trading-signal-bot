@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-VERSION = "p2e1-collector-1.2.0"
+VERSION = "p2e1-collector-1.3.0"
 SCHEMA = "tsb.p2.forward"
 SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)
 SAMPLE_SEMANTICS = "latest_received_at_or_before_sample_ms"
@@ -80,7 +80,11 @@ DEFAULTS = {
                                              # / permission edge cases); a partial exchangeInfo misses far more        # F42: refresh changing Tier 1/2 membership by more = suspicious
     "reconnect_test_at_s": 0,                # > 0: ONE predeclared controlled reconnect (G3) at ws_start + this
     "reconnect_test_conn": "conn0-book",
-    "rest_urgent_reserve": 20,               # own-budget weight reserved for urgent calls (clock, universe)
+    "rest_urgent_reserve": 20,
+    "certify_shutdown_grace_s": 300,         # G3-F3: bounded wait for the certifier to drain at shutdown
+    "certify_max_pending": 8,                # G3-F3: pending/certifying segments beyond this = DEGRADED (backlog)
+    "certify_max_pending_age_s": 900,        # G3-F3: oldest pending segment older than this = DEGRADED
+    "certifier_beat_limit_ms": 10_000,       # G3-F3: certifier heartbeat (beats every <=1 s idle, every 500 lines busy)               # own-budget weight reserved for urgent calls (clock, universe)
     "derivatives_enabled": False,
     "aggtrades_enabled": False,
 }

@@ -207,3 +207,23 @@ from the deterministic 3 × cadence rule, not from fitting this data. Tier 0 del
 - F3: `stale_stream` time is charged to the health time budget.
 - F6–F8: accepted notes.
 - F9: the F40 row's '15 min `stale_suspect`' is superseded; the warning is now at 120 s, with a hard 600 s bound.
+
+## G3-F3: synchronous hourly certification blocks the writer hot path
+
+- **Finding:** in the G3-v4 run (diagnostic, NOT ACCEPTED), `writer_stale` occurred 5 times, once at each UTC hour,
+  with the writer heartbeat 7.6–14.4 s old.
+- **Cause:** `_promote` (full decode, validation, SHA-256, rename) ran inside the writer thread. At recommended-profile
+  segment sizes (≤ 72,360 records / 6.3 MB) this blocked the hot path beyond the 5 s liveness and 10 s durability
+  invariants.
+- **Resolution (owner decision: architectural, thresholds unchanged):**
+  - The writer only finalizes the segment and hands it off durably (atomic rename to `.pending`).
+  - One serialized, throttled `Certifier` thread with its own heartbeat performs the unchanged certification
+    (`.pending` → `.certifying` → certified).
+  - Filesystem state is authoritative for crash recovery.
+  - Bounded backlog with health reasons.
+  - Writer and certifier health are separate.
+  - The shutdown drain is bounded by a grace period, else `STOPPED_INCOMPLETE`.
+  - The verifier understands the lifecycle and independently measures enqueue → fsync latency from the `.idx`
+    files.
+  - Spec `g3-recommended-6h-v5` adds certifier and writer criteria; v4 is unaltered.
+- **Tests:** `tests/test_g3_f3.py` (12).

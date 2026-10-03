@@ -378,7 +378,7 @@ class SpecPin(unittest.TestCase):
     def test_exported_spec_files_equal_pinned_constants(self):
         import pathlib
         d = pathlib.Path(__file__).resolve().parents[1] / "verifier" / "specs"
-        self.assertEqual(json.loads((d / "g3-recommended-6h-v4.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v5.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
         self.assertEqual(json.loads((d / "g2r-tier0-2h-v1.json").read_text()), json.loads(json.dumps(VI.G2R_SPEC)))
 
 
@@ -575,4 +575,4 @@ class PreG3Confirm(unittest.TestCase):
         import importlib
         s = VI.G3_SPEC["gap_budget"]["allowed_causes"]
         self.assertIn("stale_stream", s)
-        self.assertEqual(VI.G3_SPEC["name"], "g3-recommended-6h-v4")
+        self.assertEqual(VI.G3_SPEC["name"], "g3-recommended-6h-v5")

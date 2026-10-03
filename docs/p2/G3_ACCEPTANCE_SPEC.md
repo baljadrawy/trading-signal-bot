@@ -1,4 +1,12 @@
-# P2-E1 G3 acceptance specification `g3-recommended-6h-v4` (pinned BEFORE the run)
+# P2-E1 G3 acceptance specification `g3-recommended-6h-v5` (pinned BEFORE the run)
+
+v5 (G3-F3) adds certifier and writer criteria; all v4 thresholds are unchanged (v4 file unaltered).
+
+| Item (v5) | Pinned value |
+|---|---|
+| Writer hot path | heartbeat gap ≤ 5,000 ms (collector-measured maximum over the whole run); enqueue → fsync latency ≤ 10,000 ms (collector maximum **and** independent verifier measurement from `.idx` durable timestamps) |
+| Certifier | policy equals the spec: max pending 8, oldest pending ≤ 900 s, heartbeat ≤ 10 s, shutdown grace 300 s. No `certifier_dead` lifecycle record; certification failures = 0; restarts = 0; health peak pending and age within the limits; no `.pending`, `.certifying` or temp sidecar left; certification metadata valid |
+| Forbidden health reasons | every internal reason, including `writer_stale`, `writer_not_durable` and all `certifier_*` |
 
 v4 adds the per-tier freshness thresholds (G3-F1, owner decision Option a). v3 remains unaltered in
 `specs/g3-recommended-6h-v3.json`; its run was stopped as diagnostic only.
@@ -8,7 +16,7 @@ used for a run.
 
 **Machine-readable source:**
 - `p2_forward/verifier/verify_independent.py` constant `G3_SPEC`;
-- exported, byte-identical, as `p2_forward/verifier/specs/g3-recommended-6h-v4.json` (a test enforces equality).
+- exported, byte-identical, as `p2_forward/verifier/specs/g3-recommended-6h-v5.json` (a test enforces equality).
 
 **Evaluation:**
 ```
