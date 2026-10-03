@@ -23,13 +23,13 @@ docker run -d --name $CO --network container:$FX --cpus 0.5 --memory 384m --memo
   -e P2F_GIT_COMMIT="$(git -C "$WT" rev-parse HEAD)-stress" -e P2F_IMAGE_ID="stress:$IMAGE" \
   "$IMAGE" -m stress collector >/dev/null
 CID=$(docker inspect -f '{{.Id}}' $CO)
-{ echo "name=$NAME runtime=$RUNTIME mult=$MULT inject_from=$FROM hour_s=$HOUR_S image=$IMAGE"
+{ echo "name=$NAME runtime=$RUNTIME mult=$MULT inject_from=$FROM hour_s=$HOUR_S image=$IMAGE kill=${STRESS_KILL:-}"
   echo "image_id=$(docker inspect -f '{{.Image}}' $CO) cid=$CID git=$(git -C "$WT" rev-parse HEAD) dirty=$(git -C "$WT" status --porcelain | wc -l)"
   docker inspect -f 'cpus={{.HostConfig.NanoCpus}} mem={{.HostConfig.Memory}} swap={{.HostConfig.MemorySwap}} pids={{.HostConfig.PidsLimit}} net={{.HostConfig.NetworkMode}} ro={{.HostConfig.ReadonlyRootfs}} caps={{.HostConfig.CapDrop}}' $CO
   docker inspect -f 'fakex: cpus={{.HostConfig.NanoCpus}} net={{.HostConfig.NetworkMode}}' $FX
 } > "$RUN/out/run_meta.txt"
 python3 "$WT/stress/hostmon.py" --cid "$CID" --data "$RUN/data" --out "$RUN/out" --load "$ROOT/load" \
-  --hour-s $HOUR_S --mult "$MULT" --inject-from "$FROM" > "$RUN/out/hostmon.log" 2>&1 &
+  --hour-s $HOUR_S --mult "$MULT" --inject-from "$FROM" --kill "${STRESS_KILL:-}" > "$RUN/out/hostmon.log" 2>&1 &
 HM=$!
 # bounded wait: runtime + certification drain + margin, then a bounded stop (same 450 s grace as G3)
 DEADLINE=$(( $(date +%s) + RUNTIME + 900 ))

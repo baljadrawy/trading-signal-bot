@@ -59,6 +59,7 @@ def main():
     ap.add_argument("--mult", default="1", help="comma list: multiplier per injected cycle (last repeats)")
     ap.add_argument("--inject-from", type=int, default=2, help="first boundary index (from start) that gets load")
     ap.add_argument("--hours", default="h12,h11,h10,h09,h13")
+    ap.add_argument("--kill", default="", help="confirmation only: 'offset_s:idle|busy,...' SIGKILL the certifier")
     a = ap.parse_args()
     cg = f"/sys/fs/cgroup/system.slice/docker-{a.cid}.scope"
     mult = [int(x) for x in a.mult.split(",")]
@@ -78,6 +79,21 @@ def main():
     last_cg = last_id = last_arch = 0.0
     archived, mpos = 0, 0
     raw = os.path.join(a.data, "raw")
+    kills = sorted((int(x.split(":")[0]), x.split(":")[1]) for x in a.kill.split(",") if x)
+    fk = open(os.path.join(a.out, "kills.jsonl"), "a", buffering=1)
+
+    def certifier_pids():
+        out = []
+        for pid in (rd(os.path.join(cg, "cgroup.procs")) or "").split():
+            if "spawn_main" in (rd(f"/proc/{pid}/cmdline") or ""):
+                out.append(int(pid))
+        return out
+
+    def certifying_now():
+        for root, _, files in os.walk(raw):
+            if any(f.endswith(".certifying") for f in files):
+                return True
+        return False
     while True:
         now = time.time()
         alive = os.path.isdir(cg)
@@ -120,6 +136,19 @@ def main():
                         seen[(stem, state)] = now
                         flc.write(json.dumps({"t_ms": int(now * 1000), "seg": stem, "state": state,
                                               "dir": os.path.relpath(root, raw)}) + "\n")
+        # confirmation kills (host SIGKILL of the certifier process; never the collector)
+        if kills and alive and now - start >= kills[0][0] and (kills[0][1] == "idle" or certifying_now()
+                                                                or now - start >= kills[0][0] + 60):
+            off, mode = kills.pop(0)
+            pids = certifier_pids()
+            busy = certifying_now()
+            for pid in pids:
+                try:
+                    os.kill(pid, 9)
+                except OSError:
+                    pass
+            fk.write(json.dumps({"t_ms": int(time.time() * 1000), "offset_s": off, "mode": mode, "pids": pids,
+                                 "certifying_at_kill": busy}) + "\n")
         # injector
         if now >= next_b + 1.0:
             if boundary_idx >= a.inject_from:
