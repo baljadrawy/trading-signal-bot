@@ -1,4 +1,31 @@
-# P2-E1 G3 acceptance specification `g3-recommended-6h-v6` (pinned BEFORE the run)
+# P2-E1 G3 acceptance specification `g3-recommended-6h-v7` (PROPOSED; owner authorization required before use)
+
+v7 (G3-F4) = **v6 unchanged** plus requirements for the process-isolated certifier and the observability added
+for G3-F4. No v6 value is altered or relaxed: a test enforces v7 ⊇ v6, and the v6 file is byte-identical with
+SHA-256 `20c95733…`.
+
+| Item (v7 additions) | Pinned requirement |
+|---|---|
+| Certifier architecture | run config `certifier_mode = process` and `certifier_ready_timeout_s = 10`, else `ACC_CERTIFIER_ARCHITECTURE_NOT_SPEC` |
+| Readiness / death semantics | readiness = the worker itself publishes its first heartbeat; health shows `certifier_not_ready` as STARTING ≤ 10 s, then hard. Worker death → `certifier_dead` lifecycle (forbidden, as in v6) and `certifier_restarted_10min` (hard). `certifier_restarts` = 0 and `certification_failures` = 0 (v6 zero counters, now mirrored from the worker) |
+| One cgroup, 0.5 CPU total | gate-monitor cgroup TSV (`--cgroup-tsv`, host sampled ≤ 20 s apart): `cpu.max = 50000 100000`, `memory.max = 402653184`, `pids.max = 64`. Between startup and the stop request, every sample shows exactly 1 collector + 1 certifier (resource tracker allowed, nothing else) in the container's own scope, with one certifier PID for the whole run |
+| Instrumentation present | stop counters and every post-startup health record carry `instrumentation` with sampler lateness max/counts (≥ 100/200/500/1000/2000 ms), loop-pause max/counts and GC pause max / count ≥ 100 ms |
+| Report-only (no new threshold) | cgroup throttled periods/time, average CPU, independently recomputed sampler-lateness distribution (verifier, from records), the collector's loop/GC values |
+| Per-segment provenance (all specs with certifier metadata) | manifest `run_record` = the run's record file, except entries recovered or finalized before the run record existed (`MANIFEST_RUN_RECORD_MISMATCH`) |
+
+**Evaluation (v7):**
+```
+verify_independent.py <dataset> --acceptance g3 \
+    --expect-image-id <id> --expect-commit <sha> \
+    --resources-tsv G3_resources.tsv --monitor-log G3_monitor.log --cgroup-tsv G3_cgroup.tsv
+```
+
+- Machine-readable source: `G3_SPEC` (built from `G3_SPEC_V6`), exported as
+  `p2_forward/verifier/specs/g3-recommended-6h-v7.json`.
+
+---
+
+# Superseded: `g3-recommended-6h-v6` (pinned BEFORE the G3-v6 run; file unaltered)
 
 v6 supersedes the unused v5 after the G3-F3 bounded review: certifier max pending 24 (> 2 × 9 record types), the stop marker's counters taken after the shutdown drain, mandatory certification metadata, orphan-sidecar and durable-block checks. v5 (G3-F3) added certifier and writer criteria; all v4 thresholds are unchanged (v4 file unaltered).
 

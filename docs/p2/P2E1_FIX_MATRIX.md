@@ -246,4 +246,29 @@ with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pi
      catches single long pauses;
   2. certification moved to a separate worker PROCESS inside the same container cgroup;
   3. no adaptive certification pause and no candle-scheduling change in this fix.
-- **Status:** IN PROGRESS. Pre-G3 owner gate required.
+- **Status:** fix implemented and validated offline; awaiting the pre-G3 owner gate. G3-v6 remains NOT ACCEPTED, and
+  G3-F4 closes only with a G3 that passes its pinned spec.
+
+### G3-F4 progress (2026-10-03)
+- **Instrumentation** (`b2b60bc`, `f14ee42`): exact sampler lateness, 100 ms loop-pause detector, GC callbacks,
+  gate-monitor cgroup `cpu.stat`.
+- **Process certifier** (`3d2a8fd` and later): `multiprocessing` spawn worker in the same cgroup. The filesystem is
+  authoritative; IPC carries only small lifecycle and health state.
+- **G3-F4-D1** (test-suite hang): a worker ignoring SIGTERM blocked interpreter exit. Fixed and owner-accepted.
+- **Bounded offline stress** (evidence `p2e1-g3f4-stress-20261003T181917Z`):
+  - setup: real collector + process certifier at 0.5 CPU in one cgroup; fake exchange in its own container;
+    1× / 2× / 4–8× a real G3-v6 hour certified per 180 s cycle;
+  - 0 sampler stalls; sampler lateness max 708 ms; loop pause max 1.29 s; writer heartbeat max 1.5 s;
+    durability max 2.7 s;
+  - every loop pause ≥ 300 ms coincided with a collector GC pause, and those ≥ 800 ms also with certification
+    (shared-quota stretching).
+  - CPU class **B**.
+- **Bounded review:** blockers F1 (IPC lock / condition hang after a worker kill) and Q3 (process-mode counter
+  mirroring), plus Q7, A1 and Q9 hardening. Fixed in `c4c02a6` with regression tests (210 pass). Confirmation run C1
+  kills the certifier in-container.
+- **Spec v7 proposal** (`g3-recommended-6h-v7`): v6 unchanged, plus certifier architecture/readiness, one-cgroup
+  process evidence, and instrumentation presence. Distributions and throttling are report-only.
+- **Root-cause statement:**
+  - the G3-v6 stall remains formally unproven (no GC or throttle telemetry existed then);
+  - the stress evidence supports the GC × CPU-quota-sharing mechanism, as correlation backed by CPU-vs-wall
+    measurement.
