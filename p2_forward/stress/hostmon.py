@@ -138,7 +138,7 @@ def main():
                                               "dir": os.path.relpath(root, raw)}) + "\n")
         # confirmation kills (host SIGKILL of the certifier process; never the collector)
         if kills and alive and now - start >= kills[0][0] and (kills[0][1] == "idle" or certifying_now()
-                                                                or now - start >= kills[0][0] + 60):
+                                                                or now - start >= kills[0][0] + 200):
             off, mode = kills.pop(0)
             pids = certifier_pids()
             busy = certifying_now()
