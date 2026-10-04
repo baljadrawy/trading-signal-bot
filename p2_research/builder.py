@@ -26,7 +26,7 @@ import shutil
 import sys
 import tempfile
 
-from . import PACKAGE_VERSION, features as FE, labels as LB, registry as RG
+from . import PACKAGE_VERSION, features as FE, instrument as IN, labels as LB, registry as RG
 from .reader import READER_VERSION, ReaderError, canon, load_days
 
 UNIVERSE_POLICY = "universe-asof-all-tiers-v1"
@@ -81,6 +81,46 @@ def decision_times(start_ms: int, end_ms: int) -> list:
     return out
 
 
+def structural_reason(V) -> str | None:
+    """Exclusion reason known from the state at T itself (run / universe epoch); ``beyond_observed_data`` is separate
+    because it depends on the observation horizon of the whole loaded range."""
+    return "in_downtime" if V.run is None else "no_universe_epoch_known" if V.epoch is None else None
+
+
+def excluded_entries(syms: list, T: int, reason: str) -> list:
+    return ([{"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "reason": reason} for s in syms] or
+            [{"row_id": f"*|{T}", "symbol": None, "decision_time_ms": T, "reason": reason}])
+
+
+def feature_row(V, s: str, ctx: dict, btc: dict, reg_ids: list, nulls) -> str:
+    T = V.T
+    o = FE.compute(V, s, ctx, btc)
+    if sorted(o.v) != sorted(reg_ids):
+        raise BuildError(f"feature set mismatch for {s}@{T}: {sorted(set(o.v) ^ set(reg_ids))}")
+    for k, a in o.a.items():
+        if o.v[k] is not None and (a is None or a > T):
+            raise FE.PITViolation(f"{k} for {s}@{T}: feature_available_at={a} > decision_time")
+    for k, r in o.r.items():
+        nulls[f"{k}:{r}"] += 1
+    return canon({"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "tier": V.epoch["tiers"][s],
+                  "universe_id": V.epoch["universe_id"], "run_boot8": V.run["boot8"],
+                  "features": o.v, "feature_available_at": o.a, "feature_null_reasons": o.r})
+
+
+def label_core(LBV, s: str, T: int, lnulls) -> dict:
+    L, R = LB.compute_labels(LBV, s, T)
+    for k, r in R.items():
+        lnulls[f"{k}:{r}"] += 1
+    return {"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "labels": L, "label_null_reasons": R}
+
+
+def posthoc_gap(gaps: list, s: str, T: int) -> bool:
+    """Post-hoc quality: a gap record covering T that became known only AFTER T (label side only)."""
+    keys = {f"book|{s}", f"depth|{s}", "market|ALL"}
+    return any(g["stream_key"] in keys and g["available_at_ms"] > T and g["first_missing_ms"] <= T < g["end_ms"]
+               for g in gaps)
+
+
 def build_rows(B) -> tuple:
     feats, labs, excl = [], [], []
     nulls, lnulls = collections.Counter(), collections.Counter()
@@ -90,42 +130,22 @@ def build_rows(B) -> tuple:
         V = FE.PITView(B, T)
         syms = sorted(V.epoch["tiers"]) if V.epoch is not None else []
         reason = ("beyond_observed_data" if B.observed_until_ms is None or T > B.observed_until_ms else
-                  "in_downtime" if V.run is None else "no_universe_epoch_known" if V.epoch is None else None)
+                  structural_reason(V))
         if reason:
-            excl += ([{"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "reason": reason} for s in syms] or
-                     [{"row_id": f"*|{T}", "symbol": None, "decision_time_ms": T, "reason": reason}])
+            excl += excluded_entries(syms, T, reason)
             continue
         ctx, btc = FE.market_context(V), FE.btc_context(V)
         for s in syms:
-            o = FE.compute(V, s, ctx, btc)
-            if sorted(o.v) != sorted(reg_ids):
-                raise BuildError(f"feature set mismatch for {s}@{T}: {sorted(set(o.v) ^ set(reg_ids))}")
-            for k, a in o.a.items():
-                if o.v[k] is not None and (a is None or a > T):
-                    raise FE.PITViolation(f"{k} for {s}@{T}: feature_available_at={a} > decision_time")
-            for k, r in o.r.items():
-                nulls[f"{k}:{r}"] += 1
-            rid = f"{s}|{T}"
-            feats.append(canon({"row_id": rid, "symbol": s, "decision_time_ms": T, "tier": V.epoch["tiers"][s],
-                                "universe_id": V.epoch["universe_id"], "run_boot8": V.run["boot8"],
-                                "features": o.v, "feature_available_at": o.a, "feature_null_reasons": o.r}))
-            L, R = LB.compute_labels(B, s, T)
-            for k, r in R.items():
-                lnulls[f"{k}:{r}"] += 1
-            # post-hoc quality: a gap record covering T that became known only AFTER T (label side only)
-            keys = {f"book|{s}", f"depth|{s}", "market|ALL"}
-            ph = any(g["stream_key"] in keys and g["available_at_ms"] > T and g["first_missing_ms"] <= T < g["end_ms"]
-                     for g in B.gaps)
+            feats.append(feature_row(V, s, ctx, btc, reg_ids, nulls))
+            row = label_core(B, s, T, lnulls)
+            ph = posthoc_gap(B.gaps, s, T)
             posthoc += ph
-            labs.append(canon({"row_id": rid, "symbol": s, "decision_time_ms": T, "labels": L,
-                               "label_null_reasons": R, "qa": {"posthoc_gap_at_decision": ph}}))
+            row["qa"] = {"posthoc_gap_at_decision": ph}
+            labs.append(canon(row))
     return feats, labs, excl, nulls, lnulls, posthoc
 
 
-def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_commit: str,
-          feature_set: str = RG.FEATURE_SET_VERSION, label_set: str = LB.LABEL_SET_VERSION,
-          universe_policy: str = UNIVERSE_POLICY, experimental_active_day: bool = False, build_ts: str | None = None,
-          write: bool = True) -> dict:
+def check_versions(code_commit, feature_set, label_set, universe_policy) -> None:
     if feature_set != RG.FEATURE_SET_VERSION:
         raise BuildError(f"unsupported feature set version {feature_set}")
     if label_set != LB.LABEL_SET_VERSION:
@@ -134,14 +154,12 @@ def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_com
         raise BuildError(f"unsupported universe policy {universe_policy}")
     if not code_commit:
         raise BuildError("code_commit required")
-    check_out_root(out_root, dataset_dir)
-    B = load_days(dataset_dir, days, experimental_active_day=experimental_active_day)
-    feats, labs, excl, nulls, lnulls, posthoc = build_rows(B)
-    fz, fsha = _gz_lines(feats)
-    lz, lsha = _gz_lines(labs)
-    ez, esha = _gz_lines([canon(x) for x in excl])
-    symbols = sorted({json.loads(x)["symbol"] for x in feats})
-    times = [json.loads(x)["decision_time_ms"] for x in feats[:1] + feats[-1:]]
+    IN.require_supported_market(IN.BINANCE_SPOT)
+
+
+def make_manifest(B, code_commit: str, files: dict, excl: list, symbols: list, times: list, nulls, lnulls,
+                  posthoc: int, row_count: int) -> dict:
+    """Dataset manifest + logical hash. Shared by the in-memory and the per-day streaming build (identical content)."""
     manifest = {
         "record": MANIFEST_RECORD, "record_version": 1, "package_version": PACKAGE_VERSION,
         "reader_version": READER_VERSION, "code_commit": code_commit, "code_tree_sha256": code_tree_sha256(),
@@ -156,7 +174,7 @@ def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_com
                       "decline_threshold": LB.DECLINE_THRESHOLD, "fee_bps_per_side": LB.FEE_BPS_PER_SIDE,
                       "definitions_sha256": hashlib.sha256(canon(LB.label_definitions()).encode()).hexdigest()},
         "universe_policy": UNIVERSE_POLICY,
-        "row_count": len(feats), "excluded_count": len(excl),
+        "row_count": row_count, "excluded_count": len(excl),
         "excluded_by_reason": dict(sorted(collections.Counter(x["reason"] for x in excl).items())),
         "symbols": symbols, "time_range_ms": [min(times), max(times)] if times else None,
         "range_ms": [B.range_start_ms, B.range_end_ms], "observed_until_ms": B.observed_until_ms,
@@ -165,16 +183,43 @@ def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_com
                             "rows_posthoc_gap_at_decision": posthoc, "gaps": len(B.gaps),
                             "epochs": [{k: e[k] for k in ("effective_from_ms", "available_at_ms", "universe_id", "kind")}
                                        for e in B.epochs]},
-        "files": {"features.jsonl.gz": {"sha256_uncompressed": fsha, "rows": len(feats)},
-                  "labels.jsonl.gz": {"sha256_uncompressed": lsha, "rows": len(labs)},
-                  "excluded.jsonl.gz": {"sha256_uncompressed": esha, "rows": len(excl)}},
+        "files": files,
     }
     manifest["logical_hash"] = hashlib.sha256(canon(manifest).encode()).hexdigest()
+    return manifest
+
+
+def output_subdir(B) -> str:
+    return ("EXPERIMENTAL-nonreproducible" if not B.reproducible else
+            f"{RG.FEATURE_SET_ID}{RG.FEATURE_SET_VERSION}-{LB.LABEL_SET_ID}{LB.LABEL_SET_VERSION}")
+
+
+def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_commit: str,
+          feature_set: str = RG.FEATURE_SET_VERSION, label_set: str = LB.LABEL_SET_VERSION,
+          universe_policy: str = UNIVERSE_POLICY, experimental_active_day: bool = False, build_ts: str | None = None,
+          write: bool = True, streaming: bool = False) -> dict:
+    check_versions(code_commit, feature_set, label_set, universe_policy)
+    check_out_root(out_root, dataset_dir)
+    if streaming:
+        if experimental_active_day:
+            raise BuildError("streaming build is for sealed days only")
+        from .stream import build_streaming
+        return build_streaming(dataset_dir, days, out_root, code_commit=code_commit, build_ts=build_ts, write=write)
+    B = load_days(dataset_dir, days, experimental_active_day=experimental_active_day)
+    feats, labs, excl, nulls, lnulls, posthoc = build_rows(B)
+    fz, fsha = _gz_lines(feats)
+    lz, lsha = _gz_lines(labs)
+    ez, esha = _gz_lines([canon(x) for x in excl])
+    symbols = sorted({json.loads(x)["symbol"] for x in feats})
+    times = [json.loads(x)["decision_time_ms"] for x in feats[:1] + feats[-1:]]
+    files = {"features.jsonl.gz": {"sha256_uncompressed": fsha, "rows": len(feats)},
+             "labels.jsonl.gz": {"sha256_uncompressed": lsha, "rows": len(labs)},
+             "excluded.jsonl.gz": {"sha256_uncompressed": esha, "rows": len(excl)}}
+    manifest = make_manifest(B, code_commit, files, excl, symbols, times, nulls, lnulls, posthoc, len(feats))
     manifest["build_timestamp_utc"] = build_ts or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if not write:
         return manifest
-    sub = "EXPERIMENTAL-nonreproducible" if not B.reproducible else f"{RG.FEATURE_SET_ID}{RG.FEATURE_SET_VERSION}-{LB.LABEL_SET_ID}{LB.LABEL_SET_VERSION}"
-    final = os.path.join(out_root, B.dataset["dataset_id"], sub, manifest["logical_hash"][:16])
+    final = os.path.join(out_root, B.dataset["dataset_id"], output_subdir(B), manifest["logical_hash"][:16])
     if os.path.exists(final):
         with open(os.path.join(final, "manifest.json"), encoding="utf-8") as fh:
             old = json.load(fh)
@@ -207,10 +252,12 @@ def main(argv=None) -> int:
     ap.add_argument("--code-commit", required=True)
     ap.add_argument("--experimental-active-day", action="store_true")
     ap.add_argument("--no-write", action="store_true")
+    ap.add_argument("--streaming", action="store_true", help="bounded per-day streaming (sealed multi-day ranges)")
     a = ap.parse_args(argv)
     try:
         m = build(a.dataset, a.days.split(","), a.out, code_commit=a.code_commit,
-                  experimental_active_day=a.experimental_active_day, write=not a.no_write)
+                  experimental_active_day=a.experimental_active_day, write=not a.no_write,
+                  streaming=a.streaming)
     except (ReaderError, BuildError, FE.PITViolation) as e:
         print(json.dumps({"result": "REFUSED", "error": type(e).__name__, "detail": str(e)}))
         return 2

@@ -262,6 +262,7 @@ class Bundle:
         self.universe_docs = {}          # universe_id -> {tiers, file, sha256}
         self.epochs = []                 # sorted (effective_from_ms, available_at_ms, universe_id, kind, boot8)
         self.runs = []                   # run windows
+        self.run_sha = {}                # boot_id -> run-record SHA-256
         self.provenance = {"segments": [], "days": {}, "runs": {}, "universe_files": {}, "schema_versions": [2]}
         self.quality = collections.Counter()
         self._keys = {}
@@ -319,6 +320,41 @@ class Bundle:
                 "runs": len(self.runs), "quality": dict(sorted(self.quality.items()))}
 
 
+def read_segment(B: Bundle, base: str, rel: str, d: str, mans: dict, ctrl: dict, spill: bool) -> None:
+    """Verify one certified segment (manifest SHA, sidecar SHA, record count), validate and ingest every record."""
+    if d not in mans:
+        mans[d] = _manifest(base, d)
+    p = os.path.join(base, rel)
+    dig = sha256_file(p)
+    ent = mans[d].get(rel)
+    if ent is None or ent.get("sha256") != dig:
+        raise IntegrityError("SEGMENT_SHA_NE_MANIFEST", rel)
+    try:
+        with open(p + ".sha256", encoding="utf-8") as fh:
+            side = fh.read().split()[0]
+    except (OSError, IndexError):
+        side = None
+    if side != dig:
+        raise IntegrityError("SEGMENT_SHA_NE_SIDECAR", rel)
+    n = 0
+    try:
+        with gzip.open(p, "rt", encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                validate_record(r)
+                _ingest(B, r, ctrl)
+                n += 1
+    except (OSError, EOFError, ValueError) as e:
+        if isinstance(e, ReaderError):
+            raise
+        raise IntegrityError("SEGMENT_DECODE_ERROR", f"{rel}:{type(e).__name__}") from None
+    if ent.get("records") is not None and ent["records"] != n:
+        raise IntegrityError("SEGMENT_RECORD_COUNT_NE_MANIFEST", rel)
+    B.provenance["segments"].append({"path": rel, "sha256": dig, "records": n, "spill": spill})
+
+
 # ------------------------------------------------------------------ loading ------
 def load_days(base: str, days: list, experimental_active_day: bool = False) -> Bundle:
     """Load consecutive ``days`` (YYYY-MM-DD). Sealed days only unless ``experimental_active_day`` (one day only)."""
@@ -362,37 +398,7 @@ def load_days(base: str, days: list, experimental_active_day: bool = False) -> B
     mans = {}
     recs_ctrl = {}
     for rel, d in sorted(set(want)):
-        if d not in mans:
-            mans[d] = _manifest(base, d)
-        p = os.path.join(base, rel)
-        dig = sha256_file(p)
-        ent = mans[d].get(rel)
-        if ent is None or ent.get("sha256") != dig:
-            raise IntegrityError("SEGMENT_SHA_NE_MANIFEST", rel)
-        try:
-            with open(p + ".sha256", encoding="utf-8") as fh:
-                side = fh.read().split()[0]
-        except (OSError, IndexError):
-            side = None
-        if side != dig:
-            raise IntegrityError("SEGMENT_SHA_NE_SIDECAR", rel)
-        n = 0
-        try:
-            with gzip.open(p, "rt", encoding="utf-8") as fh:
-                for line in fh:
-                    if not line.strip():
-                        continue
-                    r = json.loads(line)
-                    validate_record(r)
-                    _ingest(B, r, recs_ctrl)
-                    n += 1
-        except (OSError, EOFError, ValueError) as e:
-            if isinstance(e, ReaderError):
-                raise
-            raise IntegrityError("SEGMENT_DECODE_ERROR", f"{rel}:{type(e).__name__}") from None
-        if ent.get("records") is not None and ent["records"] != n:
-            raise IntegrityError("SEGMENT_RECORD_COUNT_NE_MANIFEST", rel)
-        B.provenance["segments"].append({"path": rel, "sha256": dig, "records": n, "spill": d == nxt})
+        read_segment(B, base, rel, d, mans, recs_ctrl, spill=d == nxt)
     _finalize(B, base, recs_ctrl)
     return B
 
@@ -470,7 +476,7 @@ def _ingest(B: Bundle, r: dict, ctrl: dict) -> None:
         ctrl[r["obs_id"]] = (c, r)
 
 
-def _dedupe_sampled(B: Bundle, kind: str, store: dict) -> None:
+def _dedupe_sampled(B: Bundle, kind: str, store: dict, flagged: set | None = None) -> None:
     for sym, lst in store.items():
         lst.sort(key=lambda x: (x[1], x[11 if kind == "book" else 13], x[0], x[7 if kind == "book" else 9]))
         out = []
@@ -482,14 +488,34 @@ def _dedupe_sampled(B: Bundle, kind: str, store: dict) -> None:
                 raise AmbiguityError("CONFLICTING_SAMPLE", [kind, sym, x[1]])
             out.append(x)
         if any(a[0] > b[0] for a, b in zip(out, out[1:])):
-            B.quality[f"out_of_order_resolved.{kind}"] += 1
+            if flagged is None:
+                B.quality[f"out_of_order_resolved.{kind}"] += 1
+            else:
+                flagged.add((kind, sym))
         out.sort(key=lambda x: (x[0], x[1]))
         store[sym] = out
 
 
 def _finalize(B: Bundle, base: str, ctrl: dict) -> None:
-    _dedupe_sampled(B, "book", B.book)
-    _dedupe_sampled(B, "depth", B.depth)
+    finalize_sampled(B)
+    recs = sorted((v[1] for v in ctrl.values()), key=lambda r: (r["available_at_ms"], r["recv_ts_ns"], r["obs_id"]))
+    boots = set()
+    process_control(B, recs, boots)
+    _runs(B, base, boots)
+    _epochs(B, base)
+    # observation horizon: the latest availability of anything loaded. Decisions after it have no data (active day /
+    # collector stopped); the builder excludes them instead of emitting rows of nulls.
+    ends = [v[-1][0] for v in B.book.values() if v] + [v[-1][0] for v in B.depth.values() if v]
+    ends += [B.market[-1][0]] if B.market else []
+    ends += [r["available_at_ms"] for r in recs[-1:]]
+    B.observed_until_ms = max(ends) if ends else None
+
+
+def finalize_sampled(B: Bundle, flagged: set | None = None) -> None:
+    """Dedupe + availability-sort the sampled streams (book/depth/market). ``flagged`` (streaming only) collects the
+    (kind, symbol) pairs whose sample order had availability inversions instead of counting them here."""
+    _dedupe_sampled(B, "book", B.book, flagged)
+    _dedupe_sampled(B, "depth", B.depth, flagged)
     B.market.sort(key=lambda x: (x[1], x[0]))
     mk = []
     for x in B.market:
@@ -500,8 +526,10 @@ def _finalize(B: Bundle, base: str, ctrl: dict) -> None:
             raise AmbiguityError("CONFLICTING_SAMPLE", ["market", x[1]])
         mk.append(x)
     B.market = sorted(mk, key=lambda x: (x[0], x[1]))
-    recs = sorted((v[1] for v in ctrl.values()), key=lambda r: (r["available_at_ms"], r["recv_ts_ns"], r["obs_id"]))
-    boots = set()
+
+
+def process_control(B: Bundle, recs: list, boots: set) -> None:
+    """Append control records (already deduplicated, sorted by availability) to gaps/health/lifecycle/clock."""
     for r in recs:
         t, p = r["type"], r["payload"] or {}
         boots.add(r["boot_id"])
@@ -530,14 +558,6 @@ def _finalize(B: Bundle, base: str, ctrl: dict) -> None:
             B.clock.append((r["available_at_ms"], p.get("serverTime"), r["clock_suspect"]))
         elif t == "universe":
             pass                                      # artifacts are read from universe/ by the epoch's claimed SHA
-    _runs(B, base, boots)
-    _epochs(B, base)
-    # observation horizon: the latest availability of anything loaded. Decisions after it have no data (active day /
-    # collector stopped); the builder excludes them instead of emitting rows of nulls.
-    ends = [v[-1][0] for v in B.book.values() if v] + [v[-1][0] for v in B.depth.values() if v]
-    ends += [B.market[-1][0]] if B.market else []
-    ends += [r["available_at_ms"] for r in recs[-1:]]
-    B.observed_until_ms = max(ends) if ends else None
 
 
 def _runs(B: Bundle, base: str, boots: set) -> None:
@@ -567,11 +587,8 @@ def _runs(B: Bundle, base: str, boots: set) -> None:
                        "clean_stop": c["stop"] is not None, "downtime_cause": (c["downtime"] or {}).get("cause"),
                        "downtime_from_ms": (c["downtime"] or {}).get("from_ms"), "stale_ms": sem,
                        "cadence_ms": (c["record"].get("sampling_profile") or {}).get("cadence_ms")})
-        if c["boot_id"] in boots:
-            B.provenance["runs"][c["boot_id"]] = c["sha256"]
-    missing = boots - {c["boot_id"] for c in chain}
-    if missing:
-        raise IntegrityError("RECORD_OF_UNKNOWN_RUN", sorted(missing)[:3])
+        B.run_sha[c["boot_id"]] = c["sha256"]
+    check_run_boots(B, boots)
     # downtime intervals intersecting the range (explicit; never stitched)
     iv = []
     prev_end = None
@@ -588,6 +605,15 @@ def _runs(B: Bundle, base: str, boots: set) -> None:
         iv.append({"from_ms": max(prev_end, B.range_start_ms), "until_ms": B.range_end_ms, "cause": "collector_stopped"})
     B.downtime = iv
     B.quality["downtime_ms"] = sum(x["until_ms"] - x["from_ms"] for x in iv)
+
+
+def check_run_boots(B: Bundle, boots: set) -> None:
+    """Every record's boot_id must belong to the run chain; record the run-record SHA of each boot seen."""
+    missing = boots - set(B.run_sha)
+    if missing:
+        raise IntegrityError("RECORD_OF_UNKNOWN_RUN", sorted(missing)[:3])
+    for boot in boots:
+        B.provenance["runs"][boot] = B.run_sha[boot]
 
 
 def _universe_doc(B: Bundle, base: str, meta: dict) -> dict:
@@ -612,8 +638,9 @@ def _universe_doc(B: Bundle, base: str, meta: dict) -> dict:
     return B.universe_docs[uid]
 
 
-def _epochs(B: Bundle, base: str) -> None:
-    for avail, ev, p, boot8 in B.lifecycle:
+def _epochs(B: Bundle, base: str, items=None) -> None:
+    """Universe epochs from lifecycle records (all of ``B.lifecycle`` or only the new ``items`` when streaming)."""
+    for avail, ev, p, boot8 in (B.lifecycle if items is None else items):
         if ev == "universe_active":
             meta, eff, kind = p, p.get("effective_from_ms"), "ws_start"
         elif ev == "universe_transition":

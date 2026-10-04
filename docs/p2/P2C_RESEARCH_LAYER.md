@@ -5,6 +5,9 @@ deployed. Nothing here feeds Paper, the collector, the learner or walk-forward. 
 outcomes, no Paper outcomes.
 
 Code: `p2_research/` (stdlib only; never imports `p2_forward`). Tests: `p2_research/tests/` (synthetic fixtures).
+Governance: [ROADMAP_AND_RESEARCH_GOVERNANCE.md](ROADMAP_AND_RESEARCH_GOVERNANCE.md) (owner decisions 2026-10-04: crypto
+only, hypothesis-first research). Trial Ledger: [P2C_TRIAL_LEDGER.md](P2C_TRIAL_LEDGER.md). Instrument identity:
+`p2_research/instrument.py`. Per-day streaming: `p2_research/stream.py` (§9).
 Feature table: [P2C_FEATURE_REGISTRY.md](P2C_FEATURE_REGISTRY.md) (generated). Raw schema: `p2_forward/p2_forward/SCHEMA.md` (v2, authoritative).
 
 ## 1. Pipeline
@@ -149,6 +152,21 @@ directory; first measurement 76.6 s CPU, 1.17 GB peak RSS for 3,552 rows. The re
 multi-day build at production cadence needs ~1.1 GB per day and does not fit 2 GB beyond one day (open item O1).
 Tests: 45+ unit tests, ~3 min on one niced core.
 
+**Per-day streaming (delta E, `builder.build(..., streaming=True)` / `--streaming`).** Sealed multi-day ranges are
+processed one day at a time. Each segment is read exactly once (a day's first hour together with the previous day,
+as its 1 h spill-over). Across a day boundary only bounded sampled state is carried: book/depth/market records with
+`available_at_ms > next_day_start − 2 h` (≥ the 1 h spread window after the +390 s grid offset) plus one sentinel per
+stream (the latest record at or before the cutoff, so "latest known at T" and its stale/previous-run reason are
+unchanged). Candles, control records (gaps, health, lifecycle, clock), epochs and runs are kept for the whole range:
+they are small and keep the 24–25 h (and 2-day 1d) warm-up, history-gap reasons and late candle re-fetches exact.
+Labels need forward book observations; only the looked-up observations (first book after T, T+1h, T+4h, T+24h) are
+kept as 5-field tuples, resolved while their day is loaded; labels and the post-hoc gap flag are computed at the end
+with the full candle store and gap list. Rows after everything observed so far are held back until the observation
+horizon is known (`beyond_observed_data` unchanged). Contract (tested on a 3-day fixture with cross-midnight
+downtime, restart, a gap opened on day 2 and closed on day 3, a universe transition and trailing rows after a
+stop): identical manifest and logical hash, identical uncompressed and gzip content versus the in-memory build;
+`build_execution` (mode, carry, peak window size) is recorded outside the logical hash. Measurements: delta evidence.
+
 ## 10. Rejected alternatives
 
 - Importing `p2_forward` for parsing: rejected (verifier-style independence; a collector bug must not hide in research).
@@ -161,8 +179,9 @@ Tests: 45+ unit tests, ~3 min on one niced core.
 
 ## 11. Limitations and open questions
 
-- O1 memory: in-memory bundle ~1.1 GB per production day; multi-day builds need per-day streaming of sampled
-  streams (planned) before any range > 1 day under the 2 GB cap.
+- O1 memory: in-memory bundle ~1.1 GB per production day. Addressed by the per-day streaming build (§9): sampled
+  state is bounded to ~one day; a small per-day linear term remains (candles, control records, label lookups,
+  output-row bookkeeping), measured in the delta evidence. Real multi-day builds still wait for P2-C1.
 - O2 no real sealed day existed when this foundation was built; only synthetic validation plus a read-only
   experimental diagnostic of the active day (evidence).
 - O3 history: rolling features need up to 24 h (15m×96) / 25 h of candles; early rows of a dataset are null by design.
