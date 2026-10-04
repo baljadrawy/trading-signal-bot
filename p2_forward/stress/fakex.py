@@ -7,6 +7,7 @@ Deterministic: every random choice comes from a seeded generator.
 """
 import asyncio
 import heapq
+import os
 import json
 import random
 import ssl
@@ -20,7 +21,8 @@ from . import fakedata as F
 TF_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 LISTING_MS = 1_577_836_800_000                 # 2020-01-01: first-ever candle of every synthetic symbol
 U = [1_000_000]                                # global, monotonic update id (as on Binance)
-STATS = {"ws_msgs": 0, "rest": 0, "conns": 0}
+STATS = {"ws_msgs": 0, "rest": 0, "conns": 0, "universe_evals": 0}
+SHIFT = os.environ.get("STRESS_UNIVERSE_SHIFT") == "1"                # P2-CR V3: universe drifts per evaluation
 
 
 def book_rate(sym: str) -> float:
@@ -129,12 +131,13 @@ async def rest_time(request):
 
 async def rest_exinfo(request):
     STATS["rest"] += 1
-    return web.json_response(F.exchange_info(), headers=_hdr())
+    STATS["universe_evals"] += 1
+    return web.json_response(F.exchange_info(STATS["universe_evals"] if SHIFT else 0), headers=_hdr())
 
 
 async def rest_ticker(request):
     STATS["rest"] += 1
-    return web.json_response(F.tickers(), headers=_hdr())
+    return web.json_response(F.tickers(shift=STATS["universe_evals"] if SHIFT else 0), headers=_hdr())
 
 
 async def rest_klines(request):

@@ -23,7 +23,7 @@ import time
 import aiohttp
 from aiohttp.abc import AbstractResolver
 
-from p2_forward import app as A, config as C, writer as W
+from p2_forward import app as A, cal, config as C, writer as W
 
 HOSTS = {"data-stream.binance.vision", "data-api.binance.vision"}
 
@@ -134,4 +134,49 @@ def run() -> int:
     with open(os.path.join(out, "harness_exit.json"), "w") as fh:
         json.dump({"exit_code": code, "state": c.state, "end_ms": A.now_ms(), "counters": c.counters()}, fh, indent=1,
                   default=str)
+    return code
+
+
+def run_continuous() -> int:
+    """P2-CR: the REAL collector in CONTINUOUS mode (no runtime limit; stopped by SIGTERM / killed by SIGKILL).
+    Optional accelerated calendar (STRESS_CAL_HOUR_MS / _EPOCH_HOUR / _BASE; identical across restarts, pinned by
+    dataset.json). STRESS_CFG: JSON config overrides. No virtual hour patch: the writer follows the calendar."""
+    out = os.environ.get("STRESS_OUT", "/out")
+    hour_ms = int(os.environ.get("STRESS_CAL_HOUR_MS", "0"))
+    if hour_ms:
+        cal.configure(hour_ms, int(os.environ["STRESS_CAL_EPOCH_HOUR"]), dt.datetime.fromisoformat(os.environ["STRESS_CAL_BASE"]))
+    cfg = dict(C.DEFAULTS)
+    cfg.update({"enabled": True, "mode": "continuous", "profile": "recommended", "max_runtime_s": 0, "data_dir": "/data",
+                "dataset_id": os.environ.get("STRESS_DATASET_ID", "stress-continuous"), "host_label": "offline-stress-harness"})
+    cfg.update(json.loads(os.environ.get("STRESS_CFG", "{}")))
+    C.validate(cfg)
+    ident = {"pid": os.getpid(), "p2_forward_file": A.__file__, "python": sys.version, "calendar": cal.params(),
+             "config_hash": C.config_hash(cfg), "cgroup": open("/proc/self/cgroup").read().strip(), "start_ms": A.now_ms()}
+    try:
+        c = A.Collector(cfg)
+    except A.StartupRefused as e:
+        ident["refused"] = str(e)
+        json.dump(ident, open(os.path.join(out, "harness_identity.json"), "w"), indent=1)
+        return A.EXIT_STARTUP
+    ident["boot_id"] = c.boot_id
+    with open(os.path.join(out, "harness_identity.json"), "w") as fh:
+        json.dump(ident, fh, indent=1)
+    ctx = ssl.create_default_context(cafile=os.environ["STRESS_TLS_CA"])
+    port = int(os.environ.get("STRESS_FAKEX_PORT", "8443"))
+    c.session_factory = lambda: aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=30), headers={"User-Agent": "tsb-p2-forward/" + C.VERSION},
+        connector=aiohttp.TCPConnector(resolver=MapResolver(port), ssl=ctx))
+    gp = GcProbe()
+    gc.callbacks.append(gp.cb)
+
+    async def main():
+        t = asyncio.create_task(telemetry(c, os.path.join(out, "telemetry.jsonl"), gp))
+        try:
+            return await c.run()
+        finally:
+            t.cancel()
+    code = asyncio.run(main())
+    with open(os.path.join(out, "harness_exit.json"), "w") as fh:
+        json.dump({"exit_code": code, "state": c.state, "stop_reason": c.stop_reason, "end_ms": A.now_ms(),
+                   "counters": c.counters()}, fh, indent=1, default=str)
     return code
