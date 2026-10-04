@@ -287,10 +287,11 @@ def segment_days(base: str) -> set:
     raw, out = os.path.join(base, "raw"), set()
     if not os.path.isdir(raw):
         return out
-    for t in os.listdir(raw):
-        td = os.path.join(raw, t)
-        if os.path.isdir(td):
-            out.update(x for x in os.listdir(td) if os.path.isdir(os.path.join(td, x)))
+    with os.scandir(raw) as it:                                  # d_type from the directory entry: no per-day stat
+        for t in it:
+            if t.is_dir():
+                with os.scandir(t.path) as days:
+                    out.update(x.name for x in days if x.is_dir())
     return out
 
 

@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-WT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))          # p2_forward/ (mounted read-only)
+WT = os.environ.get("V_WT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # code (read-only)
 IMAGE = os.environ.get("V_IMAGE", "tsb-p2-forward:p2e1-2707df91-20261003T2142Z")
 MON = os.path.join(WT, "ops", "p2f_cont_monitor.py")
 
@@ -75,7 +75,7 @@ def collector(root, name, fx, data, env):
         envs += ["-e", f"{k}={v}"]
     sh("docker", "run", "-d", "--name", name, "--network", f"container:{fx}", "--cpus", "0.5", "--memory", "384m",
        "--memory-swap", "384m", "--pids-limit", "64", "--tmpfs", "/tmp:size=16m,mode=1777", *common(root, out),
-       "-v", f"{data}:/data", *envs, IMAGE, "-m", "stress", "ccollector")
+       "-v", f"{data}:/data", *envs, IMAGE, "-m", "stress", os.environ.get("V_ENTRY", "ccollector"))
     cid = sh("docker", "inspect", "-f", "{{.Id}}", name)
     return cid, out
 
