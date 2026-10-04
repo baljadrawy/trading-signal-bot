@@ -46,3 +46,36 @@ Decision grid: `grid-15m-plus390s-v1` (15m boundary + 390 s >= candle fetch marg
 | `dq.run_age_s` | data_quality | runs/downtime | seconds since the current run's ws_start, capped 2592000 | none | [0, 2592000] | null + reason: no_run_at_T; PIT: ws_start <= T (downtime.until_ms) |
 | `dq.degraded_flag` | data_quality | health | 1 if the latest health record known at T is not HEALTHY or lists one of the symbol's streams as not observing, else 0 | none | [0, 1] | null + reason: no_health_record (fail closed); PIT: health.available_at_ms <= T |
 | `dq.clock_suspect` | data_quality | clock+book+depth | 1 if the latest clock record known at T, or the book/depth sample used, is clock_suspect, else 0 | none | [0, 1] | never null; PIT: available_at_ms <= T |
+
+## Hypothesis families (1.0.0, governance overlay; not part of the registry SHA)
+
+**Feature availability does not imply feature selection.** All 40 features remain `experimental`. P2-D must start from a documented hypothesis and use that hypothesis' predeclared subset; it must not feed all features into optimization or ML. Source: `p2_research/registry/hypothesis_families_v1.json`.
+
+| family | question | features |
+|---|---|---|
+| `HF-momentum-continuation` | does recent directional movement persist over the label horizons? | `mom.ret_15m_1`, `mom.ret_1h_1`, `mom.ret_4h_1`, `mom.ret_1d_1`, `mom.mom_norm_15m_16`, `mom.trend_eff_1h_24` |
+| `HF-range-position-reversion` | does the position inside the recent range / last bar shape predict reversal? | `mom.dist_high_15m_96`, `mom.dist_low_15m_96`, `mom.body_ratio_15m`, `mom.range_rel_15m` |
+| `HF-volatility-regime` | do volatility level / expansion change forward drawdown or decline risk? | `vol.rv_15m_16`, `vol.rv_1h_24`, `vol.atr_norm_1h_14`, `vol.vol_ratio_15m_16_96`, `vol.range_expansion_15m_16` |
+| `HF-liquidity-microstructure` | do spread / book / depth state predict execution cost or short-horizon moves? | `liq.spread_bps`, `liq.spread_norm_1h`, `liq.tob_imbalance`, `liq.depth_imbalance_10`, `liq.depth_concentration_10`, `liq.spread_change_5m_bps`, `liq.liq_change_15m` |
+| `HF-participation-volume` | does abnormal traded volume confirm or exhaust moves? | `act.rel_volume_15m_96`, `act.volume_accel_15m_4`, `act.volume_price_15m` |
+| `HF-market-regime-context` | does BTC / whole-universe state condition symbol outcomes (beta, breadth, dispersion)? | `ctx.btc_ret_1h_1`, `ctx.btc_rv_1h_24`, `ctx.breadth_24h`, `ctx.universe_ret_24h_median`, `ctx.universe_disp_24h` |
+| `HF-cross-sectional-relative-strength` | does a symbol's 24 h rank within the universe persist or revert? | `ctx.xs_rank_ret_24h` |
+| `HF-data-quality-and-structure` | NOT an alpha family: conditioning / exclusion / stratification only (data health, tier) | `ctx.tier`, `dq.book_age_s`, `dq.depth_age_s`, `dq.stale_flag`, `dq.gap_known_1h`, `dq.reconnect_age_s`, `dq.run_age_s`, `dq.degraded_flag`, `dq.clock_suspect` |
+
+### Redundant / overlapping by construction (formula-based, no outcome data; nothing removed)
+
+| features | why |
+|---|---|
+| `ctx.btc_ret_1h_1`, `mom.ret_1h_1` | identical on BTCUSDT rows (same formula, same candles) |
+| `ctx.btc_rv_1h_24`, `vol.rv_1h_24` | identical on BTCUSDT rows (same formula, same candles) |
+| `vol.rv_15m_16`, `mom.mom_norm_15m_16`, `vol.vol_ratio_15m_16_96` | rv_15m_16 is the denominator of mom_norm and the numerator of vol_ratio |
+| `vol.rv_1h_24`, `vol.atr_norm_1h_14` | two 1h volatility estimators over overlapping windows |
+| `mom.range_rel_15m`, `vol.range_expansion_15m_16`, `mom.body_ratio_15m` | same last-15m (h-l) range in numerator / denominator |
+| `mom.ret_15m_1`, `act.volume_price_15m` | volume_price carries sign(ret_15m_1) |
+| `act.rel_volume_15m_96`, `act.volume_price_15m` | both qv[t] / mean(qv) (96 vs 16 bars) |
+| `liq.spread_bps`, `liq.spread_norm_1h`, `liq.spread_change_5m_bps` | all functions of spread_bps |
+| `liq.tob_imbalance`, `liq.depth_imbalance_10`, `liq.depth_concentration_10`, `liq.liq_change_15m` | level 1 is part of the 10-level depth notional N used by all three depth features |
+| `ctx.breadth_24h`, `ctx.universe_ret_24h_median`, `ctx.universe_disp_24h`, `ctx.xs_rank_ret_24h` | summaries of the same cross-section of rolling-24 h ln(c/o) at T |
+| `mom.ret_1d_1`, `ctx.xs_rank_ret_24h` | both ~24 h symbol returns (UTC daily candle vs rolling 24 h ticker) |
+| `dq.stale_flag`, `dq.book_age_s`, `dq.depth_age_s` | stale_flag is a function of the two ages + run + tier limits |
+| `dq.reconnect_age_s`, `dq.run_age_s` | coincide while no reconnect happened since ws_start |

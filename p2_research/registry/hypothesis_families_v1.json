@@ -1,0 +1,193 @@
+{
+ "families": {
+  "HF-cross-sectional-relative-strength": {
+   "features": [
+    "ctx.xs_rank_ret_24h"
+   ],
+   "question": "does a symbol's 24 h rank within the universe persist or revert?"
+  },
+  "HF-data-quality-and-structure": {
+   "features": [
+    "ctx.tier",
+    "dq.book_age_s",
+    "dq.depth_age_s",
+    "dq.stale_flag",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "dq.run_age_s",
+    "dq.degraded_flag",
+    "dq.clock_suspect"
+   ],
+   "question": "NOT an alpha family: conditioning / exclusion / stratification only (data health, tier)"
+  },
+  "HF-liquidity-microstructure": {
+   "features": [
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.tob_imbalance",
+    "liq.depth_imbalance_10",
+    "liq.depth_concentration_10",
+    "liq.spread_change_5m_bps",
+    "liq.liq_change_15m"
+   ],
+   "question": "do spread / book / depth state predict execution cost or short-horizon moves?"
+  },
+  "HF-market-regime-context": {
+   "features": [
+    "ctx.btc_ret_1h_1",
+    "ctx.btc_rv_1h_24",
+    "ctx.breadth_24h",
+    "ctx.universe_ret_24h_median",
+    "ctx.universe_disp_24h"
+   ],
+   "question": "does BTC / whole-universe state condition symbol outcomes (beta, breadth, dispersion)?"
+  },
+  "HF-momentum-continuation": {
+   "features": [
+    "mom.ret_15m_1",
+    "mom.ret_1h_1",
+    "mom.ret_4h_1",
+    "mom.ret_1d_1",
+    "mom.mom_norm_15m_16",
+    "mom.trend_eff_1h_24"
+   ],
+   "question": "does recent directional movement persist over the label horizons?"
+  },
+  "HF-participation-volume": {
+   "features": [
+    "act.rel_volume_15m_96",
+    "act.volume_accel_15m_4",
+    "act.volume_price_15m"
+   ],
+   "question": "does abnormal traded volume confirm or exhaust moves?"
+  },
+  "HF-range-position-reversion": {
+   "features": [
+    "mom.dist_high_15m_96",
+    "mom.dist_low_15m_96",
+    "mom.body_ratio_15m",
+    "mom.range_rel_15m"
+   ],
+   "question": "does the position inside the recent range / last bar shape predict reversal?"
+  },
+  "HF-volatility-regime": {
+   "features": [
+    "vol.rv_15m_16",
+    "vol.rv_1h_24",
+    "vol.atr_norm_1h_14",
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16"
+   ],
+   "question": "do volatility level / expansion change forward drawdown or decline risk?"
+  }
+ },
+ "feature_set_id": "p2c-fs",
+ "feature_set_version": "1.0.0",
+ "record": "tsb.p2c.hypothesis_families",
+ "record_version": 1,
+ "redundant_by_construction": [
+  {
+   "features": [
+    "ctx.btc_ret_1h_1",
+    "mom.ret_1h_1"
+   ],
+   "why": "identical on BTCUSDT rows (same formula, same candles)"
+  },
+  {
+   "features": [
+    "ctx.btc_rv_1h_24",
+    "vol.rv_1h_24"
+   ],
+   "why": "identical on BTCUSDT rows (same formula, same candles)"
+  },
+  {
+   "features": [
+    "vol.rv_15m_16",
+    "mom.mom_norm_15m_16",
+    "vol.vol_ratio_15m_16_96"
+   ],
+   "why": "rv_15m_16 is the denominator of mom_norm and the numerator of vol_ratio"
+  },
+  {
+   "features": [
+    "vol.rv_1h_24",
+    "vol.atr_norm_1h_14"
+   ],
+   "why": "two 1h volatility estimators over overlapping windows"
+  },
+  {
+   "features": [
+    "mom.range_rel_15m",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "why": "same last-15m (h-l) range in numerator / denominator"
+  },
+  {
+   "features": [
+    "mom.ret_15m_1",
+    "act.volume_price_15m"
+   ],
+   "why": "volume_price carries sign(ret_15m_1)"
+  },
+  {
+   "features": [
+    "act.rel_volume_15m_96",
+    "act.volume_price_15m"
+   ],
+   "why": "both qv[t] / mean(qv) (96 vs 16 bars)"
+  },
+  {
+   "features": [
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.spread_change_5m_bps"
+   ],
+   "why": "all functions of spread_bps"
+  },
+  {
+   "features": [
+    "liq.tob_imbalance",
+    "liq.depth_imbalance_10",
+    "liq.depth_concentration_10",
+    "liq.liq_change_15m"
+   ],
+   "why": "level 1 is part of the 10-level depth notional N used by all three depth features"
+  },
+  {
+   "features": [
+    "ctx.breadth_24h",
+    "ctx.universe_ret_24h_median",
+    "ctx.universe_disp_24h",
+    "ctx.xs_rank_ret_24h"
+   ],
+   "why": "summaries of the same cross-section of rolling-24 h ln(c/o) at T"
+  },
+  {
+   "features": [
+    "mom.ret_1d_1",
+    "ctx.xs_rank_ret_24h"
+   ],
+   "why": "both ~24 h symbol returns (UTC daily candle vs rolling 24 h ticker)"
+  },
+  {
+   "features": [
+    "dq.stale_flag",
+    "dq.book_age_s",
+    "dq.depth_age_s"
+   ],
+   "why": "stale_flag is a function of the two ages + run + tier limits"
+  },
+  {
+   "features": [
+    "dq.reconnect_age_s",
+    "dq.run_age_s"
+   ],
+   "why": "coincide while no reconnect happened since ws_start"
+  }
+ ],
+ "registry_sha256": "bcf38504ae746027df0932b2a501dadf74af061b4b64a28de06d4831d71db81a",
+ "rule": "P2-D uses hypothesis-driven, predeclared feature subsets; never all features into optimization/ML",
+ "statement": "Feature availability does not imply feature selection.",
+ "version": "1.0.0"
+}

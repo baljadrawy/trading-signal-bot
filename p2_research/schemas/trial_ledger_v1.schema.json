@@ -1,0 +1,63 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "tsb.p2c.trial_ledger/v1",
+ "title": "P2-C Research Trial Ledger event (one JSONL line, append-only, hash-chained)",
+ "description": "Normative rules that JSON Schema cannot express (hash chain, trial-id derivation, one result per trial, W3 refusal, authorized market) are enforced by p2_research/ledger.py and specified in docs/p2/P2C_TRIAL_LEDGER.md.",
+ "type": "object",
+ "required": ["ledger", "ledger_version", "seq", "prev_hash", "event_hash", "event", "trial_id", "at", "payload"],
+ "additionalProperties": false,
+ "properties": {
+  "ledger": {"const": "tsb.p2c.trial_ledger"},
+  "ledger_version": {"const": 1},
+  "seq": {"type": "integer", "minimum": 0},
+  "prev_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "event_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "event": {"enum": ["trial_created", "trial_result"]},
+  "trial_id": {"type": "string", "pattern": "^TR-[0-9a-f]{24}$"},
+  "at": {"type": "string", "format": "date-time"},
+  "payload": {"oneOf": [{"$ref": "#/$defs/created"}, {"$ref": "#/$defs/result"}]}
+ },
+ "$defs": {
+  "period": {"type": "object", "required": ["start", "end"], "additionalProperties": false,
+             "properties": {"start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}}},
+  "created": {"type": "object", "required": ["spec", "spec_sha256", "creation_seq"], "additionalProperties": false,
+              "properties": {"spec": {"$ref": "#/$defs/spec"}, "spec_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                             "creation_seq": {"type": "integer", "minimum": 0}}},
+  "spec": {
+   "type": "object",
+   "required": ["hypothesis_id", "code_commit", "dataset", "feature_set_version", "label_set_version", "universe_policy",
+                "market", "strategy_family", "parameter_spec", "transaction_cost_assumptions", "execution_assumptions",
+                "train_period", "validation_period", "holdout", "metrics_requested", "parent_trial"],
+   "additionalProperties": false,
+   "properties": {
+    "hypothesis_id": {"type": "string", "pattern": "^H-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "code_commit": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+    "dataset": {"type": "object", "required": ["dataset_id", "dataset_hash"],
+                "properties": {"dataset_id": {"type": "string"}, "dataset_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "feature_set_version": {"type": "string", "minLength": 1},
+    "label_set_version": {"type": "string", "minLength": 1},
+    "universe_policy": {"type": "string", "minLength": 1},
+    "market": {"type": "object", "required": ["asset_class", "venue", "product"],
+               "properties": {"asset_class": {"const": "crypto"}, "venue": {"const": "binance"}, "product": {"const": "spot"},
+                              "calendar_id": {"const": "crypto-24x7-utc"}}},
+    "strategy_family": {"type": "string", "minLength": 1},
+    "parameter_spec": {"type": "object"},
+    "transaction_cost_assumptions": {"type": "object"},
+    "execution_assumptions": {"type": "object"},
+    "train_period": {"$ref": "#/$defs/period"},
+    "validation_period": {"$ref": "#/$defs/period"},
+    "holdout": {"type": "object", "required": ["w3"],
+                "properties": {"w3": {"const": "sealed_forbidden"}},
+                "additionalProperties": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/period"}]}},
+    "metrics_requested": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "parent_trial": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^TR-[0-9a-f]{24}$"}]}
+   }
+  },
+  "result": {
+   "type": "object", "required": ["status", "rejection_reason", "metrics", "evidence", "notes"], "additionalProperties": false,
+   "properties": {"status": {"enum": ["accepted", "rejected", "inconclusive"]},
+                  "rejection_reason": {"type": ["string", "null"]}, "metrics": {"type": "object"},
+                  "evidence": {"type": "object"}, "notes": {"type": ["string", "null"]}}
+  }
+ }
+}

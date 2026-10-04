@@ -165,13 +165,108 @@ def registry_markdown() -> str:
     return "\n".join(out) + "\n"
 
 
+
+# ------------------------------------------------------------------ hypothesis families (governance overlay) ------
+# NOT part of registry_doc() / registry_sha256(): grouping features by the hypothesis they could serve changes no
+# feature definition and no dataset. Feature availability does not imply feature selection. P2-D must start from a
+# documented hypothesis and use that hypothesis' predeclared subset; feeding all features into optimization or ML is
+# not allowed. Every feature stays status "experimental".
+FAMILIES_VERSION = "1.0.0"
+AVAILABILITY_STATEMENT = "Feature availability does not imply feature selection."
+HYPOTHESIS_FAMILIES = {
+    "HF-momentum-continuation": {
+        "question": "does recent directional movement persist over the label horizons?",
+        "features": ["mom.ret_15m_1", "mom.ret_1h_1", "mom.ret_4h_1", "mom.ret_1d_1", "mom.mom_norm_15m_16",
+                     "mom.trend_eff_1h_24"]},
+    "HF-range-position-reversion": {
+        "question": "does the position inside the recent range / last bar shape predict reversal?",
+        "features": ["mom.dist_high_15m_96", "mom.dist_low_15m_96", "mom.body_ratio_15m", "mom.range_rel_15m"]},
+    "HF-volatility-regime": {
+        "question": "do volatility level / expansion change forward drawdown or decline risk?",
+        "features": ["vol.rv_15m_16", "vol.rv_1h_24", "vol.atr_norm_1h_14", "vol.vol_ratio_15m_16_96",
+                     "vol.range_expansion_15m_16"]},
+    "HF-liquidity-microstructure": {
+        "question": "do spread / book / depth state predict execution cost or short-horizon moves?",
+        "features": ["liq.spread_bps", "liq.spread_norm_1h", "liq.tob_imbalance", "liq.depth_imbalance_10",
+                     "liq.depth_concentration_10", "liq.spread_change_5m_bps", "liq.liq_change_15m"]},
+    "HF-participation-volume": {
+        "question": "does abnormal traded volume confirm or exhaust moves?",
+        "features": ["act.rel_volume_15m_96", "act.volume_accel_15m_4", "act.volume_price_15m"]},
+    "HF-market-regime-context": {
+        "question": "does BTC / whole-universe state condition symbol outcomes (beta, breadth, dispersion)?",
+        "features": ["ctx.btc_ret_1h_1", "ctx.btc_rv_1h_24", "ctx.breadth_24h", "ctx.universe_ret_24h_median",
+                     "ctx.universe_disp_24h"]},
+    "HF-cross-sectional-relative-strength": {
+        "question": "does a symbol's 24 h rank within the universe persist or revert?",
+        "features": ["ctx.xs_rank_ret_24h"]},
+    "HF-data-quality-and-structure": {
+        "question": "NOT an alpha family: conditioning / exclusion / stratification only (data health, tier)",
+        "features": ["ctx.tier", "dq.book_age_s", "dq.depth_age_s", "dq.stale_flag", "dq.gap_known_1h",
+                     "dq.reconnect_age_s", "dq.run_age_s", "dq.degraded_flag", "dq.clock_suspect"]},
+}
+# Redundant / overlapping BY CONSTRUCTION (same inputs or one is a function of another). Listed from the formulas
+# only; no outcome data was used and nothing is removed. Pruning, if ever, needs a predeclared rule.
+REDUNDANT_BY_CONSTRUCTION = [
+    (["ctx.btc_ret_1h_1", "mom.ret_1h_1"], "identical on BTCUSDT rows (same formula, same candles)"),
+    (["ctx.btc_rv_1h_24", "vol.rv_1h_24"], "identical on BTCUSDT rows (same formula, same candles)"),
+    (["vol.rv_15m_16", "mom.mom_norm_15m_16", "vol.vol_ratio_15m_16_96"],
+     "rv_15m_16 is the denominator of mom_norm and the numerator of vol_ratio"),
+    (["vol.rv_1h_24", "vol.atr_norm_1h_14"], "two 1h volatility estimators over overlapping windows"),
+    (["mom.range_rel_15m", "vol.range_expansion_15m_16", "mom.body_ratio_15m"],
+     "same last-15m (h-l) range in numerator / denominator"),
+    (["mom.ret_15m_1", "act.volume_price_15m"], "volume_price carries sign(ret_15m_1)"),
+    (["act.rel_volume_15m_96", "act.volume_price_15m"], "both qv[t] / mean(qv) (96 vs 16 bars)"),
+    (["liq.spread_bps", "liq.spread_norm_1h", "liq.spread_change_5m_bps"], "all functions of spread_bps"),
+    (["liq.tob_imbalance", "liq.depth_imbalance_10", "liq.depth_concentration_10", "liq.liq_change_15m"],
+     "level 1 is part of the 10-level depth notional N used by all three depth features"),
+    (["ctx.breadth_24h", "ctx.universe_ret_24h_median", "ctx.universe_disp_24h", "ctx.xs_rank_ret_24h"],
+     "summaries of the same cross-section of rolling-24 h ln(c/o) at T"),
+    (["mom.ret_1d_1", "ctx.xs_rank_ret_24h"], "both ~24 h symbol returns (UTC daily candle vs rolling 24 h ticker)"),
+    (["dq.stale_flag", "dq.book_age_s", "dq.depth_age_s"], "stale_flag is a function of the two ages + run + tier limits"),
+    (["dq.reconnect_age_s", "dq.run_age_s"], "coincide while no reconnect happened since ws_start"),
+]
+
+
+def families_doc() -> dict:
+    ids = [f["id"] for f in FEATURES]
+    fam = [x for v in HYPOTHESIS_FAMILIES.values() for x in v["features"]]
+    assert sorted(fam) == sorted(ids) and len(fam) == len(set(fam)), "every feature in exactly one family"
+    assert all(x in ids for grp, _ in REDUNDANT_BY_CONSTRUCTION for x in grp)
+    assert all(f["status"] == "experimental" for f in FEATURES)
+    return {"record": "tsb.p2c.hypothesis_families", "record_version": 1, "version": FAMILIES_VERSION,
+            "feature_set_id": FEATURE_SET_ID, "feature_set_version": FEATURE_SET_VERSION,
+            "registry_sha256": registry_sha256(), "statement": AVAILABILITY_STATEMENT,
+            "rule": "P2-D uses hypothesis-driven, predeclared feature subsets; never all features into optimization/ML",
+            "families": HYPOTHESIS_FAMILIES,
+            "redundant_by_construction": [{"features": g, "why": w} for g, w in REDUNDANT_BY_CONSTRUCTION]}
+
+
+def families_markdown() -> str:
+    d = families_doc()
+    out = ["", f"## Hypothesis families ({d['version']}, governance overlay; not part of the registry SHA)", "",
+           f"**{AVAILABILITY_STATEMENT}** All 40 features remain `experimental`. P2-D must start from a documented "
+           "hypothesis and use that hypothesis' predeclared subset; it must not feed all features into optimization "
+           "or ML. Source: `p2_research/registry/hypothesis_families_v1.json`.", "",
+           "| family | question | features |", "|---|---|---|"]
+    for k, v in HYPOTHESIS_FAMILIES.items():
+        out.append(f"| `{k}` | {v['question']} | {', '.join(f'`{x}`' for x in v['features'])} |")
+    out += ["", "### Redundant / overlapping by construction (formula-based, no outcome data; nothing removed)", "",
+            "| features | why |", "|---|---|"]
+    out += [f"| {', '.join(f'`{x}`' for x in g)} | {w} |" for g, w in REDUNDANT_BY_CONSTRUCTION]
+    return "\n".join(out) + "\n"
+
+
+FAMILIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry", "hypothesis_families_v1.json")
+
 REGISTRY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registry", "feature_registry_v1.json")
 
 if __name__ == "__main__":
     if "--write" in sys.argv:
         with open(REGISTRY_PATH, "w", encoding="utf-8") as fh:
             fh.write(registry_json())
+        with open(FAMILIES_PATH, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(families_doc(), sort_keys=True, indent=1) + "\n")
     if "--markdown" in sys.argv:
-        sys.stdout.write(registry_markdown())
+        sys.stdout.write(registry_markdown() + families_markdown())
     else:
         print(json.dumps({"features": len(FEATURES), "sha256": registry_sha256()}))
