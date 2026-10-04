@@ -535,7 +535,7 @@ class Collector:
         latest = tr.values.latest
         if latest is not None and recv_ns < latest[0]:
             self.stats["recv_clock_regression"] = self.stats.get("recv_clock_regression", 0) + 1
-        res = tr.on_msg(recv_ns, data, seq)
+        res = tr.on_msg(recv_ns, data, seq, overlap=self.continuous and cname in self.rotating)
         if res == "seq_regression":
             self.stats["rejected"]["seq_regression"] += 1           # older message (e.g. rotation overlap): ignore
         elif res == "seq_reset":

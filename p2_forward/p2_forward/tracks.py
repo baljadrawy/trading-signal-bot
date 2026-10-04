@@ -82,9 +82,11 @@ class StreamTrack:
         self.regress_run = 0
 
     # ---- messages ----
-    def on_msg(self, recv_ns: int, data, seq: int) -> str | None:
+    def on_msg(self, recv_ns: int, data, seq: int, overlap: bool = False) -> str | None:
         latest = self.values.latest
         if latest is not None and seq < latest[2]:
+            if overlap:                           # P2-CR: rotation overlap (two sockets, one stream): an older copy is
+                return "seq_regression"           # ignored and never counted towards an exchange-side reset
             self.regress_run += 1
             if self.regress_run < 20:
                 return "seq_regression"

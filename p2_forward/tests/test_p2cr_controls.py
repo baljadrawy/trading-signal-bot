@@ -356,3 +356,15 @@ class MonitorObserveOnly(unittest.TestCase):                          # owner D5
             bad = subprocess.run([sys.executable, str(ROOT / "ops" / "p2f_cont_monitor.py"), "--dataset", ds, "--cid", "x",
                                   "--out", os.path.join(ds, "mon"), "--once"], capture_output=True, text=True, timeout=60)
             self.assertNotEqual(bad.returncode, 0)
+
+
+class RotationOverlapSequence(unittest.TestCase):                    # V1 finding: overlap regressions != exchange reset
+    def test_overlap_regressions_are_ignored_not_reset(self):
+        from p2_forward.tracks import StreamTrack
+        t = StreamTrack("btcusdt@bookTicker", "book", "BTCUSDT", 0, 1000, "conn0-book", 120000, 30000, 120000)
+        t.on_msg(1_000, {}, 100)
+        for i in range(30):
+            self.assertEqual(t.on_msg(2_000 + i, {}, 50 + i, overlap=True), "seq_regression")
+        self.assertEqual(t.values.latest[2], 100)                          # the newer value stays the latest
+        res = [t.on_msg(3_000 + i, {}, 10 + i) for i in range(20)]          # outside an overlap: unchanged rule
+        self.assertEqual(res[-1], "seq_reset")
