@@ -292,4 +292,49 @@ with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pi
     config.
 - **Validation:** 24 adversarial tests; historical replay of the G3-v7 monitor evidence (0 unexpected / 0 unresolved
   in the window); bounded isolated live checks (real HEALTHCHECK recognised; all negative controls rejected).
-- **Status:** awaiting owner closure decision.
+- **Status:** ACCEPTED; P2-E1 closed (see below).
+
+## P2-E1 CLOSURE (owner-authorized 2026-10-04)
+**P2-E1 PASS — bounded forward collector validated through G3; G3V7-F1 process-observability defect corrected and
+independently validated under v8**
+
+**Continuous collector operation is NOT authorized by P2-E1 closure.** The collector stays STOPPED: no continuous
+collection, no auto-start (cron / systemd / restart policy), and no automatic start of P2-C.
+
+**G3-v7 (historical, immutable):**
+- formally **FAIL** under its pinned spec v7 (`9dfe911d…`): `ACC_CGROUP_PROCESS_SET` only;
+- all collector correctness criteria passed;
+- evidence `p2e1-g3v7-20261003T230102Z/` (SHA256SUMS `13767679046e15c7…`);
+- the v7 result is not rewritten, and v6 / v7 are preserved byte-for-byte.
+
+**G3V7-F1:** classified as an **acceptance-spec / process-observability defect**. The v7 role allowlist omitted the
+container's own Docker HEALTHCHECK execution chain.
+
+**v8 accepted** as the current forward-collector acceptance specification (`g3-recommended-6h-v8`,
+`3a1e487c84050efc1f94e20ee098c0a8713e4e738b13210bc23d76e1c6896480`):
+- commits `45be401`, `89f404d`; evidence `p2e1-g3v7f1-v8-20261004T095210Z/` (SHA256SUMS `9aa02dab…`);
+- the v8 gate monitor is deployed to `ops/tsb-p2-forward/`; the v7 copy is backed up.
+
+**Historical-evidence qualification:**
+- the G3-v7 reconciliation used historical-only attribution (schedule / no-log tiers: 31 entries) because v7 did not
+  collect the identity fields v8 requires;
+- these rules are **diagnostic only and MUST NOT become live acceptance rules** (classifier `mode="historical"`);
+- future v8 acceptance uses strict mode with live identity evidence only.
+
+**NON-BLOCKING HISTORICAL OBSERVABILITY LIMITATION:**
+- 14 observer-only processes (never in acceptance monitor samples) are not attributable under strict v8 rules:
+  - 4 Docker start-period probes;
+  - 2 `runc init` stages with a transient process name;
+  - 8 HEALTHCHECK pairs recorded by process name only;
+- they do not contradict the acceptance evidence and are preserved, not discarded.
+
+**NON-BLOCKING TRUST-BOUNDARY LIMITATION:**
+- an actor with Docker / container exec authority could run the exact pinned HEALTHCHECK command during a legitimate
+  Docker HEALTHCHECK window, creating an identity ambiguity if only one copy is sampled;
+- Docker exec authority is privileged administrative access outside the collector process-observability boundary;
+- v8 is not weakened and no runtime complexity is added. Carried to the host-access / security documentation:
+  `SINGLE_HOST_SAFETY.md` is absent on this branch; recorded in `FORWARD_COLLECTOR_DESIGN.md` §Security.
+
+**Governance-file absence:** `DECISION_LOG.md`, `SINGLE_HOST_SAFETY.md`, `REPOSITORY_CONSOLIDATION.md` and
+`DEPENDENCY_POLICY.md` are absent on this branch; this P2 record is used instead. No merge, branch, tag or worktree
+cleanup is done because of this closure.

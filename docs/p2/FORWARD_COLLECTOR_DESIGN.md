@@ -442,3 +442,12 @@ Delivery (e.g. a Telegram ops message) is **not** part of E1. The health file is
 | D3 | Derivatives in MVP or Phase 2? | **Phase 2** (disabled task in E1). Funding, mark/index and OI/ratios are recoverable from archives; only the live premiumIndex snapshot is unique, and it is low value for 15m+ decisions |
 | D4 | Off-host copy for irreplaceable forward data | **Yes, together with the deferred DR decision.** About 8 GB/month compressed; a same-host copy is not protection against host loss |
 | D5 | Local retention for bookTicker/depth raw | **Keep ≥ 1 year, nothing auto-deleted**; any future pruning only by explicit owner decision |
+
+## Security: process-observability trust boundary (P2-E1 closure, 2026-10-04)
+- **Scope of the v8 process-role check:** detects unexpected processes and escapes in the collector container's cgroup.
+- **NON-BLOCKING TRUST-BOUNDARY LIMITATION:** anyone with Docker / container exec authority (privileged
+  administrative access) can run the exact pinned HEALTHCHECK command during a legitimate Docker HEALTHCHECK window.
+  If only one copy is sampled, it is indistinguishable from Docker's own probe.
+- **Mitigation lives outside this mechanism:** restrict Docker-socket / exec access on the host. To be carried into
+  the host-access document (`SINGLE_HOST_SAFETY.md`, absent on this branch).
+- **Status:** continuous collector operation is NOT authorized; the collector remains STOPPED.

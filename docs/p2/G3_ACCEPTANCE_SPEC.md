@@ -1,4 +1,9 @@
-# P2-E1 G3 acceptance specification `g3-recommended-6h-v8` (PROPOSED, G3V7-F1 correction; owner decision required)
+# P2-E1 G3 acceptance specification `g3-recommended-6h-v8`: ACCEPTED (owner, 2026-10-04) as the current forward-collector acceptance specification
+
+v8 acceptance always uses the STRICT classifier with live v8 identity evidence. The `historical` classifier mode
+(schedule / no-log / truncated-parent tiers) was used ONLY to resolve G3V7-F1 for the completed G3-v7 run and is
+never an acceptance rule. v6 and v7 remain historical specifications, byte-for-byte; their results are not
+rewritten. G3-v7 remains formally FAIL under v7.
 
 v8 = **v7 unchanged** except the cgroup process-set criterion (test-enforced: only `name` and the new `cgroup` keys
 differ; every v7 cgroup key is unchanged). The v7 file is byte-identical (`9dfe911d…`).
