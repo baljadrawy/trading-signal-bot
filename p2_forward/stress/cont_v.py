@@ -199,7 +199,7 @@ def v3(root):
     data = os.path.join(root, "data"); os.makedirs(data, exist_ok=True)
     fx = "tsb-p2f-v-v3-fakex"; fakex(root, fx, shift=True)
     env = {**cal_env(30_000), "STRESS_DATASET_ID": "v3-daily-lifecycle",
-           "STRESS_CFG": json.dumps({"universe_refresh_at_s": 20, "day_close_after_s": 30, "ws_rotation_s": 690})}
+           "STRESS_CFG": os.environ.get("V3_CFG") or json.dumps({"universe_refresh_at_s": 20, "day_close_after_s": 30, "ws_rotation_s": 690})}
     name = "tsb-p2f-v-v3-c01"
     cid, out = collector(root, name, fx, data, env)
     mon = monitor(root, cid, data, "v3")

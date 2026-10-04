@@ -75,6 +75,7 @@ class Monitor:
     def __init__(self, a):
         self.a, self.last_sev, self.last_alert, self.unknown = a, None, {}, {}
         self.prev_cpu = None
+        self.t0 = time.time()
         os.makedirs(a.out, exist_ok=True)
 
     def day_dir(self):
@@ -153,7 +154,9 @@ class Monitor:
         if not s["alive"]:
             r.append(("STOPPED", "collector_not_running"))
         if s["health_age_s"] is None or s["health_age_s"] > 60:
-            r.append(("STOPPED" if not s["alive"] else "CRITICAL", "health_file_stale"))
+            starting = s["alive"] and s["health_age_s"] is None and time.time() - self.t0 < 120
+            r.append(("WARNING" if starting else "STOPPED" if not s["alive"] else "CRITICAL",
+                      "health_file_not_yet_written" if starting else "health_file_stale"))
         for i in s["incidents_active"]:
             r.append((i["severity"] if i["severity"] in SEV else "CRITICAL", f"incident:{i['key']}"))
         if s["health_state"] in ("DEGRADED", "DEGRADED_DISK", "BANNED_418"):
