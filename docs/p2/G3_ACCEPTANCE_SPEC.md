@@ -1,4 +1,35 @@
-# P2-E1 G3 acceptance specification `g3-recommended-6h-v7` (PROPOSED; owner authorization required before use)
+# P2-E1 G3 acceptance specification `g3-recommended-6h-v8` (PROPOSED, G3V7-F1 correction; owner decision required)
+
+v8 = **v7 unchanged** except the cgroup process-set criterion (test-enforced: only `name` and the new `cgroup` keys
+differ; every v7 cgroup key is unchanged). The v7 file is byte-identical (`9dfe911d…`).
+
+**New pinned requirements (`cgroup.process_roles`, `require_process_detail`, `require_healthcheck_log`,
+`require_healthcheck_config`, `escape_check`):**
+- **collector:** exactly `python -m p2_forward`, container PID 1.
+- **certifier / tracker:** the multiprocessing spawn / resource-tracker commands, parent = the collector; exactly 1
+  certifier after startup; at most 1 tracker.
+- **`container_healthcheck`:** exactly the pinned Docker HEALTHCHECK (`Config.Healthcheck` equal to the image's,
+  interval 30 s, timeout 5 s). Its stages `runc init`, `/bin/sh -c <cmd>` (including its pre-exec fork) and
+  `python -c <probe>` are each accepted only if ALL hold:
+  - exact command;
+  - own cgroup = the container scope;
+  - no known wrong parent (shim / shell / this container's runc only; the probe's parent must be the shell; the probe
+    has no children);
+  - inside a run window of Docker's own health log;
+  - lifetime ≤ 7 s;
+  - consecutive executions ≥ 27.5 s apart;
+  - ≤ 1 probe and ≤ 8 processes per execution.
+- **Partial transients:** accepted only with recorded ancestry inside a run whose chain is exactly identified, or (gone
+  before any read) PID-adjacent to such a chain.
+- **Failure codes:** anything else → `ACC_CGROUP_PROCESS_SET`. Escape of a collector descendant → `ACC_PROCESS_ESCAPE`.
+  Missing identity / log / config → `ACC_CGROUP_PROCESS_EVIDENCE_MISSING` / `ACC_HEALTHCHECK_LOG_INCOMPLETE` /
+  `ACC_HEALTHCHECK_CONFIG_NOT_SPEC`.
+- **Evaluation:** add `--healthcheck-log G3_healthcheck_log.jsonl --healthcheck-config G3_healthcheck_config.json`.
+  `--acceptance g3v7` keeps evaluating v7 unchanged.
+
+---
+
+# Superseded proposal / G3-v7 run spec: `g3-recommended-6h-v7` (unchanged)
 
 v7 (G3-F4) = **v6 unchanged** plus requirements for the process-isolated certifier and the observability added
 for G3-F4. No v6 value is altered or relaxed: a test enforces v7 ⊇ v6, and the v6 file is byte-identical with

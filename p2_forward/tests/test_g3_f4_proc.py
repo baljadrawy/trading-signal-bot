@@ -90,8 +90,8 @@ class BacklogAndShutdown(unittest.TestCase):
                 cert = c.writer.certifier; cert.wait_ready(10); cert.slow_s.value = 2.0
                 one_segment(d).finalize(); cert.submit("x"); time.sleep(0.5)
                 self.assertIn("certifier_backlog", c.health_eval()[1])
-                for _ in range(60):
-                    if not cert.pending(): break
+                for _ in range(60):                                    # done = nothing pending AND worker idle
+                    if not cert.pending() and cert.busy_since_ns is None: break
                     time.sleep(0.1)
                 self.assertNotIn("certifier_backlog", c.health_eval()[1]); self.assertEqual(len(manifest(d)), 1)
             finally:

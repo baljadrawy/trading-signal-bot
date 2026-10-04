@@ -698,21 +698,21 @@ def classify_processes(samples, spec_cg, window, health_runs=None, health_cover=
             bad(p, "outside_cgroup"); continue
         if a["last"] - a["first"] > hc["max_lifetime_ms"]:
             bad(p, "long_lived"); continue
-        # ancestry (where recorded)
-        if a["ppids"] or a["parent_cmdlines"]:
-            pp = a["ppids"]
-            runc_parent = any(c.startswith(hc["runc_parent_prefix"]) and (not spec_cg.get("_cid") or spec_cg["_cid"] in c)
-                              for c in a["parent_cmdlines"])
-            ok_parent = bool(pp & (shims | shell_pids | runc_pids)) or runc_parent
-            if PROBE in a["cmdlines"] and not (pp & shell_pids):
-                ok_parent = False
-            if pp & probe_pids:
-                ok_parent = False                                        # the probe never has children
-            if not ok_parent:
-                bad(p, "bad_ancestry"); continue
-            anc = True
-        else:
-            anc = False
+        # ancestry: fails only on a KNOWN wrong parent; an unreadable parent (already exited) is no evidence either way
+        pp = a["ppids"]
+        shim_cmd = "/usr/bin/containerd-shim-runc-v2 -namespace moby -id "
+        def good_parent_cmd(c):
+            return (c == SHELL or (mode == "historical" and len(c) >= 150 and SHELL.startswith(c))
+                    or (c.startswith(hc["runc_parent_prefix"]) and (not spec_cg.get("_cid") or spec_cg["_cid"] in c))
+                    or (c.startswith(shim_cmd) and (not spec_cg.get("_cid") or spec_cg["_cid"] in c)))
+        known_bad = bool(pp & (set(role) | probe_pids)) or any(not good_parent_cmd(c) for c in a["parent_cmdlines"])
+        known_good = bool(pp & (shims | shell_pids | runc_pids)) or any(good_parent_cmd(c) for c in a["parent_cmdlines"])
+        if PROBE in a["cmdlines"] and known_good and not (pp & shell_pids or any(
+                c == SHELL or (mode == "historical" and len(c) >= 150 and SHELL.startswith(c)) for c in a["parent_cmdlines"])):
+            known_bad = True                                         # the probe's parent must be the pinned shell
+        if known_bad:
+            bad(p, "bad_ancestry"); continue
+        anc = known_good
         exact = bool(a["cmdlines"])
         a["_exact"], a["_anc"] = exact, anc
         if a["comms"] and not exact and not (a["comms"] <= stage_comms):

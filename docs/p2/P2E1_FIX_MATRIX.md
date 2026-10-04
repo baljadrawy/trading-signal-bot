@@ -272,3 +272,24 @@ with regression tests (`tests/test_g3_f3.py::ReviewFindings`); the spec is re-pi
   - the G3-v6 stall remains formally unproven (no GC or throttle telemetry existed then);
   - the stress evidence supports the GC × CPU-quota-sharing mechanism, as correlation backed by CPU-vs-wall
     measurement.
+
+## G3V7-F1: acceptance-spec / process-observability defect (G3-v7, formal v7 FAIL)
+- **G3-v7** (evidence `p2e1-g3v7-20261003T230102Z`, SHA256SUMS `13767679…`):
+  - every collector and data-correctness criterion passed;
+  - the unchanged v7 verifier failed only `ACC_CGROUP_PROCESS_SET`, because the image's Docker HEALTHCHECK
+    (`runc init` → `/bin/sh -c <cmd>` → `python -c <probe>`) runs inside the container cgroup and the v7 role allowlist
+    omitted it;
+  - the v7 spec, its hash, the v7 result and the FAIL verdict are preserved unchanged.
+- **Proposed correction:** spec `g3-recommended-6h-v8` (v7 + `cgroup.process_roles` only; collector behaviour
+  unchanged).
+  - The independent verifier gets a classifier for collector (ns PID 1), certifier/tracker (children of the collector)
+    and the PINNED HEALTHCHECK chain.
+  - The chain is recognised by exact command + exact cgroup + ancestry + Docker's own health-log run window +
+    lifetime + cadence + structure. Partial or unreadable transients are accepted only via recorded ancestry or
+    adjacency to an identified chain in a Docker run. Everything else fails closed.
+  - The v8 gate monitor records per-process identity (`ops/p2f_proc_sample.py`) with 2 s follow-up of incomplete
+    transients, collector-descendant escape detection, Docker's health log every 30 s and the pinned HEALTHCHECK
+    config.
+- **Validation:** 24 adversarial tests; historical replay of the G3-v7 monitor evidence (0 unexpected / 0 unresolved
+  in the window); bounded isolated live checks (real HEALTHCHECK recognised; all negative controls rejected).
+- **Status:** awaiting owner closure decision.
