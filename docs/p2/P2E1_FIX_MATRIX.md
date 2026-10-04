@@ -338,3 +338,20 @@ container's own Docker HEALTHCHECK execution chain.
 **Governance-file absence:** `DECISION_LOG.md`, `SINGLE_HOST_SAFETY.md`, `REPOSITORY_CONSOLIDATION.md` and
 `DEPENDENCY_POLICY.md` are absent on this branch; this P2 record is used instead. No merge, branch, tag or worktree
 cleanup is done because of this closure.
+
+## P2-CR fast-track status (2026-10-04; branch `feature/p2cr-fasttrack-20261004`; not deployed)
+
+Owner decision "FAST-TRACK CONTINUOUS COLLECTION". The audit is `p2cr-audit-20261004T120942Z` (SHA256SUMS
+`81abf0c6…126a`). Details are in `docs/p2/CONTINUOUS_OPERATIONS.md`.
+
+| ID | Item | Status |
+|---|---|---|
+| CR-B01 | bounded-only runtime | FIXED: explicit `mode: continuous` (no runtime limit); bounded mode unchanged |
+| CR-B02 | O(dataset-age) hot-path scans | FIXED: open-day scans, day-close records, off-loop disk accounting; at 365 days (211k raw files), certifier scan 686 → 2.7 ms and manifest completion 44.5 s → 2.9 ms |
+| F10 / R05 | daily universe refresh, tier transitions | FIXED: `universe_transition` epochs, overlap re-subscription, documented semantics |
+| F24 | proactive 24 h rotation | FIXED: `ws_rotation_s` overlap rotation; failure raises an incident |
+| F29 | backup defects | FIXED: sealed-day backup with `.idx`, free-space precheck, immutable copy, restore-test (on-host only, owner D1) |
+| F45 | no alert | PARTIAL BY DECISION (owner D4): persistent local incidents plus an observe-only monitor with a local alert log; external delivery later |
+| R13 | v2 reader support | MOVED TO P2-C (owner D6); schema v2 / `SCHEMA.md` unchanged |
+| CR-R07 | multi-run dataset / downtime / 1970 gap / aggregate cap | FIXED: dataset identity, downtime records, multi-run day verifier, crash-gap basis, aggregate cap |
+| CR-R12 | GC event cap | FIXED: bounded drain without a lifetime cap; drops are counted |

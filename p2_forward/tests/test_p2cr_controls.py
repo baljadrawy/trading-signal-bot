@@ -329,3 +329,30 @@ class GcObservability(unittest.TestCase):                              # Package
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MonitorObserveOnly(unittest.TestCase):                          # owner D5
+    SRC = (ROOT / "ops" / "p2f_cont_monitor.py").read_text()
+
+    def test_no_lifecycle_signal_or_deletion_capability(self):
+        code = self.SRC.split('"""', 2)[2]                                   # skip the module docstring
+        for tok in ('"docker"', "docker stop", "docker kill", "docker start", "docker exec", "docker rm", "os.kill",
+                    "import signal", "unlink(", "rmtree", "os.remove", "shutil.move"):
+            self.assertFalse(tok in code, tok)
+
+    def test_once_reads_dataset_and_writes_only_its_own_dir(self):
+        import subprocess, sys
+        with tempfile.TemporaryDirectory() as d:
+            ds, out = os.path.join(d, "ds"), os.path.join(d, "mon")
+            collector(ds)
+            before = sorted((p, os.path.getmtime(os.path.join(r, p))) for r, _, fs in os.walk(ds) for p in fs)
+            r = subprocess.run([sys.executable, str(ROOT / "ops" / "p2f_cont_monitor.py"), "--dataset", ds, "--cid", "0" * 64,
+                                "--out", out, "--once"], capture_output=True, text=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            st = json.load(open(os.path.join(out, "status.json")))
+            self.assertEqual(st["severity"], "STOPPED")                       # no container => visible, not silent
+            after = sorted((p, os.path.getmtime(os.path.join(r_, p))) for r_, _, fs in os.walk(ds) for p in fs)
+            self.assertEqual(before, after)
+            bad = subprocess.run([sys.executable, str(ROOT / "ops" / "p2f_cont_monitor.py"), "--dataset", ds, "--cid", "x",
+                                  "--out", os.path.join(ds, "mon"), "--once"], capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(bad.returncode, 0)
