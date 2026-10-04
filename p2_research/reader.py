@@ -532,6 +532,12 @@ def _finalize(B: Bundle, base: str, ctrl: dict) -> None:
             pass                                      # artifacts are read from universe/ by the epoch's claimed SHA
     _runs(B, base, boots)
     _epochs(B, base)
+    # observation horizon: the latest availability of anything loaded. Decisions after it have no data (active day /
+    # collector stopped); the builder excludes them instead of emitting rows of nulls.
+    ends = [v[-1][0] for v in B.book.values() if v] + [v[-1][0] for v in B.depth.values() if v]
+    ends += [B.market[-1][0]] if B.market else []
+    ends += [r["available_at_ms"] for r in recs[-1:]]
+    B.observed_until_ms = max(ends) if ends else None
 
 
 def _runs(B: Bundle, base: str, boots: set) -> None:

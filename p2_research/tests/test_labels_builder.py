@@ -152,6 +152,14 @@ class Builder(unittest.TestCase):
         self.assertFalse(m["source"]["reproducible"])
         self.assertIn("EXPERIMENTAL-nonreproducible", m["output_dir"])
 
+    def test_active_day_rows_stop_at_observed_data(self):
+        base = C.new_dataset("bpartial", seal_days=[C.D1], close_days=[C.D1],
+                             span_end=C.D2_MS + 12 * H + 120_000)
+        m = BD.build(base, [C.D2], C.scratch("opart"), code_commit="x", experimental_active_day=True, write=False)
+        self.assertLessEqual(m["time_range_ms"][1], C.D2_MS + 12 * H + 120_000)
+        self.assertGreater(m["excluded_by_reason"].get("beyond_observed_data", 0), 0)
+        self.assertNotIn("beyond_observed_data", self.m1["excluded_by_reason"])  # sealed: spill hour covers the day
+
     def test_cli(self):
         rc = BD.main(["--dataset", C.base_dataset(), "--days", C.D2, "--out", C.scratch("cli"), "--code-commit", "x",
                       "--no-write"])

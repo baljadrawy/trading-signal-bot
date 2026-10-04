@@ -88,12 +88,12 @@ def build_rows(B) -> tuple:
     reg_ids = [f["id"] for f in RG.FEATURES]
     for T in decision_times(B.range_start_ms, B.range_end_ms):
         V = FE.PITView(B, T)
-        if V.epoch is None:
-            excl.append({"row_id": f"*|{T}", "symbol": None, "decision_time_ms": T, "reason": "no_universe_epoch_known"})
-            continue
-        syms = sorted(V.epoch["tiers"])
-        if V.run is None:
-            excl += [{"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "reason": "in_downtime"} for s in syms]
+        syms = sorted(V.epoch["tiers"]) if V.epoch is not None else []
+        reason = ("beyond_observed_data" if B.observed_until_ms is None or T > B.observed_until_ms else
+                  "in_downtime" if V.run is None else "no_universe_epoch_known" if V.epoch is None else None)
+        if reason:
+            excl += ([{"row_id": f"{s}|{T}", "symbol": s, "decision_time_ms": T, "reason": reason} for s in syms] or
+                     [{"row_id": f"*|{T}", "symbol": None, "decision_time_ms": T, "reason": reason}])
             continue
         ctx, btc = FE.market_context(V), FE.btc_context(V)
         for s in syms:
@@ -159,7 +159,7 @@ def build(dataset_dir: str, days: list, out_root: str = DEFAULT_OUT, *, code_com
         "row_count": len(feats), "excluded_count": len(excl),
         "excluded_by_reason": dict(sorted(collections.Counter(x["reason"] for x in excl).items())),
         "symbols": symbols, "time_range_ms": [min(times), max(times)] if times else None,
-        "range_ms": [B.range_start_ms, B.range_end_ms],
+        "range_ms": [B.range_start_ms, B.range_end_ms], "observed_until_ms": B.observed_until_ms,
         "quality_summary": {"reader": B.summary()["quality"], "downtime_intervals": B.downtime,
                             "feature_nulls": dict(sorted(nulls.items())), "label_nulls": dict(sorted(lnulls.items())),
                             "rows_posthoc_gap_at_decision": posthoc, "gaps": len(B.gaps),

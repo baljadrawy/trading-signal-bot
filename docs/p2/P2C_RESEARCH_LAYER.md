@@ -86,7 +86,8 @@ Exposed, never hidden: reader counters (duplicates dropped, out-of-order resolve
 `unchanged`, gap causes, `day_split`, non-HEALTHY health records, downtime ms, epochs, transitions) in the
 manifest; per-row `dq.*` features; per-feature null reasons (`feature_null_reasons`) with manifest totals;
 `qa.posthoc_gap_at_decision` on the label side (gap covering T but recorded after T). Rows are only excluded for
-structural reasons (`in_downtime`, `no_universe_epoch_known`), listed in `excluded.jsonl.gz`.
+structural reasons (`in_downtime`, `no_universe_epoch_known`, `beyond_observed_data` = decision time after the
+latest loaded observation, e.g. the rest of an active day), listed in `excluded.jsonl.gz`.
 
 ## 6. Labels (label set `p2c-ls` 1.0.0)
 
