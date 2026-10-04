@@ -14,6 +14,8 @@ Layout under <data_dir>:
   raw/<type>/<YYYY-MM-DD>/<type>-<YYYYMMDDTHH>Z-<boot8>-<seq>.jsonl.gz(.partial)   + .sha256 + .idx
   manifests/<YYYY-MM-DD>.jsonl      one line per certified segment (append + fsync)
   quarantine/                       failed/salvaged originals (never deleted)
+  days/<YYYY-MM-DD>.json            P2-CR day-close record (continuous mode): the day directory is final; hot paths
+                                    (certifier scans, health, disk accounting, recovery) never walk closed days again
 
 Durability (R16): every record is durable (sync-flush + fsync + .idx block line) within `flush_interval_s` of
 being written. A segment with no new records in the current block is NOT re-synced and gets no .idx line: its
@@ -34,6 +36,7 @@ import threading
 import time
 import zlib
 
+from . import cal
 from . import record as R
 
 CONTROL_TYPES = frozenset({"lifecycle", "gap", "health"})
@@ -41,8 +44,13 @@ CERTIFIER_VERSION = "certifier-v1"
 PENDING, CERTIFYING = ".pending", ".certifying"
 
 
+DAYS_DIR = "days"
+SEGMENT_SUFFIXES = (".jsonl.gz", ".jsonl.gz.sha256", ".idx")
+
+
 def _utc(ns: int) -> dt.datetime:
-    return dt.datetime.fromtimestamp(ns / 1e9, dt.timezone.utc)
+    """Calendar time (hour resolution) of a wall-clock instant: the segment hour key (cal.py; production = UTC)."""
+    return cal.utc_of_ms(ns // 1_000_000)
 
 
 def sha256_file(path: str) -> str:
@@ -218,6 +226,10 @@ def certify(base: str, cert_path: str, stats: dict, boot_id: str, run_record=Non
     name, d = os.path.basename(final), os.path.dirname(final)
     rel = os.path.relpath(final, base)
     day = os.path.basename(d)
+    if os.path.exists(os.path.join(base, DAYS_DIR, f"{day}.json")):    # P2-CR: a closed day never changes
+        quarantine_files(base, [cert_path, idx_pend if os.path.exists(idx_pend) else None],
+                         "conflict:day_closed", name, stats)
+        return False
     if os.path.exists(final):                                         # never two certified copies of one name
         quarantine_files(base, [cert_path, idx_pend if os.path.exists(idx_pend) else None],
                          "conflict:certified_copy_exists", name, stats)
@@ -265,16 +277,49 @@ def _manifest_append(base, final, rel, day, digest, rep, run_record, boot_id, re
         fh.write(json.dumps(entry, sort_keys=True) + "\n"); fh.flush(); os.fsync(fh.fileno())
 
 
-def scan_lifecycle(base: str) -> dict:
-    """Classify every segment file under raw/ by its lifecycle state (names are authoritative)."""
+def closed_days(base: str) -> set:
+    d = os.path.join(base, DAYS_DIR)
+    return {f[:-5] for f in os.listdir(d) if f.endswith(".json")} if os.path.isdir(d) else set()
+
+
+def segment_days(base: str) -> set:
+    """Every day directory that exists under raw/<type>/ (directory names only: O(types x days))."""
+    raw, out = os.path.join(base, "raw"), set()
+    if not os.path.isdir(raw):
+        return out
+    for t in os.listdir(raw):
+        td = os.path.join(raw, t)
+        if os.path.isdir(td):
+            out.update(x for x in os.listdir(td) if os.path.isdir(os.path.join(td, x)))
+    return out
+
+
+def open_days(base: str) -> list:
+    """Days not yet closed. Bounded mode never closes a day, so this is every day (pre-P2-CR behaviour)."""
+    return sorted(segment_days(base) - closed_days(base))
+
+
+def day_dirs(base: str, days) -> list:
+    raw, out = os.path.join(base, "raw"), []
+    if not os.path.isdir(raw):
+        return out
+    for t in sorted(os.listdir(raw)):
+        for day in days:
+            p = os.path.join(raw, t, day)
+            if os.path.isdir(p):
+                out.append(p)
+    return out
+
+
+def scan_lifecycle(base: str, days=None) -> dict:
+    """Classify every segment file of the OPEN days (or of `days`) by its lifecycle state (names are authoritative).
+    P2-CR (CR-B02): cost depends on the open days only, never on the age of the dataset."""
     out = {"active": [], "pending": [], "certifying": [], "certified": []}
-    def _err(e):
-        raise e
     if not os.path.isdir(os.path.join(base, "raw")):
         return out
-    for root, _, files in os.walk(os.path.join(base, "raw"), onerror=_err):
-        for f in files:
-            p = os.path.join(root, f)
+    for d in day_dirs(base, open_days(base) if days is None else days):
+        for f in os.listdir(d):
+            p = os.path.join(d, f)
             if f.endswith(".jsonl.gz.partial"):
                 out["active"].append(p)
             elif f.endswith(".jsonl.gz" + PENDING):
@@ -284,6 +329,134 @@ def scan_lifecycle(base: str) -> dict:
             elif f.endswith(".jsonl.gz"):
                 out["certified"].append(p)
     return out
+
+
+def _manifest_entries(base: str, day: str) -> tuple:
+    mp = os.path.join(base, "manifests", f"{day}.jsonl")
+    out, torn = {}, 0
+    if os.path.exists(mp):
+        with open(mp, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    e = json.loads(line)
+                    out[e["segment"]] = e
+                except (ValueError, KeyError, TypeError):
+                    torn += 1
+    return out, torn, mp
+
+
+def close_day(base: str, day: str, open_segment_days) -> tuple:
+    """P2-CR day close. Returns ("closed", record) | ("not_ready", reason) | ("mismatch", problems).
+    Preconditions (fail closed): the writer has no open segment in `day`; no .partial / .pending / .certifying file;
+    the certified files and the day manifest match exactly (entries, sidecars, .idx, 0444). Cheap: names, sizes and
+    sidecar digests only (the independent seal re-hashes and re-validates every segment)."""
+    if os.path.exists(os.path.join(base, DAYS_DIR, f"{day}.json")):
+        return "not_ready", "already_closed"
+    if day in set(open_segment_days):
+        return "not_ready", "writer_segment_open"
+    st = scan_lifecycle(base, [day])
+    if st["active"] or st["pending"] or st["certifying"]:
+        return "not_ready", f"uncertified:{len(st['active'])}/{len(st['pending'])}/{len(st['certifying'])}"
+    man, torn, mp = _manifest_entries(base, day)
+    problems, files = [], []
+    certified = {os.path.relpath(p, base) for p in st["certified"]}
+    if torn:
+        problems.append(f"manifest_torn_lines:{torn}")
+    for rel in sorted(certified - set(man)):
+        problems.append(f"certified_not_in_manifest:{rel}")
+    for rel in sorted(set(man) - certified):
+        problems.append(f"manifest_entry_without_file:{rel}")
+    for d in day_dirs(base, [day]):
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            rel = os.path.relpath(p, base)
+            if not f.endswith(SEGMENT_SUFFIXES):
+                problems.append(f"unexpected_file:{rel}"); continue
+            stt = os.stat(p)
+            if stt.st_mode & 0o222:
+                problems.append(f"not_read_only:{rel}")
+            files.append({"path": rel, "bytes": stt.st_size})
+    for rel in sorted(certified & set(man)):
+        p = os.path.join(base, rel)
+        try:
+            with open(p + ".sha256", encoding="utf-8") as fh:
+                side = fh.read().split()[0]
+        except (OSError, IndexError):
+            side = None
+        if side != man[rel].get("sha256"):
+            problems.append(f"sidecar_manifest_mismatch:{rel}")
+        if not os.path.exists(p[:-9] + ".idx"):
+            problems.append(f"idx_missing:{rel}")
+    if problems:
+        return "mismatch", problems[:50]
+    with open(mp, "rb") as fh:
+        msha = hashlib.sha256(fh.read()).hexdigest() if certified else None
+    rec = {"record": "tsb.p2.forward.day_close", "record_version": 1, "day": day, "closed_ms": time.time_ns() // 1_000_000,
+           "calendar": cal.params(), "segments": len(certified), "files": files,
+           "bytes_total": sum(f["bytes"] for f in files), "manifest_file": os.path.relpath(mp, base) if certified else None,
+           "manifest_sha256": msha, "boots": sorted({os.path.basename(r).split("-")[2] for r in certified})}
+    dd = os.path.join(base, DAYS_DIR); os.makedirs(dd, exist_ok=True)
+    path = os.path.join(dd, f"{day}.json")
+    tmp = path + ".partial"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, sort_keys=True); fh.flush(); os.fsync(fh.fileno())
+    os.rename(tmp, path); os.chmod(path, 0o444); _fsync_dir(dd)
+    return "closed", rec
+
+
+def check_closed_days(base: str) -> list:
+    """Startup integrity (names and sizes only, once per start): every closed day's directories still hold exactly
+    the files recorded at close. Anything else (a late write after a clock step, a missing or altered file) is a
+    problem the caller must fail closed on."""
+    problems = []
+    for day in sorted(closed_days(base)):
+        try:
+            with open(os.path.join(base, DAYS_DIR, f"{day}.json"), encoding="utf-8") as fh:
+                rec = json.load(fh)
+            want = {f["path"]: f["bytes"] for f in rec["files"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            problems.append(f"day_record_unreadable:{day}"); continue
+        have = {}
+        for d in day_dirs(base, [day]):
+            for f in os.listdir(d):
+                p = os.path.join(d, f)
+                have[os.path.relpath(p, base)] = os.path.getsize(p)
+        if have != want:
+            extra, miss = sorted(set(have) - set(want)), sorted(set(want) - set(have))
+            changed = sorted(k for k in set(have) & set(want) if have[k] != want[k])
+            problems.append(f"closed_day_changed:{day}:extra={extra[:3]}:missing={miss[:3]}:size={changed[:3]}")
+    return problems
+
+
+def dataset_bytes(base: str, closed_cache: dict) -> int:
+    """Total bytes of the logical dataset: closed days from their day-close records (cached; read once), open days
+    and every non-raw directory by listing (O(open days + days)), never the full raw tree."""
+    for day in closed_days(base) - set(closed_cache):
+        try:
+            with open(os.path.join(base, DAYS_DIR, f"{day}.json"), encoding="utf-8") as fh:
+                closed_cache[day] = int(json.load(fh)["bytes_total"])
+        except (OSError, ValueError, KeyError, TypeError):
+            closed_cache[day] = 0                                    # unreadable: check_closed_days reports it
+    total = sum(closed_cache.values())
+    for d in day_dirs(base, open_days(base)):
+        for f in os.listdir(d):
+            try:
+                total += os.path.getsize(os.path.join(d, f))
+            except OSError:
+                pass
+    for top in os.listdir(base) if os.path.isdir(base) else []:
+        p = os.path.join(base, top)
+        if top == "raw":
+            continue
+        if os.path.isfile(p):
+            total += os.path.getsize(p); continue
+        for root, _, files in os.walk(p):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+    return total
 
 
 class Certifier(threading.Thread):
@@ -612,15 +785,16 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
     raw = os.path.join(data_dir, "raw")
     os.makedirs(os.path.join(data_dir, "quarantine"), exist_ok=True)
     repair_manifests(data_dir, stats)                                 # F3
-    for root, _, files in os.walk(raw):                               # F4: finalize renames interrupted midway
-        for f in files:
+    dirs = day_dirs(data_dir, open_days(data_dir))                    # P2-CR: open days only (closed days are final)
+    for root in dirs:                                                 # F4: finalize renames interrupted midway
+        for f in os.listdir(root):
             p = os.path.join(root, f)
             if f.endswith(".jsonl.gz" + PENDING):
                 stem = p[: -len(".jsonl.gz" + PENDING)]
                 if os.path.exists(stem + ".idx.partial") and not os.path.exists(stem + ".idx" + PENDING):
                     os.rename(stem + ".idx.partial", stem + ".idx" + PENDING)
-    for root, _, files in os.walk(raw):
-        for f in sorted(files):
+    for root in dirs:
+        for f in sorted(os.listdir(root)):
             if not f.endswith(".jsonl.gz.partial"):
                 continue
             p = os.path.join(root, f)
@@ -649,14 +823,19 @@ def recover_partials(data_dir: str, boot_id: str, stats: dict) -> list:
                 if os.path.exists(ix):
                     os.rename(ix, os.path.join(qdir, os.path.basename(ix) + ".orig"))
             stats["recovered_records"] += len(recs)
-            gaps.append({"type": typ, "salvaged": len(recs), "last_salvaged_recv_ns": last, "source": f})
+            try:
+                seg_start = cal.hour_key_start_ms(f.split("-")[1][:11])
+            except (ValueError, IndexError):
+                seg_start = None
+            gaps.append({"type": typ, "salvaged": len(recs), "last_salvaged_recv_ns": last, "source": f,
+                         "segment_start_ms": seg_start})
     st = scan_lifecycle(data_dir)
     for p in sorted(st["certifying"] + st["pending"]):
         certify(data_dir, p, stats, boot_id, recovered=True)
         stats["recovered_pending_certified"] = stats.get("recovered_pending_certified", 0) + 1
     complete_manifests(data_dir, boot_id, stats)
-    for root, _, files in os.walk(raw):                               # F4: orphan sidecars are never left silently
-        for f in files:
+    for root in day_dirs(data_dir, open_days(data_dir)):              # F4: orphan sidecars are never left silently
+        for f in os.listdir(root):
             p = os.path.join(root, f)
             for suf in (".idx.partial", ".idx" + PENDING, ".idx", ".jsonl.gz.sha256"):
                 if f.endswith(suf):

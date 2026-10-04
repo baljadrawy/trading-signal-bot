@@ -15,6 +15,7 @@ import platform
 import sys
 import time
 
+from . import cal
 from . import config as C
 from . import universe as U
 
@@ -114,6 +115,8 @@ def build_run_record(col) -> dict:
                                                         "eligible_count", "candidate_count", "inputs_sha256",
                                                         "thresholds", "prior_universe_id")}},
         "startup_failure": col.startup_failure,
+        "mode": cfg["mode"], "calendar": cal.params(),
+        "dataset": col.dataset, "previous_run": col.previous_run,
         "endpoints": {"ws": C.WS_BASE, "rest": C.REST_BASE, "rest_paths": C.ALLOWED_REST_PATHS},
         "expected_streams": col.expected_streams(),
         "schema_doc": install_schema_doc(col.base),

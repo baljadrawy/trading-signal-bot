@@ -1,6 +1,9 @@
 """Forward market-intelligence collector (P2-E1): orchestration, sampling, gaps, backpressure, health.
 
-One asyncio process; supervised tasks; a dedicated writer thread. Zero trading authority. Bounded runtime only.
+One asyncio process; supervised tasks; a dedicated writer thread. Zero trading authority.
+Modes (P2-CR): `bounded` (validation gates; unchanged P2-E1 behaviour, stops at max_runtime_s) and `continuous`
+(explicit; no runtime limit; one logical dataset across runs; daily universe refresh / proactive rotation / day
+checkpoints / day close; persistent incidents; fail-closed stops). See docs/p2/CONTINUOUS_OPERATIONS.md.
 Entry point: `python -m p2_forward` (config path in env P2F_CONFIG, default /config/collector.json).
 
 G2-Repeat revision: exact PIT sampling for any burst size (tracks.Held), every boundary processed after a stall,
@@ -28,26 +31,61 @@ import uuid
 
 import aiohttp
 
+from . import cal
 from . import config as C
 from . import provenance as P
 from . import record as R
 from . import universe as U
 from .guards import Backoff, ClockGuard, DiskGuard, RateGuard
+from .incidents import IncidentLog
+from .procwatch import ProcWatch
 from .tracks import FAILED, NONE, OBSERVING, MarketTrack, StreamTrack
 from .transport import RestClient, WSConnection
-from .writer import SegmentWriter, new_stats, recover_partials, sha256_file
+from .writer import (SegmentWriter, check_closed_days, close_day, dataset_bytes, new_stats, open_days,
+                     recover_partials, sha256_file)
 
 TF_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 IRREPLACEABLE = "IRREPLACEABLE_FORWARD_OBSERVATION"
 RECOVERABLE = "RECOVERABLE_WHERE_ARCHIVE_AVAILABLE"
 MARKET = "!miniTicker@arr"
-EXIT_OK, EXIT_INCOMPLETE, EXIT_WRITER, EXIT_TASK, EXIT_STARTUP = 0, 2, 3, 4, 5
+EXIT_OK, EXIT_INCOMPLETE, EXIT_WRITER, EXIT_TASK, EXIT_STARTUP, EXIT_FAILCLOSED = 0, 2, 3, 4, 5, 6
 TASK_PERIOD_S = {"sampler": 1.0, "candles": 900.0, "clock": 600.0, "disk": 60.0, "health": 10.0, "watchdog": 1.0,
                  "loopmon": 0.1}
 
 
 def now_ms() -> int:
     return time.time_ns() // 1_000_000
+
+
+class StartupRefused(Exception):
+    """Continuous-mode startup refused BEFORE anything is written (dataset identity / closed-day integrity)."""
+
+
+def ensure_dataset(base: str, cfg: dict) -> dict:
+    """P2-CR Package E: one logical continuous dataset per directory, identified by an immutable dataset.json.
+    Existing: must match dataset_id and calendar. Absent: only a fresh directory may become a dataset (a directory
+    already holding collector data from another (e.g. bounded gate) run is refused, never adopted)."""
+    p = os.path.join(base, "dataset.json")
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
+        if d.get("dataset_id") != cfg["dataset_id"]:
+            raise StartupRefused(f"dataset_id_mismatch:{d.get('dataset_id')}!={cfg['dataset_id']}")
+        if d.get("calendar") != cal.params():
+            raise StartupRefused("dataset_calendar_mismatch")
+        return d
+    used = [x for x in ("raw", "runs", "manifests", "days", "universe", "control")
+            if os.path.isdir(os.path.join(base, x)) and os.listdir(os.path.join(base, x))]
+    if used:
+        raise StartupRefused(f"dataset_identity_missing_in_nonempty_dir:{','.join(used)}")
+    os.makedirs(base, exist_ok=True)
+    d = {"record": "tsb.p2.forward.dataset", "record_version": 1, "dataset_id": cfg["dataset_id"],
+         "created_ms": now_ms(), "calendar": cal.params(), "schema": C.SCHEMA, "schema_version": C.SCHEMA_VERSION,
+         "collector_version": C.VERSION}
+    with open(p + ".partial", "w", encoding="utf-8") as fh:
+        json.dump(d, fh, sort_keys=True); fh.flush(); os.fsync(fh.fileno())
+    os.rename(p + ".partial", p); os.chmod(p, 0o444)
+    return d
 
 
 def priority(kind: str, tier) -> int:
@@ -155,6 +193,13 @@ class Collector:
         self.cfg = cfg
         self.boot_id = uuid.uuid4().hex
         self.base = cfg["data_dir"]
+        self.continuous = cfg["mode"] == "continuous"
+        self.dataset = None
+        if self.continuous:                                       # refuse BEFORE the writer creates anything
+            self.dataset = ensure_dataset(self.base, cfg)
+            bad = check_closed_days(self.base)
+            if bad:
+                raise StartupRefused("closed_day_integrity:" + ";".join(bad[:5]))
         self.stats = new_stats()
         self.q = queue.Queue(maxsize=cfg["queue_max"])
         self.enq = Enqueuer(self.q, cfg["queue_max"], self.stats)
@@ -222,9 +267,31 @@ class Collector:
         self.lat_counts = {t: 0 for t in (100, 200, 500, 1000, 2000)}
         self.looplag_max_ms = 0; self.looplag_recent = collections.deque(maxlen=600)
         self.looplag_counts = {t: 0 for t in (100, 200, 500, 1000, 2000)}
-        self.gc_pause_max_ms = 0; self.gc_pauses_100ms = collections.deque(maxlen=1000); self.gc_long = 0
+        self.gc_pause_max_ms = 0; self.gc_long = 0
+        self.gc_pending = collections.deque(maxlen=256)  # CR-R12: unreported >=100 ms pauses (drained every 100 ms)
+        self.gc_events_dropped = 0                         # only if > 256 long pauses occur between two drains
         self._gc_t0 = {}
         self._gc_reported = 0
+        # ---- P2-CR continuous-mode state (unused in bounded mode) ----
+        self.task_periods = dict(TASK_PERIOD_S)
+        if self.continuous:
+            self.task_periods.update({"universe": 60.0, "days": 60.0, "rotation": 60.0,
+                                      "procwatch": float(cfg["process_check_interval_s"])})
+        self.closed_bytes = {}                 # day -> bytes (day-close records; read once)
+        self.incidents = IncidentLog(self.base, self.boot_id) if self.continuous else None
+        self.procwatch = ProcWatch(cfg["process_violation_checks"]) if self.continuous else None
+        self.proc_state = None
+        self.pending_transition = None         # F10: accepted universe waiting for its effective boundary
+        self.epoch_start_ms = None             # effective_from_ms of the active universe epoch
+        self.retired_streams = set()           # streams of a previous epoch (late messages are not "unknown")
+        self.previous_run = None
+        self.fc_times = {"quarantine": collections.deque(), "certification": collections.deque(),
+                         "http_429": collections.deque()}
+        self.fc_seen = {"quarantine": 0, "certification": 0, "http_429": 0}
+        self.clock_critical_since = None
+        self.day_close = {}                    # day -> last close attempt result
+        self.universe_next_ms = None
+        self.transitions = 0
 
     @property
     def stream_state(self) -> dict:
@@ -271,10 +338,19 @@ class Collector:
 
     # ---------- universe / streams ----------
     def build_streams(self) -> None:
+        self.streams, self.tracks = self._stream_defs(self.universe)
+        cad, dl, hold, cfg = self.cfg["cadence_ms"], self.cfg["first_obs_deadline_s"], int(self.cfg["sample_hold_window_s"] * 1000), self.cfg
+        self.market = MarketTrack(cad["market"], "conn0-book", cfg["market_stale_ms"], 1000 * dl["market"], hold,
+                                  cfg["market_component_max_age_ms"])
+        self.stream_conn = {n: t.conn for n, t in self.tracks.items()}
+        self.stream_conn[MARKET] = "conn0-book"
+
+    def _stream_defs(self, universe: dict) -> tuple:
+        """Deterministic stream set of a universe (tier order 0, 2, 1; a symbol is in its highest tier only)."""
         cad, lv, cfg = self.cfg["cadence_ms"], self.cfg["depth_levels"], self.cfg
         dl, hold = cfg["first_obs_deadline_s"], int(cfg["sample_hold_window_s"] * 1000)
         st, tracks = {}, {}
-        for tier, syms in ((0, self.universe["tier0"]), (2, self.universe["tier2"]), (1, self.universe["tier1"])):
+        for tier, syms in ((0, universe["tier0"]), (2, universe["tier2"]), (1, universe["tier1"])):
             t = f"t{tier}"
             for s in syms:
                 low = s.lower()
@@ -287,11 +363,7 @@ class Collector:
                                          1000 * (dl["t0_book"] if tier == 0 else dl["t12_book"]), hold)
                 tracks[nd] = StreamTrack(nd, "depth", s, tier, cad[f"{t}_depth"], "conn1-depth", cfg["depth_stale_ms_by_tier"][t],
                                          1000 * dl["depth"], hold, levels=n)
-        self.streams, self.tracks = st, tracks
-        self.market = MarketTrack(cad["market"], "conn0-book", cfg["market_stale_ms"], 1000 * dl["market"], hold,
-                                  cfg["market_component_max_age_ms"])
-        self.stream_conn = {n: t.conn for n, t in tracks.items()}
-        self.stream_conn[MARKET] = "conn0-book"
+        return st, tracks
 
     def expected_streams(self) -> list:
         out = [{"stream": n, "kind": t.kind, "symbol": t.symbol, "tier": t.tier, "cadence_ms": t.cadence,
@@ -377,7 +449,7 @@ class Collector:
                                             "active_universe_id": (self.universe_meta or {}).get("universe_id")})
         return action
 
-    def persist_universe(self, uni: dict, applied: bool) -> dict:
+    def persist_universe(self, uni: dict, applied: bool, activate: bool = True) -> dict:
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         uid = R.universe_id(stamp, uni["rule_version"])
         raw = uni.pop("_raw", None) or {}
@@ -407,9 +479,10 @@ class Collector:
                                      boot_id=self.boot_id, endpoint="universe",
                                      transport="rest" if self.cfg["profile"] != "tier0_only" else "internal",
                                      recv_ts_ns=time.time_ns()))
-        if applied:
+        if applied and activate:
             self.universe, self.universe_meta = doc, meta
             self.build_streams()
+        self.last_persisted_universe = doc                              # F10: the not-yet-active universe document
         return meta
 
     def _prior_universe(self):
@@ -450,6 +523,8 @@ class Collector:
             return
         tr = self.tracks.get(name)
         if tr is None:
+            if name in self.retired_streams:                          # F10: rotation overlap after a transition
+                self.stats["retired_stream_msgs"] = self.stats.get("retired_stream_msgs", 0) + 1; return
             self.stats["unknown_stream"] += 1; return
         if not isinstance(data, dict):
             self.stats["malformed"] += 1; return
@@ -548,6 +623,8 @@ class Collector:
         self.lifecycle("binance_ban_418", {"banned_until_mono": self.rate.banned_until})
         for c in self.conns:
             self._spawn(c.suspend())
+        if self.continuous:                                            # P2-CR F: any 418 => stop, no auto-resume
+            self.fail_closed("http_418", {"banned_until_mono": self.rate.banned_until})
 
     def _spawn(self, coro):
         try:
@@ -580,14 +657,15 @@ class Collector:
             self.conns.append(c)
             c.task = asyncio.create_task(c.run(), name=name)
 
-    async def rotate(self, old: WSConnection, reason: str) -> dict:
-        """Overlap rollover: open a replacement, wait for its first message, then close the old connection."""
+    async def rotate(self, old: WSConnection, reason: str, streams: list | None = None) -> dict:
+        """Overlap rollover: open a replacement, wait for its first message, then close the old connection.
+        `streams` (F10): the replacement subscribes to a new stream list (universe transition)."""
         if old.name in self.rotating:
             return {"conn": old.name, "reason": reason, "skipped": "already_rotating"}
         self.rotating.add(old.name)
         try:
             t0 = now_ms()
-            new = self._new_conn(old.name, old.streams)
+            new = self._new_conn(old.name, list(streams) if streams is not None else old.streams)
             new.task = asyncio.create_task(new.run(), name=old.name + "-r")
             try:
                 await asyncio.wait_for(new.first_msg.wait(), timeout=60)
@@ -599,9 +677,13 @@ class Collector:
             if old in self.conns:
                 self.conns[self.conns.index(old)] = new
             ev = {"conn": old.name, "reason": reason, "started_ms": t0, "new_first_msg_ms": t1, "overlap_ok": overlap_ok,
-                  "old_last_msg_ms": (old.last_msg_ns or 0) // 1_000_000}
+                  "old_last_msg_ms": (old.last_msg_ns or 0) // 1_000_000, "streams": len(new.streams)}
             self.rotation["events"].append(ev)
+            if len(self.rotation["events"]) > 50:                       # bounded history (continuous mode)
+                del self.rotation["events"][:-50]
             self.lifecycle("ws_rotation", ev)
+            if not overlap_ok and self.incidents is not None:            # F24: surfaced, never silent
+                self.incidents.raise_(f"rotation_overlap_failed:{old.name}", "WARNING", ev)
             return ev
         finally:
             self.rotating.discard(old.name)
@@ -636,7 +718,10 @@ class Collector:
         return a.data_in(lo, s)
 
     def _deadline_abs(self, tr) -> int:
-        return (self.ws_start_ms if self.ws_start_ms is not None else self.started_ms) + tr.deadline_rel_ms
+        base = getattr(tr, "deadline_base_ms", None)                  # F10: streams added by a universe transition
+        if base is None:
+            base = self.ws_start_ms if self.ws_start_ms is not None else self.started_ms
+        return base + tr.deadline_rel_ms
 
     def _liveness_cause(self, tr, s: int):
         """None when the stream's OWN connection is up and data-live at s; otherwise the missing cause.
@@ -745,12 +830,260 @@ class Collector:
 
     def sample(self, sample_ms: int) -> None:
         """Process exactly one boundary for every stream whose cadence divides it."""
+        if self.continuous:
+            if self.pending_transition is not None and sample_ms >= self.pending_transition["T"]:
+                self._apply_transition(sample_ms)                   # F10: epoch switch exactly at a boundary
+            if cal.is_day_start(sample_ms):
+                self._day_boundary(sample_ms)                       # day-scoped, self-contained evidence
         for tr in self.tracks.values():
             if sample_ms % tr.cadence == 0:
                 self._sample_track(tr, sample_ms)
         if self.market is not None and sample_ms % self.market.cadence == 0:
             self._sample_market(sample_ms)
         self.last_sampled_ms = sample_ms
+
+    # ---------- P2-CR continuous mode: epochs, day boundaries ----------
+    def _day_boundary(self, s: int) -> None:
+        """At the first boundary of a calendar day: every open gap is split (closed through the previous boundary,
+        recorded with day_split=True; a still-missing stream reopens at s), then a day checkpoint records the state a
+        day verifier needs without reading earlier days: run, universe epoch, connection states."""
+        n = 0
+        for t in self.all_tracks():
+            g = t.close_gap()
+            if g is not None:
+                self.gap_record(g, IRREPLACEABLE, {"day_split": True}); n += 1
+        self.lifecycle("day_checkpoint", {
+            "day": cal.day_key(s), "day_start_ms": s, "calendar": cal.params(),
+            "dataset_id": self.cfg["dataset_id"], "run_record_file": self.writer.run_record,
+            "run_record_sha256": self.run_record_sha,
+            "universe": {**(self.universe_meta or {}), "effective_from_ms": self.epoch_start_ms},
+            "conns": {name: {"up": self.conn_up_at(name, s), "last_up_ms": self.last_up(name, s), "streams": streams}
+                      for name, streams in self._conn_streams()},
+            "expected_streams": len(self.tracks) + (1 if self.market else 0), "gaps_split": n})
+
+    def _apply_transition(self, s: int) -> None:
+        """F10 / R05: the accepted universe becomes effective at boundary s (>= T). Streams no longer expected are
+        retired (their open gaps closed and recorded), re-tiered streams continue with their received messages under
+        the new cadence, added streams start with their first-observation deadline counted from s. Both connections
+        are then rotated (overlap) to the new stream lists; nothing is bridged and no stream disappears silently."""
+        pt, self.pending_transition = self.pending_transition, None
+        doc, meta = pt["universe"], pt["meta"]
+        new_streams, new_tracks = self._stream_defs(doc)
+        added, removed, retiered = [], [], []
+        for n, t in list(self.tracks.items()):
+            nt = new_tracks.get(n)
+            if nt is not None and nt.cadence == t.cadence and nt.tier == t.tier:
+                new_tracks[n] = t                                   # unchanged: same track, state and open gap
+                continue
+            g = t.close_gap()
+            if g is not None:
+                self.gap_record(g, IRREPLACEABLE, {"universe_transition": meta["universe_id"]})
+            if nt is None:
+                removed.append(n); self.retired_streams.add(n)
+            else:
+                retiered.append({"stream": n, "symbol": t.symbol, "from_tier": t.tier, "to_tier": nt.tier,
+                                 "from_cadence_ms": t.cadence, "to_cadence_ms": nt.cadence})
+                nt.values, nt.ready_ms, nt.ready_ns, nt.msgs = t.values, t.ready_ms, t.ready_ns, t.msgs
+                nt.sub, nt.sub_sent_ms, nt.ack_ms = t.sub, t.sub_sent_ms, t.ack_ms
+                nt.deadline_base_ms = s
+        for n, nt in new_tracks.items():
+            if n not in self.tracks:
+                added.append(n); nt.deadline_base_ms = s; self.retired_streams.discard(n)
+        self.streams, self.tracks = new_streams, new_tracks
+        self.stream_conn = {n: t.conn for n, t in new_tracks.items()}
+        self.stream_conn[MARKET] = "conn0-book"
+        prior = (self.universe_meta or {}).get("universe_id")
+        self.universe, self.universe_meta = doc, {k: meta[k] for k in ("universe_id", "file", "sha256", "stamp", "applied")}
+        self.epoch_start_ms = s
+        self.transitions += 1
+        conns = {name: streams for name, streams in self._conn_streams()}
+        self.lifecycle("universe_transition", {
+            "universe_id": meta["universe_id"], "file": meta["file"], "sha256": meta["sha256"], "effective_from_ms": s,
+            "scheduled_ms": pt["T"], "prior_universe_id": prior, "added": sorted(added), "removed": sorted(removed),
+            "retiered": retiered, "tiers": {k: len(doc[k]) for k in ("tier0", "tier1", "tier2")}, "conns": conns})
+        for name in conns:
+            self._spawn(self._rotate_to_current(name, "universe_transition"))
+
+    async def _rotate_to_current(self, name: str, reason: str) -> None:
+        """Rotate connection `name` to the CURRENT desired stream list (waits for a rotation already in flight)."""
+        for _ in range(600):
+            if name not in self.rotating:
+                break
+            await asyncio.sleep(0.5)
+        want = dict(self._conn_streams()).get(name)
+        c = self._conn_obj(name)
+        if c is None or want is None or list(c.streams) == list(want):
+            return
+        await self.rotate(c, reason, want)
+
+    def _writer_open_days(self) -> set:
+        for _ in range(5):
+            try:
+                return {seg.day for seg in list(self.writer.segments.values())}
+            except RuntimeError:                                     # dict changed size (writer thread): retry
+                continue
+        return {"__unknown__"}
+
+    async def universe_task(self) -> None:
+        """F10: one refresh per calendar day at day start + universe_refresh_at_s; failures retried every 30 min
+        (the previous universe stays active and the collector is DEGRADED meanwhile, F42)."""
+        while not self.stop_event.is_set():
+            self.beats["universe"] = time.monotonic()
+            m = now_ms()
+            if self.universe_next_ms is None:
+                t = cal.day_start_ms(cal.day_key(m)) + 1000 * self.cfg["universe_refresh_at_s"]
+                self.universe_next_ms = t if t > m else t + cal.day_ms()
+            if m >= self.universe_next_ms and self.pending_transition is None:
+                action = await self.refresh_and_transition()
+                nxt = cal.day_start_ms(cal.day_key(m)) + 1000 * self.cfg["universe_refresh_at_s"] + cal.day_ms()
+                self.universe_next_ms = nxt if action in ("unchanged", "transition_scheduled") else \
+                    min(nxt, now_ms() + 30 * 60_000)
+            await self._sleep(max(1.0, min(30.0, (self.universe_next_ms - now_ms()) / 1000)))
+
+    async def refresh_and_transition(self) -> str:
+        try:
+            uni, problems = await self.fetch_universe(self.universe)
+        except Exception as e:                                        # noqa: BLE001
+            uni, problems = None, [f"exception:{type(e).__name__}"]
+        _, _, action = U.refresh_decision(self.universe, uni if not problems else None, problems)
+        active_id = (self.universe_meta or {}).get("universe_id")
+        if action != "accepted":
+            self.universe_degraded = (problems or ["unknown"])[:5]
+            self.incidents.raise_("universe_refresh_failed", "DEGRADED", {"problems": problems[:10]}, latched=False)
+            self.lifecycle("universe_refresh", {"action": action, "degraded": True, "problems": problems[:20],
+                                                "active_universe_id": active_id})
+            return action
+        self.universe_degraded = None
+        self.incidents.resolve("universe_refresh_failed")
+        same = all(sorted(uni[k]) == sorted(self.universe[k]) for k in ("tier0", "tier1", "tier2"))
+        if same:
+            meta = self.persist_universe(uni, applied=False)
+            self.lifecycle("universe_refresh", {"action": "accepted", "changed": False, "degraded": False,
+                                                "evaluated_universe_id": meta["universe_id"], "active_universe_id": active_id})
+            return "unchanged"
+        streams, _ = self._stream_defs(uni)
+        nb = sum(1 for v in streams.values() if v["kind"] == "book") + 1
+        nd = sum(1 for v in streams.values() if v["kind"] == "depth")
+        if nb > 300 or nd > 300:                                      # never exceed the per-connection budget
+            self.incidents.raise_("universe_stream_budget", "DEGRADED", {"book": nb, "depth": nd}, latched=False)
+            self.lifecycle("universe_refresh", {"action": "rejected_stream_budget", "degraded": True,
+                                                "active_universe_id": active_id})
+            return "rejected_stream_budget"
+        meta = self.persist_universe(uni, applied=True, activate=False)
+        T = ((now_ms() + 1000 * self.cfg["universe_transition_delay_s"]) // 1000 + 1) * 1000
+        self.pending_transition = {"T": T, "universe": self.last_persisted_universe, "meta": meta}
+        self.lifecycle("universe_refresh", {"action": "accepted", "changed": True, "degraded": False,
+                                            "universe_id": meta["universe_id"], "scheduled_effective_from_ms": T,
+                                            "active_universe_id": active_id})
+        return "transition_scheduled"
+
+    async def rotation_task(self) -> None:
+        """F24: proactive overlap rotation of each connection `ws_rotation_s` after its last (re)connect, i.e. before
+        the exchange's 24 h connection lifetime ends it unplanned."""
+        lim = 1000 * self.cfg["ws_rotation_s"]
+        while not self.stop_event.is_set():
+            self.beats["rotation"] = time.monotonic()
+            m = now_ms()
+            for c in list(self.conns):
+                a = self.activity.get(c.name)
+                up = a.last_up_since(m) if a else None
+                if getattr(c, "connected", False) and up is not None and m - up >= lim and c.name not in self.rotating:
+                    self._spawn(self.rotate(c, "proactive_lifetime"))
+            await self._sleep(min(30.0, lim / 4000))
+
+    async def days_task(self) -> None:
+        """Day close (continuous): a past day whose files are all certified and listed in its manifest is closed
+        (days/<day>.json); hot paths never scan it again. A mismatch is a manifest/checksum integrity failure."""
+        loop = asyncio.get_running_loop()
+        while not self.stop_event.is_set():
+            self.beats["days"] = time.monotonic()
+            m = now_ms()
+            try:
+                days = await loop.run_in_executor(None, open_days, self.base)
+            except OSError as e:
+                days = []
+                self.incidents.raise_("day_scan_error", "DEGRADED", {"error": type(e).__name__})
+            for day in days:
+                if self.stop_event.is_set() or m < cal.day_end_ms(day) + 1000 * self.cfg["day_close_after_s"]:
+                    continue
+                res, info = await loop.run_in_executor(None, close_day, self.base, day, self._writer_open_days())
+                self.day_close[day] = res if res != "not_ready" else f"not_ready:{info}"
+                if res == "closed":
+                    self.day_close.pop(day, None)
+                    self.incidents.resolve(f"day_close_overdue:{day}")
+                    self.lifecycle("day_closed", {"day": day, "segments": info["segments"], "bytes_total": info["bytes_total"],
+                                                  "manifest_sha256": info["manifest_sha256"], "boots": info["boots"]})
+                elif res == "mismatch":
+                    self.fail_closed("day_close_mismatch", {"day": day, "problems": info[:10]})
+                elif m > cal.day_end_ms(day) + 6 * cal.hour_ms():
+                    self.incidents.raise_(f"day_close_overdue:{day}", "WARNING", {"reason": info}, latched=False)
+            if len(self.day_close) > 30:
+                for k in sorted(self.day_close)[:-30]:
+                    self.day_close.pop(k, None)
+            await self._sleep(min(60.0, cal.hour_ms() / 1000))           # production: every 60 s
+
+    async def procwatch_task(self) -> None:
+        while not self.stop_event.is_set():
+            self.beats["procwatch"] = time.monotonic()
+            viol, trans = self.procwatch.check()
+            self.proc_state = {"enabled": self.procwatch.enabled, "checks": self.procwatch.checks,
+                               "roles": self.procwatch.last, "violations": len(viol)}
+            for t in trans:
+                self.incidents.raise_("process_unexpected_transient", "WARNING", t)
+            if viol:
+                self.fail_closed("process_role_violation", {"processes": viol[:5]})
+                return
+            await self._sleep(self.cfg["process_check_interval_s"])
+
+    def fail_closed(self, reason: str, detail=None) -> None:
+        """P2-CR Package F: integrity / resource conditions stop the collector (graceful drain, exit 6); the container
+        stays down (restart: "no") until an operator acts. Durable: incident + lifecycle + fatal marker."""
+        if self.stop_reason is not None:
+            return
+        if self.incidents is not None:
+            self.incidents.raise_(f"failclosed:{reason}", "CRITICAL", detail)
+            self.incidents.flush()
+        self.lifecycle("fail_closed_stop", {"reason": reason, "detail": detail})
+        self.fatal(f"failclosed:{reason}", EXIT_FAILCLOSED)
+
+    def _continuous_checks(self, m: int) -> None:
+        """1 s fail-closed / incident evaluation (continuous mode). Transient non-integrity warnings never stop."""
+        st, cfg = self.stats, self.cfg
+        rate = {"quarantine": (st["segments_quarantined"], cfg["fc_quarantine_per_24h"], "DEGRADED"),
+                "certification": (st["certification_failures"], cfg["fc_cert_failures_per_24h"], "DEGRADED"),
+                "http_429": (self.rate.events.get("http_429", 0), cfg["fc_http429_per_24h"], "WARNING")}
+        for key, (cur, lim, sev) in rate.items():
+            dq = self.fc_times[key]
+            if cur > self.fc_seen[key]:
+                dq.extend([m] * (cur - self.fc_seen[key]))
+                self.fc_seen[key] = cur
+                self.incidents.raise_(key, sev, {"total": cur})
+            while dq and m - dq[0] > 86_400_000:
+                dq.popleft()
+            if len(dq) >= lim:
+                self.fail_closed(f"{key}_limit", {"count_24h": len(dq), "limit": lim}); return
+        for key, cur in (("write_errors", st["write_errors"]), ("writer_rejected", sum(st["writer_rejected"].values())),
+                         ("emit_failed", sum(st["emit_failed"].values())), ("seq_reset", st.get("seq_reset", 0)),
+                         ("task_failed", st.get("task_failed_total", 0)), ("certifier_restarts", self.writer.certifier_restarts),
+                         ("wall_clock_step", st.get("wall_clock_steps", 0)), ("handler_errors", st["handler_errors"])):
+            if cur > self.fc_seen.get(key, 0):
+                self.fc_seen[key] = cur
+                self.incidents.raise_(key, "WARNING" if key in ("wall_clock_step", "handler_errors") else "DEGRADED",
+                                      {"total": cur})
+        ws = self.writer.status()
+        if ws["beat_age_ms"] is not None and ws["beat_age_ms"] >= 1000 * cfg["fc_writer_stall_s"]:
+            self.fail_closed("writer_stalled", {"beat_age_ms": ws["beat_age_ms"]}); return
+        if ws["durable_lag_ms"] >= 1000 * cfg["fc_durable_lag_s"]:
+            self.fail_closed("writer_not_durable", {"durable_lag_ms": ws["durable_lag_ms"]}); return
+        if self.clock.state == "CRITICAL":
+            self.clock_critical_since = self.clock_critical_since or m
+            self.incidents.raise_("clock_critical", "CRITICAL", {"skew_ms": self.clock.last_skew_ms,
+                                                                 "uncertainty_ms": self.clock.uncertainty_ms}, latched=False)
+            if m - self.clock_critical_since >= 1000 * cfg["fc_clock_critical_s"]:
+                self.fail_closed("clock_critical_persistent", {"since_ms": self.clock_critical_since}); return
+        elif self.clock_critical_since is not None:
+            self.clock_critical_since = None
+            self.incidents.resolve("clock_critical")
 
     def sample_until(self, target_ms: int, live: bool = False) -> int:
         """F19: process EVERY boundary from the last processed one up to target (inclusive). Returns the count.
@@ -784,9 +1117,11 @@ class Collector:
                 self.gc_pause_max_ms = max(self.gc_pause_max_ms, round(d, 1))
                 if d >= 100:
                     self.gc_long += 1
-                    self.gc_pauses_100ms.append({"generation": info.get("generation"), "start_ns": st[1],
-                                                 "end_ns": time.time_ns(), "duration_ms": round(d, 1),
-                                                 "collected": info.get("collected")})
+                    if len(self.gc_pending) == self.gc_pending.maxlen:
+                        self.gc_events_dropped += 1                    # counted, never silent (CR-R12)
+                    self.gc_pending.append({"generation": info.get("generation"), "start_ns": st[1],
+                                            "end_ns": time.time_ns(), "duration_ms": round(d, 1),
+                                            "collected": info.get("collected")})
 
     async def loopmon_task(self) -> None:
         """G3-F4: event-loop pause detector. Ticks every 100 ms; any oversleep is a loop pause (catches one long
@@ -800,8 +1135,8 @@ class Collector:
             for t in self.looplag_counts:
                 if lag >= t:
                     self.looplag_counts[t] += 1
-            while self._gc_reported < len(self.gc_pauses_100ms) and self._gc_reported < 1000:
-                self.lifecycle("gc_pause", self.gc_pauses_100ms[self._gc_reported]); self._gc_reported += 1
+            while self.gc_pending:                                  # CR-R12: no lifetime cap, bounded memory
+                self.lifecycle("gc_pause", self.gc_pending.popleft()); self._gc_reported += 1
 
     def instrumentation(self) -> dict:
         m = now_ms()
@@ -811,7 +1146,8 @@ class Collector:
                 "loop_lag_max_ms": self.looplag_max_ms,
                 "loop_lag_max_60s_ms": max((l for t, l in self.looplag_recent if m - t <= 60_000), default=0),
                 "loop_lag_counts_ge": {str(k): v for k, v in self.looplag_counts.items()},
-                "gc_pause_max_ms": self.gc_pause_max_ms, "gc_pauses_ge_100ms": self.gc_long}
+                "gc_pause_max_ms": self.gc_pause_max_ms, "gc_pauses_ge_100ms": self.gc_long,
+                "gc_pause_events_reported": self._gc_reported, "gc_pause_events_dropped": self.gc_events_dropped}
 
     async def sampler_task(self) -> None:
         if self.last_sampled_ms is None:
@@ -983,16 +1319,14 @@ class Collector:
             await self._sleep(self.cfg["cadence_ms"]["clock"] / 1000)
 
     async def disk_task(self) -> None:
+        """Disk guard. CR-B02: dataset size = closed days (day-close records) + open days + non-raw directories,
+        measured in a worker thread (never a full historical walk, never on the event loop)."""
+        loop = asyncio.get_running_loop()
         while not self.stop_event.is_set():
             self.beats["disk"] = time.monotonic()
             free = shutil.disk_usage(self.base).free
-            size = 0
-            for root, _, files in os.walk(self.base):
-                for f in files:
-                    try:
-                        size += os.path.getsize(os.path.join(root, f))
-                    except OSError:
-                        pass
+            size = await loop.run_in_executor(None, dataset_bytes, self.base, self.closed_bytes)
+            self.beats["disk"] = time.monotonic()
             self.disk_free_gb, self.dir_gb = free / 1e9, size / 1e9
             st = self.disk.state(free, size)
             if st != self.disk_state:
@@ -1000,6 +1334,15 @@ class Collector:
             self.disk_state = st
             if st == "HARD_STOP" and not self.writer.stop_writes.is_set():
                 self.disk_hard_stop()
+            if self.continuous:
+                if st == "WARN":
+                    self.incidents.raise_("disk_warning", "WARNING", {"free_gb": round(self.disk_free_gb, 2),
+                                                                      "dataset_gb": round(self.dir_gb, 3)}, latched=False)
+                elif st == "OK":
+                    self.incidents.resolve("disk_warning")
+                if st == "HARD_STOP":                                  # free < floor OR total dataset >= cap
+                    self.fail_closed("disk_hard_stop", {"free_gb": round(self.disk_free_gb, 2),
+                                                        "dataset_gb": round(self.dir_gb, 3)})
             await self._sleep(60)
 
     def disk_hard_stop(self) -> None:
@@ -1136,6 +1479,8 @@ class Collector:
             self.handler_err_ms.clear()
             for c in self.conns:
                 self._spawn(c.force_reconnect("handler_error_burst"))
+        if self.continuous and not self.stop_event.is_set():
+            self._continuous_checks(m)
 
     # ---------- health ----------
     def health_eval(self) -> tuple:
@@ -1147,9 +1492,9 @@ class Collector:
         if self.state == "STARTING" or self.ws_start_ms is None:
             return "STARTING", [], ["not_started"], []
         up_s = mono - self.started_mono
-        for name, period in TASK_PERIOD_S.items():                 # 1. required tasks alive + beating
+        for name, period in self.task_periods.items():             # 1. required tasks alive + beating
             b = self.beats.get(name)
-            limit = max(2 * period, 3.0) + (30.0 if name in ("candles", "clock") else 0.0)
+            limit = max(2 * period, 3.0) + (30.0 if name in ("candles", "clock", "disk", "days") else 0.0)
             if b is None:
                 (startup if up_s < 30 else hard).append(f"task_no_beat:{name}")
             elif mono - b > limit:
@@ -1175,13 +1520,13 @@ class Collector:
         elif cs["pending"] > self.cfg["certify_max_pending"] or \
                 cs["oldest_pending_age_ms"] > 1000 * self.cfg["certify_max_pending_age_s"]:
             hard.append("certifier_backlog")
-        if cs["failures"]:
+        if cs["failures"] and not self.continuous:                  # continuous: a latched incident (Package G)
             hard.append("certification_failed")
         if [x for x in self.certifier_dead_ms if m - x <= 600_000]:
             hard.append("certifier_restarted_10min")
-        if self.stats["write_errors"]:
+        if self.stats["write_errors"] and not self.continuous:
             hard.append("write_errors")
-        if sum(self.stats["writer_rejected"].values()):
+        if sum(self.stats["writer_rejected"].values()) and not self.continuous:
             hard.append("writer_rejected_records")
         expected = {t.name for t in self.all_tracks()}              # 2./3. streams
         acked = {t.name for t in self.all_tracks() if t.sub in ("ACKED", "URL")}
@@ -1237,12 +1582,18 @@ class Collector:
             hard.append("task_failed_10min")                          # M5
         if [x for x in self.wall_step_ms if m - x <= 600_000]:
             hard.append("wall_clock_step_10min")
-        if self.stats.get("seq_reset"):
-            hard.append("seq_reset")
-        if self.stats["segments_quarantined"]:
-            hard.append("segments_quarantined")
-        if sum(self.stats["emit_failed"].values()):
-            hard.append("emit_failed")
+        if not self.continuous:                                     # bounded: unchanged lifetime-sticky reasons
+            if self.stats.get("seq_reset"):
+                hard.append("seq_reset")
+            if self.stats["segments_quarantined"]:
+                hard.append("segments_quarantined")
+            if sum(self.stats["emit_failed"].values()):
+                hard.append("emit_failed")
+        else:                                                       # continuous: one reason per active incident
+            for inc in self.incidents.active():
+                (hard if inc["severity"] in ("DEGRADED", "CRITICAL") else warn).append(f"incident:{inc['key']}")
+            if self.rate.events.get("http_429"):
+                warn.append(f"http_429_24h:{len(self.fc_times['http_429'])}")
         if self.universe_degraded:
             hard.append("universe_refresh_failed")                  # F42: previous universe kept, DEGRADED
         if self.enq.drop_open:
@@ -1313,7 +1664,25 @@ class Collector:
             "disk": {"state": self.disk_state, "free_gb": self.disk_free_gb, "collector_dir_gb": self.dir_gb,
                      "marker": self.disk_marker},
             "rotation": self.rotation,
+            **(self._continuous_health(m) if self.continuous else {}),
         }
+
+    def _continuous_health(self, m: int) -> dict:
+        ages = {}
+        for c in self.conns:
+            a = self.activity.get(c.name)
+            up = a.last_up_since(m) if a else None
+            ages[c.name] = None if up is None else round((m - up) / 1000)
+        return {"mode": "continuous", "dataset_id": self.cfg["dataset_id"], "calendar": cal.params(),
+                "incidents": self.incidents.summary(),
+                "universe_epoch": {"universe_id": (self.universe_meta or {}).get("universe_id"),
+                                   "effective_from_ms": self.epoch_start_ms, "transitions": self.transitions,
+                                   "pending_effective_ms": (self.pending_transition or {}).get("T"),
+                                   "next_refresh_ms": self.universe_next_ms, "refresh_degraded": self.universe_degraded},
+                "connection_age_s": ages, "rotation_after_s": self.cfg["ws_rotation_s"],
+                "day_close": dict(self.day_close), "process_check": self.proc_state,
+                "fail_closed_windows_24h": {k: len(v) for k, v in self.fc_times.items()},
+                "previous_run": (self.previous_run or {}).get("boot_id")}
 
     def counters(self) -> dict:
         st = self.stats
@@ -1392,6 +1761,10 @@ class Collector:
     async def health_task(self) -> None:
         while not self.stop_event.is_set():
             self.beats["health"] = time.monotonic()
+            if self.incidents is not None:
+                self.incidents.poll_acks()
+                self.incidents.poll_external()
+                self.incidents.flush()
             self.write_health()
             await self._sleep(self.cfg["health_interval_s"])
 
@@ -1458,6 +1831,8 @@ class Collector:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, self._signal_stop)
         rec_gaps = recover_partials(self.base, self.boot_id, self.stats)
+        if self.continuous:
+            self.previous_run = self._previous_run()
         self.writer.start()
         timeout = aiohttp.ClientTimeout(total=30)
         sess = self.session_factory() if self.session_factory else \
@@ -1474,21 +1849,38 @@ class Collector:
             self.lifecycle("start", {"config_hash": self.config_hash, "profile": self.cfg["profile"],
                                      "max_runtime_s": self.cfg["max_runtime_s"], "recovered": rec_gaps,
                                      "run_record_file": rel, "run_record_sha256": self.run_record_sha,
-                                     "run_record": self.run_record})
-            for g in rec_gaps:
-                a = (g["last_salvaged_recv_ns"] or 0) // 1_000_000
+                                     "run_record": self.run_record,
+                                     **({"mode": "continuous", "dataset_id": self.cfg["dataset_id"],
+                                         "previous_run": self.previous_run} if self.continuous else {})})
+            for g in rec_gaps:                                       # CR-R07: never a gap from 1970
+                if g["last_salvaged_recv_ns"] is not None:
+                    a = g["last_salvaged_recv_ns"] // 1_000_000
+                else:
+                    a = g.get("segment_start_ms") or self.started_ms
                 self.simple_gap(f"crash|{g['type']}", a, self.started_ms, 0, "crash_recovery", IRREPLACEABLE,
-                                {"salvaged": g["salvaged"], "source": g["source"]})
+                                {"salvaged": g["salvaged"], "source": g["source"],
+                                 "start_basis": "last_salvaged_record" if g["last_salvaged_recv_ns"] is not None
+                                 else "segment_hour_start"})
             self.state = "RUNNING"
             await self.start_ws()
-            tasks = [asyncio.create_task(self.supervise(n, f), name=n) for n, f in
-                     (("sampler", self.sampler_task), ("candles", self.candle_task), ("clock", self.clock_task),
-                      ("disk", self.disk_task), ("health", self.health_task), ("watchdog", self.watchdog_task),
-                      ("loopmon", self.loopmon_task))]
+            if self.continuous:
+                self.epoch_start_ms = self.ws_start_ms
+                self._record_downtime()
+            named = [("sampler", self.sampler_task), ("candles", self.candle_task), ("clock", self.clock_task),
+                     ("disk", self.disk_task), ("health", self.health_task), ("watchdog", self.watchdog_task),
+                     ("loopmon", self.loopmon_task)]
+            if self.continuous:
+                named += [("days", self.days_task), ("rotation", self.rotation_task), ("procwatch", self.procwatch_task)]
+                if self.cfg["profile"] != "tier0_only":
+                    named.append(("universe", self.universe_task))
+                else:
+                    self.task_periods.pop("universe", None)
+            tasks = [asyncio.create_task(self.supervise(n, f), name=n) for n, f in named]
             tasks.append(asyncio.create_task(self.rotation_test_task(), name="rotation_test"))
             tasks.append(asyncio.create_task(self.reconnect_test_task(), name="reconnect_test"))
-            try:
-                await asyncio.wait_for(self.stop_event.wait(), timeout=self.cfg["max_runtime_s"])
+            try:                                                     # continuous: no hidden runtime limit
+                await asyncio.wait_for(self.stop_event.wait(),
+                                       timeout=None if self.continuous else self.cfg["max_runtime_s"])
             except asyncio.TimeoutError:
                 pass
             if self.stop_reason is None:
@@ -1528,12 +1920,71 @@ class Collector:
         self.write_health(record=False)
         partials = [f for _, _, fs in os.walk(os.path.join(self.base, "raw")) for f in fs
                     if f.endswith((".partial", ".pending", ".certifying"))]
+        if self.incidents is not None:
+            self.incidents.flush()
         self.write_marker(f"stop-{self.boot_id[:8]}.json",                        # N1: final state outside the writer
                           {"event": "final_stop_state", "boot_id": self.boot_id, "ts_ms": now_ms(), "state": self.state,
                            "exit_code": self.exit_code, "reason": self.stop_reason,
                            "writer_finished": self.writer.finished, "writer_alive": self.writer.is_alive(),
-                           "partials": len(partials), "counters": self.counters()})
+                           "partials": len(partials), "counters": self.counters(),
+                           "mode": self.cfg["mode"], "ws_start_ms": self.ws_start_ms,
+                           "stop_requested_ms": stop_requested_ms, "last_boundary_ms": self.last_sampled_ms})
         return self.exit_code
+
+    def _previous_run(self):
+        """CR-R07: the most recent earlier run of this dataset (run records are written once per start)."""
+        d = os.path.join(self.base, "runs")
+        best = None
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not (f.startswith("run-") and f.endswith(".json")):
+                continue
+            try:
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    r = json.load(fh)
+                key = (r["created_ms"], r["boot_id"])
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if r["boot_id"] != self.boot_id and (best is None or key > best[0]):
+                best = (key, f, r["boot_id"])
+        if best is None:
+            return None
+        boot = best[2]
+        mp = os.path.join(self.base, "control", f"stop-{boot[:8]}.json")
+        marker = None
+        try:
+            with open(mp, encoding="utf-8") as fh:
+                marker = json.load(fh)
+        except (OSError, ValueError):
+            pass
+        clean = marker is not None and marker.get("boot_id") == boot
+        return {"boot_id": boot, "run_record_file": f"runs/{best[1]}", "created_ms": best[0][0],
+                "stop_marker": os.path.relpath(mp, self.base) if clean else None, "clean_stop": clean,
+                "state": (marker or {}).get("state") if clean else None,
+                "exit_code": (marker or {}).get("exit_code") if clean else None,
+                "reason": (marker or {}).get("reason") if clean else None,
+                "ws_start_ms": (marker or {}).get("ws_start_ms") if clean else None,
+                "stop_requested_ms": (marker or {}).get("stop_requested_ms") if clean else None,
+                "last_boundary_ms": (marker or {}).get("last_boundary_ms") if clean else None}
+
+    def _record_downtime(self) -> None:
+        """CR-R07: the time between the previous run and this run's ws_start is explicit downtime, never stitched.
+        Immutable runs/downtime-<boot>.json + lifecycle record. A crashed predecessor has no stop marker: its end is
+        unknown to this run and is derived per stream by the verifier from the data actually on disk."""
+        prev = self.previous_run
+        cause = "first_run" if prev is None else ("clean_stop" if prev["clean_stop"] and prev["state"] == "STOPPED"
+                                                  else "stopped_" + str(prev["state"]).lower() if prev["clean_stop"]
+                                                  else "crash_or_kill")
+        rec = {"record": "tsb.p2.forward.downtime", "record_version": 1, "dataset_id": self.cfg["dataset_id"],
+               "boot_id": self.boot_id, "run_record_file": self.writer.run_record, "previous_run": prev, "cause": cause,
+               "from_ms": (prev or {}).get("stop_requested_ms"), "until_ms": self.ws_start_ms,
+               "calendar": cal.params()}
+        d = os.path.join(self.base, "runs")
+        P._atomic_ro(os.path.join(d, f"downtime-{self.boot_id}.json"),
+                     (json.dumps(rec, sort_keys=True, indent=1) + "\n").encode("utf-8"))
+        self.lifecycle("downtime", rec)
+        if prev is not None and cause != "clean_stop":
+            self.incidents.raise_(f"previous_run_{cause}", "WARNING" if prev["clean_stop"] else "DEGRADED",
+                                  {"previous_boot": prev["boot_id"], "state": prev["state"]})
 
     writer_join_timeout_s = 420
 
@@ -1559,10 +2010,15 @@ class Collector:
         self.writer.stop(); self.writer.join(timeout=self.writer_join_timeout_s)
         self.finalize_stop()
         self.write_health(record=False)
+        if self.incidents is not None:
+            self.incidents.raise_("startup_failed", "CRITICAL", {"problems": (self.startup_failure or [])[:10]})
+            self.incidents.flush()
         self.write_marker(f"stop-{self.boot_id[:8]}.json",
                           {"event": "final_stop_state", "boot_id": self.boot_id, "ts_ms": now_ms(), "state": self.state,
                            "exit_code": self.exit_code, "reason": self.stop_reason, "writer_finished": self.writer.finished,
-                           "writer_alive": self.writer.is_alive(), "partials": 0, "counters": self.counters()})
+                           "writer_alive": self.writer.is_alive(), "partials": 0, "counters": self.counters(),
+                           "mode": self.cfg["mode"], "ws_start_ms": None, "stop_requested_ms": None,
+                           "last_boundary_ms": None})
         return self.exit_code
 
     def finalize_stop(self) -> str:
@@ -1611,4 +2067,9 @@ def main() -> int:
     cfg = C.load(os.environ.get("P2F_CONFIG", "/config/collector.json"))
     if not cfg["enabled"]:
         return asyncio.run(disabled_loop(cfg))
-    return asyncio.run(Collector(cfg).run())
+    try:
+        col = Collector(cfg)
+    except StartupRefused as e:                                       # nothing written; visible; operator action
+        print(json.dumps({"p2f_alert": {"startup_refused": str(e)[:500]}}), file=sys.stderr, flush=True)
+        return EXIT_STARTUP
+    return asyncio.run(col.run())

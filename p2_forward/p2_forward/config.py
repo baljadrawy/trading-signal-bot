@@ -1,4 +1,4 @@
-"""Collector configuration: defaults, validation, and hard safety boundaries (P2-E1).
+"""Collector configuration: defaults, validation, and hard safety boundaries (P2-E1; P2-CR continuous mode).
 
 The collector reads PUBLIC market data only. Hosts and paths are allow-listed here and enforced again by the HTTP
 client. Derivatives and aggTrades are not authorized in E1: enabling either fails validation.
@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
-VERSION = "p2e1-collector-1.3.0"
+from . import cal
+
+VERSION = "p2cr-collector-1.4.0"
 SCHEMA = "tsb.p2.forward"
 SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)
 SAMPLE_SEMANTICS = "latest_received_at_or_before_sample_ms"
@@ -26,8 +29,9 @@ ALLOWED_REST_PATHS = {                                       # path -> request w
 
 DEFAULTS = {
     "enabled": False,
+    "mode": "bounded",                       # P2-CR: bounded (validation gates) | continuous (explicit, never implied)
     "profile": "tier0_only",                 # tier0_only | recommended
-    "max_runtime_s": 0,                       # > 0 required: E1 is bounded only
+    "max_runtime_s": 0,                       # bounded: (0, 28800] required; continuous: exactly 0 (no hidden limit)
     "data_dir": "/data",
     "tier0": ["BTCUSDT", "ETHUSDT"],
     "tier1_min_quote_volume": 10_000_000,
@@ -89,6 +93,19 @@ DEFAULTS = {
     "certifier_beat_limit_ms": 10_000,       # G3-F3: certifier heartbeat (beats every <=1 s idle, every 500 lines busy)
     "derivatives_enabled": False,
     "aggtrades_enabled": False,
+    # ---- P2-CR continuous mode (inactive in bounded mode; bounded behaviour is unchanged) ----
+    "dataset_id": None,                      # continuous: identity of the ONE logical dataset (dataset.json)
+    "universe_refresh_at_s": 600,            # F10: daily refresh at calendar day start + this
+    "universe_transition_delay_s": 5,        # F10: accepted refresh takes effect at the boundary >= now + this
+    "day_close_after_s": 600,                # day D closed (no further writes expected) at >= D end + this
+    "fc_quarantine_per_24h": 2,              # fail-closed stop at this many quarantines in 24 h
+    "fc_cert_failures_per_24h": 2,           # fail-closed stop at this many certification failures in 24 h
+    "fc_http429_per_24h": 2,                 # fail-closed stop at this many HTTP 429 in 24 h (first = incident)
+    "fc_clock_critical_s": 3600,             # fail-closed stop when clock CRITICAL persists this long
+    "fc_writer_stall_s": 60,                 # fail-closed stop: writer heartbeat stale this long
+    "fc_durable_lag_s": 60,                  # fail-closed stop: not durable this long
+    "process_check_interval_s": 5,           # in-container process-role self-check period (continuous)
+    "process_violation_checks": 2,           # consecutive sightings of an unknown process => fail-closed stop
 }
 
 
@@ -109,15 +126,30 @@ def load(path: str | None) -> dict:
     return cfg
 
 
+DATASET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
 def validate(cfg: dict) -> None:
+    if not isinstance(cfg["enabled"], bool):
+        raise ConfigError("enabled must be a JSON boolean")
+    if cfg["mode"] not in ("bounded", "continuous"):
+        raise ConfigError("mode must be bounded or continuous")
+    if not _is_int(cfg["max_runtime_s"]):
+        raise ConfigError("max_runtime_s must be an integer")
     if cfg["derivatives_enabled"]:
         raise ConfigError("derivatives capture is not authorized (P2-E1, owner D3)")
     if cfg["aggtrades_enabled"]:
         raise ConfigError("aggTrades capture is not authorized (P2-E1, owner D2)")
     if cfg["profile"] not in ("tier0_only", "recommended"):
         raise ConfigError("profile must be tier0_only or recommended")
-    if cfg["enabled"] and not (0 < cfg["max_runtime_s"] <= 8 * 3600):
+    if cfg["enabled"] and cfg["mode"] == "bounded" and not (0 < cfg["max_runtime_s"] <= 8 * 3600):
         raise ConfigError("E1 is bounded: max_runtime_s must be in (0, 28800] when enabled")
+    if cfg["mode"] == "continuous":
+        _validate_continuous(cfg)
     if cfg["queue_max"] <= 0 or cfg["rest_budget_weight_per_min"] > 300:
         raise ConfigError("queue/budget out of authorized range")
     if not (cfg["disk_stop_free_gb"] < cfg["disk_warn_free_gb"]):
@@ -151,6 +183,36 @@ def validate(cfg: dict) -> None:
     if set(cfg["first_obs_deadline_s"]) != {"t0_book", "depth", "market", "t12_book"} or \
             not all(isinstance(v, (int, float)) and v > 0 for v in cfg["first_obs_deadline_s"].values()):
         raise ConfigError("first_obs_deadline_s must define positive t0_book/depth/market/t12_book")
+
+
+def _validate_continuous(cfg: dict) -> None:
+    """Continuous mode is explicit: it needs mode=continuous AND max_runtime_s == 0 AND a dataset identity, and it
+    excludes every gate-only test action. Nothing here can be reached by omitting or mistyping a bounded key."""
+    if cfg["max_runtime_s"] != 0:
+        raise ConfigError("continuous mode has no runtime limit: max_runtime_s must be exactly 0")
+    if not (isinstance(cfg["dataset_id"], str) and DATASET_ID_RE.match(cfg["dataset_id"])):
+        raise ConfigError("continuous mode requires dataset_id matching ^[a-z0-9][a-z0-9-]{2,63}$")
+    if cfg["rotation_test_at_s"] or cfg["reconnect_test_at_s"]:
+        raise ConfigError("gate-only controlled connection tests are not allowed in continuous mode")
+    if cfg["certifier_mode"] != "process":
+        raise ConfigError("continuous mode requires certifier_mode=process")
+    h = cal.hour_ms() // 1000                                    # 3600 s (production calendar)
+    if not (_is_int(cfg["ws_rotation_s"]) and h <= cfg["ws_rotation_s"] <= 23 * h):
+        raise ConfigError("ws_rotation_s must be an integer in [1 h, 23 h] (F24: before the 24 h exchange limit)")
+    if not (_is_int(cfg["universe_refresh_at_s"]) and 0 <= cfg["universe_refresh_at_s"] <= 6 * h):
+        raise ConfigError("universe_refresh_at_s must be an integer in [0, 6 h]")
+    if not (_is_int(cfg["universe_transition_delay_s"]) and 2 <= cfg["universe_transition_delay_s"] <= 60):
+        raise ConfigError("universe_transition_delay_s must be an integer in [2, 60]")
+    if not (_is_int(cfg["day_close_after_s"]) and min(60, h) <= cfg["day_close_after_s"] <= 6 * h):
+        raise ConfigError("day_close_after_s must be an integer in [60 s, 6 h]")
+    for k in ("fc_quarantine_per_24h", "fc_cert_failures_per_24h", "fc_http429_per_24h", "process_violation_checks"):
+        if not (_is_int(cfg[k]) and 1 <= cfg[k] <= 100):
+            raise ConfigError(f"{k} must be an integer in [1, 100]")
+    for k in ("fc_clock_critical_s", "fc_writer_stall_s", "fc_durable_lag_s", "process_check_interval_s"):
+        if not (_is_int(cfg[k]) and 1 <= cfg[k] <= 86400):
+            raise ConfigError(f"{k} must be an integer in [1, 86400]")
+    if cfg["fc_writer_stall_s"] * 1000 <= 5000 or cfg["fc_durable_lag_s"] * 1000 <= 10_000:
+        raise ConfigError("fail-closed writer limits must exceed the DEGRADED limits (5 s / 10 s)")
 
 
 def config_hash(cfg: dict) -> str:
