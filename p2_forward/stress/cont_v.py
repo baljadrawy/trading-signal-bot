@@ -180,6 +180,8 @@ def v1(root):
 def v2(root, data, label, seconds):
     fx = f"tsb-p2f-v-v2-{label}-fakex"; fakex(root, fx, shift=False)
     env = {"STRESS_DATASET_ID": os.environ.get("V2_DATASET_ID", "v2-scale"), "STRESS_CFG": os.environ.get("V2_CFG", "{}")}
+    if os.environ.get("V_ENTRY") == "collector":                     # pre-P2-CR code: bounded harness entry
+        env.update({"STRESS_RUNTIME_S": str(seconds + 600), "STRESS_HOUR_S": "180", "STRESS_PREFILL": "0"})
     name = f"tsb-p2f-v-v2-{label}"
     t0 = time.time()
     cid, out = collector(root, name, fx, data, env)
