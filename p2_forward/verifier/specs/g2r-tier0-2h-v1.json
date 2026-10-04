@@ -1,0 +1,101 @@
+{
+ "cadence_ms": {
+  "clock": 600000,
+  "market": 60000,
+  "t0_book": 1000,
+  "t0_depth": 1000
+ },
+ "candle_gap_allowed_causes": [
+  "candle_fetch_interrupted_at_stop",
+  "candle_not_fetched_at_stop"
+ ],
+ "candle_timeframes": [
+  "15m",
+  "1h",
+  "4h",
+  "1d"
+ ],
+ "clock_max_excess_ms": 500,
+ "clock_max_spacing_s": 1200,
+ "conn_data_live_ms": 10000,
+ "depth_levels_t0": 20,
+ "first_obs_deadline_s": {
+  "depth": 30,
+  "market": 30,
+  "t0_book": 30
+ },
+ "forbidden_lifecycle": [
+  "fatal",
+  "task_failed",
+  "handler_exception",
+  "subscribe_failed",
+  "subscribe_timeout",
+  "never_ready",
+  "ws_task_dead",
+  "binance_ban_418",
+  "disk_hard_stop",
+  "seq_reset",
+  "wall_clock_step",
+  "candle_exception"
+ ],
+ "gap_budget": {
+  "allowed_causes": [
+   "ws_disconnect_reconnect",
+   "conn_data_stale",
+   "stale_stream",
+   "awaiting_post_reconnect_data"
+  ],
+  "max_fraction_per_stream": 0.005,
+  "max_gap_ms": 120000,
+  "min_allowance_boundaries": 2
+ },
+ "health": {
+  "allowed_degraded_reason_prefixes": [
+   "stale:",
+   "conn_not_data_live:",
+   "gap_open:",
+   "gap_short:",
+   "not_acked:"
+  ],
+  "max_non_healthy_fraction": 0.1,
+  "startup_s": 130
+ },
+ "health_record_interval_s": 60,
+ "max_runtime_s": 7200,
+ "name": "g2r-tier0-2h-v1",
+ "profile": "tier0_only",
+ "runtime_tolerance_s": 5,
+ "stale_ms": {
+  "book_t0": 120000,
+  "depth": 2000,
+  "market": 10000
+ },
+ "tier0": [
+  "BTCUSDT",
+  "ETHUSDT"
+ ],
+ "tier1": [],
+ "tier2": [],
+ "zero_counter_maps": [
+  "dropped",
+  "emit_failed",
+  "writer_rejected"
+ ],
+ "zero_counters": [
+  "malformed",
+  "unknown_stream",
+  "unknown_event",
+  "handler_errors",
+  "seq_regression",
+  "seq_reset",
+  "write_errors",
+  "segments_quarantined",
+  "duplicates_dropped",
+  "recv_clock_regression",
+  "wall_clock_steps",
+  "task_failures",
+  "subscribe_failed",
+  "subscribe_timeout",
+  "never_ready"
+ ]
+}
