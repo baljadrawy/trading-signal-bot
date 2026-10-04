@@ -146,7 +146,43 @@ def _spec_v7(v6: dict) -> dict:
     return s
 
 
-G3_SPEC = _spec_v7(G3_SPEC_V6)
+G3_SPEC_V7 = _spec_v7(G3_SPEC_V6)
+
+HC_CMD = ("python -c \"import json,time,sys;h=json.load(open('/data/health/collector_health.json'));sys.exit(0 if "
+          "time.time()*1000-h['ts_ms']<30000 and h['state'] in ('HEALTHY','STARTING','DISABLED','STOPPING','STOPPED') "
+          "else 1)\"")                                   # Dockerfile HEALTHCHECK CMD of the reviewed image (CMD-SHELL)
+
+
+def _spec_v8(v7: dict) -> dict:
+    """v8 (G3V7-F1) = v7 UNCHANGED except the cgroup process-set criterion: the role allowlist gains the PINNED
+    Docker HEALTHCHECK execution chain, recognised by command + cgroup + ancestry + Docker's own health-log run window
+    + lifetime + cadence + structure, with per-process identity evidence required. Nothing else changes."""
+    s = json.loads(json.dumps(v7))
+    s["name"] = "g3-recommended-6h-v8"
+    probe = "python -c " + HC_CMD[len('python -c "'):-1]
+    s["cgroup"].update({
+        "require_process_detail": True, "require_healthcheck_log": True, "require_healthcheck_config": True,
+        "escape_check": True,
+        "process_roles": {
+            "collector": {"cmdline": "python -m p2_forward", "nspid": 1},
+            "certifier": {"cmdline_prefix": "/usr/local/bin/python -B -c from multiprocessing.spawn import spawn_main; "
+                                            "spawn_main(", "parent": "collector"},
+            "tracker": {"cmdline_prefix": "/usr/local/bin/python -B -c from multiprocessing.resource_tracker import "
+                                          "main;main(", "parent": "collector", "max": 1},
+            "running_counts": {"collector": 1, "certifier": 1},
+            "container_healthcheck": {
+                "docker_healthcheck": {"Test": ["CMD-SHELL", HC_CMD], "Interval": 30_000_000_000,
+                                       "Timeout": 5_000_000_000, "StartPeriod": 30_000_000_000, "Retries": 2},
+                "shell_cmdline": "/bin/sh -c " + HC_CMD, "probe_cmdline": probe, "runc_init_cmdline": "runc init",
+                "stage_comms": ["sh", "python", "runc:[0:PARENT]", "runc:[1:CHILD]", "runc:[2:INIT]", "runc"],
+                "runc_parent_prefix": "runc --root /var/run/docker/runtime-runc/moby ",
+                "interval_s": 30, "timeout_s": 5, "max_lifetime_ms": 7000, "run_window_slack_ms": 1000,
+                "instance_gap_ms": 2000, "min_spacing_ms": 27500, "max_processes_per_instance": 8,
+                "schedule_tolerance_ms": 1500, "runc_pid_window": 16}}})
+    return s
+
+
+G3_SPEC = _spec_v8(G3_SPEC_V7)
 
 
 def sha256(path: str) -> str:
@@ -544,6 +580,11 @@ def read_cgroup(tsv: str | None) -> dict | None:
                 row.update(memory_max=r[3], pids_max=r[4], memory_current=int(r[5]) if r[5].isdigit() else None,
                            pids_current=int(r[6]) if r[6].isdigit() else None,
                            procs=[tuple(x.split("=", 1)) for x in r[7].split(",") if "=" in x])
+            if len(r) >= 9 and r[8].startswith("{"):                 # v8 monitor: per-process identity detail
+                try:
+                    row["detail"] = json.loads(r[8])
+                except ValueError:
+                    row["detail"] = {"error": "unparseable"}
             rows.append(row)
     if not rows:
         return {"samples": 0, "rows": []}
@@ -556,6 +597,7 @@ def read_cgroup(tsv: str | None) -> dict | None:
             "memory_max": sorted({r.get("memory_max") for r in rows if "memory_max" in r}),
             "pids_max": sorted({r.get("pids_max") for r in rows if "pids_max" in r}),
             "has_roles": all("procs" in r for r in rows),
+            "has_detail": all("detail" in r and "error" not in r["detail"] for r in rows),
             "throttling": {"window_s": span, "avg_cpu_cores": round(d["usage_usec"] / 1e6 / span, 3) if span else None,
                            "nr_periods": d["nr_periods"], "nr_throttled": d["nr_throttled"],
                            "throttled_period_fraction": round(d["nr_throttled"] / d["nr_periods"], 4) if d["nr_periods"] else None,
@@ -564,9 +606,337 @@ def read_cgroup(tsv: str | None) -> dict | None:
             "pids_current_max": max([r["pids_current"] for r in rows if r.get("pids_current")] or [0])}
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# v8 (G3V7-F1): process-role classification of the container's own cgroup. Independent of the collector code.
+# A process is accepted ONLY as: the collector (pinned entrypoint, namespace PID 1), its certifier / resource-tracker
+# children, or a stage of the PINNED Docker HEALTHCHECK execution chain, recognised by several attributes together
+# (exact command, exact cgroup, ancestry, Docker's own health-log run window, bounded lifetime, cadence, structure).
+# Everything else is unexpected; anything that cannot be attributed is unresolved; both fail closed.
+
+HC_RUNC_COMMS = ("runc:[0:PARENT]", "runc:[1:CHILD]", "runc:[2:INIT]", "runc")
+
+
+def _cmd(v):
+    return (v or "").replace("\x00", " ").strip()
+
+
+def _agg_procs(samples, aux):
+    """Merge every observation of every PID (5 s samples + bounded follow-ups / other evidence)."""
+    P = {}
+    def add(t, o, src):
+        p = int(o["pid"])
+        a = P.setdefault(p, {"pid": p, "cmdlines": set(), "comms": set(), "ppids": set(), "parent_cmdlines": set(),
+                             "cgroups": set(), "nspids": set(), "first": t, "last": t, "sample_times": [], "srcs": set()})
+        a["first"], a["last"] = min(a["first"], t), max(a["last"], t)
+        if _cmd(o.get("cmdline")):
+            a["cmdlines"].add(_cmd(o["cmdline"]))
+        for k, key in (("comm", "comms"), ("ppid", "ppids"), ("cgroup", "cgroups"), ("nspid", "nspids")):
+            if o.get(k) not in (None, ""):
+                a[key].add(o[k] if k != "ppid" and k != "nspid" else int(o[k]))
+        if _cmd(o.get("parent_cmdline")):
+            a["parent_cmdlines"].add(_cmd(o["parent_cmdline"]))
+        a["srcs"].add(src)
+        if src == "sample":
+            a["sample_times"].append(t)
+    for s in samples:
+        for o in s.get("procs") or []:
+            add(s["t_ms"], o, "sample")
+    for o in aux:
+        add(o["t_ms"], o, o.get("src", "aux"))
+    return P
+
+
+def classify_processes(samples, spec_cg, window, health_runs=None, health_cover=None, aux=(), mode="strict"):
+    """samples: [{"t_ms", "procs": [{pid, ppid, nspid, comm, cmdline, exe, cgroup, parent_cmdline}], "escaped": [...]}]
+    spec_cg: the spec's "cgroup" section (v8: "process_roles"); window: (lo_ms, hi_ms) running window;
+    health_runs: [(start_ms, end_ms)] from Docker's health log; health_cover: [(from_ms, to_ms)] periods where that log
+    is complete; aux: extra observations [{"t_ms", "pid", ...}]; mode "strict" (acceptance) or "historical"
+    (diagnostic replay of evidence collected before v8: adds schedule / PID-adjacency reconciliation, reported apart)."""
+    R = spec_cg["process_roles"]; hc = R["container_healthcheck"]
+    scope = spec_cg.get("_scope_cgroup")
+    P = _agg_procs(samples, aux)
+    runs = sorted(health_runs or []); cover = sorted(health_cover or [])
+    slack = hc["run_window_slack_ms"]
+    def covered(a, b):
+        return any(f <= a and b <= t for f, t in cover)
+    def in_run(a, b):
+        return [r for r in runs if r[0] - slack <= b and r[1] + slack >= a]
+    out = {"unexpected": [], "unresolved": [], "tiers": collections.Counter(), "role_samples": collections.Counter(),
+           "per_sample_failures": [], "notes": []}
+    # ---- fixed roles
+    col = [p for p, a in P.items() if R["collector"]["cmdline"] in a["cmdlines"]
+           and (a["nspids"] == {1} or (mode == "historical" and not a["nspids"]))]
+    colp = col[0] if len(col) == 1 else None
+    shims = set().union(*[P[c]["ppids"] for c in col]) if col else set()
+    def child_of_collector(a):
+        return colp is not None and (a["ppids"] == {colp} or (mode == "historical" and not a["ppids"]))
+    role = {}
+    if colp is not None:
+        role[colp] = "collector"
+    for p, a in P.items():
+        if p in role:
+            continue
+        if any(c.startswith(R["certifier"]["cmdline_prefix"]) for c in a["cmdlines"]) and child_of_collector(a):
+            role[p] = "certifier"
+        elif any(c.startswith(R["tracker"]["cmdline_prefix"]) for c in a["cmdlines"]) and child_of_collector(a):
+            role[p] = "tracker"
+    # ---- health-check candidates
+    SHELL, PROBE, RUNC = hc["shell_cmdline"], hc["probe_cmdline"], hc["runc_init_cmdline"]
+    allowed_cmds = {SHELL, PROBE, RUNC}
+    stage_comms = set(hc["stage_comms"]) | set(HC_RUNC_COMMS)
+    cand = {p: a for p, a in P.items() if p not in role}
+    shell_pids = {p for p, a in cand.items() if SHELL in a["cmdlines"]}
+    probe_pids = {p for p, a in cand.items() if PROBE in a["cmdlines"]}
+    runc_pids = {p for p, a in cand.items() if RUNC in a["cmdlines"] or (a["comms"] & set(HC_RUNC_COMMS))}
+    verdict = {}
+    def bad(p, why):
+        verdict[p] = ("unexpected", why)
+    for p, a in cand.items():
+        if a["cmdlines"] - allowed_cmds:
+            bad(p, "wrong_command:" + sorted(a["cmdlines"] - allowed_cmds)[0][:80]); continue
+        if scope and any(c and not c.endswith(scope) for c in a["cgroups"]):
+            bad(p, "outside_cgroup"); continue
+        if a["last"] - a["first"] > hc["max_lifetime_ms"]:
+            bad(p, "long_lived"); continue
+        # ancestry (where recorded)
+        if a["ppids"] or a["parent_cmdlines"]:
+            pp = a["ppids"]
+            runc_parent = any(c.startswith(hc["runc_parent_prefix"]) and (not spec_cg.get("_cid") or spec_cg["_cid"] in c)
+                              for c in a["parent_cmdlines"])
+            ok_parent = bool(pp & (shims | shell_pids | runc_pids)) or runc_parent
+            if PROBE in a["cmdlines"] and not (pp & shell_pids):
+                ok_parent = False
+            if pp & probe_pids:
+                ok_parent = False                                        # the probe never has children
+            if not ok_parent:
+                bad(p, "bad_ancestry"); continue
+            anc = True
+        else:
+            anc = False
+        exact = bool(a["cmdlines"])
+        a["_exact"], a["_anc"] = exact, anc
+        if a["comms"] and not exact and not (a["comms"] <= stage_comms):
+            bad(p, "unknown_partial_comm:" + sorted(a["comms"])[0]); continue
+        if covered(a["first"], a["last"]):
+            if not in_run(a["first"], a["last"]):
+                bad(p, "outside_healthcheck_run"); continue
+            if exact or anc:
+                verdict[p] = ("hc", "exact" if exact else "ancestry_in_run")
+            else:
+                verdict[p] = ("pending", "partial_in_run")
+        else:
+            verdict[p] = ("pending", "no_healthcheck_log")
+    # ---- instances (probe executions) and structure / cadence
+    hcp = sorted((cand[p]["first"], cand[p]["last"], p) for p, v in verdict.items() if v[0] in ("hc", "pending"))
+    inst, cur = [], None
+    for f, l, p in hcp:
+        if cur is None or f > cur["last"] + hc["instance_gap_ms"]:
+            cur = {"first": f, "last": l, "pids": []}; inst.append(cur)
+        cur["last"] = max(cur["last"], l); cur["pids"].append(p)
+    prev = None
+    for i in inst:
+        n_probe = sum(1 for p in i["pids"] if PROBE in cand[p]["cmdlines"])
+        n_py = sum(1 for p in i["pids"] if "python" in cand[p]["comms"] and not (cand[p]["cmdlines"] - {PROBE}))
+        if n_probe > 1 or len(i["pids"]) > hc["max_processes_per_instance"] or (not n_probe and n_py > 1):
+            for p in i["pids"]:
+                bad(p, "instance_structure")
+        if prev is not None and i["first"] - prev["first"] < hc["min_spacing_ms"]:
+            for p in i["pids"]:
+                bad(p, "impossible_cadence")
+        prev = i
+        i["has_exact"] = any(cand[p].get("_exact") for p in i["pids"])
+    # ---- reconcile pending (partial / not covered)
+    period = hc["interval_s"] * 1000
+    def schedule_ok(idx):
+        def fits(d):
+            return any(k * period - hc["schedule_tolerance_ms"] <= d <= k * (period + hc["timeout_s"] * 1000) +
+                       hc["schedule_tolerance_ms"] for k in range(1, 40))
+        i = inst[idx]; ok = True
+        if idx > 0: ok &= fits(i["first"] - inst[idx - 1]["first"])
+        if idx + 1 < len(inst): ok &= fits(inst[idx + 1]["first"] - i["first"])
+        return ok
+    def chain_adjacent(p, a):
+        """An UNREADABLE process (gone before any /proc read) inside a Docker run window, in the PID block just below /
+        within that run's exactly-identified chain (runc stages precede the shell)."""
+        for run in in_run(a["first"], a["last"]):
+            chain = [q for q, b in cand.items() if verdict.get(q, ("",))[0] == "hc" and b.get("_exact")
+                     and b["first"] <= run[1] + slack and b["last"] >= run[0] - slack]
+            if chain and min(chain) - hc["runc_pid_window"] <= p <= max(chain):
+                return True
+        return False
+    for idx, i in enumerate(inst):
+        for p in i["pids"]:
+            v = verdict.get(p)
+            if not v or v[0] != "pending":
+                continue
+            a = cand[p]
+            unreadable = not a["comms"] and not a["cmdlines"] and not a["ppids"]
+            if v[1] == "partial_in_run":
+                if a.get("_anc") and i["has_exact"]:
+                    verdict[p] = ("hc", "ancestry_in_run")
+                elif unreadable and chain_adjacent(p, a):
+                    verdict[p] = ("hc", "unreadable_pid_adjacent_in_run")
+                elif mode == "historical" and a["comms"] and a["comms"] <= stage_comms and i["has_exact"]:
+                    verdict[p] = ("hc", "historical_comm_in_run_with_identified_chain")
+                else:
+                    verdict[p] = ("unresolved", "partial_in_run_unattributed")
+            elif mode == "historical":
+                pair = any("sh" in cand[q]["comms"] or SHELL in cand[q]["cmdlines"] for q in i["pids"]) and \
+                    any("python" in cand[q]["comms"] or PROBE in cand[q]["cmdlines"] for q in i["pids"])
+                if (a["comms"] or a["cmdlines"]) and a["comms"] <= stage_comms and pair and schedule_ok(idx):
+                    verdict[p] = ("hc", "historical_schedule" if not a["cmdlines"] else "historical_exact_no_log")
+                else:
+                    verdict[p] = ("unresolved", "no_healthcheck_log_unattributed")
+            else:
+                verdict[p] = ("unresolved", "no_healthcheck_log")
+    # ---- per-sample evaluation inside the running window
+    lo, hi = window
+    cert_pids, col_pids = set(), set()
+    for s in samples:
+        t = s["t_ms"]
+        if s.get("escaped"):
+            out["per_sample_failures"].append([t, "process_escape", s["escaped"][:3]])
+        if not (lo <= t <= hi):
+            continue
+        roles = collections.Counter()
+        for o in s.get("procs") or []:
+            p = int(o["pid"]); r = role.get(p)
+            if r:
+                roles[r] += 1
+                if r == "certifier": cert_pids.add(p)
+                if r == "collector": col_pids.add(p)
+                continue
+            v = verdict.get(p, ("unresolved", "no_identity"))
+            if v[0] == "hc":
+                roles["container_healthcheck"] += 1; out["tiers"][v[1]] += 1
+            else:
+                (out["unexpected"] if v[0] == "unexpected" else out["unresolved"]).append([t, p, v[1]])
+        for r, n in roles.items():
+            out["role_samples"][r] += 1
+        need = R["running_counts"]
+        if any(roles.get(k, 0) != n for k, n in need.items()) or roles.get("tracker", 0) > R["tracker"]["max"]:
+            out["per_sample_failures"].append([t, "role_counts", dict(roles)])
+    if len(cert_pids) > 1:
+        out["per_sample_failures"].append([None, "certifier_pid_changed", sorted(cert_pids)])
+    if len(col_pids) > 1 or (colp is None and samples):
+        out["per_sample_failures"].append([None, "collector_identity", sorted(col_pids)])
+    out["collector_pid"], out["shim_pids"] = colp, sorted(shims)
+    out["instances"] = len(inst)
+    out["unexpected_pids"] = sorted({u[1] for u in out["unexpected"]})
+    out["unresolved_pids"] = sorted({u[1] for u in out["unresolved"]})
+    out["pid_verdicts"] = {**{p: ("role", r) for p, r in role.items()}, **verdict}
+    out["ok"] = not (out["unexpected"] or out["unresolved"] or out["per_sample_failures"])
+    return out
+
+
+def _accept_process_roles_v8(rp, c, cg_, lo, hi):
+    """v8 acceptance of the process set (replaces only the v7 role-name check)."""
+    hcspec = cg_["process_roles"]["container_healthcheck"]
+    if cg_.get("require_process_detail") and not c.get("has_detail"):
+        rp.fail("ACC_CGROUP_PROCESS_EVIDENCE_MISSING", "per-process identity detail (v8 monitor)"); return
+    hl = getattr(rp, "healthcheck", None) or {}
+    if cg_.get("require_healthcheck_config") and hl.get("config") != hcspec["docker_healthcheck"]:
+        rp.fail("ACC_HEALTHCHECK_CONFIG_NOT_SPEC", hl.get("config"))
+    runs, cover = hl.get("runs"), hl.get("cover") or []
+    if cg_.get("require_healthcheck_log") and not any(f <= lo and hi <= t for f, t in cover):
+        rp.fail("ACC_HEALTHCHECK_LOG_INCOMPLETE", cover[:3])
+    rows = c["rows"]
+    samples = [{"t_ms": r["t_ms"], "procs": r["detail"].get("procs") or [], "escaped": r["detail"].get("escaped") or []}
+               for r in rows if "detail" in r]
+    aux = [dict(o, t_ms=o["t_ms"], src="follow") for r in rows if "detail" in r for o in (r["detail"].get("follow") or [])]
+    cids = {r["detail"].get("cid") for r in rows if "detail" in r} - {None}
+    spec_cg = dict(cg_, _scope_cgroup=f"docker-{next(iter(cids))}.scope" if len(cids) == 1 else None,
+                   _cid=next(iter(cids)) if len(cids) == 1 else None)
+    if len(cids) != 1:
+        rp.fail("ACC_CGROUP_PROCESS_EVIDENCE_MISSING", "container id"); return
+    res = classify_processes(samples, spec_cg, (lo, hi), runs, cover, aux, mode="strict")
+    if any(f[1] == "process_escape" for f in res["per_sample_failures"]):
+        rp.fail("ACC_PROCESS_ESCAPE", [f for f in res["per_sample_failures"] if f[1] == "process_escape"][:5])
+    other = [f for f in res["per_sample_failures"] if f[1] != "process_escape"]
+    if res["unexpected"] or res["unresolved"] or other:
+        rp.fail("ACC_CGROUP_PROCESS_SET", {"unexpected": res["unexpected"][:10], "unresolved": res["unresolved"][:10],
+                                           "role_failures": other[:5]})
+    rp.info["process_roles"] = {k: (dict(v) if isinstance(v, collections.Counter) else v) for k, v in res.items()
+                                if k not in ("pid_verdicts",)}
+
+
+def read_healthcheck_log(path: str | None):
+    """v8 gate-monitor capture of Docker's own health log (`docker inspect .State.Health`, polled every 30 s).
+    Returns (runs [(start_ms, end_ms, exit)], cover [(from_ms, to_ms)]); Docker keeps the last 5 runs, so every poll
+    proves completeness from its oldest kept run to the poll time."""
+    if not path:
+        return None, None
+    runs, cover = {}, []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            log = (d.get("health") or {}).get("Log") or []
+            ms = []
+            for e in log:
+                a, b = _iso_ms(e.get("Start")), _iso_ms(e.get("End"))
+                if a is not None and b is not None:
+                    runs[a] = (a, b, e.get("ExitCode")); ms.append(a)
+            if ms:                                                   # Docker keeps the last 5 runs: complete
+                cover.append((min(ms), d["t_ms"]))                   # from the oldest kept start to this poll
+    merged = []
+    for f, t in sorted(cover):
+        if merged and f <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], t))
+        else:
+            merged.append((f, t))
+    return sorted(runs.values()), merged
+
+
+def read_healthcheck(log_path, config_path):
+    if not log_path and not config_path:
+        return None
+    runs, cover = read_healthcheck_log(log_path)
+    cfg = None
+    if config_path:
+        with open(config_path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    return {"runs": runs, "cover": cover, "config": cfg}
+
+
+def _iso_ms(s):
+    """RFC 3339 / Docker timestamp -> epoch ms, pure arithmetic (no imports beyond the verifier's stdlib set)."""
+    if not s:
+        return None
+    s = s.strip()
+    try:
+        date, rest = s.split("T")
+        y, mo, d = (int(x) for x in date.split("-"))
+        off = 0
+        if rest.endswith("Z"):
+            rest = rest[:-1]
+        else:
+            for sep in ("+", "-"):
+                k = rest.rfind(sep)
+                if k > 0:
+                    sign = 1 if sep == "+" else -1
+                    hh, mm = rest[k + 1:].split(":")
+                    off = sign * (int(hh) * 3600 + int(mm) * 60); rest = rest[:k]; break
+        hms, _, frac = rest.partition(".")
+        h, mi, sec = (int(x) for x in hms.split(":"))
+        yy = y - (mo <= 2)
+        era = (yy if yy >= 0 else yy - 399) // 400
+        yoe = yy - era * 400
+        doy = (153 * (mo + (-3 if mo > 2 else 9)) + 2) // 5 + d - 1
+        days = era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+        ms = int((frac + "000")[:3]) if frac else 0
+        return (days * 86400 + h * 3600 + mi * 60 + sec - off) * 1000 + ms
+    except (ValueError, IndexError):
+        return None
+
+
 def verify(base: str, boot: str | None = None, spec: dict | None = None, expect_image: str | None = None,
-           expect_commit: str | None = None, monitor: dict | None = None, cgroup: dict | None = None) -> dict:
+           expect_commit: str | None = None, monitor: dict | None = None, cgroup: dict | None = None,
+           healthcheck: dict | None = None) -> dict:
     rp = Report()
+    rp.healthcheck = healthcheck
     rp.spec, rp.expect_image, rp.expect_commit, rp.monitor = spec, expect_image, expect_commit, monitor
     rp.cgroup = cgroup
     rp.require_cert_meta = bool(spec and spec.get("certifier"))
@@ -1136,7 +1506,9 @@ def acceptance(rp: Report, spec: dict, expect_image: str | None, expect_commit: 
                 rp.fail("ACC_CGROUP_LIMITS", [c["memory_max"], c["pids_max"]])
             if c["max_interval_s"] > cg_["max_sample_interval_s"]:
                 rp.fail("ACC_CGROUP_SAMPLING_GAP", c["max_interval_s"])
-            if c["has_roles"]:
+            if cg_.get("process_roles"):
+                _accept_process_roles_v8(rp, c, cg_, ws_start + 1000 * spec["health"]["startup_s"], stop_req)
+            elif c["has_roles"]:
                 bad, cert_pids, lo = [], set(), ws_start + 1000 * spec["health"]["startup_s"]
                 for row in c["rows"]:
                     if not (lo <= row["t_ms"] <= stop_req):
@@ -1417,19 +1789,21 @@ def str_keys(o):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("data_dir"); ap.add_argument("--boot"); ap.add_argument("--json")
-    ap.add_argument("--acceptance", choices=["g2r", "g3"]); ap.add_argument("--spec")
+    ap.add_argument("--acceptance", choices=["g2r", "g3", "g3v7"]); ap.add_argument("--spec")
     ap.add_argument("--expect-image-id"); ap.add_argument("--expect-commit")
     ap.add_argument("--resources-tsv"); ap.add_argument("--monitor-log"); ap.add_argument("--cgroup-tsv")
+    ap.add_argument("--healthcheck-log"); ap.add_argument("--healthcheck-config")
     ap.add_argument("--print-spec", action="store_true")
     a = ap.parse_args(argv)
-    spec = {"g2r": G2R_SPEC, "g3": G3_SPEC}.get(a.acceptance)
+    spec = {"g2r": G2R_SPEC, "g3": G3_SPEC, "g3v7": G3_SPEC_V7}.get(a.acceptance)
     if a.print_spec:
         print(json.dumps(spec, indent=1, sort_keys=True)); return 0
     if a.spec:
         with open(a.spec, encoding="utf-8") as fh:
             spec = json.load(fh)
     rep = verify(a.data_dir, a.boot, spec, a.expect_image_id, a.expect_commit,
-                 monitor=read_monitor(a.resources_tsv, a.monitor_log), cgroup=read_cgroup(a.cgroup_tsv))
+                 monitor=read_monitor(a.resources_tsv, a.monitor_log), cgroup=read_cgroup(a.cgroup_tsv),
+                 healthcheck=read_healthcheck(a.healthcheck_log, a.healthcheck_config))
     out = json.dumps(str_keys(rep), indent=1, sort_keys=True, default=str)       # G3-F2: never fail on key types
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:

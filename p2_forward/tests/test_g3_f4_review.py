@@ -54,7 +54,7 @@ class ReviewFixes(unittest.TestCase):
             try:
                 cert = col.writer.certifier; self.assertTrue(cert.wait_ready(10))
                 conflict_segment(d); cert.submit("x")
-                self.assertTrue(wait(lambda: not cert.pending()))
+                self.assertTrue(wait(lambda: not cert.pending() and cert._quar.value == 1))
                 st, hard, _, _ = col.health_eval()
                 self.assertEqual(col.stats["segments_quarantined"], 1)
                 self.assertIn("segments_quarantined", hard); self.assertNotEqual(st, "HEALTHY")
@@ -67,17 +67,16 @@ class ReviewFixes(unittest.TestCase):
             w = Wm.SegmentWriter(d, BOOT, queue.Queue(), stats, certifier_mode="process")
             w.certifier.start(); self.assertTrue(w.certifier.wait_ready(10))
             conflict_segment(d, "20261003T01"); w.certifier.submit("x")
-            self.assertTrue(wait(lambda: not w.certifier.pending()))
+            self.assertTrue(wait(lambda: not w.certifier.pending() and w.certifier._quar.value == 1))   # published
             os.kill(w.certifier.ident, signal.SIGKILL); w.certifier.join(5)
             w.restart_certifier()                                # syncs the dead worker's counters first
             self.assertEqual(stats["segments_quarantined"], 1)
-            self.assertTrue(w.certifier.wait_ready(10)); w.certifier.status()
+            self.assertTrue(w.certifier.wait_ready(10))
             # the new worker's startup manifest completion finds the conflict's occupant (certified name, no sidecar,
-            # no manifest entry) and quarantines it: fail closed, counted
-            self.assertEqual(stats["segments_quarantined"], 2)
+            # no manifest entry) and quarantines it: fail closed, counted (mirroring is eventual: bounded wait)
+            self.assertTrue(wait(lambda: (w.certifier.status(), stats["segments_quarantined"])[1] == 2))
             conflict_segment(d, "20261003T02"); w.certifier.submit("x")
-            self.assertTrue(wait(lambda: not w.certifier.pending()))
-            w.certifier.status()
+            self.assertTrue(wait(lambda: (w.certifier.status(), stats["segments_quarantined"])[1] == 3))
             self.assertEqual(stats["segments_quarantined"], 3)   # accumulated, never overwritten by a new worker
             self.assertTrue(w.certifier.drain(10))
 

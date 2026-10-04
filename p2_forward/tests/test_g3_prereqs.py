@@ -380,7 +380,10 @@ class SpecPin(unittest.TestCase):
     def test_exported_spec_files_equal_pinned_constants(self):
         import pathlib
         d = pathlib.Path(__file__).resolve().parents[1] / "verifier" / "specs"
-        self.assertEqual(json.loads((d / "g3-recommended-6h-v7.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v8.json").read_text()), json.loads(json.dumps(VI.G3_SPEC)))
+        self.assertEqual(json.loads((d / "g3-recommended-6h-v7.json").read_text()), json.loads(json.dumps(VI.G3_SPEC_V7)))
+        self.assertEqual(hashlib.sha256((d / "g3-recommended-6h-v7.json").read_bytes()).hexdigest(),
+                         "9dfe911d1997dc77d84cb48fd53482b863f3b60f66836ffc4866b39451271ed5")   # v7 file unaltered
         self.assertEqual(json.loads((d / "g3-recommended-6h-v6.json").read_text()), json.loads(json.dumps(VI.G3_SPEC_V6)))
         self.assertEqual(hashlib.sha256((d / "g3-recommended-6h-v6.json").read_bytes()).hexdigest(),
                          "20c95733e83e3eb23192ffb3d7f757e13d633b5c75b77c947591f2befcc06793")   # v6 file unaltered
@@ -578,7 +581,8 @@ class PreG3Confirm(unittest.TestCase):
 
     def test_N1_gap_only_time_not_double_charged(self):
         import importlib
-        for spec, name in ((VI.G3_SPEC_V6, "g3-recommended-6h-v6"), (VI.G3_SPEC, "g3-recommended-6h-v7")):
+        for spec, name in ((VI.G3_SPEC_V6, "g3-recommended-6h-v6"), (VI.G3_SPEC_V7, "g3-recommended-6h-v7"),
+                           (VI.G3_SPEC, "g3-recommended-6h-v8")):
             self.assertIn("stale_stream", spec["gap_budget"]["allowed_causes"])
             self.assertEqual(spec["name"], name)
         self.assertEqual(VI.G3_SPEC["gap_budget"], VI.G3_SPEC_V6["gap_budget"])          # v7 keeps v6's gap budget

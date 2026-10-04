@@ -38,7 +38,8 @@ class SpecV7(unittest.TestCase):
         cls.tmp.cleanup()
 
     def spec(self):
-        s = g3_test_spec(); s["cgroup"]["require_capture"] = True
+        s = g3_test_spec(); s["name"] = VI.G3_SPEC_V7["name"]
+        s["cgroup"] = json.loads(json.dumps(VI.G3_SPEC_V7["cgroup"])); s["cgroup"]["require_capture"] = True
         return s
 
     def run_v(self, tsv=None, spec=None, base=None):
@@ -48,7 +49,7 @@ class SpecV7(unittest.TestCase):
         return cg_tsv(os.path.join(self.tmp.name, name), self.ws - 5000, self.stop + 5000, **kw)
 
     def test_v7_is_v6_plus_additions_only(self):
-        v6, v7 = json.loads(json.dumps(VI.G3_SPEC_V6)), json.loads(json.dumps(VI.G3_SPEC))
+        v6, v7 = json.loads(json.dumps(VI.G3_SPEC_V6)), json.loads(json.dumps(VI.G3_SPEC_V7))
         for k, v in v6.items():
             if k == "name":
                 continue
@@ -56,7 +57,7 @@ class SpecV7(unittest.TestCase):
                 self.assertEqual({x: v7[k][x] for x in v}, v)          # v6 certifier values unchanged
             else:
                 self.assertEqual(v7[k], v, k)
-        self.assertEqual(VI.G3_SPEC["name"], "g3-recommended-6h-v7")
+        self.assertEqual(VI.G3_SPEC_V7["name"], "g3-recommended-6h-v7")
 
     def test_good_cgroup_evidence_passes_and_reports_throttling(self):
         r = self.run_v(self.tsv())
@@ -64,7 +65,7 @@ class SpecV7(unittest.TestCase):
         self.assertIn("throttled_period_fraction", r["cgroup"]["throttling"])
         ins = r["instrumentation"]
         self.assertTrue(ins["report_only"]); self.assertGreater(ins["independent_sampler_lateness_ms"]["boundaries"], 0)
-        for k in VI.G3_SPEC["instrumentation"]["required_keys"]:
+        for k in VI.G3_SPEC_V7["instrumentation"]["required_keys"]:
             self.assertIn(k, ins["collector"])
 
     def test_missing_capture_fails_closed(self):

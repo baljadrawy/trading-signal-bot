@@ -46,9 +46,9 @@ class RuntimeDeath(unittest.TestCase):
                 got = []; orig = c.enq.put; c.enq.put = lambda r, p: got.append(r) or orig(r, p)
                 c.watchdog_once(); self.assertTrue(lifes(got, "certifier_dead"))
                 new = c.writer.certifier; self.assertIsNot(new, cert); self.assertTrue(new.wait_ready(10))
-                for _ in range(100):
-                    if not new.pending(): break
-                    time.sleep(0.1)
+                for _ in range(100):                                                 # done = nothing pending AND the
+                    if not new.pending() and new.busy_since_ns is None: break        # worker idle (manifest appended
+                    time.sleep(0.1)                                                  # after the final rename)
                 self.assertEqual(len(manifest(d)), 1)                               # recovered + certified once
             finally:
                 stop_writer(c)
