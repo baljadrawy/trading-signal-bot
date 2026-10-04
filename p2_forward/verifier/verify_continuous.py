@@ -395,7 +395,8 @@ def verify_day(base: str, day: str, allow_test_calendar: bool = False) -> dict:
             epochs.append(e)
     rp.info["runs"] = [{k: R[k] for k in ("boot", "lo", "hi", "start_kind", "end_kind")} for R in runs]
     rp.info["epochs"] = [{"boot": e["boot"][:8], "kind": e["kind"], "lo": e["lo"], "hi": e["hi"],
-                          "universe_id": e["meta"].get("universe_id"), "streams": len(e.get("exp") or {})} for e in epochs]
+                          "universe_id": e["meta"].get("universe_id"), "universe_file": e["meta"].get("file"),
+                          "streams": len(e.get("exp") or {})} for e in epochs]
 
     # ---- connection events per boot (initial state from the checkpoint) ----
     conn_ev = {}

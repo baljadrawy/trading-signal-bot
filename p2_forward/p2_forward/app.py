@@ -1135,8 +1135,11 @@ class Collector:
             for t in self.looplag_counts:
                 if lag >= t:
                     self.looplag_counts[t] += 1
-            while self.gc_pending:                                  # CR-R12: no lifetime cap, bounded memory
-                self.lifecycle("gc_pause", self.gc_pending.popleft()); self._gc_reported += 1
+            self._drain_gc_events()
+
+    def _drain_gc_events(self) -> None:
+        while self.gc_pending:                                      # CR-R12: no lifetime cap, bounded memory
+            self.lifecycle("gc_pause", self.gc_pending.popleft()); self._gc_reported += 1
 
     def instrumentation(self) -> dict:
         m = now_ms()
