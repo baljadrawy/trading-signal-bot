@@ -1,0 +1,975 @@
+{
+ "decision_grid": {
+  "id": "grid-15m-plus390s-v1",
+  "offset_ms": 390000,
+  "step_ms": 900000,
+  "why": "15m boundary + 390 s >= candle fetch margin (15 s offset + 300 s spread + 60 s fetch)"
+ },
+ "feature_set_id": "p2c-fs",
+ "feature_set_version": "1.0.0",
+ "features": [
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -0.5,
+    0.5
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t]/c[t-1])",
+   "id": "mom.ret_15m_1",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "2 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -0.7,
+    0.7
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t]/c[t-1])",
+   "id": "mom.ret_1h_1",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "2 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -1,
+    1
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t]/c[t-1])",
+   "id": "mom.ret_4h_1",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "2 closed 4h",
+   "sampling_frequency": "per decision",
+   "source": "candle:4h",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -1.5,
+    1.5
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t]/c[t-1])",
+   "id": "mom.ret_1d_1",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "2 closed 1d",
+   "sampling_frequency": "per decision",
+   "source": "candle:1d",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(16)",
+   "expected_range": [
+    -10,
+    10
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t]/c[t-16]) / (rv_15m_16 * sqrt(16))",
+   "id": "mom.mom_norm_15m_16",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_vol",
+   "normalization": "volatility-scaled",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "17 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(96)",
+   "expected_range": [
+    -1,
+    0
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t] / max(h[t-95..t]))",
+   "id": "mom.dist_high_15m_96",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "96 closed 15m (24 h)",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(96)",
+   "expected_range": [
+    0,
+    2
+   ],
+   "family": "price_momentum",
+   "formula": "ln(c[t] / min(l[t-95..t]))",
+   "id": "mom.dist_low_15m_96",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "96 closed 15m (24 h)",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(24)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "price_momentum",
+   "formula": "|ln(c[t]/c[t-24])| / sum_i |ln(c[i]/c[i-1])| (efficiency ratio)",
+   "id": "mom.trend_eff_1h_24",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_path",
+   "normalization": "ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "25 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -1,
+    1
+   ],
+   "family": "price_momentum",
+   "formula": "(c-o)/(h-l) of the last closed 15m",
+   "id": "mom.body_ratio_15m",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "1 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    0.5
+   ],
+   "family": "price_momentum",
+   "formula": "(h-l)/c of the last closed 15m",
+   "id": "mom.range_rel_15m",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "price-relative",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "1 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(16)",
+   "expected_range": [
+    0,
+    0.2
+   ],
+   "family": "volatility",
+   "formula": "sample stdev of 16 close-to-close log returns",
+   "id": "vol.rv_15m_16",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "17 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(24)",
+   "expected_range": [
+    0,
+    0.3
+   ],
+   "family": "volatility",
+   "formula": "sample stdev of 24 close-to-close log returns",
+   "id": "vol.rv_1h_24",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "25 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(14)",
+   "expected_range": [
+    0,
+    0.3
+   ],
+   "family": "volatility",
+   "formula": "mean(true range over 14) / c[t]",
+   "id": "vol.atr_norm_1h_14",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "price-relative",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "15 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(96)",
+   "expected_range": [
+    0,
+    10
+   ],
+   "family": "volatility",
+   "formula": "rv over last 16 / rv over last 96 returns",
+   "id": "vol.vol_ratio_15m_16_96",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_vol",
+   "normalization": "ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "97 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(16)",
+   "expected_range": [
+    0,
+    20
+   ],
+   "family": "volatility",
+   "formula": "(h-l)[t] / mean((h-l)[t-16..t-1])",
+   "id": "vol.range_expansion_15m_16",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "17 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    500
+   ],
+   "family": "liquidity",
+   "formula": "(ask-bid)/mid * 1e4",
+   "id": "liq.spread_bps",
+   "missing_data_behavior": "null + reason: no_observation | book_stale | from_previous_run | insufficient_history",
+   "normalization": "none",
+   "pit_rule": "latest book sample with available_at_ms (= observed_at_ms <= sample_ms) <= T, same run, age <= tier stale limit",
+   "required_history": "1 fresh book sample",
+   "sampling_frequency": "per decision",
+   "source": "book",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(samples/h)",
+   "expected_range": [
+    0,
+    50
+   ],
+   "family": "liquidity",
+   "formula": "spread_bps(T) / median(spread_bps of samples in (T-1h, T])",
+   "id": "liq.spread_norm_1h",
+   "missing_data_behavior": "null + reason: no_observation | book_stale | from_previous_run | insufficient_history | zero_spread_median",
+   "normalization": "ratio",
+   "pit_rule": "latest book sample with available_at_ms (= observed_at_ms <= sample_ms) <= T, same run, age <= tier stale limit",
+   "required_history": ">= 10 book samples in the last hour",
+   "sampling_frequency": "per decision",
+   "source": "book",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    -1,
+    1
+   ],
+   "family": "liquidity",
+   "formula": "(bid_qty-ask_qty)/(bid_qty+ask_qty)",
+   "id": "liq.tob_imbalance",
+   "missing_data_behavior": "null + reason: no_observation | book_stale | from_previous_run | insufficient_history",
+   "normalization": "ratio",
+   "pit_rule": "latest book sample with available_at_ms (= observed_at_ms <= sample_ms) <= T, same run, age <= tier stale limit",
+   "required_history": "1 fresh book sample",
+   "sampling_frequency": "per decision",
+   "source": "book",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    -1,
+    1
+   ],
+   "family": "liquidity",
+   "formula": "(bidN-askN)/(bidN+askN), N = notional of first 10 levels",
+   "id": "liq.depth_imbalance_10",
+   "missing_data_behavior": "null + reason: no_observation | depth_stale | from_previous_run | empty_book",
+   "normalization": "ratio",
+   "pit_rule": "latest depth sample with available_at_ms <= T, same run, age <= depth_by_tier stale limit",
+   "required_history": "1 fresh depth sample",
+   "sampling_frequency": "per decision",
+   "source": "depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "liquidity",
+   "formula": "(bid1+ask1 notional) / (bidN+askN)",
+   "id": "liq.depth_concentration_10",
+   "missing_data_behavior": "null + reason: no_observation | depth_stale | from_previous_run | empty_book",
+   "normalization": "ratio",
+   "pit_rule": "latest depth sample with available_at_ms <= T, same run, age <= depth_by_tier stale limit",
+   "required_history": "1 fresh depth sample",
+   "sampling_frequency": "per decision",
+   "source": "depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    -500,
+    500
+   ],
+   "family": "liquidity",
+   "formula": "spread_bps(T) - spread_bps(T-5m)",
+   "id": "liq.spread_change_5m_bps",
+   "missing_data_behavior": "null + reason: no_observation | book_stale | from_previous_run | insufficient_history",
+   "normalization": "none",
+   "pit_rule": "latest book sample with available_at_ms (= observed_at_ms <= sample_ms) <= T, same run, age <= tier stale limit",
+   "required_history": "fresh samples at T and T-5m",
+   "sampling_frequency": "per decision",
+   "source": "book",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    -5,
+    5
+   ],
+   "family": "liquidity",
+   "formula": "ln(N(T)/N(T-15m)), N = bid+ask notional of first 10 levels",
+   "id": "liq.liq_change_15m",
+   "missing_data_behavior": "null + reason: no_observation | depth_stale | from_previous_run | empty_book",
+   "normalization": "log-ratio",
+   "pit_rule": "latest depth sample with available_at_ms <= T, same run, age <= depth_by_tier stale limit",
+   "required_history": "fresh depth at T and T-15m",
+   "sampling_frequency": "per decision",
+   "source": "depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(96)",
+   "expected_range": [
+    0,
+    100
+   ],
+   "family": "volume",
+   "formula": "qv[t] / mean(qv[t-96..t-1])",
+   "id": "act.rel_volume_15m_96",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_volume",
+   "normalization": "ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "97 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -10,
+    10
+   ],
+   "family": "volume",
+   "formula": "ln(sum qv[t-3..t] / sum qv[t-7..t-4])",
+   "id": "act.volume_accel_15m_4",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_volume",
+   "normalization": "log-ratio",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "8 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(16)",
+   "expected_range": [
+    -10,
+    10
+   ],
+   "family": "volume",
+   "formula": "sign(ret_15m_1) * ln(1 + qv[t]/mean(qv[t-16..t-1]))",
+   "id": "act.volume_price_15m",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range | zero_volume",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "17 closed 15m",
+   "sampling_frequency": "per decision",
+   "source": "candle:15m",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(1)",
+   "expected_range": [
+    -0.5,
+    0.5
+   ],
+   "family": "market_context",
+   "formula": "ln(c[t]/c[t-1]) of BTCUSDT",
+   "id": "ctx.btc_ret_1h_1",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "2 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h BTCUSDT",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "candle available_at = max(close+1, observed); fetched ~B+5..315 s",
+   "cost": "O(24)",
+   "expected_range": [
+    0,
+    0.3
+   ],
+   "family": "market_context",
+   "formula": "rv_1h_24 of BTCUSDT",
+   "id": "ctx.btc_rv_1h_24",
+   "missing_data_behavior": "null + reason: latest_closed_candle_unavailable | insufficient_history | candle_history_gap | zero_range",
+   "normalization": "none",
+   "pit_rule": "candle.available_at_ms <= T and close_ms < T; the latest CLOSED candle (close boundary <= T) must be available",
+   "required_history": "25 closed 1h",
+   "sampling_frequency": "per decision",
+   "source": "candle:1h BTCUSDT",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(universe)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "market_context",
+   "formula": "fraction of universe-at-T symbols with miniTicker c > o (rolling 24 h)",
+   "id": "ctx.breadth_24h",
+   "missing_data_behavior": "null + reason: no_market_snapshot | market_stale | market_startup_incomplete | too_few_symbols | symbol_absent",
+   "normalization": "fraction",
+   "pit_rule": "latest market snapshot with available_at_ms <= T, startup_complete, T - observed <= 70 s; universe = epoch known at T",
+   "required_history": ">= 5 universe symbols in the snapshot",
+   "sampling_frequency": "per decision",
+   "source": "market",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(universe log universe)",
+   "expected_range": [
+    -1,
+    1
+   ],
+   "family": "market_context",
+   "formula": "median over universe-at-T of ln(c/o) (rolling 24 h)",
+   "id": "ctx.universe_ret_24h_median",
+   "missing_data_behavior": "null + reason: no_market_snapshot | market_stale | market_startup_incomplete | too_few_symbols | symbol_absent",
+   "normalization": "none",
+   "pit_rule": "latest market snapshot with available_at_ms <= T, startup_complete, T - observed <= 70 s; universe = epoch known at T",
+   "required_history": ">= 5 universe symbols",
+   "sampling_frequency": "per decision",
+   "source": "market",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(universe)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "market_context",
+   "formula": "population stdev over universe-at-T of ln(c/o)",
+   "id": "ctx.universe_disp_24h",
+   "missing_data_behavior": "null + reason: no_market_snapshot | market_stale | market_startup_incomplete | too_few_symbols | symbol_absent",
+   "normalization": "none",
+   "pit_rule": "latest market snapshot with available_at_ms <= T, startup_complete, T - observed <= 70 s; universe = epoch known at T",
+   "required_history": ">= 5 universe symbols",
+   "sampling_frequency": "per decision",
+   "source": "market",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(universe)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "market_context",
+   "formula": "(#{r < r_s} + 0.5 #{r = r_s, other}) / (n-1), r = ln(c/o)",
+   "id": "ctx.xs_rank_ret_24h",
+   "missing_data_behavior": "null + reason: no_market_snapshot | market_stale | market_startup_incomplete | too_few_symbols | symbol_absent",
+   "normalization": "rank",
+   "pit_rule": "latest market snapshot with available_at_ms <= T, startup_complete, T - observed <= 70 s; universe = epoch known at T",
+   "required_history": ">= 5 universe symbols incl. the symbol",
+   "sampling_frequency": "per decision",
+   "source": "market",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    2
+   ],
+   "family": "market_context",
+   "formula": "tier of the symbol in the epoch KNOWN at T (effective_from <= T and announcing record available <= T); never a later/retrospective tier",
+   "id": "ctx.tier",
+   "missing_data_behavior": "row excluded if no epoch known (no_universe_epoch_known)",
+   "normalization": "none",
+   "pit_rule": "epoch.effective_from_ms <= T and epoch.available_at_ms <= T",
+   "required_history": "1 epoch",
+   "sampling_frequency": "per decision",
+   "source": "universe epoch",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    86400
+   ],
+   "family": "data_quality",
+   "formula": "(T - observed_at_ms of the latest book sample) / 1000",
+   "id": "dq.book_age_s",
+   "missing_data_behavior": "null + reason: no_observation | from_previous_run",
+   "normalization": "none",
+   "pit_rule": "available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "book",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    86400
+   ],
+   "family": "data_quality",
+   "formula": "(T - observed_at_ms of the latest depth sample) / 1000",
+   "id": "dq.depth_age_s",
+   "missing_data_behavior": "null + reason: no_observation | from_previous_run",
+   "normalization": "none",
+   "pit_rule": "available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "data_quality",
+   "formula": "1 if book or depth is missing, from a previous run, or older than its stale limit (book: tier0 120 s, tier1/2 suspect 120 s; depth: by tier), else 0",
+   "id": "dq.stale_flag",
+   "missing_data_behavior": "never null",
+   "normalization": "none",
+   "pit_rule": "available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "book+depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(gaps)",
+   "expected_range": [
+    0,
+    1000
+   ],
+   "family": "data_quality",
+   "formula": "count of gap records (book|S, depth|S, candle|*|S, market|ALL) with available_at_ms <= T overlapping (T-1h, T]; a gap is KNOWN only after it closed (SCHEMA section 5)",
+   "id": "dq.gap_known_1h",
+   "missing_data_behavior": "never null",
+   "normalization": "none",
+   "pit_rule": "gap.available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "gap records",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    86400
+   ],
+   "family": "data_quality",
+   "formula": "seconds since the latest ws_connected/ws_disconnected/ws_connect_failed of the current run known at T (else since ws_start), capped 86400",
+   "id": "dq.reconnect_age_s",
+   "missing_data_behavior": "null + reason: no_run_at_T",
+   "normalization": "none",
+   "pit_rule": "lifecycle.available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "lifecycle",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    2592000
+   ],
+   "family": "data_quality",
+   "formula": "seconds since the current run's ws_start, capped 2592000",
+   "id": "dq.run_age_s",
+   "missing_data_behavior": "null + reason: no_run_at_T",
+   "normalization": "none",
+   "pit_rule": "ws_start <= T (downtime.until_ms)",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "runs/downtime",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "data_quality",
+   "formula": "1 if the latest health record known at T is not HEALTHY or lists one of the symbol's streams as not observing, else 0",
+   "id": "dq.degraded_flag",
+   "missing_data_behavior": "null + reason: no_health_record (fail closed)",
+   "normalization": "none",
+   "pit_rule": "health.available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "health",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  },
+  {
+   "availability_delay": "0 (uses only inputs available at T)",
+   "cost": "O(1)",
+   "expected_range": [
+    0,
+    1
+   ],
+   "family": "data_quality",
+   "formula": "1 if the latest clock record known at T, or the book/depth sample used, is clock_suspect, else 0",
+   "id": "dq.clock_suspect",
+   "missing_data_behavior": "never null",
+   "normalization": "none",
+   "pit_rule": "available_at_ms <= T",
+   "required_history": "none",
+   "sampling_frequency": "per decision",
+   "source": "clock+book+depth",
+   "status": "experimental",
+   "tier_applicability": [
+    0,
+    1,
+    2
+   ],
+   "version": 1
+  }
+ ],
+ "pit_contract": "every feature value carries feature_available_at; a value is usable only if feature_available_at <= decision_time (enforced by the builder, PITViolation otherwise)",
+ "record": "tsb.p2c.feature_registry",
+ "record_version": 1
+}
