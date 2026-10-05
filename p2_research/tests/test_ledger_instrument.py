@@ -160,6 +160,70 @@ class TrialLedger(unittest.TestCase):
         self.assertEqual(sc["properties"]["ledger"]["const"], LG.LEDGER_RECORD)
 
 
+class LedgerHeadAnchor(unittest.TestCase):
+    """P2-C1: the ledger head (seq, event_hash, event count, file SHA) is recorded in sealed evidence and the ledger is
+    later verified against that anchor (truncation, and a rewritten-and-re-chained history, become detectable)."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="p2c-anchor-")
+        self.L = LG.Ledger(self.dir)
+
+    def _rechain(self, events):
+        prev, out = LG.GENESIS, []
+        for i, ev in enumerate(events):
+            ev = dict(ev, seq=i, prev_hash=prev)
+            ev["event_hash"] = LG._event_hash(ev)
+            prev = ev["event_hash"]
+            out.append(LG.canon(ev))
+        with open(self.L.path, "w") as fh:
+            fh.write("\n".join(out) + "\n")
+
+    def test_empty_ledger_anchor_does_not_create_files(self):
+        a = LG.anchor(os.path.join(self.dir, "absent"))
+        self.assertEqual((a["seq"], a["event_hash"], a["events"], a["ledger_file_sha256"]), (-1, LG.GENESIS, 0, None))
+        self.assertEqual(a["record"], "tsb.p2c.trial_ledger_anchor")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "absent")))
+        self.assertTrue(LG.verify_anchor(a, os.path.join(self.dir, "absent"))["ok"])
+
+    def test_extension_ok_truncation_and_rewrite_detected(self):
+        t1 = self.L.create_trial(spec())
+        self.L.record_result(t1, REJ)
+        a = LG.anchor(self.dir)
+        self.assertEqual((a["seq"], a["events"]), (1, 2))
+        self.assertEqual(a["event_hash"], self.L.head()["event_hash"])
+        self.assertTrue(LG.verify_anchor(a, self.dir)["ok"])
+        self.L.create_trial(spec(hypothesis_id="H-other"))                      # append-only extension: still ok
+        self.assertTrue(LG.verify_anchor(a, self.dir)["ok"])
+        evs = self.L.events()
+        self._rechain(evs[:1])                                                   # truncation
+        self.assertTrue(self.L.verify()["ok"])
+        self.assertFalse(LG.verify_anchor(a, self.dir)["ok"])
+        # rewrite history (the failure becomes a success) and re-chain every hash: internally consistent ...
+        self._rechain([evs[0], dict(evs[1], payload=ACC), evs[2]])
+        self.assertTrue(self.L.verify()["ok"])
+        # ... but the event at the anchored seq no longer has the anchored hash
+        rep = LG.verify_anchor(a, self.dir)
+        self.assertFalse(rep["ok"])
+        self.assertTrue(any("anchored" in e for e in rep["errors"]))
+
+    def test_cli_anchor_and_verify(self):
+        import contextlib
+        import io
+        self.L.create_trial(spec())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(LG.main(["anchor", "--ledger-dir", self.dir]), 0)
+        p = os.path.join(self.dir, "..", os.path.basename(self.dir) + "-anchor.json")
+        with open(p, "w") as fh:
+            fh.write(buf.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(LG.main(["verify", "--ledger-dir", self.dir, "--anchor", p]), 0)
+        with open(self.L.path, "w") as fh:
+            fh.write("")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(LG.main(["verify", "--ledger-dir", self.dir, "--anchor", p]), 1)
+
+
 class InstrumentIdentity(unittest.TestCase):
     def test_binance_spot_identity(self):
         i = IN.binance_spot_instrument("BTCUSDT")

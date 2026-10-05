@@ -25,7 +25,7 @@ import os
 
 SCHEMA_NAME = "tsb.p2.forward"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({2})
-READER_VERSION = "p2c-reader-v2.1"
+READER_VERSION = "p2c-reader-v2.2"                # v2.2: epochs beyond the range end ignored (P2-C1 R1)
 KINDS = ("book", "depth", "market", "candle", "clock", "universe", "gap", "lifecycle", "health")
 SAMPLED = ("book", "depth", "market")
 TF_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
@@ -652,6 +652,11 @@ def _epochs(B: Bundle, base: str, items=None) -> None:
             continue
         if not isinstance(eff, int):
             raise IntegrityError("EPOCH_EFFECTIVE_FROM_MISSING", [ev, boot8])
+        if max(eff, avail) >= B.range_end_ms:
+            # announced in the spill-over hour for the NEXT day (e.g. the D+1 universe refresh at 00:10): it can never
+            # be the epoch known at a decision time of this range; its artifact is not opened (P2-C1 regression R1)
+            B.quality["universe_epochs_beyond_range_ignored"] += 1
+            continue
         doc = _universe_doc(B, base, meta)
         B.epochs.append({"effective_from_ms": eff, "available_at_ms": avail, "universe_id": meta.get("universe_id"),
                          "kind": kind, "boot8": boot8, "tiers": doc["tiers"]})

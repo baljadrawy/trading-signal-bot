@@ -253,7 +253,7 @@ class Ledger:
     def verify(self, expected_head: dict | None = None) -> dict:
         errors, created, results, spec_seen = [], {}, set(), {}
         prev, seq = GENESIS, -1
-        lines = []
+        lines, hashes = [], []
         if os.path.exists(self.path):
             with open(self.path, encoding="utf-8") as fh:
                 lines = [x for x in fh.read().split("\n") if x.strip()]
@@ -274,6 +274,7 @@ class Ledger:
             if ev.get("event_hash") != _event_hash(ev):
                 errors.append(f"line {i}: event_hash mismatch (content altered)")
             prev, seq = ev.get("event_hash"), i
+            hashes.append(prev)
             kind, tid, p = ev.get("event"), ev.get("trial_id"), ev.get("payload") or {}
             if kind == "trial_created":
                 try:
@@ -307,6 +308,9 @@ class Ledger:
         if expected_head is not None and (seq < expected_head["seq"] or (
                 seq == expected_head["seq"] and prev != expected_head["event_hash"])):
             errors.append(f"head {head} does not match/extend the recorded head {expected_head} (truncation)")
+        elif expected_head is not None and 0 <= expected_head["seq"] < seq and \
+                hashes[expected_head["seq"]] != expected_head["event_hash"]:
+            errors.append(f"event {expected_head['seq']} differs from the anchored head {expected_head} (history rewritten)")
         return {"ok": not errors, "errors": errors, "events": len(lines), "trials": len(created),
                 "results": len(results), "head": head}
 
@@ -321,3 +325,64 @@ def record_result(trial_id: str, result: dict, ledger_dir: str = DEFAULT_LEDGER_
 
 def verify(ledger_dir: str = DEFAULT_LEDGER_DIR, expected_head: dict | None = None) -> dict:
     return Ledger(ledger_dir).verify(expected_head)
+
+
+# ---------------- head anchor (P2-C1): record the head in sealed evidence, verify the ledger against it later --------
+ANCHOR_RECORD = "tsb.p2c.trial_ledger_anchor"
+
+
+def anchor(ledger_dir: str = DEFAULT_LEDGER_DIR, *, now: str | None = None) -> dict:
+    """Read-only snapshot of the ledger head for an evidence package: ``seq``/``event_hash`` of the newest event,
+    the event count and the SHA-256 of the ledger file (None if no ledger exists yet). Nothing is created or written."""
+    L = Ledger(ledger_dir)
+    rep = L.verify()
+    if not rep["ok"]:
+        raise LedgerTamper(f"ledger failed verification, refusing to anchor: {rep['errors'][:3]}")
+    fsha = None
+    if os.path.exists(L.path):
+        with open(L.path, "rb") as fh:
+            fsha = hashlib.sha256(fh.read()).hexdigest()
+    return {"record": ANCHOR_RECORD, "record_version": 1, "ledger": LEDGER_RECORD, "ledger_version": LEDGER_VERSION,
+            "ledger_path": os.path.abspath(L.path), "seq": rep["head"]["seq"], "event_hash": rep["head"]["event_hash"],
+            "events": rep["events"], "trials": rep["trials"], "results": rep["results"], "ledger_file_sha256": fsha,
+            "taken_at": now or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+
+def verify_anchor(anchor_rec: dict, ledger_dir: str = DEFAULT_LEDGER_DIR) -> dict:
+    """Full ``verify`` plus the anchor: the ledger must equal or append-only extend the anchored head (the event at the
+    anchored ``seq`` keeps the anchored hash, at least the anchored number of events). Detects truncation and a
+    rewritten history even when every hash was re-chained."""
+    if anchor_rec.get("record") != ANCHOR_RECORD or anchor_rec.get("record_version") != 1:
+        raise LedgerError("not a trial ledger anchor record")
+    rep = Ledger(ledger_dir).verify({"seq": anchor_rec["seq"], "event_hash": anchor_rec["event_hash"]})
+    if rep["events"] < anchor_rec["events"]:
+        rep["errors"].append(f"{rep['events']} events < anchored {anchor_rec['events']} (truncation)")
+    rep["ok"] = not rep["errors"]
+    rep["anchor"] = {k: anchor_rec[k] for k in ("seq", "event_hash", "events", "ledger_file_sha256")}
+    return rep
+
+
+def main(argv=None) -> int:
+    """``python -m p2_research.ledger anchor [--ledger-dir D]``  -> anchor JSON on stdout (store it in evidence);
+    ``python -m p2_research.ledger verify [--ledger-dir D] [--anchor FILE]`` -> exit 0 if ok, 1 otherwise."""
+    import argparse
+    import sys
+    ap = argparse.ArgumentParser(prog="python -m p2_research.ledger")
+    ap.add_argument("command", choices=("anchor", "verify"))
+    ap.add_argument("--ledger-dir", default=DEFAULT_LEDGER_DIR)
+    ap.add_argument("--anchor", help="anchor JSON recorded earlier (verify only)")
+    a = ap.parse_args(argv)
+    if a.command == "anchor":
+        sys.stdout.write(json.dumps(anchor(a.ledger_dir), sort_keys=True, indent=1) + "\n")
+        return 0
+    if a.anchor:
+        with open(a.anchor, encoding="utf-8") as fh:
+            rep = verify_anchor(json.load(fh), a.ledger_dir)
+    else:
+        rep = Ledger(a.ledger_dir).verify()
+    sys.stdout.write(json.dumps(rep, sort_keys=True, indent=1) + "\n")
+    return 0 if rep["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
