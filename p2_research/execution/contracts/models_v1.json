@@ -1,0 +1,68 @@
+{
+ "contract": "tsb.p2x.models",
+ "contract_version": 1,
+ "frozen": "2026-10-05",
+ "execution_models": [
+  {"id": "X0-EXEC-TOUCH", "version": "1.0.0",
+   "definition": "marketable (taker) order; long-only: entry = BUY against the ask, exit = SELL against the bid of the PIT book state at execution_time; the fill = touch adjusted by the declared slippage model; no partial fills, no limit orders, no shorting (direction 'short' is refused)",
+   "touch_source": "bookTicker book record (type=book), latest with available_at_ms <= execution_time",
+   "decision_reference_source": "bookTicker book record, latest with available_at_ms <= decision_time"}
+ ],
+ "latency_models": [
+  {"id": "X0-LAT-0", "version": "1.0.0", "latency_ms": 0, "provenance": "ASSUMED",
+   "definition": "execution_time = decision_time (idealized, instantaneous)"},
+  {"id": "X0-LAT-1S", "version": "1.0.0", "latency_ms": 1000, "provenance": "ASSUMED",
+   "definition": "execution_time = decision_time + 1000 ms",
+   "justification": "order of magnitude of one REST round trip from this host plus processing (collector clock probes measure RTT/2 = uncertainty_ms, about 130 ms), rounded UP to the collector sample grid (sample_grid_ms = 1000), the finest resolution at which book state can be reconstructed; not derived from any return"},
+  {"id": "X0-LAT-5S", "version": "1.0.0", "latency_ms": 5000, "provenance": "ASSUMED",
+   "definition": "execution_time = decision_time + 5000 ms",
+   "justification": "stress: 5x the base latency (slow decision loop / queueing / retry); equals the Tier-2 depth cadence; not derived from any return"}
+ ],
+ "slippage_models": [
+  {"id": "X0-S0", "version": "1.0.0", "kind": "touch_only", "bps_per_side": 0.0, "provenance": "ASSUMED",
+   "definition": "fill = touch exactly (declared zero slippage beyond the touch)"},
+  {"id": "X0-S1-ZERO", "version": "1.0.0", "kind": "fixed_stress", "bps_per_side": 0.0, "provenance": "ASSUMED",
+   "definition": "fill = touch * (1 + side * 0 bps)"},
+  {"id": "X0-S1-LOW", "version": "1.0.0", "kind": "fixed_stress", "bps_per_side": 5.0, "provenance": "ASSUMED",
+   "definition": "fill = touch * (1 + side * 5 bps)"},
+  {"id": "X0-S1-MODERATE", "version": "1.0.0", "kind": "fixed_stress", "bps_per_side": 10.0, "provenance": "ASSUMED",
+   "definition": "fill = touch * (1 + side * 10 bps)"},
+  {"id": "X0-S1-SEVERE", "version": "1.0.0", "kind": "fixed_stress", "bps_per_side": 25.0, "provenance": "ASSUMED",
+   "definition": "fill = touch * (1 + side * 25 bps)"},
+  {"id": "X0-S2-DEPTHWALK", "version": "1.0.0", "kind": "displayed_depth_walk", "provenance": "ESTIMATED",
+   "definition": "walk the PIT depth snapshot (type=depth, latest with available_at_ms <= execution_time) on the order side for order_notional: BUY spends order_notional quote across asks ascending; SELL sells order_notional / depth_L1_bid base across bids descending; s = side * (vwap - depth_L1) / depth_L1 (relative to the snapshot's own level 1, so book/depth snapshot timing differences never enter s); fill = book touch * (1 + side * s)",
+   "unavailable_when": ["no depth snapshot", "depth TOO_STALE / MISSING / from previous run", "invalid ladder (crossed, non-monotone, non-positive price, negative quantity, empty side)", "order_notional exceeds the displayed notional of the side (never extrapolated)"],
+   "supported_scope": "displayed levels only: Tier 0 depth20 at 1 s cadence, Tier 2 depth10 at 5 s, Tier 1 depth10 at 60 s (as recorded in the run record sampling_profile)"}
+ ],
+ "fixed_stress_justification": "X0-S1 is a small predeclared sensitivity set, fixed BEFORE any real-data inspection and never tuned: 5 and 10 bps per side are exactly the P2-D0 protocol slippage sensitivity (+0/+5/+10 bps per side, section 9 item 4) so P2-D results stay comparable; 25 bps (2.5 x the 10 bps fee unit) is a severe bound for a quote held over the slowest sampled cadences (Tier-1 book 10 s, Tier-1 depth 60 s) and for books thinner than the order. All ASSUMED; calibration needs a separately authorized real-fill comparison",
+ "stale_policies": [
+  {"id": "X0-STALE-COLLECTOR", "version": "1.0.0",
+   "source": "the collector's own semantics read from the run record of the boot that wrote the record: semantics.stale_ms and sampling_profile.cadence_ms (SCHEMA.md section 3); defaults = SCHEMA.md values when a run record carries none. No threshold is derived from any return",
+   "book": {"TOO_STALE": "quote_age_ms > hard limit (Tier 0: stale_ms.book_t0; Tier 1/2: stale_ms.book_t12_dead)",
+            "DEGRADED": "quote_age_ms > soft limit (Tier 0: stale_ms.book_t0; Tier 1/2: stale_ms.book_t12_suspect); bookTicker is event-driven, so age <= soft limit means 'no top-of-book change received' (collector semantics), not staleness",
+            "VALID": "otherwise"},
+   "depth": {"TOO_STALE": "quote_age_ms > stale_ms.depth_by_tier[t<tier>]",
+             "DEGRADED": "quote_age_ms > the stream cadence (collector freshness class 'aging')",
+             "VALID": "age <= cadence (collector freshness class 'fresh')"},
+   "confirmation": {"MISSING": "confirmation_gap_ms > 3 x cadence (the collector HEALTHY rule: no gap older than 3 x cadence)",
+                    "DEGRADED": "confirmation_gap_ms > cadence (at least one boundary missing just before t)",
+                    "VALID": "otherwise"}}
+ ],
+ "data_quality_policies": [
+  {"id": "X0-DQ", "version": "1.0.0",
+   "states": {"VALID": "no rule fired", "DEGRADED": "estimate produced, flagged; at least one soft rule fired", "INVALID": "fail closed: execution price UNAVAILABLE (never a favorable or fallback fill)"},
+   "invalid_rules": ["no_book_state", "no_run_at_time (downtime)", "from_previous_run (record of an earlier boot, or observed before ws_start)", "book_too_stale", "book_stream_missing (confirmation)", "stream_not_observing (latest health lists the stream and no newer record exists)", "crossed_or_locked_book (bid >= ask)", "non_positive_price"],
+   "degraded_rules": ["book_age_degraded", "book_confirmation_degraded", "collector_not_healthy (latest health state != HEALTHY)", "stream_recovered_after_not_observing", "no_health_record_in_run", "quote_predates_connection_event (the selected quote was observed before the latest connection event of its connection: reconnect / rotation / stall)", "clock_suspect (record flag or latest clock record)"],
+   "informational_flags": ["gap_known_1h (a closed gap of the stream, available <= t, ended within 1 h)", "depth_incomplete (fewer levels than subscribed)", "depth_book_inconsistent (depth L1 crosses the book touch)", "unchanged (no new update since the previous sample)"],
+   "depth_rules": "the same rules applied to the depth stream gate X0-S2 only (depth INVALID -> X0-S2 UNAVAILABLE; DEGRADED -> flagged)",
+   "load_level": "conflicting duplicates (same stream and sample boundary, different content) fail the whole load (AmbiguityError); unsealed days are refused; segment SHA-256 / sidecar / manifest / record count are verified"}
+ ],
+ "refusals": [
+  {"item": "market impact precision", "reason": "no trade prints (aggTrades are not captured), no queue position, no hidden/iceberg liquidity, depth is a sampled snapshot (1 s / 5 s / 60 s by tier) of 20 or 10 levels; an impact curve beyond the displayed-depth walk cannot be supported"},
+  {"item": "partial fills / fill probability", "reason": "no order-book event stream between samples; marketable orders are assumed fully filled within displayed depth, otherwise UNAVAILABLE"},
+  {"item": "limit / maker orders", "reason": "queue position is unobservable"},
+  {"item": "adverse selection", "reason": "a future post-entry LABEL, kept distinct from slippage; not computed in X0"},
+  {"item": "shorting, futures, margin, other markets", "reason": "not authorized (P2G-ADR-01)"},
+  {"item": "intermediate quotes between samples", "reason": "the collector persists the latest quote per sample boundary; quotes superseded inside a sampling interval are never observed"}
+ ]
+}

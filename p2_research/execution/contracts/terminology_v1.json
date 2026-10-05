@@ -1,0 +1,38 @@
+{
+ "contract": "tsb.p2x.terminology",
+ "contract_version": 1,
+ "id": "X0-TERMS",
+ "version": "1.0.0",
+ "frozen": "2026-10-05",
+ "scope": "crypto / Binance Spot / long-only, marketable (taker) orders; interfaces generic (Execution Adapter -> Canonical Execution Schema)",
+ "terms": [
+  {"term": "decision_time", "definition": "T: the instant a (hypothetical) strategy decides. Only market state with available_at_ms <= T is decision information."},
+  {"term": "decision_price", "definition": "The market reference at decision time: the PIT book state at T (bid, ask and mid). It is a reference, NOT automatically executable; nothing is ever filled at it unless a model declares so (none in v1)."},
+  {"term": "execution_time", "definition": "T + declared_latency_ms (latency model). The fill model uses only market state with available_at_ms <= execution_time."},
+  {"term": "mid", "definition": "(bid + ask) / 2 of one book state. Analytical only: never an execution price; the basis of the bps cost decomposition."},
+  {"term": "touch", "definition": "The executable top-of-book reference at execution time: a buy executes against the ASK, a sell against the BID (marketable, taker)."},
+  {"term": "spread", "definition": "ask - bid of one book state, in price units."},
+  {"term": "normalized_spread_bps", "definition": "(ask - bid) / mid * 1e4."},
+  {"term": "spread_cost_bps", "definition": "Cost of crossing from mid to the touch: side * (touch - mid) / mid * 1e4 (the half-spread, side = +1 buy, -1 sell)."},
+  {"term": "fill_price", "definition": "The modeled execution price: touch * (1 + side * s), s = slippage fraction of the slippage model. Never silently equal to the decision price; equal to the touch only when the slippage model declares s = 0 (X0-S0)."},
+  {"term": "slippage_bps", "definition": "Adverse price difference BEYOND the executable reference (touch) at execution time: side * (fill - touch) / touch * 1e4. Distinct from market movement (latency_drift_bps), spread (spread_cost_bps), fees (fee_bps) and adverse selection."},
+  {"term": "latency_drift_bps", "definition": "Market movement between decision and execution: side * (mid_exec - mid_decision) / mid_decision * 1e4. A market movement, NOT a cost component and NOT slippage."},
+  {"term": "fee_bps", "definition": "Explicit exchange fee rate on executed notional, from the versioned fee schedule (bps). Charged on fill notional; never folded into a price."},
+  {"term": "interaction_bps", "definition": "Second-order cross terms so that the decomposition is exact: total_cost_bps - spread_cost_bps - slippage_bps - fee_bps."},
+  {"term": "total_cost_bps", "definition": "side * (effective_price - mid) / mid * 1e4 with effective_price = fill * (1 + side * fee); equals spread_cost_bps + slippage_bps + fee_bps + interaction_bps exactly."},
+  {"term": "gross_return", "definition": "Round trip only: mid_exit_exec / mid_entry_exec - 1 (cost-free market movement between the two execution times)."},
+  {"term": "net_return", "definition": "Round trip only: effective_exit / effective_entry - 1 with effective_entry = fill_entry * (1 + fee_entry) and effective_exit = fill_exit * (1 - fee_exit). Includes spread, slippage and fees; never a silent zero."},
+  {"term": "adverse_selection", "definition": "Post-entry price movement against the position (a future research LABEL, separate from slippage). Not computed in X0: always UNAVAILABLE with reason."},
+  {"term": "market_impact", "definition": "Price response caused by the order itself. Refused in X0 (no trade prints, no queue, no hidden liquidity, sampled depth): always UNAVAILABLE with reason."},
+  {"term": "quote_age_ms", "definition": "execution_time - observed_at_ms of the PIT-selected record (time since the collector received that quote)."},
+  {"term": "confirmation_gap_ms", "definition": "t - the latest persisted sample boundary (sample_ms <= t) of the stream: how long since the collector last confirmed the stream state."}
+ ],
+ "provenance_classes": [
+  {"class": "MEASURED", "rank": 0, "definition": "A recorded observation used as-is (book bid/ask/quantities, depth levels, timestamps)."},
+  {"class": "DERIVED", "rank": 1, "definition": "Exact arithmetic of MEASURED values (mid, spread, spread cost, ages)."},
+  {"class": "ESTIMATED", "rank": 2, "definition": "A model approximation of an unobserved quantity from MEASURED inputs (displayed-depth walk slippage)."},
+  {"class": "ASSUMED", "rank": 3, "definition": "A declared research assumption, not observed (fee schedule, fixed stress slippage, zero slippage, latency)."},
+  {"class": "UNAVAILABLE", "rank": 4, "definition": "Not computable from the data or not modeled; value is null with a reason, never zero."}
+ ],
+ "propagation": "a composite takes the weakest (highest rank) provenance of its components; any UNAVAILABLE component makes the composite UNAVAILABLE (null + reason). ASSUMED is never presented as MEASURED."
+}

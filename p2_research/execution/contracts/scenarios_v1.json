@@ -1,0 +1,24 @@
+{
+ "contract": "tsb.p2x.scenarios",
+ "contract_version": 1,
+ "frozen": "2026-10-05",
+ "rule": "exactly these three scenarios; all use the same execution model, fee schedule, stale policy and data-quality policy, so coverage is comparable; they differ only in latency and slippage. Defined before any real-data inspection; never chosen or tuned on returns",
+ "scenarios": [
+  {"id": "EXEC-IDEALIZED", "version": "1.0.0",
+   "execution_model": "X0-EXEC-TOUCH", "latency_model": "X0-LAT-0", "slippage_models": ["X0-S0"],
+   "fee_schedule": "X0-FEE-BINANCE-SPOT-STD", "liquidity_role": "taker",
+   "stale_policy": "X0-STALE-COLLECTOR", "data_quality_policy": "X0-DQ",
+   "definition": "touch + fees, no latency, no extra slippage (lower bound of cost; not a realistic fill)"},
+  {"id": "EXEC-BASE", "version": "1.0.0",
+   "execution_model": "X0-EXEC-TOUCH", "latency_model": "X0-LAT-1S", "slippage_models": ["X0-S2-DEPTHWALK"],
+   "fee_schedule": "X0-FEE-BINANCE-SPOT-STD", "liquidity_role": "taker",
+   "stale_policy": "X0-STALE-COLLECTOR", "data_quality_policy": "X0-DQ",
+   "definition": "best defensible current model: touch at decision + 1 s, displayed-depth walk for the order notional, fees; UNAVAILABLE (no fallback) wherever the depth cannot support the walk"},
+  {"id": "EXEC-STRESS", "version": "1.0.0",
+   "execution_model": "X0-EXEC-TOUCH", "latency_model": "X0-LAT-5S", "slippage_models": ["X0-S2-DEPTHWALK", "X0-S1-MODERATE"],
+   "fee_schedule": "X0-FEE-BINANCE-SPOT-STD", "liquidity_role": "taker",
+   "stale_policy": "X0-STALE-COLLECTOR", "data_quality_policy": "X0-DQ",
+   "definition": "adverse but plausible: touch at decision + 5 s, displayed-depth walk PLUS a fixed 10 bps per side add-on, fees; latency changes WHICH state is met (market movement, reported as latency_drift_bps), it is not itself a cost"}
+ ],
+ "sensitivity_only": "X0-S1-ZERO / LOW / MODERATE / SEVERE may be reported as a sensitivity table next to a scenario; they are not additional scenarios"
+}

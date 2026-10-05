@@ -1,0 +1,26 @@
+{
+ "contract": "tsb.p2x.fee_schedule",
+ "contract_version": 1,
+ "id": "X0-FEE-BINANCE-SPOT-STD",
+ "version": "1.0.0",
+ "frozen": "2026-10-05",
+ "assumption_status": "ASSUMED",
+ "entries": [
+  {"venue": "binance", "market_type": "spot", "liquidity_role": "taker", "rate_bps": 10.0,
+   "effective_from": "2026-10-05T00:00:00Z", "effective_basis": "research adoption date of this version (NOT a venue effective date)",
+   "tier": "regular user / VIP 0 standard rate, no BNB fee discount, no promotion, no referral rebate",
+   "source": "public Binance spot fee-schedule knowledge (standard tier 0.1000% taker), recorded as a research assumption; NOT verified against any account, never read from account credentials or the private API",
+   "provenance": "ASSUMED"},
+  {"venue": "binance", "market_type": "spot", "liquidity_role": "maker", "rate_bps": 10.0,
+   "effective_from": "2026-10-05T00:00:00Z", "effective_basis": "research adoption date of this version (NOT a venue effective date)",
+   "tier": "regular user / VIP 0 standard rate, no BNB fee discount, no promotion, no referral rebate",
+   "source": "public Binance spot fee-schedule knowledge (standard tier 0.1000% maker), recorded as a research assumption; unused in X0 (all modeled orders are marketable takers)",
+   "provenance": "ASSUMED"}
+ ],
+ "reconciliation": {
+  "p2c_labels": "identical to p2_research.labels.FEE_BPS_PER_SIDE = 10.0 bps per side (exe.fee_bps_roundtrip = 2 x 10); pinned by a test, the P2-C label set is not modified",
+  "p2d0_protocol": "identical to the 2 x 10 bps round trip of P2D_ALPHA_RESEARCH_PROTOCOL section 9 (fees step)",
+  "paper_r1": "PAPER-R1 fee handling is NOT read or changed; any comparison is a future, separately authorized reconciliation (docs/p2/P2X_EXECUTION_COST_MODEL.md section 17)"
+ },
+ "change_rule": "a different rate, tier, discount or venue is a NEW version (new version string and file hash); estimates carry fee_schedule id+version+sha256, so older estimates are never silently rewritten"
+}

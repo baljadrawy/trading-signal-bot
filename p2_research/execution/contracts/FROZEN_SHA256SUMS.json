@@ -1,0 +1,11 @@
+{
+ "files": {
+  "fee_schedule_v1.json": "62b98d1142a564ad2cea0f7cf1043d21e49ca79f0887b1d76d45124e738e0b70",
+  "models_v1.json": "f6c94cb51a37637895e935cb8cd9319ad021e39c2a685e43bd0ea8a85034d37c",
+  "result_schema_v1.json": "a1df0c6174cc9a61119e60c5dc44ee9911a0cfe4563c3b3d0e91a7cd2606b45b",
+  "scenarios_v1.json": "7196da847be9e72d9164a347e6977f91a19da1439412bcdf0ddb12e6932e19c7",
+  "terminology_v1.json": "067d55e7ef858d4bded731b8f7a151a496305be043125f2567e459c29bed8381"
+ },
+ "record": "tsb.p2x.frozen_sha256",
+ "record_version": 1
+}

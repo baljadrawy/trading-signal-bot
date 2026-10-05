@@ -1,0 +1,38 @@
+{
+ "contract": "tsb.p2x.result_schema",
+ "contract_version": 1,
+ "record": "tsb.p2x.execution_estimate",
+ "record_version": 1,
+ "frozen": "2026-10-05",
+ "quantity_encoding": "every numeric result is a Quantity object {\"value\": number|null, \"provenance\": MEASURED|DERIVED|ESTIMATED|ASSUMED|UNAVAILABLE, \"reason\": string|null}; UNAVAILABLE always has value null and a reason; a missing value is NEVER encoded as 0",
+ "leg_fields": [
+  ["record", "string"], ["record_version", "int"], ["kind", "'leg'"], ["estimate_id", "sha256 of the canonical record without estimate_id"],
+  ["scenario", "{id, version}"], ["models", "{execution, latency, slippage[], fee_schedule, stale_policy, data_quality_policy}: each {id, version}"],
+  ["contract_set_sha256", "sha256 of contracts/FROZEN_SHA256SUMS.json"],
+  ["market_data", "{source_kind, dataset_id, dataset_sha256, days, seal_sha256 per day, reader_version, loader_version}"],
+  ["instrument", "canonical instrument identity (p2_research.instrument)"], ["tier", "int|null (record tier at execution_time)"],
+  ["direction", "'long'"], ["side", "'buy' (entry) | 'sell' (exit)"], ["leg", "'entry' | 'exit'"], ["liquidity_role", "'taker'"],
+  ["order_notional", "{value, currency}: input, never optimized"],
+  ["decision_time_ms", "int"], ["execution_time_ms", "int"], ["latency_ms", "Quantity (ASSUMED)"],
+  ["decision_bid", "Quantity"], ["decision_ask", "Quantity"], ["decision_mid", "Quantity"],
+  ["bid", "Quantity (execution state)"], ["ask", "Quantity"], ["mid", "Quantity"], ["touch", "Quantity"], ["fill", "Quantity"],
+  ["spread", "Quantity (price units)"], ["spread_bps", "Quantity (normalized spread)"], ["spread_cost_bps", "Quantity"],
+  ["fee_bps", "Quantity"], ["slippage_bps", "Quantity"], ["interaction_bps", "Quantity"], ["total_cost_bps", "Quantity"],
+  ["latency_drift_bps", "Quantity (market movement, not a cost)"],
+  ["adverse_selection_bps", "Quantity, always UNAVAILABLE in X0 (future label)"], ["market_impact_bps", "Quantity, always UNAVAILABLE in X0 (refused)"],
+  ["gross_return", "Quantity, UNAVAILABLE for a leg (reason leg_only)"], ["net_return", "Quantity, UNAVAILABLE for a leg (reason leg_only)"],
+  ["market_data_age", "{book_quote_age_ms, book_confirmation_gap_ms, depth_quote_age_ms, depth_confirmation_gap_ms, decision_book_quote_age_ms, connection_event_age_ms}: Quantities"],
+  ["data_quality", "{state VALID|DEGRADED|INVALID, book, depth, decision_book: {state, staleness, confirmation, flags[]}}"],
+  ["cost_provenance", "weakest provenance of the total-cost components"],
+  ["depth_walk", "null or {depth_levels, n_side, levels_used, displayed_notional, filled_base_qty, vwap, depth_l1, depth_book_l1_diff_bps, depth_minus_book_seq}"],
+  ["source_refs", "{decision_book, book, depth}: collector observation identities (obs_id format of SCHEMA.md section 4) or null"]
+ ],
+ "round_trip_fields": [
+  ["record", "string"], ["record_version", "int"], ["kind", "'round_trip'"], ["estimate_id", "sha256"],
+  ["entry_estimate_id", "sha256"], ["exit_estimate_id", "sha256"], ["scenario", "{id, version}"],
+  ["instrument", "identity"], ["direction", "'long'"], ["order_notional", "{value, currency}"],
+  ["entry_decision_time_ms", "int"], ["exit_decision_time_ms", "int"],
+  ["gross_return", "Quantity"], ["net_return", "Quantity"], ["entry_total_cost_bps", "Quantity"], ["exit_total_cost_bps", "Quantity"],
+  ["cost_provenance", "weakest of both legs"], ["data_quality_state", "worst of both legs"]
+ ]
+}
