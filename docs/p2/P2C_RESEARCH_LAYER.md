@@ -82,6 +82,10 @@ recoverable from an archive but P2-C does not fetch anything (no network).
   deduplicated by `obs_id` on canonical content. Out-of-order input gives an identical bundle (tested).
 - Multi-run: run chain from `runs/`, downtime intervals explicit (never stitched), unknown `boot_id` → fail;
   epochs from `universe_active`, `universe_transition` and `day_checkpoint`, each universe file SHA-checked.
+  An epoch effective **or** announced at/after the range end (e.g. the D+1 universe refresh at 00:10, announced in
+  D's spill-over hour) can never be known at a decision time of the range: it is ignored, counted as
+  `universe_epochs_beyond_range_ignored`, and its artifact is not opened (reader v2.2, P2-C1 regression R1), so a
+  sealed day builds from its own sealed files and its sealed-day backup alone.
 
 ## 5. Quality semantics
 
@@ -182,13 +186,31 @@ stop): identical manifest and logical hash, identical uncompressed and gzip cont
 - O1 memory: in-memory bundle ~1.1 GB per production day. Addressed by the per-day streaming build (§9): sampled
   state is bounded to ~one day; a small per-day linear term remains (candles, control records, label lookups,
   output-row bookkeeping), measured in the delta evidence. Real multi-day builds still wait for P2-C1.
-- O2 no real sealed day existed when this foundation was built; only synthetic validation plus a read-only
-  experimental diagnostic of the active day (evidence).
+- O2 closed by P2-C1 (2026-10-05): first real sealed day 2026-10-04 (partial, collector start 14:25:50Z) built,
+  rebuilt from the dataset, from the sealed-day backup and in-memory with an identical logical hash and byte-identical
+  content; PIT audit 0 violations; evidence `p2c1-*` (see §12).
 - O3 history: rolling features need up to 24 h (15m×96) / 25 h of candles; early rows of a dataset are null by design.
 - O4 execution labels are top-of-book only (no depth walk, no latency model beyond the next observation).
-- O5 synthetic fixtures model the collector layout from SCHEMA.md and the verifiers; real-data parity must be
-  re-checked on the first sealed days (field shapes, day_checkpoint/transition payloads).
+- O5 synthetic fixtures model the collector layout from SCHEMA.md and the verifiers; real-data parity checked in
+  P2-C1 on 2026-10-04 (§12). One reader defect found and fixed (R1); everything else matched or is documented there.
 - O6 the collector's first hour (14:25–15:26Z on 2026-10-04) predates E (PAPER-R1); it is market data, not W3
   outcomes, but any evaluation must still avoid choosing anything on pre-E data.
 - Q1 should the decision grid be per timeframe (1h/4h) for slower strategies? Q2 tier-1 book cadence (10 s) makes
   `spread_norm_1h` noisier for tier 1; acceptable for `experimental` status.
+
+## 12. Real-data notes (P2-C1, sealed day 2026-10-04)
+
+Checked against 888,751 day records + 93,313 spill-over records (evidence `p2c1-*`). Classification of every
+real-vs-synthetic difference:
+
+| Finding | Class | Effect |
+|---|---|---|
+| R1: the D+1 universe transition (effective 00:10:10Z) is announced in D's spill-over hour; the reader opened its D+1 artifact | reader defect (fixed, reader v2.2, regression test) | D now builds from its sealed files / sealed backup alone; no row changed |
+| `health.streams_not_observing` is a dict keyed by stream (synthetic: list) | benign | the reader keeps the keys (stream names); `dq.degraded_flag` unchanged |
+| sampled records are filed by `sample_ms` hour: 82 records observed before midnight live in the D+1 first-hour file | benign / documentation | the spill-over hour is always loaded; PIT uses `available_at_ms` |
+| records inside a segment are not in `recv` order (per-tick multi-symbol writes) | benign | the reader sorts by a total order |
+| book sample-and-hold: `sample_ms - observed_at_ms` up to 98.7 s (unchanged books) | benign (by design) | ages exposed as `dq.book_age_s`; stale limits apply |
+| startup candle backfill is shallow (15m: 3, 1h/4h/1d: 1 candle per symbol) | warm-up (by design, O3) | 9 long-history features null all day (`insufficient_history`); 24 h labels need D+1 |
+| steady-state candle fetch lag 15m ≤ 164 s, 1h/4h/1d ≤ 314 s (< 390 s grid offset); startup backfill up to 14.5 h late | matches assumption | `latest_closed_candle_unavailable` never occurred |
+| market snapshot components can be up to 110 s old (p99 29 s); first snapshot (startup_complete=false) misses 22 symbols | data-quality limitation | context features use the snapshot as-is; startup snapshot not used |
+| spill-over-hour gaps/health (D+1 rotation) are counted in the manifest reader counters | documentation | they cannot be known at a decision time of D (PIT) |

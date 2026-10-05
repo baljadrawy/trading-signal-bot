@@ -66,3 +66,19 @@ against an externally recorded head (`head()` → `{seq, event_hash}`), e.g. sto
 
 `trial_counts()` → per hypothesis: `trials` (all attempts), `pending`, `accepted`, `rejected`, `inconclusive`. Later
 Deflated Sharpe / PBO calculations must use `trials` (not only accepted ones). No such calculation exists yet.
+
+## Head anchor (P2-C1)
+
+Truncation, or a history rewritten and re-chained end to end, is only detectable against a head recorded outside
+the ledger. Every sealed evidence package records it:
+
+```
+python -m p2_research.ledger anchor [--ledger-dir DIR] > ledger_head_anchor.json      # read-only; creates nothing
+python -m p2_research.ledger verify [--ledger-dir DIR] --anchor ledger_head_anchor.json  # exit 0 ok, 1 tampered
+```
+
+The anchor (`tsb.p2c.trial_ledger_anchor` v1) holds `seq` and `event_hash` of the newest event, the event / trial /
+result counts and the SHA-256 of `trials.jsonl` (null while no ledger exists). `verify_anchor` runs the full
+`verify` and additionally requires that the ledger equals or append-only extends the anchor: at least the anchored
+number of events and, at the anchored `seq`, the anchored `event_hash`. The anchor file is protected by the evidence
+package's `SHA256SUMS`. First anchor: P2-C1 evidence, empty ledger (`seq = -1`, genesis hash, 0 events).
