@@ -1,0 +1,87 @@
+{
+ "benchmarks": [
+  {
+   "costs": "none",
+   "definition": "no position at any time; return 0, cost 0, drawdown 0",
+   "eligible": true,
+   "id": "BENCH-CASH",
+   "rebalancing": "none",
+   "signal": "none",
+   "universe": "n/a"
+  },
+  {
+   "costs": "one round trip",
+   "definition": "buy BTCUSDT at the first eligible decision time of the evaluation window at the entry ask, hold to the last eligible decision time, sell at the exit bid; fees 10 bps per side once",
+   "eligible": true,
+   "id": "BENCH-BTC-BH",
+   "meaningful_when": "window >= 1 full day; reported as market reference, not as a hurdle for short-horizon trials",
+   "rebalancing": "none",
+   "signal": "always long",
+   "universe": "BTCUSDT only"
+  },
+  {
+   "costs": "round trip per entry",
+   "definition": "at each daily decision time: LONG BTCUSDT for 24h if the BTCUSDT row has mom.ret_1d_1 > 0 (previous UTC day closed up), else FLAT; time exit after 24h",
+   "eligible": true,
+   "id": "BENCH-BTC-TREND",
+   "labels": [
+    "mkt.fwd_ret_24h",
+    "exe.net_ret_24h"
+   ],
+   "parameters": {
+    "horizon": "24h",
+    "lookback": "1 UTC day",
+    "threshold": 0.0
+   },
+   "rebalancing": "daily",
+   "signal": "mom.ret_1d_1 > 0 (BTCUSDT)",
+   "universe": "BTCUSDT"
+  },
+  {
+   "costs": "round trip per position",
+   "definition": "at each daily decision time: equal-weight LONG every eligible universe symbol with mom.ret_1d_1 > 0, FLAT the rest; hold 24h (long/flat because spot cannot short)",
+   "eligible": true,
+   "id": "BENCH-TSMOM",
+   "labels": [
+    "mkt.fwd_ret_24h",
+    "exe.net_ret_24h"
+   ],
+   "parameters": {
+    "horizon": "24h",
+    "lookback": "1 UTC day",
+    "threshold": 0.0,
+    "weighting": "equal weight among selected; cash if none"
+   },
+   "rebalancing": "daily",
+   "signal": "mom.ret_1d_1 > 0 per symbol",
+   "universe": "universe-asof at the decision time, all tiers"
+  },
+  {
+   "costs": "as recorded by Paper",
+   "definition": "realized forward outcomes of the running PAPER-R1 strategy (ID PAPER-R1-20261004T152643Z) from E = 2026-10-04T15:26:43.497803Z onward, under PAPER-R1 governance, as forward evidence only (never a tuning set)",
+   "eligibility_condition": "only after a separately authorized, predeclared PAPER-R1 linkage (exe.paper_outcome is null: paper_r1_linkage_not_authorized) and only for windows >= E; never W3",
+   "eligible": false,
+   "id": "BENCH-PAPER-R1",
+   "rebalancing": "as PAPER-R1",
+   "signal": "PAPER-R1 as deployed (not re-implemented)",
+   "universe": "as PAPER-R1"
+  }
+ ],
+ "common": {
+  "costs": "same execution_model and cost cascade as the hypotheses (protocol)",
+  "decision_daily": "the first decision time of each UTC day: 00:06:30Z (grid-15m-plus390s-v1)",
+  "ledger": "each benchmark evaluation is registered as a ledger trial with hypothesis_id H-P2D-BENCH-v1 (counted separately; never selected)",
+  "market": {
+   "asset_class": "crypto",
+   "calendar_id": "crypto-24x7-utc",
+   "product": "spot",
+   "venue": "binance"
+  },
+  "periods": "identical evaluation windows (folds) as the trials compared; never W3; never pre-E",
+  "universe_policy": "universe-asof-all-tiers-v1"
+ },
+ "never_named_B3": "B3 is the production risk breaker; no benchmark is called B3",
+ "record": "tsb.p2d.benchmark_registry",
+ "record_version": 1,
+ "status": "FROZEN (P2-D0)"
+}

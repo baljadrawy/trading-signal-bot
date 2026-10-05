@@ -1,0 +1,2600 @@
+{
+ "hypotheses_sha256": "c5df5bf438a03702cc4d3ad49eeada637c74dc2e61cbdcbfa6a7b5c26db933c0",
+ "record": "tsb.p2d.planned_trials",
+ "record_version": 1,
+ "registered_in_ledger": false,
+ "registration_rule": "registered with ledger.create_trial at P2-D1 start, before any outcome is computed",
+ "round": 1,
+ "trials": [
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "4h",
+    "lookback": "4h",
+    "theta": 0.5
+   },
+   "plan_entry_sha256": "300735564f1dc5d65cf0b21b8d482f9ae06eb97ab0d299ede350abb13f6b766d",
+   "plan_id": "P2D-R1-H01-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "24h",
+    "lookback": "4h",
+    "theta": 0.5
+   },
+   "plan_entry_sha256": "5582c8811b58d16383e7819e4f432e0a83c3bec5a366220856b4c0abd4b4675e",
+   "plan_id": "P2D-R1-H01-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "4h",
+    "lookback": "4h",
+    "theta": 1.0
+   },
+   "plan_entry_sha256": "d1367bf2400e70ff7d652d2e43fa9cfb9efcd3f7ed8a0ef80cc17f7b40f8a09c",
+   "plan_id": "P2D-R1-H01-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "24h",
+    "lookback": "4h",
+    "theta": 1.0
+   },
+   "plan_entry_sha256": "31e11929a29cc95ccd236d126f4ab248569ca827fc2b023dc2303465a010fb57",
+   "plan_id": "P2D-R1-H01-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "4h",
+    "lookback": "1d",
+    "theta": 0.5
+   },
+   "plan_entry_sha256": "3e2a6d395b87e53f3ba5419a008209d5cfa84f043fcb9431f369470c0d9d5303",
+   "plan_id": "P2D-R1-H01-005",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "24h",
+    "lookback": "1d",
+    "theta": 0.5
+   },
+   "plan_entry_sha256": "5f50ab1d64aa70dd71fe1afa3ebdd71500beff1c79c9d47093b4f4c88c095782",
+   "plan_id": "P2D-R1-H01-006",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "4h",
+    "lookback": "1d",
+    "theta": 1.0
+   },
+   "plan_entry_sha256": "385418afda54a66eb0b8a75019577a107efcf463d4dbc7235b1d241221fa1299",
+   "plan_id": "P2D-R1-H01-007",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H01",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "params": {
+    "horizon": "24h",
+    "lookback": "1d",
+    "theta": 1.0
+   },
+   "plan_entry_sha256": "11dfa86becdcb27d7bc9fcecd8d100683de6579d890083b71e75c82f8c84531b",
+   "plan_id": "P2D-R1-H01-008",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon (incremental test)",
+    "secondary": "random-removal control: the H01-REF positions thinned by a deterministic hash filter (sha256(plan_id|symbol|T) uniform) at the SAME pass rate as the confirmation, to separate 'fewer trades' from 'better trades'",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "liq.spread_norm_1h",
+    "liq.depth_imbalance_10"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H02",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H02-mom-liquidity-v1",
+   "params": {
+    "confirmation": "spread_norm_le_1",
+    "horizon": "4h"
+   },
+   "plan_entry_sha256": "69dcbdb7b7c530e41236ae45cb3813e40ad2f9172331076cafa0346924a6253d",
+   "plan_id": "P2D-R1-H02-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-liqconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon (incremental test)",
+    "secondary": "random-removal control: the H01-REF positions thinned by a deterministic hash filter (sha256(plan_id|symbol|T) uniform) at the SAME pass rate as the confirmation, to separate 'fewer trades' from 'better trades'",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "liq.spread_norm_1h",
+    "liq.depth_imbalance_10"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H02",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H02-mom-liquidity-v1",
+   "params": {
+    "confirmation": "spread_norm_le_1",
+    "horizon": "24h"
+   },
+   "plan_entry_sha256": "a2e08a6e9b9a4b2a1d8d7b5f53613d46e6af7a744c6501bff5421be002b28281",
+   "plan_id": "P2D-R1-H02-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-liqconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon (incremental test)",
+    "secondary": "random-removal control: the H01-REF positions thinned by a deterministic hash filter (sha256(plan_id|symbol|T) uniform) at the SAME pass rate as the confirmation, to separate 'fewer trades' from 'better trades'",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "liq.spread_norm_1h",
+    "liq.depth_imbalance_10"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H02",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H02-mom-liquidity-v1",
+   "params": {
+    "confirmation": "depth_imbalance_ge_0",
+    "horizon": "4h"
+   },
+   "plan_entry_sha256": "cee6e7277789e52a658c7eafc8af56647cf1f66e178bbcdbbc89f9ef152ed7f2",
+   "plan_id": "P2D-R1-H02-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-liqconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon (incremental test)",
+    "secondary": "random-removal control: the H01-REF positions thinned by a deterministic hash filter (sha256(plan_id|symbol|T) uniform) at the SAME pass rate as the confirmation, to separate 'fewer trades' from 'better trades'",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "liq.spread_norm_1h",
+    "liq.depth_imbalance_10"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H02",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H02-mom-liquidity-v1",
+   "params": {
+    "confirmation": "depth_imbalance_ge_0",
+    "horizon": "24h"
+   },
+   "plan_entry_sha256": "997ac197c9c43fe723fae646292664a6ffca81c941441deb27bdb0dc4bd68a55",
+   "plan_id": "P2D-R1-H02-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-liqconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.6,
+    "horizon": "4h",
+    "mode": "volatility_information"
+   },
+   "plan_entry_sha256": "6b830748ebba85a7e4b28ff374b4ff6bab8f92f9af8ebcfd47d61b837b8f382f",
+   "plan_id": "P2D-R1-H03-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.6,
+    "horizon": "24h",
+    "mode": "volatility_information"
+   },
+   "plan_entry_sha256": "b9660e1837326422349274f07c052ab169f06fb27b86ea5ee13b4eb3fa15d220",
+   "plan_id": "P2D-R1-H03-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.8,
+    "horizon": "4h",
+    "mode": "volatility_information"
+   },
+   "plan_entry_sha256": "050ca0ad974becf030fc51adf187539bef53000f1747f83f4bb3e4a0389a2a4d",
+   "plan_id": "P2D-R1-H03-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.8,
+    "horizon": "24h",
+    "mode": "volatility_information"
+   },
+   "plan_entry_sha256": "a8743fc41ba13066e87f25fcaaf4a7805eaf435384eab5a30a6b1e2e3c2c5731",
+   "plan_id": "P2D-R1-H03-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.6,
+    "horizon": "4h",
+    "mode": "directional_breakout"
+   },
+   "plan_entry_sha256": "7401d1e4b35210a52e00de233831886677abb6a7dc2c2fd44a128d50d72b7d73",
+   "plan_id": "P2D-R1-H03-005",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.6,
+    "horizon": "24h",
+    "mode": "directional_breakout"
+   },
+   "plan_entry_sha256": "8f31c1dc409b3d56868250fd64ee45fd5197617dd4db754fff3e40c69de3d839",
+   "plan_id": "P2D-R1-H03-006",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.8,
+    "horizon": "4h",
+    "mode": "directional_breakout"
+   },
+   "plan_entry_sha256": "5934e4216771e5bff5104a1d0db62ee9a6a081e46086045b6d24d078ff5c662e",
+   "plan_id": "P2D-R1-H03-007",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "hypothesis": "H03",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "params": {
+    "c": 0.8,
+    "horizon": "24h",
+    "mode": "directional_breakout"
+   },
+   "plan_entry_sha256": "d7875a192644808271c16472ce7049e308e8298d12572ed3f4ecc9e28142254d",
+   "plan_id": "P2D-R1-H03-008",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-vol-compression",
+   "trial_kind": "information_and_directional"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "regime_only",
+    "horizon": "4h",
+    "trend_definition": "broad"
+   },
+   "plan_entry_sha256": "1b89c979c650e6c71d2dcd9bcf9d6794ada5982b869dd99b8004e746c26b33a5",
+   "plan_id": "P2D-R1-H04-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "regime_only",
+    "horizon": "24h",
+    "trend_definition": "broad"
+   },
+   "plan_entry_sha256": "6ca1cafd622bb020db95a424520a1c35e8b2ee03de278e6643917d6bac805b56",
+   "plan_id": "P2D-R1-H04-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "h01ref_gated",
+    "horizon": "4h",
+    "trend_definition": "broad"
+   },
+   "plan_entry_sha256": "9b33556c7dd369cc3791715350259d350559963e9cfcb016125e47f48168994b",
+   "plan_id": "P2D-R1-H04-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "h01ref_gated",
+    "horizon": "24h",
+    "trend_definition": "broad"
+   },
+   "plan_entry_sha256": "8468289a5fa5bdaae0d96938616cff425968b1deb7b4e50954fe450330de08f6",
+   "plan_id": "P2D-R1-H04-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "regime_only",
+    "horizon": "4h",
+    "trend_definition": "btc"
+   },
+   "plan_entry_sha256": "fa474538bd2401247a72edd0a18c608d591a4f8d720c946de794c73de0e25e0b",
+   "plan_id": "P2D-R1-H04-005",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "regime_only",
+    "horizon": "24h",
+    "trend_definition": "btc"
+   },
+   "plan_entry_sha256": "56643fe8ba3fe2e219c989dcd2cfc0b57667979770deb956ec2bc4216740eeb8",
+   "plan_id": "P2D-R1-H04-006",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "h01ref_gated",
+    "horizon": "4h",
+    "trend_definition": "btc"
+   },
+   "plan_entry_sha256": "8eaba057b5de6214d512931ed6249138556bcb2eb24dd11524799fb4232c9332",
+   "plan_id": "P2D-R1-H04-007",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "hypothesis": "H04",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "params": {
+    "application": "h01ref_gated",
+    "horizon": "24h",
+    "trend_definition": "btc"
+   },
+   "plan_entry_sha256": "323dc261f13cb99b9d02057bcebfae41987c10b8cd65285538c14e1367a2cd17",
+   "plan_id": "P2D-R1-H04-008",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-regime",
+   "trial_kind": "conditioning"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon",
+    "secondary": "random-removal control at the same pass rate (as H02)",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "act.rel_volume_15m_96"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H05",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H05-rel-volume-v1",
+   "params": {
+    "horizon": "4h",
+    "v": 1.5
+   },
+   "plan_entry_sha256": "ea68d4951f5734038f760833e4e8341341eb93b09374cf19680d872533f13294",
+   "plan_id": "P2D-R1-H05-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-volconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon",
+    "secondary": "random-removal control at the same pass rate (as H02)",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "act.rel_volume_15m_96"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H05",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H05-rel-volume-v1",
+   "params": {
+    "horizon": "24h",
+    "v": 1.5
+   },
+   "plan_entry_sha256": "5e9277e3f93a9e7c082828525b2f56b505de39c099033762f49f11093fe0d3e4",
+   "plan_id": "P2D-R1-H05-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-volconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon",
+    "secondary": "random-removal control at the same pass rate (as H02)",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "act.rel_volume_15m_96"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H05",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H05-rel-volume-v1",
+   "params": {
+    "horizon": "4h",
+    "v": 3.0
+   },
+   "plan_entry_sha256": "39d8516b8613ee6ecca07a53804f82eec2a7b4f50f4e56992996308648d0edab",
+   "plan_id": "P2D-R1-H05-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-volconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "H01-REF alone on the same rows and horizon",
+    "secondary": "random-removal control at the same pass rate (as H02)",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "act.rel_volume_15m_96"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H05",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H05-rel-volume-v1",
+   "params": {
+    "horizon": "24h",
+    "v": 3.0
+   },
+   "plan_entry_sha256": "c49baa1988482a9d64d879732282d1ccf8a33a59edad6688d6682ec964fdc849",
+   "plan_id": "P2D-R1-H05-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-tsmom-volconfirm",
+   "trial_kind": "incremental_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "h01ref",
+    "horizon": "4h",
+    "strictness": "standard"
+   },
+   "plan_entry_sha256": "fdf5fbfd4258b155d14088747537c13d91cb40e6ab90431752afbf6b46636c2a",
+   "plan_id": "P2D-R1-H06-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "h01ref",
+    "horizon": "24h",
+    "strictness": "standard"
+   },
+   "plan_entry_sha256": "c2e6022c7cc088f5d8702a3993f460526d8dbb9258e8ca26bf361fe457d02d1c",
+   "plan_id": "P2D-R1-H06-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "all_eligible",
+    "horizon": "4h",
+    "strictness": "standard"
+   },
+   "plan_entry_sha256": "928eebfcfd9cd5da2f45aa3b2b324a9617777a7208653a34b1e45db3a2eb14da",
+   "plan_id": "P2D-R1-H06-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "all_eligible",
+    "horizon": "24h",
+    "strictness": "standard"
+   },
+   "plan_entry_sha256": "f9f74cb7ab1f189224e9da451425495e222205c2d14a41bda1f053a802aa9abf",
+   "plan_id": "P2D-R1-H06-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "h01ref",
+    "horizon": "4h",
+    "strictness": "strict"
+   },
+   "plan_entry_sha256": "044b3b2762d2a3455bddb625f968b99cc76f141dabc69b6bd6fa44f67ca5ea78",
+   "plan_id": "P2D-R1-H06-005",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "h01ref",
+    "horizon": "24h",
+    "strictness": "strict"
+   },
+   "plan_entry_sha256": "d256b08954f73f293e790595b8bdb329392fe1fdbbb847cfe2239f370376d8f2",
+   "plan_id": "P2D-R1-H06-006",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "all_eligible",
+    "horizon": "4h",
+    "strictness": "strict"
+   },
+   "plan_entry_sha256": "b0ebb74ff12fc6cc888367534859dd7f271313c2927133a7892a0d4639829c89",
+   "plan_id": "P2D-R1-H06-007",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "hypothesis": "H06",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "params": {
+    "base": "all_eligible",
+    "horizon": "24h",
+    "strictness": "strict"
+   },
+   "plan_entry_sha256": "8767bf82bc9c02eddb108fb3b2c6c11961fd2587e887ab15c23770815865e5f7",
+   "plan_id": "P2D-R1-H06-008",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-no-trade-filter",
+   "trial_kind": "removal_filter"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "none",
+    "horizon": "4h",
+    "theta": 1.5
+   },
+   "plan_entry_sha256": "b5ba32033bb01dbe7859a9f3a1bae9aa730a39131695a854330bd1790f240309",
+   "plan_id": "P2D-R1-H07-001",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "none",
+    "horizon": "24h",
+    "theta": 1.5
+   },
+   "plan_entry_sha256": "e6240a334e7e1149031901080343bdf9ab09d93c41a590e44e3a7b9dba817d99",
+   "plan_id": "P2D-R1-H07-002",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "market_nonneg",
+    "horizon": "4h",
+    "theta": 1.5
+   },
+   "plan_entry_sha256": "61a917eeae443a82151528613c1643e5036f8e1075e8491f55d4a68ad2bc5e11",
+   "plan_id": "P2D-R1-H07-003",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "market_nonneg",
+    "horizon": "24h",
+    "theta": 1.5
+   },
+   "plan_entry_sha256": "f08f0dc44eedf66f4f76d499687bb3d2607154ab04711fc3af39658a262d8a54",
+   "plan_id": "P2D-R1-H07-004",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "none",
+    "horizon": "4h",
+    "theta": 2.5
+   },
+   "plan_entry_sha256": "0f9bb2b7fd7d330e638eea8d0594a70bd6c33d0f465e9073e1174049cc772688",
+   "plan_id": "P2D-R1-H07-005",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "none",
+    "horizon": "24h",
+    "theta": 2.5
+   },
+   "plan_entry_sha256": "9b432b99d21900975a68f72213b429db4c69a815bf36cfe94dcc42bc88391fa9",
+   "plan_id": "P2D-R1-H07-006",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "market_nonneg",
+    "horizon": "4h",
+    "theta": 2.5
+   },
+   "plan_entry_sha256": "c4fe52403ab3d56fd6e5e9f680321f135c25c5e709d740e6d618f7a75ae41337",
+   "plan_id": "P2D-R1-H07-007",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  },
+  {
+   "control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "hypothesis": "H07",
+   "labels": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "params": {
+    "condition": "market_nonneg",
+    "horizon": "24h",
+    "theta": 2.5
+   },
+   "plan_entry_sha256": "e776c0d367a28b6bf47a7ac08bcced7187676de55d458cf80acbf1232d2d4832",
+   "plan_id": "P2D-R1-H07-008",
+   "record": "tsb.p2d.planned_trials",
+   "round": 1,
+   "status": "PLANNED",
+   "strategy_family": "p2d-reversion",
+   "trial_kind": "directional"
+  }
+ ],
+ "trials_per_hypothesis": {
+  "H01": 8,
+  "H02": 4,
+  "H03": 8,
+  "H04": 8,
+  "H05": 4,
+  "H06": 8,
+  "H07": 8
+ },
+ "trials_total": 48
+}

@@ -1,0 +1,10 @@
+{
+ "files": {
+  "benchmarks_v1.json": "757f77ebe70912b6e66143e4e14d2c16ea4ab5d2375d91ff9e2a001a417ab96c",
+  "hypotheses_v1.json": "c5df5bf438a03702cc4d3ad49eeada637c74dc2e61cbdcbfa6a7b5c26db933c0",
+  "planned_trials_v1.json": "e95a39ce6a9815cc2a86dd096488e942ab0c8f252145b817e80a9d31cf53437e",
+  "protocol_v1.json": "2843ba9d69691fe2889e4ad7cb6bc4c6dc5c931586764bd8eac822cccdc08f05"
+ },
+ "record": "tsb.p2d.frozen_sha256",
+ "record_version": 1
+}

@@ -1,0 +1,364 @@
+{
+ "concentration_diagnostics": [
+  "pct_profit_top_symbol",
+  "pct_profit_top_3_symbols",
+  "best_day_share",
+  "best_week_share",
+  "single_regime_share",
+  "extreme_trade_share (top 1% of |pnl|)"
+ ],
+ "crypto_success_gate_draft": {
+  "dimensions": {
+   "Paper forward results": "TBD",
+   "Shadow results": "TBD",
+   "adversarial validation (P2-F)": "TBD",
+   "drawdown": "TBD",
+   "edge stability (time/symbol/regime)": "TBD",
+   "execution quality (P2-X)": "TBD",
+   "realistic costs": "TBD",
+   "robust research evidence": "TBD",
+   "sample size": "TBD"
+  },
+  "status": "DRAFT, design only, NOT active; all thresholds TBD and owner-approved later"
+ },
+ "excluded": [
+  "machine learning",
+  "deep learning",
+  "reinforcement learning",
+  "LLM trading decisions",
+  "news data",
+  "social data",
+  "on-chain data",
+  "unrestricted indicator generation",
+  "genetic optimization",
+  "Bayesian optimization",
+  "automated strategy mutation",
+  "large parameter grids",
+  "feeding all 40 features into any optimizer",
+  "combining hypotheses (e.g. momentum + reversion) in round 1",
+  "shorting (spot)",
+  "non-crypto markets"
+ ],
+ "execution_model": {
+  "approximation": "top of book only: no depth walk, no latency model, no partial fills (P2-C O4); P2-X will replace this",
+  "entry": "exe.entry_ask: ask of the first book sample observed in (T, T+60 s]",
+  "exit": "bid of the first book sample observed in (T+h, T+h+60 s] (exe.net_ret_{h})",
+  "fees": "10 bps per side taker (exe.fee_bps_roundtrip = 20 bps)",
+  "position": "one unit notional per position; equal weight; no sizing (P2-RM)"
+ },
+ "feature_set": {
+  "hypothesis_families_sha256": "d163b3c97404901b138d01d066aed7c92a69efeddcaf0b2c5ae18670f728ce91",
+  "id": "p2c-fs",
+  "registry_sha256": "bcf38504ae746027df0932b2a501dadf74af061b4b64a28de06d4831d71db81a",
+  "version": "1.0.0"
+ },
+ "gross_vs_executable": {
+  "cascade": [
+   "gross edge: mkt.fwd_ret_{h} (15m bar open after T to bar close at horizon; no spread)",
+   "spread: executable entry at ask, exit at bid (exe.net_ret_{h} + fees)",
+   "fees: 2 x 10 bps",
+   "slippage assumption: sensitivity +0 / +5 / +10 bps per side on top of top-of-book (reported, not tuned)",
+   "turnover: positions per day x round-trip cost",
+   "net: exe.net_ret_{h} minus slippage sensitivity"
+  ],
+  "ledger_cost_assumptions": {
+   "fee_bps_per_side": 10.0,
+   "slippage_bps_per_side_sensitivity": [
+    0,
+    5,
+    10
+   ],
+   "source": "p2c-ls 1.0.0 exe.*",
+   "spread": "top-of-book exe labels"
+  },
+  "rule": "P2-D may measure gross information first; nothing is called economically successful before costs; P2-X (execution quality) stays a separate stage"
+ },
+ "label_set": {
+  "id": "p2c-ls",
+  "version": "1.0.0"
+ },
+ "ledger_integration": {
+  "decision": "planned trials are FROZEN NOW (planned_trials_v1.json, hashed) and REGISTERED in the Trial Ledger at P2-D1 start, before any outcome is computed",
+  "ledger_now": "untouched (no trial registered at P2-D0); the empty head is anchored in the evidence",
+  "why": "a ledger spec needs a code commit, a dataset hash and train/validation periods that do not exist before the data gate; registering placeholders would put fake dataset hashes into an immutable record. The plan itself is immutable now (hash) and each ledger spec binds plan_entry_sha256 and the registry hashes in parameter_spec"
+ },
+ "market": {
+  "asset_class": "crypto",
+  "calendar_id": "crypto-24x7-utc",
+  "product": "spot",
+  "venue": "binance"
+ },
+ "metrics_contract": {
+  "information_trials": [
+   "mean_difference_vs_control",
+   "bootstrap_ci_day_blocks",
+   "event_count"
+  ],
+  "later": [
+   "deflated_sharpe_ratio",
+   "pbo"
+  ],
+  "ledger_metrics_requested": [
+   "trades",
+   "net_expectancy",
+   "gross_expectancy",
+   "profit_factor",
+   "win_rate",
+   "payoff_ratio",
+   "turnover",
+   "max_drawdown",
+   "worst_day",
+   "mae",
+   "mfe",
+   "by_time_fold",
+   "by_symbol",
+   "by_regime",
+   "pnl_concentration",
+   "cost_sensitivity"
+  ],
+  "no_single_metric_ranking": "no trial or cell is ranked or selected on any single metric",
+  "risk": [
+   "max_drawdown",
+   "downside_deviation",
+   "worst_day",
+   "worst_week",
+   "time_under_water",
+   "tail_loss_p5",
+   "tail_loss_p1",
+   "loss_streak_distribution"
+  ],
+  "risk_adjusted": [
+   "sharpe",
+   "sortino",
+   "calmar"
+  ],
+  "risk_adjusted_rule": "reported only where meaningful (>= 7 daily returns for Sharpe/Sortino; Calmar only with a non-zero drawdown); annualization sqrt(365) for daily crypto returns",
+  "robustness": [
+   "by_time_fold",
+   "by_symbol",
+   "by_tier",
+   "by_regime",
+   "parameter_neighbour_sensitivity",
+   "pnl_concentration",
+   "cost_sensitivity"
+  ],
+  "trade_path": [
+   "mae",
+   "mfe"
+  ],
+  "trading_economics": [
+   "trades",
+   "net_expectancy",
+   "gross_expectancy",
+   "profit_factor",
+   "win_rate",
+   "avg_win",
+   "avg_loss",
+   "payoff_ratio",
+   "turnover"
+  ]
+ },
+ "multiple_testing": {
+  "anchor": "the ledger head (python -m p2_research.ledger anchor) is stored in every sealed evidence package",
+  "count": [
+   "total trials",
+   "trials per hypothesis",
+   "related variants (same hypothesis, same base)",
+   "rejected trials",
+   "failed / aborted trials (pending without result are still counted)",
+   "benchmark evaluations (separately)"
+  ],
+  "never_delete": "trials are never deleted or overwritten (ledger: append-only, one result per trial)",
+  "reserved_for_later": [
+   "Deflated Sharpe Ratio (N = all ledger trials)",
+   "Probability of Backtest Overfitting (CSCV over the frozen grid)",
+   "parameter stability",
+   "temporal stability"
+  ],
+  "within_round_1": "Holm correction across the trials of each hypothesis at family-wise alpha 0.05 (one-sided, positive effect); a global count across all 48 is reported next to it"
+ },
+ "outcome_categories": {
+  "INCONCLUSIVE": "fewer than the minimum days, too few positions for the bootstrap, or confidence intervals that neither support nor reject",
+  "REJECTED": "the upper 95% bound of the GROSS mean difference is below the 20 bps round-trip fee (even a free-spread trade could not pay fees), or the effect is significantly negative",
+  "SUPPORTED": "executable (net) mean difference vs control > 0 with Holm-adjusted one-sided p < 0.05 (stationary bootstrap over day blocks) on the pooled validation folds, same sign in every validation fold, grid-neighbour plateau holds, and no concentration flag",
+  "WEAK": "gross (information) effect satisfies the SUPPORTED test but the executable effect does not, or executable significant but a fold/plateau/concentration condition fails",
+  "numeric_concentration_limits": "TBD, owner-approved before the first outcome evaluation"
+ },
+ "p2d1_entry_requirements": [
+  {
+   "id": 1,
+   "item": "P2-D0 committed (protocol + frozen registries + tests)",
+   "status": "met at commit"
+  },
+  {
+   "id": 2,
+   "item": "ledger head anchored in P2-D0 evidence",
+   "status": "met in evidence"
+  },
+  {
+   "id": 3,
+   "item": "benchmarks frozen (benchmarks_v1.json hash)",
+   "status": "met"
+  },
+  {
+   "id": 4,
+   "item": "budgets frozen (protocol parameter_budget + planned_trials_v1.json hash)",
+   "status": "met"
+  },
+  {
+   "id": 5,
+   "item": "metrics frozen (protocol metrics_contract)",
+   "status": "met"
+  },
+  {
+   "id": 6,
+   "item": "time and universe policies frozen",
+   "status": "met"
+  },
+  {
+   "features": [
+    "act.rel_volume_15m_96",
+    "ctx.btc_rv_1h_24",
+    "mom.dist_high_15m_96",
+    "mom.dist_low_15m_96",
+    "mom.ret_1d_1",
+    "mom.trend_eff_1h_24",
+    "vol.atr_norm_1h_14",
+    "vol.rv_1h_24",
+    "vol.vol_ratio_15m_16_96"
+   ],
+   "id": 7,
+   "item": "a full eligible sealed day (2026-10-05) exercises the 9 >= 24h-history features and the 24h labels successfully, validated read-only (counts / null reasons / PIT / rebuild hash only; no outcome distribution inspected); no synthetic substitute",
+   "labels": [
+    "mkt.fwd_ret_24h",
+    "mkt.mfe_24h",
+    "mkt.mae_24h",
+    "mkt.max_dd_24h",
+    "mkt.decline_24h",
+    "exe.net_ret_24h"
+   ],
+   "status": "PENDING (2026-10-05 seals ~2026-10-06 01:17Z)"
+  }
+ ],
+ "paper_r1": {
+  "E": "2026-10-04T15:26:43.497803Z",
+  "id": "PAPER-R1-20261004T152643Z",
+  "rule": "forward evidence only; never iterative tuning; never W3"
+ },
+ "parameter_budget": {
+  "benchmark_evaluations": "registered under H-P2D-BENCH-v1, not counted in hypothesis caps, reported",
+  "lifetime_cap_per_hypothesis": 24,
+  "lifetime_cap_rule": "sum over all rounds of ledger trials for one hypothesis id family; reaching it closes the hypothesis unless the owner approves a new version",
+  "round_1_total_cap": 48,
+  "round_1_trials_per_hypothesis": {
+   "H01": 8,
+   "H02": 4,
+   "H03": 8,
+   "H04": 8,
+   "H05": 4,
+   "H06": 8,
+   "H07": 8
+  },
+  "rules": [
+   "the grid is frozen; no value is added, removed or moved after any outcome is seen",
+   "a new grid or value requires a NEW recorded research round (new plan file + hash, ledger parent_trial links) and owner approval, and its trials are counted in addition",
+   "prefer plateaus: a cell counts only if its grid neighbours have the same sign; no single-optimum selection",
+   "every evaluation, including smoke runs that compute any outcome, is a ledger trial",
+   "no outcome-based feature selection; only the predeclared features of each hypothesis"
+  ]
+ },
+ "protocol_id": "P2D-PROTOCOL-v1",
+ "record": "tsb.p2d.protocol",
+ "record_version": 1,
+ "regime_diagnostics": [
+  "market direction (H04 broad + btc)",
+  "volatility (BTC rv vs 7-day reference)",
+  "liquidity (market spread_norm)",
+  "symbol and tier",
+  "time period (fold, week, UTC hour)"
+ ],
+ "research_questions": {
+  "primary": "Can observable, point-in-time-safe market state identify crypto trading opportunities whose expected net return remains positive after realistic execution costs and whose edge is sufficiently stable across time, symbols and market regimes to justify forward testing?",
+  "secondary": [
+   "Which conditions create edge?",
+   "When should we NOT trade?",
+   "Is the information directional, liquidity, volatility or regime information?",
+   "What is the incremental value over simple baselines?",
+   "How much gross alpha survives execution?"
+  ]
+ },
+ "status": "FROZEN (P2-D0, 2026-10-05); design only, no trial run",
+ "time_split": {
+  "accumulation": "day indices are assigned to eligible days in date order (gaps skipped, listed); round 1 is evaluated once when eligible day 28 is sealed; later rounds extend the expanding window by new 7-day folds and declare their own forward-untouched window before any outcome",
+  "eligible_days": "UTC days D >= 2026-10-05 whose seal result is PASS and that the reader accepts in sealed mode; 2026-10-04 (partial, pre-E first hour) is feature warm-up only, never evaluated; days with downtime remain eligible, downtime rows excluded and the day flagged",
+  "embargo": "1 full UTC day between train and validation, PLUS purging: a training row is dropped if its longest label window (T + 15 min anchor + 24 h + 60 s) ends after the training end",
+  "evaluation": "expanding window (train always starts at day 1); validation folds are consecutive and non-overlapping; classification uses validation folds only, train is reported for stability",
+  "forward_window": "the untouched forward window is opened only for a one-shot confirmatory check of frozen candidates in a separately approved step, never for tuning",
+  "minimum_full_days_before_any_outcome": 28,
+  "minimum_justification": [
+   "two validation folds of 7 days each cover the weekly cycle (weekend liquidity) twice out of sample",
+   "the first training window (13 days) covers almost two weekly cycles and the 7-day H04 trailing volatility reference",
+   "a 24h horizon gives at most one non-overlapping position per symbol per day and crypto symbols are strongly correlated, so the effective sample is far below the row count; fewer days would make every result INCONCLUSIVE by construction",
+   "no performance threshold is implied: 28 days is a minimum for meaning, not a sufficiency claim; round-1 results are expected to be mostly INCONCLUSIVE"
+  ],
+  "ordering": "chronological only; no shuffling; rows ordered by decision time",
+  "paper_r1": "never used for tuning",
+  "round_1_layout_eligible_days": {
+   "fold_1": {
+    "embargo": [
+     14,
+     14
+    ],
+    "train": [
+     1,
+     13
+    ],
+    "validate": [
+     15,
+     21
+    ]
+   },
+   "fold_2": {
+    "embargo": [
+     21,
+     21
+    ],
+    "train": [
+     1,
+     20
+    ],
+    "validate": [
+     22,
+     28
+    ]
+   },
+   "forward_untouched": "days >= 29: not read for any trial outcome of round 1"
+  },
+  "w3": "excluded always (ledger refuses overlap)",
+  "warm_up": "the previous eligible day is loaded as feature history (24-25 h windows) but not evaluated"
+ },
+ "universe_policy": {
+  "data_quality": "structural exclusions from the builder (in_downtime, no_universe_epoch_known, beyond_observed_data) are applied; dq.* are features, not silent filters",
+  "exclusion_reasons": [
+   "in_downtime",
+   "no_universe_epoch_known",
+   "beyond_observed_data",
+   "pre_E_or_warm_up_day",
+   "day_not_sealed_PASS",
+   "feature_null:<reason>",
+   "regime_null (H04)",
+   "position_open (one position per symbol and trial)"
+  ],
+  "id": "universe-asof-all-tiers-v1",
+  "label_null_policy": "a position whose label is null (missing forward bar/book) stays in the trade count; the share of null executable outcomes is reported per arm and flagged if treatment and control differ; it is never silently dropped (selecting on label availability is look-ahead)",
+  "liquidity": "no liquidity pre-filter beyond the universe tiers (liquidity filtering is hypothesis H06)",
+  "minimum_history": "a row is evaluable for a trial only if every feature the trial uses is non-null; insufficient_history rows are counted per reason, never filled",
+  "rule": "the universe and tier epoch KNOWN at decision time T (ctx.tier); never a later or retrospective universe; symbols that later leave the universe keep their past rows (no survivorship)",
+  "tiers": "0, 1, 2 all eligible; every result is also stratified by tier"
+ },
+ "w3": {
+  "end": "2026-10-04T15:26:43.497803Z",
+  "rule": "sealed_forbidden",
+  "start": "2026-08-19T09:33:46Z"
+ }
+}

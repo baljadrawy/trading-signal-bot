@@ -1,0 +1,796 @@
+{
+ "feature_set": {
+  "hypothesis_families_sha256": "d163b3c97404901b138d01d066aed7c92a69efeddcaf0b2c5ae18670f728ce91",
+  "id": "p2c-fs",
+  "registry_sha256": "bcf38504ae746027df0932b2a501dadf74af061b4b64a28de06d4831d71db81a",
+  "version": "1.0.0"
+ },
+ "hypotheses": [
+  {
+   "comparison_control": {
+    "primary": "unconditional long on the same eligible rows and horizon (all eligible symbol-times, same position rule)",
+    "secondary": "BENCH-CASH, BENCH-TSMOM, BENCH-BTC-TREND (protocol benchmarks)",
+    "test": "difference treatment minus control in mean gross and executable return per position"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "derived_quantities": {
+    "z_1d": "mom.ret_1d_1 / (vol.rv_1h_24 * sqrt(24)); null if either input is null or vol.rv_1h_24 == 0 (note: UTC-day candle return scaled by rolling 24x1h volatility)"
+   },
+   "direction": "long_only_spot",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "Under-reaction to information, slow diffusion across participants and trend-following flows make recent volatility-scaled returns in crypto persist over hours to days (time-series momentum literature; crypto shows strong short-horizon autocorrelation in some regimes).",
+   "expected_failure_modes": [
+    "trend reversal / mean reversion at 4h dominates",
+    "gains concentrated in one BTC-beta rally (regime concentration)",
+    "signal fires mostly on illiquid tier-2 symbols where spread eats the move",
+    "24h horizon has few non-overlapping observations",
+    "z_1d is stale late in the UTC day"
+   ],
+   "family_overlay": [
+    "HF-momentum-continuation",
+    "HF-volatility-regime"
+   ],
+   "features": [
+    "mom.mom_norm_15m_16",
+    "mom.ret_1d_1",
+    "vol.rv_1h_24"
+   ],
+   "fixed_parameters": {
+    "exit": "time exit at horizon",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "grid": {
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "lookback": {
+     "justification": "two economically distinct trend scales: intraday (16 x 15m) and daily (previous UTC day); no intermediate scale to avoid lookback mining",
+     "values": [
+      "4h",
+      "1d"
+     ]
+    },
+    "theta": {
+     "justification": "half and one standard deviation of the lookback return: 'some' vs 'clear' trend; two points allow a plateau check, not an optimum",
+     "values": [
+      0.5,
+      1.0
+     ]
+    }
+   },
+   "grid_order": [
+    "lookback",
+    "theta",
+    "horizon"
+   ],
+   "id": "H01",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H01-tsmom-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs.",
+   "signal_definition": {
+    "text": "LONG when the volatility-scaled lookback return z_L >= theta; else FLAT.",
+    "z_L": {
+     "1d": "z_1d",
+     "4h": "mom.mom_norm_15m_16"
+    }
+   },
+   "strategy_family": "p2d-tsmom",
+   "title": "Time-series momentum / trend continuation",
+   "trial_kind": "directional",
+   "trials": 8
+  },
+  {
+   "comparison_control": {
+    "primary": "H01-REF alone on the same rows and horizon (incremental test)",
+    "secondary": "random-removal control: the H01-REF positions thinned by a deterministic hash filter (sha256(plan_id|symbol|T) uniform) at the SAME pass rate as the confirmation, to separate 'fewer trades' from 'better trades'",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "direction": "long_only_spot",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "A trend move carried by a normal-or-tight spread and bid-side depth is more likely informed buying with capacity behind it; a move on a widening spread or ask-heavy book is more likely a liquidity gap that reverts and is also more expensive to enter.",
+   "expected_failure_modes": [
+    "confirmation only removes trades without changing the mean",
+    "book features are noisy on tier-1/2 cadence (10 s book)",
+    "spread_norm_1h null early in a run",
+    "incremental gain smaller than estimation noise at round-1 sample sizes"
+   ],
+   "family_overlay": [
+    "HF-momentum-continuation",
+    "HF-liquidity-microstructure"
+   ],
+   "features": [
+    "mom.mom_norm_15m_16",
+    "liq.spread_norm_1h",
+    "liq.depth_imbalance_10"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "grid": {
+    "confirmation": {
+     "justification": "1.0 = the spread at or below its own 1h median (a natural, scale-free cut); 0 = the sign of the 10-level depth imbalance (bid notional >= ask notional). Both are neutral points, not fitted levels; one confirmation at a time (no combination in round 1)",
+     "values": [
+      "spread_norm_le_1",
+      "depth_imbalance_ge_0"
+     ]
+    },
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    }
+   },
+   "grid_order": [
+    "confirmation",
+    "horizon"
+   ],
+   "id": "H02",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H02-mom-liquidity-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs.",
+   "signal_definition": {
+    "confirmation": {
+     "depth_imbalance_ge_0": "liq.depth_imbalance_10 >= 0",
+     "spread_norm_le_1": "liq.spread_norm_1h <= 1.0"
+    },
+    "text": "LONG when H01-REF fires (mom.mom_norm_15m_16 >= 1.0) AND the confirmation condition holds; else FLAT."
+   },
+   "strategy_family": "p2d-tsmom-liqconfirm",
+   "title": "Momentum + liquidity confirmation (incremental vs H01-alone)",
+   "trial_kind": "incremental_filter",
+   "trials": 4
+  },
+  {
+   "comparison_control": {
+    "primary": {
+     "directional_breakout": "the SAME expansion up-bar WITHOUT prior compression (high volatility alone), same horizon",
+     "volatility_information": "non-compressed rows (compressed_prev false) at the same times: difference in forward range"
+    },
+    "secondary": "unconditional long on the same rows",
+    "test": "treatment minus control (range for information mode; gross/executable return for directional mode)"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "derived_quantities": {
+    "compressed_prev": "vol.vol_ratio_15m_16_96 of the SAME symbol at the previous decision time T-15m (an earlier, PIT-available row) <= c; null if that row is missing/excluded/null (no carry-forward)"
+   },
+   "direction": "long_only_spot (directional mode); non-directional (information mode)",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "Volatility clusters and mean-reverts: after a compression the next large move is more likely (predictable volatility). Direction is a separate claim: an up-bar range expansion out of compression may mark a breakout. High volatility alone is NOT a signal; the control isolates that.",
+   "expected_failure_modes": [
+    "volatility predictable but direction not (expected: information SUPPORTED, directional REJECTED/INCONCLUSIVE)",
+    "breakouts fail and revert within 4h",
+    "few compression events in a high-vol period",
+    "expansion bars coincide with spread spikes (entry cost)"
+   ],
+   "family_overlay": [
+    "HF-volatility-regime",
+    "HF-range-position-reversion"
+   ],
+   "features": [
+    "vol.vol_ratio_15m_16_96",
+    "vol.range_expansion_15m_16",
+    "mom.body_ratio_15m"
+   ],
+   "fixed_parameters": {
+    "body_ratio_min_exclusive": 0.0,
+    "range_expansion_min": 2.0,
+    "range_expansion_why": "a bar range twice its recent mean is a conventional expansion marker; fixed, not gridded"
+   },
+   "grid": {
+    "c": {
+     "justification": "short-window volatility at 60% / 80% of the 24h volatility: clear vs mild compression (1.0 = no compression)",
+     "values": [
+      0.6,
+      0.8
+     ]
+    },
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "mode": {
+     "justification": "separates 'can volatility be predicted' from 'can direction be predicted'",
+     "values": [
+      "volatility_information",
+      "directional_breakout"
+     ]
+    }
+   },
+   "grid_order": [
+    "mode",
+    "c",
+    "horizon"
+   ],
+   "id": "H03",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H03-vol-expansion-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs. In volatility_information mode there is no executable edge by construction: SUPPORTED there means predictive volatility information only.",
+   "signal_definition": {
+    "text": "mode volatility_information: no position; event E = compressed_prev; compare forward range of E rows vs non-compressed rows. mode directional_breakout: LONG when compressed_prev AND vol.range_expansion_15m_16 >= 2.0 AND mom.body_ratio_15m > 0; else FLAT.",
+    "volatility_information_target": "forward range = mkt.mfe_{h} - mkt.mae_{h} (gross, no trade)"
+   },
+   "strategy_family": "p2d-vol-compression",
+   "title": "Volatility expansion after compression (volatility prediction vs direction)",
+   "trial_kind": "information_and_directional",
+   "trials": 8
+  },
+  {
+   "comparison_control": {
+    "primary": {
+     "h01ref_gated": "H01-REF ungated on the same rows",
+     "regime_only": "unconditional long on all eligible rows (all regimes)"
+    },
+    "secondary": "per-regime stratified table of the control (diagnostic, not a trial)",
+    "test": "treatment minus control, gross and executable"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "derived_quantities": {
+    "btc_dir": "mom.mom_norm_15m_16 of the BTCUSDT row at the same T",
+    "btc_vol_ref": "median of ctx.btc_rv_1h_24 over the decision times of the previous 7 x 24 h (strictly before T, PIT; >= 7 full eligible days of history else null)",
+    "liq_stress_mkt": "median over universe rows at the same T of liq.spread_norm_1h (non-null rows, >= 5 rows else null)"
+   },
+   "direction": "long_only_spot",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input. trending_down is used only as a FLAT state.",
+   "economic_rationale": "Crypto altcoins carry high BTC / market beta; long-only spot exposure is most likely to pay in broad up-trends and least in down-trends, elevated volatility or liquidity stress. Regimes are fixed, rule-based and few (no clustering, no fragmentation).",
+   "expected_failure_modes": [
+    "one regime dominates the sample (no contrast)",
+    "regime labels change faster than the horizon",
+    "elevated_vol undefined in the first 7 days",
+    "beta gains concentrated in a single rally",
+    "btc and broad definitions nearly identical (redundant trials)"
+   ],
+   "family_overlay": [
+    "HF-market-regime-context",
+    "HF-liquidity-microstructure"
+   ],
+   "features": [
+    "ctx.universe_ret_24h_median",
+    "ctx.breadth_24h",
+    "ctx.btc_rv_1h_24",
+    "liq.spread_norm_1h",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "breadth_down": 0.4,
+    "breadth_up": 0.6,
+    "breadth_why": "a 60/40 majority of the universe up/down on the rolling 24h (symmetric about 0.5)",
+    "btc_dir_abs": 0.5,
+    "btc_dir_why": "half a 4h standard deviation, same scale as the H01 lower theta",
+    "liq_stress": 1.5,
+    "liq_stress_why": "market-median spread 50% above its own 1h median",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    },
+    "regimes": [
+     "trending_up",
+     "trending_down",
+     "neutral",
+     "elevated_vol",
+     "liquidity_stress"
+    ],
+    "vol_mult": 1.5,
+    "vol_mult_why": "BTC 24h realized vol 50% above its trailing 7-day median"
+   },
+   "grid": {
+    "application": {
+     "justification": "is the regime itself informative (beta) vs does it condition a fixed momentum signal",
+     "values": [
+      "regime_only",
+      "h01ref_gated"
+     ]
+    },
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "trend_definition": {
+     "justification": "broad-market direction+breadth vs BTC direction: the two standard crypto market-state references",
+     "values": [
+      "broad",
+      "btc"
+     ]
+    }
+   },
+   "grid_order": [
+    "trend_definition",
+    "application",
+    "horizon"
+   ],
+   "id": "H04",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H04-regime-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs.",
+   "signal_definition": {
+    "regime_rule_priority": [
+     "liquidity_stress: liq_stress_mkt >= 1.5",
+     "elevated_vol: ctx.btc_rv_1h_24 >= 1.5 * btc_vol_ref",
+     "trending_up: broad: ctx.universe_ret_24h_median > 0 AND ctx.breadth_24h >= 0.6 | btc: btc_dir >= 0.5",
+     "trending_down: broad: ctx.universe_ret_24h_median < 0 AND ctx.breadth_24h <= 0.4 | btc: btc_dir <= -0.5",
+     "neutral: otherwise"
+    ],
+    "text": "first matching rule wins; null inputs -> regime null -> row not evaluable for H04 (counted). application regime_only: LONG every eligible symbol while regime == trending_up. application h01ref_gated: LONG when H01-REF fires AND regime == trending_up."
+   },
+   "strategy_family": "p2d-regime",
+   "title": "Market-regime conditioning (simple interpretable regimes)",
+   "trial_kind": "conditioning",
+   "trials": 8
+  },
+  {
+   "comparison_control": {
+    "primary": "H01-REF alone on the same rows and horizon",
+    "secondary": "random-removal control at the same pass rate (as H02)",
+    "test": "confirmed minus H01-REF and confirmed minus random-removal, gross and executable"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "direction": "long_only_spot",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "Price moves accompanied by abnormal traded volume reflect broader participation / information arrival and are more likely to persist than moves on thin activity (volume-confirmation hypothesis); the alternative is exhaustion, which the test also detects (negative incremental effect).",
+   "expected_failure_modes": [
+    "volume spike marks exhaustion (negative effect)",
+    "act.rel_volume_15m_96 needs 24h history: early rows null",
+    "v = 3.0 leaves too few positions (INCONCLUSIVE)"
+   ],
+   "family_overlay": [
+    "HF-momentum-continuation",
+    "HF-participation-volume"
+   ],
+   "features": [
+    "mom.mom_norm_15m_16",
+    "act.rel_volume_15m_96"
+   ],
+   "fixed_parameters": {
+    "base": "H01-REF",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "grid": {
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "v": {
+     "justification": "last 15m quote volume 1.5x (elevated) / 3x (abnormal) its 24h mean",
+     "values": [
+      1.5,
+      3.0
+     ]
+    }
+   },
+   "grid_order": [
+    "v",
+    "horizon"
+   ],
+   "id": "H05",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H05-rel-volume-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs.",
+   "signal_definition": {
+    "text": "LONG when H01-REF fires AND act.rel_volume_15m_96 >= v; else FLAT."
+   },
+   "strategy_family": "p2d-tsmom-volconfirm",
+   "title": "Relative volume / activity confirmation (vs the same directional signal without it)",
+   "trial_kind": "incremental_filter",
+   "trials": 4
+  },
+  {
+   "comparison_control": {
+    "primary": "the unfiltered base on the same rows; report REMOVED vs KEPT outcome distributions (removed must be worse)",
+    "secondary": "random-removal control at the same removal rate",
+    "test": "kept minus unfiltered and removed minus kept (executable first, then gross, mae and entry spread)"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "direction": "long_only_spot (filter only; never creates a trade)",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "Entering when spreads blow out, depth thins or evaporates, data are stale/gapped or a reconnect just happened, or the last bar is an extreme range, exposes a taker to adverse selection and unreliable state. Removing such entries should improve the executable outcome of the REMAINING trades even if it does not predict direction.",
+   "expected_failure_modes": [
+    "filter removes almost nothing (rare events) -> INCONCLUSIVE",
+    "filter removes high-volatility winners together with losers",
+    "fail-closed null policy removes early-run rows only (confounded with time)"
+   ],
+   "family_overlay": [
+    "HF-data-quality-and-structure",
+    "HF-liquidity-microstructure",
+    "HF-volatility-regime"
+   ],
+   "features": [
+    "dq.stale_flag",
+    "dq.degraded_flag",
+    "dq.clock_suspect",
+    "dq.gap_known_1h",
+    "dq.reconnect_age_s",
+    "liq.spread_bps",
+    "liq.spread_norm_1h",
+    "liq.liq_change_15m",
+    "liq.depth_concentration_10",
+    "vol.range_expansion_15m_16",
+    "mom.mom_norm_15m_16"
+   ],
+   "fixed_parameters": {
+    "null_policy": "a null filter input counts as 'cannot verify' -> remove (fail closed)",
+    "reference_cell": {
+     "definition": "mom.mom_norm_15m_16 >= 1.0",
+     "id": "H01-REF",
+     "lookback": "4h",
+     "theta": 1.0,
+     "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+    }
+   },
+   "grid": {
+    "base": {
+     "justification": "filter value on a real signal vs on signal-free entries",
+     "values": [
+      "h01ref",
+      "all_eligible"
+     ]
+    },
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "strictness": {
+     "justification": "standard = only clearly abnormal states (spread 3x its 1h median, depth halved in 15m, 5x range bar, reconnect < 15 min); strict = moderately abnormal (2x, -30%, 3x, < 1 h, top-of-book >= 50% of 10-level notional). Two nested levels, not a threshold search",
+     "values": [
+      "standard",
+      "strict"
+     ]
+    }
+   },
+   "grid_order": [
+    "strictness",
+    "base",
+    "horizon"
+   ],
+   "id": "H06",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H06-no-trade-filter-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs. For H06 the target is executable quality (entry spread, mae, net) of the remaining trades, not direction.",
+   "signal_definition": {
+    "base": {
+     "all_eligible": "unconditional long on every eligible row (signal-free; isolates the filter)",
+     "h01ref": "H01-REF positions"
+    },
+    "standard": [
+     "dq.stale_flag == 1",
+     "dq.degraded_flag == 1 or null",
+     "dq.clock_suspect == 1",
+     "dq.gap_known_1h >= 1",
+     "dq.reconnect_age_s < 900",
+     "liq.spread_norm_1h >= 3.0",
+     "liq.liq_change_15m <= ln(0.5)",
+     "vol.range_expansion_15m_16 >= 5.0",
+     "liq.spread_bps null"
+    ],
+    "strict": [
+     "dq.stale_flag == 1",
+     "dq.degraded_flag == 1 or null",
+     "dq.clock_suspect == 1",
+     "dq.gap_known_1h >= 1",
+     "dq.reconnect_age_s < 3600",
+     "liq.spread_norm_1h >= 2.0",
+     "liq.liq_change_15m <= ln(0.7)",
+     "vol.range_expansion_15m_16 >= 3.0",
+     "liq.depth_concentration_10 >= 0.5",
+     "liq.spread_bps null"
+    ],
+    "text": "REMOVE a candidate entry when ANY rule of the strictness level holds; keep otherwise. The base set of candidate entries is fixed per trial."
+   },
+   "strategy_family": "p2d-no-trade-filter",
+   "title": "Adverse-selection / NO-TRADE filter",
+   "trial_kind": "removal_filter",
+   "trials": 8
+  },
+  {
+   "comparison_control": {
+    "primary": "unconditional long on the same rows and horizon; for market_nonneg also the condition=none cell",
+    "secondary": "BENCH-CASH",
+    "test": "treatment minus control, gross and executable"
+   },
+   "decision_cadence": "every decision time T of grid-15m-plus390s-v1 (15m boundary + 390 s); per (trial, symbol) at most ONE open position: a new entry is allowed only when flat; time exit exactly at the trial horizon (no stop, no target: stops are P2-RM/P2-X topics). Entry/exit prices as in protocol execution_model.",
+   "direction": "long_only_spot",
+   "direction_note": "long_only_spot: Binance spot paper cannot short; a negative view means FLAT (cash), never a short. Bearish information is only usable as a no-trade / de-risk input.",
+   "economic_rationale": "Sharp idiosyncratic drops caused by liquidity demand (forced selling, large market orders) tend to partially revert once liquidity providers step in, mainly when the broad market is not itself falling; in a falling market the drop is more likely information / beta and continues.",
+   "expected_failure_modes": [
+    "falling knife: drops continue (momentum)",
+    "reversion exists but is smaller than spread+fees (WEAK)",
+    "extreme drops cluster in one market event (concentration)",
+    "few theta=2.5 events"
+   ],
+   "family_overlay": [
+    "HF-range-position-reversion",
+    "HF-market-regime-context"
+   ],
+   "features": [
+    "mom.mom_norm_15m_16",
+    "ctx.universe_ret_24h_median"
+   ],
+   "fixed_parameters": {
+    "combination_with_momentum": "forbidden in round 1 (each understood separately first)"
+   },
+   "grid": {
+    "condition": {
+     "justification": "tests the CONDITIONALITY claim directly (conditioned vs unconditioned reversion)",
+     "values": [
+      "none",
+      "market_nonneg"
+     ]
+    },
+    "horizon": {
+     "justification": "4h: shortest horizon at which a 20 bps round-trip fee is plausibly small relative to typical crypto moves and still many non-overlapping observations per day; 24h: the longest predeclared label horizon, captures daily-scale trend/reversion. 1h is excluded from round 1: the fixed 20 bps round trip plus spread is a large fraction of typical 1h moves (cost-dominated), so it would add trials with little prior economic plausibility.",
+     "values": [
+      "4h",
+      "24h"
+     ]
+    },
+    "theta": {
+     "justification": "1.5 / 2.5 standard deviations of the 4h return: a stretched vs an extreme drop (negative side, so H07 never fires on a row where a 4h H01 cell fires)",
+     "values": [
+      1.5,
+      2.5
+     ]
+    }
+   },
+   "grid_order": [
+    "theta",
+    "condition",
+    "horizon"
+   ],
+   "id": "H07",
+   "label_horizons": [
+    "4h",
+    "24h"
+   ],
+   "labels_used": {
+    "cost": [
+     "exe.entry_spread_bps",
+     "exe.entry_delay_ms",
+     "exe.fee_bps_roundtrip"
+    ],
+    "executable": "exe.net_ret_{h}",
+    "gross": "mkt.fwd_ret_{h}",
+    "path": [
+     "mkt.mfe_{h}",
+     "mkt.mae_{h}",
+     "mkt.max_dd_{h}",
+     "mkt.decline_{h}"
+    ]
+   },
+   "ledger_hypothesis_id": "H-P2D-H07-cond-reversion-v1",
+   "outcome_categories": [
+    "SUPPORTED",
+    "WEAK",
+    "INCONCLUSIVE",
+    "REJECTED"
+   ],
+   "predictive_vs_executable": "Predictive information = the conditional distribution of the GROSS market label mkt.fwd_ret_{h} (and mfe/mae) given the signal differs from its control. Executable edge = the same comparison on exe.net_ret_{h} (entry at the first ask after T, exit at the first bid after T+h, minus 2 x 10 bps fees, plus the slippage sensitivity of the protocol). A trial can show information without an executable edge (category WEAK); nothing is economically successful before costs.",
+   "signal_definition": {
+    "condition": {
+     "market_nonneg": "ctx.universe_ret_24h_median >= 0",
+     "none": "no condition (unconditional reversion)"
+    },
+    "text": "LONG when mom.mom_norm_15m_16 <= -theta AND the condition holds; else FLAT."
+   },
+   "strategy_family": "p2d-reversion",
+   "title": "Reversion conditional on market state (independent of momentum)",
+   "trial_kind": "directional",
+   "trials": 8
+  }
+ ],
+ "label_set": {
+  "id": "p2c-ls",
+  "version": "1.0.0"
+ },
+ "market": {
+  "asset_class": "crypto",
+  "calendar_id": "crypto-24x7-utc",
+  "product": "spot",
+  "venue": "binance"
+ },
+ "notation": {
+  "T": "decision time on grid-15m-plus390s-v1",
+  "theta/c/v": "grid parameters; see each grid entry",
+  "{h}": "the trial horizon (4h or 24h)"
+ },
+ "protocol_id": "P2D-PROTOCOL-v1",
+ "record": "tsb.p2d.hypothesis_registry",
+ "record_version": 1,
+ "reference_cells": {
+  "H01-REF": {
+   "definition": "mom.mom_norm_15m_16 >= 1.0",
+   "id": "H01-REF",
+   "lookback": "4h",
+   "theta": 1.0,
+   "why": "Predeclared BEFORE any outcome as the centre of the H01 grid (a one-sigma, volatility-scaled 4h move); it is NOT the best H01 cell and is never replaced by one after results. H02, H04, H05 and H06 use it as their fixed base so their incremental tests do not depend on H01 outcomes."
+  }
+ },
+ "status": "FROZEN (P2-D0, 2026-10-05); changes require v2 + a new recorded research round",
+ "w3": {
+  "end": "2026-10-04T15:26:43.497803Z",
+  "rule": "sealed_forbidden",
+  "start": "2026-08-19T09:33:46Z"
+ }
+}
