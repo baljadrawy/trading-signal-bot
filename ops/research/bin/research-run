@@ -1,0 +1,6 @@
+#!/bin/sh
+# Thin entry point: run the research execution layer from wherever this file lives.
+# Usage: research-run run --job-id ID --owner TAG [--profile R1] [--wait] -- /abs/cmd args...
+#        research-run admit | status | freeze | thaw | kill | record | profiles   (see --help)
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" exec /usr/bin/python3 -m research_exec "$@"
