@@ -1,0 +1,49 @@
+{
+ "evidence": {
+  "candidate": {
+   "direction": "long",
+   "horizon": "4h | 24h",
+   "hypothesis": "H01..H07",
+   "kind": "directional | incremental_filter | conditioning | removal_filter (information-mode trials are refused)",
+   "plan_entry_sha256": "must equal the frozen plan entry",
+   "plan_id": "frozen P2-D0 plan id, e.g. P2D-R1-H01-004",
+   "trial_id": "Trial Ledger id TR-<24 hex>"
+  },
+  "claimed_positions": "optional [[symbol, t_ms]] cross-checked against the P2-D0 rebuild",
+  "dataset": "{dataset_id, dataset_hash}: the P2-C research dataset (logical hash) the rows come from; must equal registration.dataset and the ledger spec of the trial",
+  "day_context": "{day: {regime: H04 broad regime at the daily decision (PIT) | null, bench: {BENCH-CASH, BENCH-BTC-TREND, BENCH-TSMOM: day return under EXEC-BASE}}}",
+  "record": "tsb.p2f.evidence",
+  "record_version": 1,
+  "registration": "tsb.p2f.candidate_registration (contracts.registration): F0 / P2-D0 / P2-X v2 hashes, considered_trials (every trial of the round), selection_rule, ledger_anchor, code_commit, forward_registration (forward windows only); dataset (v2)",
+  "risk_inputs": "REFUSED until a P2-RM contract (D-RM0-2 closed) is bound by a later F version",
+  "rows": "every eligible decision row of every symbol of the universe known at T inside the window (not only signal rows)",
+  "window": {
+   "day_start_ms": "{day: UTC start of that eligible day}",
+   "kind": "in_sample | forward",
+   "round": "int",
+   "validation_days": "eligible-day indices; in-sample must equal the frozen layout"
+  }
+ },
+ "principle": "P2-F0 receives the candidate's FULL eligible decision-row panel for the evaluation window and recomputes positions, statistics and placebos itself; claimed positions or metrics are only cross-checked, never used",
+ "record": "tsb.p2f.evidence_schema",
+ "record_version": 1,
+ "row": {
+  "ctrl": "optional: the P2-D0 control rule for the hypothesis (default: every eligible row)",
+  "day": "eligible-day index of t_ms",
+  "depth_ok_500": "EXEC-BASE displayed-depth walk supports 500 USDT on both legs (null = unknown)",
+  "elig": "1 when every feature the trial uses is non-null at T (P2-D0 evaluability)",
+  "entry_ms": "execution time (t_ms < entry_ms <= t_ms + 60 s)",
+  "feat_avail_ms": "max available_at_ms over the features used (must be <= t_ms)",
+  "gross": "mkt.fwd_ret_{h} (null = unknown outcome, kept in counts)",
+  "label_end_ms": "end of the label window (>= t_ms + horizon)",
+  "net_base": "EXEC-BASE net round trip (null = execution refusal)",
+  "net_idealized": "EXEC-IDEALIZED net round trip (reported only; never supports a verdict)",
+  "net_stress": "EXEC-STRESS net round trip (null = refusal)",
+  "sig": "1 when the trial's rule fires at T (before the position rule)",
+  "sym": "Binance spot symbol (one quote currency per evidence bundle)",
+  "t_ms": "decision time on grid-15m-plus390s-v1",
+  "tier": "ctx.tier known at T"
+ },
+ "verdict_record": "tsb.p2f.verdict v1: profile, protocol id / version, f0_contract_set_sha256, thresholds_status, candidate, window, verdict, binding_effect, reasons, tests {status PASS | FAIL | UNDETERMINABLE | NOT_RUN | NOT_APPLICABLE, effect_if_not_pass, numbers, reason}, info, verdict_id",
+ "version": "2.0.0"
+}

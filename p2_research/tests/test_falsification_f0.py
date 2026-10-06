@@ -21,6 +21,7 @@ PKG = os.path.dirname(os.path.abspath(C.__file__))
 D0_SUMS = "2bedc3f5c3a4de4fde8d9c8518270f7cd0078033fd754c75c20297954e408573"
 X1_SUMS = "3c554702948867fa26d4bba95b922f5e1db5902e42b088d9cdc49fdceefeec2f"
 X2_SUMS = "f20e22a5e79b2ab36caa180ca25d652e6e273c2ad72392ed860c2d7f72aa88d0"
+F0_V1_SUMS = "9f42105d2d408babdf8f7a96036dd1bdd46ee1ac858b23a7642a3ba1950398b6"
 FAST = {"bootstrap": 99, "random_entry": 19, "time_shift": 19}
 CAND = SY.CANDIDATE_PLAN
 
@@ -29,7 +30,7 @@ def _reg(cs, rd, pid, forward=None):
     return {"record": "tsb.p2f.candidate_registration", "trial_id": rd.trial_id(pid), "plan_id": pid,
             "f0_contract_set_sha256": cs.sha256, "p2d0_sums_sha256": D0_SUMS, "p2x_v2_sums_sha256": X2_SUMS,
             "considered_trials": rd.all_trial_ids() if forward is None else [rd.trial_id(pid)],
-            "forward_registration": forward}
+            "forward_registration": forward, "dataset": {"dataset_id": "synthetic", "dataset_hash": "ab" * 32}}
 
 
 class Shared:
@@ -50,9 +51,20 @@ class Shared:
 class TestFrozenContracts(unittest.TestCase):
     def test_f0_frozen_and_dependencies_unchanged(self):
         cs = C.default()
-        self.assertEqual(len(cs.sha256), 64)
+        self.assertEqual((cs.version, len(cs.sha256)), (2, 64))
         self.assertEqual(cs.dependencies, {"p2d0": D0_SUMS, "p2x_v1": X1_SUMS, "p2x_v2": X2_SUMS})
+        self.assertEqual(C.verify(C.CONTRACT_DIR), F0_V1_SUMS)          # superseded v1 kept byte-identical
+        self.assertEqual(cs.protocol["supersedes"]["contract_set_sha256"], F0_V1_SUMS)
+        self.assertEqual(C.default(1).protocol["inference"].get("combine_version", 1), 1)
+        self.assertEqual(cs.protocol["inference"]["combine_version"], 2)
         D0.verify_frozen()
+
+    def test_versions_and_v2_governs(self):
+        vs = C.versions()
+        self.assertEqual([v["version"] for v in vs], ["1.0.0", "2.0.0"])
+        self.assertTrue(all(v["frozen_at_ledger_seq"] == -1 for v in vs))
+        self.assertEqual(C.applicable_version(vs, None)["version"], "2.0.0")
+        self.assertEqual(C.applicable_version(vs, 0)["version"], "2.0.0")
 
     def test_tamper_and_file_set_refused(self):
         tmp = tempfile.mkdtemp(prefix="p2f0-t-")
@@ -72,6 +84,8 @@ class TestFrozenContracts(unittest.TestCase):
                 C.verify(d)
             with self.assertRaises(C.ContractError):
                 C.freeze(C.CONTRACT_DIR)              # already frozen: a change needs a new version
+            with self.assertRaises(C.ContractError):
+                C.freeze(C.CONTRACT_DIR_V2)
         finally:
             shutil.rmtree(tmp, True)
 
@@ -160,6 +174,23 @@ class TestStats(unittest.TestCase):
         self.assertGreaterEqual(adj["t0"], raw * 0.5)
         self.assertLessEqual(min(adj.values()), 1.0)
 
+    def test_v2_inference_components(self):
+        x = [0.01, -0.02, 0.03, 0.0, 0.02, 0.01, -0.01, 0.04, 0.0, 0.01, 0.02, -0.03, 0.01]
+        self.assertEqual(S.block_length(13, 3), 3)
+        self.assertEqual(S.block_length(28, 3), 4)
+        self.assertEqual(S.block_length(65, 3), 5)
+        self.assertIsNone(S.batch_means_p(x, 3, df_loss=2))           # 4 batches < df_loss + 3
+        pb = S.batch_means_p(x, 3)
+        bm = [sum(x[1 + 3 * i:4 + 3 * i]) / 3 for i in range(4)]
+        t = S.mean(bm) / (S.sd(bm) / 2.0)
+        self.assertAlmostEqual(pb, S.t_sf(t, 3), places=12)
+        self.assertEqual(S.fixedb_hac_p(x, 3), S.fixedb_hac_p(list(x), 3))
+        r = S.core_test_v2(x, 3, 199, 1)
+        self.assertEqual(r["p"], max(r["p_boot"], r["p_batch"], r["p_fixedb"]))
+        rng = random.Random(8)
+        hits = sum(S.fixedb_hac_p([rng.gauss(0, 1) for _ in range(14)], 3) <= 0.05 for _ in range(400))
+        self.assertLess(hits / 400, 0.09)                              # roughly nominal under iid
+
     def test_joint_tail(self):
         ref = [[float(i), float(-i)] for i in range(100)]
         pj, per = S.joint_tail_p([-5.0, 50.0], ref, [-1, -1])
@@ -223,6 +254,14 @@ class TestIntegrity(unittest.TestCase):
         ev = copy.deepcopy(self.S.ev)
         ev["candidate"]["direction"] = "short"
         self.assertInvalid(ev, "I01_schema")
+
+    def test_dataset_binding(self):
+        ev = copy.deepcopy(self.S.ev)
+        ev["dataset"] = {"dataset_id": "synthetic", "dataset_hash": "cd" * 32}
+        self.assertInvalid(ev, "I02_binding")
+        ev = copy.deepcopy(self.S.ev)
+        ev["registration"]["dataset"] = None
+        self.assertInvalid(ev, "I02_binding")
 
     def test_binding(self):
         ev = copy.deepcopy(self.S.ev)
@@ -415,22 +454,30 @@ class TestForwardAndVersions(unittest.TestCase):
                                                          "end": "2026-11-02T00:00:00Z"})
                 ids.append(LG.Ledger(tmp).create_trial(spec, now="2026-11-02T01:00:00.000000Z"))
             head = LG.Ledger(tmp).head()
+            ds = {"dataset_id": "synthetic", "dataset_hash": "0" * 64}
+            with self.assertRaises(C.ContractError):
+                C.registration(cs, trial_id=ids[0], plan_id="P2D-R1-H01-004", considered_trials=ids,
+                               code_commit="a65bbfb", ledger_anchor=head, selection_rule="lowest S02 p")
             reg = C.registration(cs, trial_id=ids[0], plan_id="P2D-R1-H01-004", considered_trials=[ids[0]],
                                  code_commit="a65bbfb", ledger_anchor=head, selection_rule="lowest S02 p",
-                                 now="2026-11-02T02:00:00Z")
+                                 now="2026-11-02T02:00:00Z", dataset=ds)
             rep = C.check_registration_against_ledger(reg, tmp)
             self.assertFalse(rep["ok"])
             self.assertTrue(any("missing from considered_trials" in e for e in rep["errors"]))
             reg = C.registration(cs, trial_id=ids[0], plan_id="P2D-R1-H01-004", considered_trials=ids,
                                  code_commit="a65bbfb", ledger_anchor=head, selection_rule="lowest S02 p",
-                                 now="2026-11-02T02:00:00Z")
+                                 now="2026-11-02T02:00:00Z", dataset=ds)
             rep = C.check_registration_against_ledger(reg, tmp)
             self.assertTrue(rep["ok"], rep["errors"])
+            bad = C.registration(cs, trial_id=ids[0], plan_id="P2D-R1-H01-004", considered_trials=ids,
+                                 code_commit="a65bbfb", ledger_anchor=head, selection_rule="lowest S02 p",
+                                 now="2026-11-02T02:00:00Z", dataset={"dataset_id": "x", "dataset_hash": "1" * 64})
+            self.assertTrue(any("dataset" in e for e in C.check_registration_against_ledger(bad, tmp)["errors"]))
             self.assertEqual(rep["total_trials_excluding_benchmarks"], 2)
             self.assertIsNone(C.first_result_seq(tmp, ids))
             with self.assertRaises(C.ContractError):
                 C.registration(cs, trial_id=ids[0], plan_id="P2D-R1-H99-001", considered_trials=ids,
-                               code_commit="a65bbfb", ledger_anchor=head, selection_rule="x")
+                               code_commit="a65bbfb", ledger_anchor=head, selection_rule="x", dataset=ds)
         finally:
             shutil.rmtree(tmp, True)
 

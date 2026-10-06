@@ -96,20 +96,32 @@ def _seed(plan_sha, *parts):
 # ------------------------------------------------------------------ C1
 def study_c1(cfg, plan_sha, guard):
     out = {}
+    v2 = str(cfg.get("method", "v1")).startswith("v2")
     for gen in cfg["generators"]:
         for n in cfg["n_days"]:
-            hits = {"p_boot": 0, "p_hac_t": 0, "p": 0}
+            keys = ("p_boot", "p_batch", "p_fixedb", "p", "p_v1") if v2 else ("p_boot", "p_hac_t", "p")
+            hits = {k: 0 for k in keys}
             for rep in range(cfg["reps"]):
                 if rep % 200 == 0:
                     guard.tick()
                 rng = random.Random(_seed(plan_sha, "C1", gen["id"], n, rep))
-                x, prev = [], 0.0
+                x, prev, pe = [], 0.0, 0.0
                 for _ in range(n):
                     e = SY._t4(rng) if gen["innov"] == "t4" else rng.gauss(0, 1)
-                    prev = gen["phi"] * prev + e
-                    x.append(prev)
-                r = S.core_test(x, cfg["mean_block"], cfg["hac_lag"], cfg["bootstrap_reps"],
-                                _seed(plan_sha, "C1b", gen["id"], n, rep))
+                    if gen.get("kind") == "ma":
+                        v, pe = e + pe, e
+                    else:
+                        prev = gen["phi"] * prev + e
+                        v = prev
+                    x.append(v)
+                sb = _seed(plan_sha, "C1b", gen["id"], n, rep)
+                if v2:
+                    L = S.block_length(n, cfg["horizon_block"])
+                    r = S.core_test_v2(x, L, cfg["bootstrap_reps"], sb)
+                    r["p_batch"] = 1.0 if r["p_batch"] is None else r["p_batch"]
+                    r["p_v1"] = S.core_test(x, cfg["horizon_block"], cfg["horizon_block"], cfg["bootstrap_reps"], sb)["p"]
+                else:
+                    r = S.core_test(x, cfg["mean_block"], cfg["hac_lag"], cfg["bootstrap_reps"], sb)
                 for k in hits:
                     hits[k] += r[k] <= cfg["alpha"]
             out[f"{gen['id']}|n={n}"] = {k: _rate(v, cfg["reps"]) for k, v in hits.items()}
@@ -122,7 +134,8 @@ def _registration(cs_sha, proto, rd, pid, forward=None):
             "f0_contract_set_sha256": cs_sha, "p2d0_sums_sha256": proto["dependencies"]["p2d0"]["sha256"],
             "p2x_v2_sums_sha256": proto["dependencies"]["p2x_v2"]["sha256"],
             "considered_trials": rd.all_trial_ids() if forward is None else [rd.trial_id(pid)],
-            "forward_registration": forward}
+            "forward_registration": forward,
+            "dataset": {"dataset_id": "synthetic", "dataset_hash": hashlib.sha256(f"synthetic|{rd.seed}".encode()).hexdigest()}}
 
 
 def _oracle(ev, rd, delta):

@@ -459,3 +459,64 @@ def joint_tail_p(obs: list, ref: list, adverse: list):
         if pm <= pmin:
             hits += 1
     return (1 + hits) / (1 + R), per
+
+
+# ---------------------------------------------------------------- inference v2 (F0 contract set v2)
+# v1 = max(stationary bootstrap, HAC-t with Student df) was measured anti-conservative at n ~ 14 (study C1 of the v1
+# plan: 8.6 % iid, 9.3 % AR(0.3), 14 % AR(0.5) at nominal 5 %). v2 adds two small-sample-honest tests and keeps the max.
+def block_length(n: int, horizon_block: int) -> int:
+    """v2 block length: max(horizon block, ceil(n^(1/3)))."""
+    return max(int(horizon_block), math.ceil(n ** (1.0 / 3.0) - 1e-12))
+
+
+def batch_means_p(x, L: int, df_loss: int = 0):
+    """Non-overlapping batch means of length L (the oldest n mod L days dropped), one-sided t-test of mean > 0 with
+    k - 1 - df_loss degrees of freedom. None when fewer than df_loss + 3 batches exist."""
+    n = len(x)
+    k = n // L
+    if k < df_loss + 3:
+        return None
+    y = x[n - k * L:]
+    bm = [math.fsum(y[i * L:(i + 1) * L]) / L for i in range(k)]
+    m = mean(bm)
+    s = sd(bm)
+    if s <= 0:
+        return 0.0 if m > 0 else 1.0
+    return t_sf(m / (s / math.sqrt(k)), k - 1 - df_loss)
+
+
+_FIXEDB = {}
+
+
+def fixedb_hac_p(x, lag: int, sims: int = 4999):
+    """HAC t of mean > 0 referred to its own simulated null distribution under iid N(0, 1) at the same n and lag
+    (fixed-b idea: the small-sample bias of the Bartlett LRV is reproduced in the reference). Deterministic."""
+    import bisect
+    n = len(x)
+    key = (n, lag, sims)
+    if key not in _FIXEDB:
+        rng = random.Random(f"p2f0|fixedb|{n}|{lag}|{sims}")
+        _FIXEDB[key] = sorted(nw_t_test([rng.gauss(0.0, 1.0) for _ in range(n)], lag)["t"] for _ in range(sims))
+    ref = _FIXEDB[key]
+    t = nw_t_test(x, lag)["t"]
+    return (1 + len(ref) - bisect.bisect_left(ref, t)) / (1 + len(ref))
+
+
+def core_test_v2(x, L: int, reps: int, seed: int, df_loss: int = 0):
+    b = bootstrap_mean_p(x, L, reps, seed)
+    t = nw_t_test(x, L)
+    pb = batch_means_p(x, L, df_loss)
+    pf = fixedb_hac_p(x, L)
+    p = max(b["p"], pf, 1.0 if pb is None else pb)
+    q = _t_q95(max(1.0, t["df"] - df_loss))
+    return {"mean": b["mean"], "p": p, "p_boot": b["p"], "p_batch": pb, "p_fixedb": pf, "t": t["t"],
+            "df": t["df"], "se": t["se"], "lo95": min(b["lo95"], b["mean"] - q * t["se"]),
+            "hi95": max(b["hi95"], b["mean"] + q * t["se"]), "n": len(x), "n_eff": n_eff(x, L), "block": L,
+            "method": "v2"}
+
+
+def alpha_test_v2(p, m, L: int, reps: int, seed: int):
+    a, beta = alpha_series(p, m)
+    r = core_test_v2(a, L, reps, seed, df_loss=1)
+    r.update({"alpha": r["mean"], "beta": beta, "series": a})
+    return r

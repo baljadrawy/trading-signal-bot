@@ -21,8 +21,12 @@ from .. import ledger as LG
 from .. import protocol as D0
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONTRACT_DIR = os.path.join(HERE, "contracts")
+CONTRACT_DIR = os.path.join(HERE, "contracts")              # v1 (SUPERSEDED before any outcome, kept byte-identical)
+CONTRACT_DIR_V2 = os.path.join(HERE, "contracts_v2")
 FILES = ("f0_protocol_v1.json", "f0_evidence_schema_v1.json", "f0_forward_v1.json", "f0_calibration_plan_v1.json")
+FILES_V2 = ("f0_protocol_v2.json", "f0_evidence_schema_v2.json", "f0_forward_v2.json", "f0_calibration_plan_v2.json")
+VERSION_DIRS = {1: (CONTRACT_DIR, FILES), 2: (CONTRACT_DIR_V2, FILES_V2)}
+LATEST = 2
 SUMS = "FROZEN_SHA256SUMS.json"
 REPO = os.path.dirname(os.path.dirname(HERE))
 REG_RECORD = "tsb.p2f.candidate_registration"
@@ -48,12 +52,21 @@ def load(name: str, directory: str = CONTRACT_DIR) -> dict:
         return json.load(fh)
 
 
-def verify(directory: str = CONTRACT_DIR) -> str:
-    """Recompute every frozen F0 file hash against the sums file; return contract_set_sha256 or raise."""
+def _files_for(directory: str):
+    for d, files in VERSION_DIRS.values():
+        if os.path.basename(os.path.normpath(d)) == os.path.basename(os.path.normpath(directory)):
+            return files
     sums = load(SUMS, directory)
-    if sums.get("record") != "tsb.p2f.frozen_sha256" or set(sums.get("files", {})) != set(FILES):
+    return tuple(sorted(sums.get("files", {})))
+
+
+def verify(directory: str = CONTRACT_DIR, files=None) -> str:
+    """Recompute every frozen F0 file hash against the sums file; return contract_set_sha256 or raise."""
+    files = tuple(files or _files_for(directory))
+    sums = load(SUMS, directory)
+    if sums.get("record") != "tsb.p2f.frozen_sha256" or set(sums.get("files", {})) != set(files):
         raise ContractError("F0 frozen file set mismatch")
-    bad = [f for f in FILES if sha256_file(os.path.join(directory, f)) != sums["files"][f]]
+    bad = [f for f in files if sha256_file(os.path.join(directory, f)) != sums["files"][f]]
     if bad:
         raise ContractError(f"F0 contract altered (hash mismatch): {bad}")
     return sha256_file(os.path.join(directory, SUMS))
@@ -73,13 +86,13 @@ def verify_dependencies(proto: dict, repo: str = REPO) -> dict:
 
 
 class ContractSetF0:
-    def __init__(self, directory: str = CONTRACT_DIR, verify_hashes: bool = True):
+    def __init__(self, directory: str | None = None, verify_hashes: bool = True, version: int = LATEST):
+        d0, files = VERSION_DIRS[version]
+        directory = directory or d0
+        self.version = version
         self.directory = directory
-        self.sha256 = verify(directory) if verify_hashes else None
-        self.protocol = load("f0_protocol_v1.json", directory)
-        self.schema = load("f0_evidence_schema_v1.json", directory)
-        self.forward = load("f0_forward_v1.json", directory)
-        self.calibration = load("f0_calibration_plan_v1.json", directory)
+        self.sha256 = verify(directory, files) if verify_hashes else None
+        self.protocol, self.schema, self.forward, self.calibration = (load(f, directory) for f in files)
         self.dependencies = verify_dependencies(self.protocol) if verify_hashes else {}
         self.plan = D0.load("planned_trials_v1.json")
 
@@ -90,14 +103,26 @@ class ContractSetF0:
         return Battery(self.protocol, self.sha256, self.plan, reps_profile=reps_profile)
 
 
-def default() -> ContractSetF0:
-    return ContractSetF0()
+def default(version: int = LATEST) -> ContractSetF0:
+    return ContractSetF0(version=version)
+
+
+def versions() -> list:
+    """Every frozen F0 version with its contract-set hash and the ledger head it was frozen at (for
+    ``applicable_version``)."""
+    out = []
+    for v, (d, files) in sorted(VERSION_DIRS.items()):
+        proto = load(files[0], d)
+        out.append({"version": proto["version"], "contract_set_sha256": verify(d, files),
+                    "frozen_at_ledger_seq": proto["applicability"]["frozen_at_ledger_head"]["seq"],
+                    "status": proto["status"]})
+    return out
 
 
 # ---------------------------------------------------------------- registration
 def registration(cs: ContractSetF0, *, trial_id: str, plan_id: str, considered_trials: list, code_commit: str,
                  ledger_anchor: dict, selection_rule: str, now: str | None = None,
-                 forward_registration: dict | None = None) -> dict:
+                 forward_registration: dict | None = None, dataset: dict | None = None) -> dict:
     """Bind a candidate to this frozen F version, the frozen P2-D0 plan entry, the P2-X v2 contracts and a ledger
     anchor. ``considered_trials`` must list EVERY trial of the round (the candidate was selected from them), so
     the selection is countable. Pure: writes nothing."""
@@ -110,13 +135,16 @@ def registration(cs: ContractSetF0, *, trial_id: str, plan_id: str, considered_t
         raise ContractError("ledger_anchor {seq, event_hash} required")
     if not selection_rule or not isinstance(selection_rule, str):
         raise ContractError("a predeclared selection rule (text) is required")
+    if cs.protocol["integrity"].get("dataset_binding") and not (
+            isinstance(dataset, dict) and set(dataset) == {"dataset_id", "dataset_hash"}):
+        raise ContractError("dataset {dataset_id, dataset_hash} required (the P2-C dataset of the ledger spec)")
     rec = {"record": REG_RECORD, "record_version": 1, "trial_id": trial_id, "plan_id": plan_id,
            "plan_entry_sha256": pe["plan_entry_sha256"], "hypothesis": pe["hypothesis"],
            "f0_contract_set_sha256": cs.sha256, "p2d0_sums_sha256": cs.protocol["dependencies"]["p2d0"]["sha256"],
            "p2x_v2_sums_sha256": cs.protocol["dependencies"]["p2x_v2"]["sha256"], "code_commit": code_commit,
            "considered_trials": sorted(considered_trials), "selection_rule": selection_rule,
            "ledger_anchor": {"seq": ledger_anchor["seq"], "event_hash": ledger_anchor["event_hash"]},
-           "forward_registration": forward_registration,
+           "forward_registration": forward_registration, "dataset": dataset,
            "registered_at": now or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     rec["registration_sha256"] = hashlib.sha256(LG.canon(rec).encode()).hexdigest()
     return rec
@@ -138,6 +166,9 @@ def check_registration_against_ledger(reg: dict, ledger_dir: str) -> dict:
     hidden = sorted(hyp_ids - set(reg["considered_trials"]))
     if hidden:
         errs.append(f"trials of {reg['hypothesis']} missing from considered_trials: {hidden}")
+    t = trials.get(reg["trial_id"])
+    if reg.get("dataset") is not None and t is not None and t["spec"]["dataset"] != reg["dataset"]:
+        errs.append("registered dataset differs from the ledger spec dataset of the trial")
     counts = L.trial_counts()
     total = sum(v["trials"] for k, v in counts.items() if k != "H-P2D-BENCH-v1")
     return {"ok": not errs, "errors": errs, "total_trials_excluding_benchmarks": total, "counts": counts}
@@ -166,17 +197,19 @@ def governing_verdict(verdicts: list) -> str:
     return min(verdicts, key=IN_SAMPLE_ORDER.index)
 
 
-def freeze(directory: str = CONTRACT_DIR) -> str:
+def freeze(directory: str = CONTRACT_DIR, files=None, extra: dict | None = None) -> str:
     """One-time freeze: canonicalize the four files and write the sums. Refused when a sums file exists."""
+    files = tuple(files or _files_for(directory))
     if os.path.exists(os.path.join(directory, SUMS)):
         raise ContractError("F0 contracts already frozen; a change needs a new version")
-    for f in FILES:
+    for f in files:
         p = os.path.join(directory, f)
         obj = load(f, directory)
         with open(p, "w", encoding="ascii") as fh:
             fh.write(dump_frozen(obj))
     sums = {"record": "tsb.p2f.frozen_sha256", "record_version": 1,
-            "files": {f: sha256_file(os.path.join(directory, f)) for f in FILES}}
+            "files": {f: sha256_file(os.path.join(directory, f)) for f in files}}
+    sums.update(extra or {})
     with open(os.path.join(directory, SUMS), "w", encoding="ascii") as fh:
         fh.write(dump_frozen(sums))
     return sha256_file(os.path.join(directory, SUMS))

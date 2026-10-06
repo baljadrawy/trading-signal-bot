@@ -1,0 +1,372 @@
+{
+ "acceptance": {
+  "C1": "v2 combined p: for iid_normal, ma1_05_t4 and ar03_t4 at n >= 14 the rejection rate point estimate <= 0.065 and its Wilson 95% lower bound <= 0.05; ar05_t4 is a stress case reported as measured",
+  "C2_C3_C4": "in-sample nulls: forward-eligible (screen-pass) rate point estimate <= 0.10; PROVISIONAL rate Wilson upper bound <= 0.05",
+  "C5_C6_power": "no threshold: power is reported as measured (honesty), with the oracle edge and the implausibility share",
+  "C6_null": "forward nulls (net-zero, bull): forward pass (PROVISIONAL on a forward window) Wilson lower bound <= 0.05 (the confirmatory error rate)",
+  "C7": "every adversarial cell except best_of: forward-eligible rate Wilson upper bound <= 0.15, and in >= 80% of reps the verdict is decided (binding or co-failing) by one of the listed catching tests; best_of cells: rates reported",
+  "rule": "written before the final calibration run (frozen with the plan); a failed criterion is reported as a limitation and the protocol is NOT tuned after the final run"
+ },
+ "battery_reps_note": "calibration uses fewer repetitions than the protocol (1999 / 199 / 199) to stay light on the shared host: core / Romano-Wolf p resolution 1/200, placebo p resolution 1/50 (P02 at 0.05 needs at most 1 placebo at or above the candidate), fragility references at the protocol sizes (499 / 199)",
+ "battery_reps_profile": {
+  "bootstrap": 199,
+  "random_entry": 49,
+  "time_shift": 49
+ },
+ "delta_rule": "planted drift delta per row-window; expected gross edge of a candidate (H01-004, theta 1.0) position = delta x 0.765 x lambda(1.3) = 1.354 delta; mean round-trip cost ~ 26 bps (20 fee + spread + slippage); delta(e) = (e + 0.0026) / 1.354 for a target net edge e. The realized ORACLE edge (planted drift minus the position's own cost) is reported per cell",
+ "host_safety": {
+  "abort_if_collector_not_healthy": true,
+  "blackout_utc": [
+   {
+    "from_min": 12,
+    "kind": "hourly",
+    "to_min": 25
+   },
+   {
+    "from_hm": [
+     23,
+     50
+    ],
+    "kind": "daily",
+    "to_hm": [
+     0,
+     45
+    ]
+   }
+  ],
+  "envelope": "systemd-run --user --scope -p CPUQuota=50% -p MemoryMax=1G nice -n 19"
+ },
+ "purpose": "measure the battery's own false-positive rate under nulls, its power at realistic n, and whether it catches each past false-edge class; nothing here reads real data; v2 re-runs every study under the v2 inference",
+ "record": "tsb.p2f.calibration_plan",
+ "record_version": 1,
+ "studies": [
+  {
+   "alpha": 0.05,
+   "bootstrap_reps": 499,
+   "generators": [
+    {
+     "id": "iid_normal",
+     "innov": "normal",
+     "kind": "ar",
+     "phi": 0.0
+    },
+    {
+     "id": "ma1_05_t4",
+     "innov": "t4",
+     "kind": "ma",
+     "note": "MA(1) with lag-1 correlation 0.5: the overlap structure of 24h positions entered on adjacent days",
+     "phi": 1.0
+    },
+    {
+     "id": "ar03_t4",
+     "innov": "t4",
+     "kind": "ar",
+     "phi": 0.3
+    },
+    {
+     "id": "ar05_t4",
+     "innov": "t4",
+     "kind": "ar",
+     "note": "long-memory stress case",
+     "phi": 0.5
+    }
+   ],
+   "hac_lag": 3,
+   "horizon_block": 3,
+   "id": "C1",
+   "mean_block": 3,
+   "method": "v2 (block_length rule), v1 reported beside it",
+   "n_days": [
+    10,
+    14,
+    28,
+    56,
+    90
+   ],
+   "reps": 1000,
+   "title": "core p-value calibration on dependent fat-tailed series"
+  },
+  {
+   "cells": [
+    {
+     "delta": 0.00192,
+     "id": "net_zero_H01"
+    }
+   ],
+   "id": "C2",
+   "reps": 100,
+   "title": "battery under a net-zero null (planted gross edge = costs)"
+  },
+  {
+   "cells": [
+    {
+     "id": "bull_mu80bps",
+     "mu_day": 0.008,
+     "oracle": false
+    }
+   ],
+   "id": "C3",
+   "reps": 100,
+   "title": "battery under a bull-market beta null"
+  },
+  {
+   "cells": [
+    {
+     "id": "pure_null"
+    }
+   ],
+   "id": "C4",
+   "reps": 50,
+   "title": "battery under the pure null"
+  },
+  {
+   "cells": [
+    {
+     "delta": 0.002659,
+     "id": "net+10bps"
+    },
+    {
+     "delta": 0.003767,
+     "id": "net+25bps"
+    },
+    {
+     "delta": 0.005613,
+     "id": "net+50bps"
+    },
+    {
+     "delta": 0.009306,
+     "id": "net+100bps"
+    },
+    {
+     "delta": 0.016691,
+     "id": "net+200bps"
+    }
+   ],
+   "id": "C5",
+   "reps": 60,
+   "title": "in-sample power, 14 frozen validation days"
+  },
+  {
+   "cells": [
+    {
+     "delta": 0.00192,
+     "first_day": 30,
+     "id": "fwd28d_net_zero",
+     "kind": "forward",
+     "n_days": 28
+    },
+    {
+     "delta": 0.00192,
+     "first_day": 30,
+     "id": "fwd56d_net_zero",
+     "kind": "forward",
+     "n_days": 56
+    },
+    {
+     "first_day": 30,
+     "id": "fwd28d_bull_null",
+     "kind": "forward",
+     "mu_day": 0.008,
+     "n_days": 28,
+     "oracle": false
+    },
+    {
+     "delta": 0.003767,
+     "first_day": 30,
+     "id": "fwd28d_net+25bps",
+     "kind": "forward",
+     "n_days": 28
+    },
+    {
+     "delta": 0.005613,
+     "first_day": 30,
+     "id": "fwd28d_net+50bps",
+     "kind": "forward",
+     "n_days": 28
+    },
+    {
+     "delta": 0.009306,
+     "first_day": 30,
+     "id": "fwd28d_net+100bps",
+     "kind": "forward",
+     "n_days": 28
+    },
+    {
+     "delta": 0.003767,
+     "first_day": 30,
+     "id": "fwd56d_net+25bps",
+     "kind": "forward",
+     "n_days": 56
+    },
+    {
+     "delta": 0.005613,
+     "first_day": 30,
+     "id": "fwd56d_net+50bps",
+     "kind": "forward",
+     "n_days": 56
+    },
+    {
+     "delta": 0.009306,
+     "first_day": 30,
+     "id": "fwd56d_net+100bps",
+     "kind": "forward",
+     "n_days": 56
+    }
+   ],
+   "id": "C6",
+   "reps": 30,
+   "title": "forward-test power, one pre-registered candidate"
+  },
+  {
+   "cells": [
+    {
+     "catching_tests": [
+      "I05_pit"
+     ],
+     "expect": "INVALID_EVIDENCE via I05_pit",
+     "id": "lookahead_metadata",
+     "mode": "lookahead_meta",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "I10_implausible",
+      "R09_lag_retention"
+     ],
+     "expect": "INVALID_EVIDENCE via I10_implausible (or FRAGILE via R09_lag_retention)",
+     "id": "lookahead_hidden",
+     "mode": "lookahead_hidden",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "I06_unique_grid"
+     ],
+     "delta": 0.00192,
+     "expect": "INVALID_EVIDENCE via I06_unique_grid",
+     "id": "clone_rows",
+     "mode": "clones",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "I07_positions_match"
+     ],
+     "claimed": "reentry",
+     "delta": 0.005613,
+     "expect": "INVALID_EVIDENCE via I07_positions_match",
+     "id": "clone_reentry_claimed",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "I04_window"
+     ],
+     "delta": 0.00192,
+     "expect": "INVALID_EVIDENCE via I04_window",
+     "id": "peak_boundary_window",
+     "mode": "peak_boundary",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "A01_net_alpha_positive"
+     ],
+     "expect": "REJECTED via A01_net_alpha_positive",
+     "id": "btc_beta_as_alpha",
+     "mode": "beta",
+     "mu_day": 0.01,
+     "oracle": false
+    },
+    {
+     "ar": 0.25,
+     "catching_tests": [
+      "A01_net_alpha_positive",
+      "E08_benchmark_alpha"
+     ],
+     "expect": "not forward-eligible (A01 / E08_benchmark_alpha)",
+     "id": "trend_timing_as_alpha",
+     "mode": "timing_beta",
+     "mu_day": 0.004,
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "A01_net_alpha_positive",
+      "E02_gross_covers_cost"
+     ],
+     "delta": 0.001152,
+     "expect": "REJECTED via A01_net_alpha_positive (gross edge does not pay the costs)",
+     "id": "fee_blind_gross_edge"
+    },
+    {
+     "catching_tests": [
+      "A01_net_alpha_positive",
+      "E01_net_base_not_negative"
+     ],
+     "delta": 0.00256,
+     "expect": "REJECTED via A01_net_alpha_positive although the candidate beats its control",
+     "id": "relative_to_control_trap",
+     "mode": "relative_trap",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "N01_min_n"
+     ],
+     "delta": 0.009306,
+     "expect": "INSUFFICIENT_EVIDENCE via N01_min_n",
+     "id": "small_n_combo",
+     "mode": "small_n",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "R11_day_fragility",
+      "S00_screen",
+      "S02_selection_screen",
+      "A01_net_alpha_positive"
+     ],
+     "delta": 0.00192,
+     "expect": "not forward-eligible (R11_day_fragility / S00 / S02)",
+     "id": "outlier_day",
+     "mode": "outlier_day",
+     "oracle": false
+    },
+    {
+     "catching_tests": [
+      "R12_symbol_fragility",
+      "A01_net_alpha_positive",
+      "S00_screen",
+      "S02_selection_screen"
+     ],
+     "delta": 0.00192,
+     "expect": "not forward-eligible (R12_symbol_fragility / A01)",
+     "id": "single_symbol_pump",
+     "mode": "single_symbol",
+     "oracle": false
+    },
+    {
+     "best_of": true,
+     "delta": 0.00192,
+     "edge_family": "ALL",
+     "expect": "round-level false-forward rate reported (S02 selection screen)",
+     "id": "best_of_48_net_zero",
+     "oracle": false
+    },
+    {
+     "best_of": true,
+     "expect": "round-level false-forward rate reported (S02 selection screen)",
+     "id": "best_of_48_bull",
+     "mu_day": 0.006,
+     "oracle": false
+    }
+   ],
+   "id": "C7",
+   "reps": 30,
+   "title": "adversarial generators (past false-edge classes)"
+  }
+ ],
+ "synthetic_only": true,
+ "version": "2.0.0"
+}

@@ -75,6 +75,22 @@ class Battery:
     def _blk(self, hz):
         return self.P["inference"]["mean_block_days"][hz], self.P["inference"]["hac_lag_days"][hz]
 
+    @property
+    def inference_version(self):
+        return int(self.P["inference"].get("combine_version", 1))
+
+    def _alpha(self, p, m, blk, lag, tid, name, L=None):
+        """Net-alpha test under the inference version of the frozen protocol."""
+        if self.inference_version >= 2:
+            LL = L if L is not None else S.block_length(len(p), blk)
+            return S.alpha_test_v2(p, m, LL, self.reps["bootstrap"], self.seed(tid, name))
+        return S.alpha_test(p, m, L or blk, L or lag, self.reps["bootstrap"], self.seed(tid, name))
+
+    def _core(self, x, blk, lag, tid, name):
+        if self.inference_version >= 2:
+            return S.core_test_v2(x, S.block_length(len(x), blk), self.reps["bootstrap"], self.seed(tid, name))
+        return S.core_test(x, blk, lag, self.reps["bootstrap"], self.seed(tid, name))
+
     @staticmethod
     def _test(tests, tid, status, effect, **kw):
         tests[tid] = {"status": status, "effect_if_not_pass": effect, **kw}
@@ -142,6 +158,13 @@ class Battery:
             bad.append("p2x_v2_sums_sha256")
         if reg.get("trial_id") != c["trial_id"] or c["trial_id"] not in (reg.get("considered_trials") or []):
             bad.append("trial_id / considered_trials")
+        if P["integrity"].get("dataset_binding"):
+            ds = reg.get("dataset") or {}
+            if not (isinstance(ds.get("dataset_id"), str) and isinstance(ds.get("dataset_hash"), str) and
+                    len(ds["dataset_hash"]) == 64 and all(ch in "0123456789abcdef" for ch in ds["dataset_hash"])):
+                bad.append("registration.dataset {dataset_id, dataset_hash} required")
+            elif ev.get("dataset") != ds:
+                bad.append("evidence.dataset differs from the registered dataset")
         pe = self._plan_ix.get(c["plan_id"])
         if self.plan is not None:
             if pe is None:
@@ -292,7 +315,7 @@ class Battery:
             return self._finish(ev, cand, T, info)
         self._test(T, "N01_min_n", PASS, "min_n")
         reps = self.reps["bootstrap"]
-        al = S.alpha_test(p_ser, m_ser, blk, lag, reps, self.seed(tid, "alpha"))
+        al = self._alpha(p_ser, m_ser, blk, lag, tid, "alpha")
         a_ser = al.pop("series")
         info["alpha"] = al
         # ---- I10 implausibility tripwire (market-adjusted; before anything is reported)
@@ -313,7 +336,7 @@ class Battery:
         elif ctx.get("d0_category") is not None:
             self._test(T, "D0_category", PASS, "reject", category=ctx["d0_category"])
         # ---- economic core
-        core = S.core_test(x, blk, lag, reps, self.seed(tid, "core"))
+        core = self._core(x, blk, lag, tid, "core")
         info["net_base_cluster"] = core
         E = P["economic"]
         a01 = al["alpha"] > P["attribution"]["alpha_point_must_exceed"]
@@ -330,7 +353,7 @@ class Battery:
         g = [v for _, v in PN.cluster_series(both, "gross")[0]]
         cost = S.mean([p["gross"] - p["net_base"] for p in both]) if both else math.inf
         if len(g) >= 3:
-            gt = S.core_test(g, blk, lag, reps, self.seed(tid, "gross"))
+            gt = self._core(g, blk, lag, tid, "gross")
             e02 = gt["hi95"] >= cost
             self._test(T, "E02_gross_covers_cost", PASS if e02 else FAIL, "reject", gross_mean=gt["mean"],
                        gross_hi95=gt["hi95"], mean_cost=cost,
@@ -548,7 +571,7 @@ class Battery:
         # R10 dependence-assumption sensitivity (blocks PROVISIONAL only)
         ps = {}
         for L in self.P["inference"]["block_sensitivity_mean_block_days"]:
-            ps[str(L)] = S.alpha_test(p_ser, m_ser, L, L, self.reps["bootstrap"], self.seed(tid, f"block{L}"))["p"]
+            ps[str(L)] = self._alpha(p_ser, m_ser, blk, lag, tid, f"block{L}", L=L)["p"]
         r10 = max(ps.values()) <= self.P["inference"]["block_sensitivity_max_p"]
         self._test(T, "R10_block_sensitivity", PASS if r10 else FAIL, "provisional", p_by_mean_block=ps,
                    reason=None if r10 else "significance depends on the dependence assumption")
@@ -682,7 +705,8 @@ class Battery:
         scr = self.P["inference"]["screen_alpha"]
         s0 = al["p"] <= scr
         self._test(T, "S00_screen", PASS if s0 else FAIL, "insufficient", p=al["p"], p_boot=al["p_boot"],
-                   p_hac_t=al["p_hac_t"], screen_alpha=scr,
+                   p_hac_t=al.get("p_hac_t"), p_batch=al.get("p_batch"), p_fixedb=al.get("p_fixedb"),
+                   block=al.get("block"), screen_alpha=scr,
                    reason=None if s0 else "net alpha not even suggestive (screen level)")
         if kind == "forward":
             setsz = int((freg or {}).get("set_size", 1))
@@ -889,7 +913,7 @@ def core_summary(battery: Battery, ev: dict) -> dict:
            "alpha": None, "series": [0.0] * len(vdays),
            "info_effect": info_effect(pos, control_positions(rows, rbs, hz_ms))}
     if len(adays) >= 3 and pos:
-        al = S.alpha_test(p_ser, m_ser, blk, lag, battery.reps["bootstrap"], battery.seed(c["trial_id"], "alpha"))
+        al = battery._alpha(p_ser, m_ser, blk, lag, c["trial_id"], "alpha")
         amap = dict(zip(adays, al["series"]))
         out.update({"p": al["p"], "alpha": al["alpha"], "series": [amap.get(d, 0.0) for d in vdays]})
     return out

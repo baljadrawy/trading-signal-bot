@@ -1,0 +1,360 @@
+{
+ "activation": {
+  "rule": "every verdict carries thresholds_status; while it is PROPOSED_NOT_OWNER_APPROVED a verdict is advisory. Approval is recorded as a NEW file version (f0_activation_v1.json) that references this protocol hash; it can never edit this file",
+  "thresholds_status": "PROPOSED_NOT_OWNER_APPROVED"
+ },
+ "applicability": {
+  "frozen_at_ledger_head": {
+   "event_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+   "seq": -1
+  },
+  "rule": "a candidate is evaluated under the latest F version whose frozen_at_ledger_head.seq is BELOW the seq of the first trial_result of any trial the candidate's round contains. A later F version may additionally be applied to an already-seen candidate only as a second verdict; the more conservative of the two governs (retroactive changes can only downgrade); v1 and v2 are both frozen at the genesis head (seq -1); v2 is the latest and governs every candidate (v1 was never applied)"
+ },
+ "attribution": {
+  "alpha_point_must_exceed": 0.0,
+  "alpha_share_of_raw_min": 0.5,
+  "benchmark_models": "mkt + BENCH-BTC-TREND and mkt + BENCH-TSMOM (day series under EXEC-BASE); alpha must stay > 0 (E08, FRAGILE)",
+  "factors": {
+   "btc": "mean BTCUSDT gross label over the eligible rows of the day",
+   "mkt": "mean gross label over all eligible rows of the day (the unconditional-long control)"
+  },
+  "gate_models": [
+   [
+    "btc"
+   ]
+  ],
+  "primary": "the net alpha itself is the market-model alpha (A01, REJECT when <= 0)",
+  "reported_models": [
+   [
+    "btc",
+    "mkt"
+   ]
+  ],
+  "series": "the candidate PORTFOLIO day series over every evaluation day (mean net of the positions entered that day, cash = 0 on a day without entries), so timing skill (being out on bad days) can show as alpha while always-long exposure cannot"
+ },
+ "dependencies": {
+  "p2d0": {
+   "plan_file": "p2_research/research/planned_trials_v1.json",
+   "rule": "P2-F0 builds on P2-D0 (folds, benchmarks, horizons, Holm within hypothesis, grids); it never edits a P2-D0 file and can only add stricter conditions",
+   "sha256": "2bedc3f5c3a4de4fde8d9c8518270f7cd0078033fd754c75c20297954e408573",
+   "sums_file": "p2_research/research/FROZEN_SHA256SUMS.json"
+  },
+  "p2rm0": {
+   "branch": "feature/p2rm0-portfolio-risk-20261006",
+   "commit": "9c7b750",
+   "rule": "not imported, not resumed; any risk_inputs block in an evidence bundle is refused until a later F version binds a closed RM0 contract hash; P2-F0 itself refuses mixed quote currencies (fail closed)",
+   "status": "PENDING_CLOSURE_OF_D-RM0-2"
+  },
+  "p2x_v1": {
+   "sha256": "3c554702948867fa26d4bba95b922f5e1db5902e42b088d9cdc49fdceefeec2f",
+   "sums_file": "p2_research/execution/contracts/FROZEN_SHA256SUMS.json"
+  },
+  "p2x_v2": {
+   "rule": "net returns are EXEC-IDEALIZED / EXEC-BASE / EXEC-STRESS; fee, latency and stress ASSUMED, impact UNAVAILABLE; gross > 0 alone is never success; IDEALIZED never supports a positive verdict",
+   "sha256": "f20e22a5e79b2ab36caa180ca25d652e6e273c2ad72392ed860c2d7f72aa88d0",
+   "sums_file": "p2_research/execution/contracts_v2/FROZEN_SHA256SUMS.json"
+  }
+ },
+ "economic": {
+  "benchmarks_compared": [
+   "BENCH-BTC-TREND",
+   "BENCH-TSMOM"
+  ],
+  "capacity_notional_usdt": 500,
+  "cost_to_gross_max": 0.5,
+  "net_base_point_must_exceed": 0.0,
+  "net_stress_point_must_exceed": 0.0,
+  "never_success": [
+   "gross only",
+   "EXEC-IDEALIZED only",
+   "relative to control only"
+  ],
+  "refusal_gap_signal_vs_control_max": 0.02,
+  "refusal_impute": "refused EXEC-BASE positions are imputed at their EXEC-STRESS net, or at the minimum observed EXEC-BASE net of the window when STRESS is also refused",
+  "refusal_rate_max": 0.05
+ },
+ "fragility": {
+  "alpha_joint": 0.1,
+  "day_reference": "iid Student t(4) day series with location = the observed alpha mean (the claimed edge) and a ROBUST scale = MAD / 0.7407 (the t(4) median |T|), so an outlier day cannot widen its own reference; crypto daily returns are fat-tailed, so a Gaussian reference would call honest fat tails fragile",
+  "day_statistics": [
+   "alpha after removing the best ceil(10%) days (low adverse)",
+   "best-day share of the alpha sum (high adverse)",
+   "minimum fold alpha (in-sample, low adverse)",
+   "minimum regime alpha over regimes with >= 3 days (low adverse)"
+  ],
+  "joint": "Westfall-Young min-p over the statistics against the same reference; FRAGILE when p_joint <= alpha_joint",
+  "permutation_reps": 199,
+  "reference_reps": 499,
+  "symbol_reference": "within-day permutation of the per-position alpha contributions (net - beta_hat * m_d) across the positions of that day",
+  "symbol_statistics": [
+   "leave-one-symbol-out minimum (low adverse)",
+   "top-symbol share of the total (high adverse)",
+   "main-tier cluster alpha (low adverse)"
+  ]
+ },
+ "implausibility": {
+  "max_plausible_annual_sharpe": 4.0,
+  "max_plausible_hit_rate": 0.75,
+  "psr_trigger": 0.95,
+  "rule": "INVALID_EVIDENCE (leakage audit required) when PSR(excess SR > max plausible) >= psr_trigger, or the Wilson 95% lower bound of the excess hit rate exceeds max_plausible_hit_rate",
+  "series": "MARKET-EXCESS: per position, EXEC-BASE net minus the mean gross label of all eligible rows at the same decision time, cluster-averaged by entry day (a bull market inflates raw Sharpe, leakage inflates excess)"
+ },
+ "inference": {
+  "alpha_local": 0.05,
+  "block_rule": "L = max(mean_block_days[horizon], ceil(n^(1/3))) with n = number of evaluation days in the series (3 at 24h and 2 at 4h for n <= 27; 4 for n = 28..64; 5 for n = 65..125)",
+  "block_sensitivity_max_p": 0.1,
+  "block_sensitivity_mean_block_days": [
+   1,
+   5
+  ],
+  "bootstrap_reps": 1999,
+  "combine": "p = max(p_stationary_bootstrap(mean block L), p_batch_means_t(batch length L, df = k - 1 - 1 for beta), p_fixedb_HAC(lag L, referred to its simulated iid N(0,1) null at the same n and lag, 4999 draws, deterministic)); every component is a valid test at its own assumptions; the maximum is never less conservative than any of them",
+  "combine_version": 2,
+  "hac_lag_days": {
+   "24h": 3,
+   "4h": 2
+  },
+  "mean_block_days": {
+   "24h": 3,
+   "4h": 2
+  },
+  "null_label_rule": "a null GROSS label is a position with an unknown outcome; it stays counted (refusal statistics) and is excluded from means; a null EXEC-BASE net is an execution refusal (section E06)",
+  "primary_estimand": "NET ALPHA: a_d = p_d - beta_hat * m_d over the evaluation days with factor data, where p_d is the candidate portfolio day value under EXEC-BASE (equal-weight mean net of the positions entered on day d, cash = 0) and m_d the COST-FREE unconditional-long factor (mean gross label of all eligible rows of day d); beta by OLS. mean(a) = OLS alpha. It charges every cost, credits timing (cash on bad days) and selection, and removes market beta, which is also most of the day-to-day noise",
+  "primary_scenario": "EXEC-BASE",
+  "screen_alpha": 0.2,
+  "seed_rule": "seed = int(sha256(f0_contract_set_sha256 + '|' + trial_id + '|' + test_id)[:12], 16)",
+  "two_stage_rule": "in-sample = SCREEN (eliminate artifacts; liberal on significance, strict on integrity / economics / fragility beyond noise); confirmation = one pre-registered forward test with Holm across its set. Because the forward data are independent of the screen, the forward family-wise error is controlled however liberal the screen",
+  "unit": "day: positions are aggregated by entry day (clusters); a day is one observation",
+  "v1_failure": "v1 synthetic calibration study C1 failed its own frozen acceptance criterion: the v1 combined p (max of stationary bootstrap and HAC-t with Student df) rejected a true null at 8.6 % (iid normal), 9.3 % (AR(0.3), t4) and 14.0 % (AR(0.5), t4) at n = 14 and nominal 5 %. v1 is kept byte-identical as the record; no candidate and no real outcome was ever evaluated under it"
+ },
+ "integrity": {
+  "dataset_binding": true,
+  "dataset_rule": "registration.dataset = {dataset_id, dataset_hash} must be the P2-C dataset of the trial's ledger spec (contracts.check_registration_against_ledger) and evidence.dataset must equal it (I02)",
+  "grid_offset_ms": 390000,
+  "grid_step_ms": 900000,
+  "label_tail_rule": "rows whose label window ends after the end of the last evaluation day are purged from every statistic and counted; the forward window may start only after the latest label end read by the in-sample evidence",
+  "max_entry_delay_ms": 60000,
+  "round_layout": {
+   "1": {
+    "folds": {
+     "1": [
+      15,
+      21
+     ],
+     "2": [
+      22,
+      28
+     ]
+    },
+    "forward_from_day": 29,
+    "validation_days": [
+     15,
+     28
+    ]
+   }
+  }
+ },
+ "min_n": {
+  "active_days": 10,
+  "n_eff_days": 7,
+  "positions": 30,
+  "rule": "below any minimum P2-F0 computes no outcome statistic and returns INSUFFICIENT_EVIDENCE (min_n); point estimates are not reported",
+  "symbols": 5,
+  "validation_days": 14
+ },
+ "multiplicity": {
+  "dsr_min": 0.95,
+  "dsr_trials": "N = every ledger trial of the program excluding H-P2D-BENCH-v1 (pending, aborted, failed and inconclusive included); effective N = 1 + (N - 1)(1 - mean |rho|) with rho over evaluated trials only",
+  "global": "Romano-Wolf step-down (studentized max-t, common stationary-bootstrap indices) over every evaluated trial of the round on the aligned portfolio day series",
+  "global_alpha": 0.05,
+  "local": "Holm across the evaluated trials of the candidate's hypothesis when every planned sibling was evaluated; otherwise Bonferroni with m = max(planned family size, ledger trials of the hypothesis)",
+  "pbo": "not used in round 1: P2-D0 selects nothing by in-sample performance (no fitting), so CSCV would answer a question that is not asked; reserved",
+  "screen_rule": "S02: the Romano-Wolf adjusted p of the candidate over the whole round must be <= screen_rw_alpha for FORWARD_CONFIRMATION_REQUIRED (a raw-p screen alone forwards the best of 48 null trials far too often); the round must be supplied",
+  "screen_rw_alpha": 0.5
+ },
+ "p2d0_findings": {
+  "items": [
+   {
+    "f0": "requires a positive COST-CHARGED net alpha (A01, REJECT) and EXEC-STRESS > 0 (E03)",
+    "finding": "SUPPORTED is RELATIVE to the control: a removal / conditioning filter on a losing base (or a long-only filter that is flat in a falling market) can be SUPPORTED while losing money after costs (the project's 'loss-reducer, not an edge' and fee-blind-gate history)",
+    "id": "F-D0-1",
+    "proposed_d0_v2": "SUPPORTED additionally requires executable net alpha > 0 under EXEC-BASE and EXEC-STRESS"
+   },
+   {
+    "f0": "fixed (3 days at 24h, 2 at 4h; 1999 replicates; hash-derived seeds) plus the max(bootstrap, HAC-t) rule because each alone is anti-conservative at n ~ 14 (study C1)",
+    "finding": "the stationary bootstrap's mean block length, replicate count and seed are unspecified: a researcher degree of freedom; measured (v1 calibration C1): the stationary bootstrap alone rejects a true null at 10-17 % at n = 14 (nominal 5 %)",
+    "id": "F-D0-2",
+    "proposed_d0_v2": "adopt the F0 inference block"
+   },
+   {
+    "f0": "purges rows whose label ends after the last evaluation day (counted) and starts the forward window after the latest label end read",
+    "finding": "label-tail contamination: 24h labels of validation day 28 (and 4h labels of its last 4 h) read day 29, the forward-untouched window; at 24h the whole of day 28 is unusable",
+    "id": "F-D0-3",
+    "proposed_d0_v2": "purge the validation tail; forward window from day 30 for 24h trials"
+   },
+   {
+    "f0": "Romano-Wolf over every evaluated trial (S02 screen, M01) and the deflated Sharpe with N = all ledger trials (M02)",
+    "finding": "Holm only within each hypothesis: across 7 families the round-level family-wise error can approach 1 - 0.95^7 ~ 0.30; the global count is reported, not controlled",
+    "id": "F-D0-4",
+    "proposed_d0_v2": "add a round-level control"
+   },
+   {
+    "f0": "plateau on the GROSS information effect (signal minus control, gross)",
+    "finding": "the plateau rule (same sign for all grid neighbours) includes the HORIZON neighbour, but costs do not scale with the horizon: a genuine 24h edge can fail through a cost-negative 4h neighbour",
+    "id": "F-D0-5",
+    "proposed_d0_v2": "state the plateau metric explicitly"
+   },
+   {
+    "f0": "two-stage: in-sample = screen only; confirmation only by a pre-registered forward test of adequate length",
+    "finding": "power: 14 validation days (13 usable at 24h) cannot detect any plausible edge; the minimum detectable net alpha corresponds to an annualized alpha Sharpe far above the plausibility bound (studies C5 / C6)",
+    "id": "F-D0-6",
+    "proposed_d0_v2": "state that round 1 can only screen and reject"
+   },
+   {
+    "f0": "E02 compares the absolute gross edge with the measured mean cost; A01 charges costs inside the alpha",
+    "finding": "REJECTED compares the upper bound of the GROSS mean DIFFERENCE vs control with the 20 bps fee: a relative effect against an absolute cost (if the control also trades, costs cancel in the difference)",
+    "id": "F-D0-7",
+    "proposed_d0_v2": "define REJECTED on absolute executable quantities"
+   },
+   {
+    "f0": "proposes frozen values (top symbol share 0.5, best day share 0.5, remove best 10% days, top 1% positions) for PROVISIONAL and noise-calibrated joint tests for FRAGILE; owner approval pending",
+    "finding": "numeric concentration limits are TBD",
+    "id": "F-D0-8",
+    "proposed_d0_v2": "adopt or replace by owner decision"
+   },
+   {
+    "f0": "deterministic fold rule blocks PROVISIONAL only; the fold minimum enters the noise-calibrated R11",
+    "finding": "'same sign in every validation fold' with two 7-day folds is weak against noise (about 1 in 4 null cells pass) and noisy for honest edges",
+    "id": "F-D0-9",
+    "proposed_d0_v2": "none required"
+   },
+   {
+    "f0": "null gross / net values are excluded from means and counted; EXEC-BASE refusals are imputed (STRESS net, else window minimum) as a sensitivity (E06)",
+    "finding": "how null labels enter the means is unspecified (they stay in the count)",
+    "id": "F-D0-10",
+    "proposed_d0_v2": "state the rule"
+   },
+   {
+    "f0": "benchmark day series enter a regression (E08) for both horizons",
+    "finding": "P2-D0 benchmarks are daily 24h rules; their comparison with 4h trials is undefined",
+    "id": "F-D0-11",
+    "proposed_d0_v2": "define the 4h comparison"
+   }
+  ],
+  "status": "documented findings and PROPOSED future versioned amendments (a P2-D0 v2 needs owner approval); no P2-D0 file is edited; P2-F0 applies its own stricter rule where stated"
+ },
+ "placebo": {
+  "random_entry_beat_alpha": 0.05,
+  "random_entry_reject_above": 0.5,
+  "random_entry_reps": 199,
+  "time_shift_alpha": 0.05,
+  "time_shift_min_offset_horizons": 2,
+  "time_shift_reps": 199,
+  "time_shift_resolution_rule": "the shift test is UNDETERMINABLE when 1 / (window_days - 2 * min_offset_days) > time_shift_alpha (too few distinguishable shifts)"
+ },
+ "protocol_id": "P2F0-ADVERSARIAL-v2",
+ "record": "tsb.p2f.protocol",
+ "record_version": 1,
+ "robustness": {
+  "best_day_share_max": 0.5,
+  "deterministic_rule": "R01-R08 and R10 are the fixed P2-D0-style conditions (fold signs, remove-best, LOSO, concentration shares, tier, regimes, plateau, block sensitivity); at 14 days they fail often for honest edges, so they block PROVISIONAL only. FRAGILE comes from the noise-calibrated R11 / R12 and the economic / leakage checks",
+  "folds_all_positive": true,
+  "lag_retention_min": 0.25,
+  "lag_rows": 1,
+  "loso_all_positive": true,
+  "plateau_min_ratio": 0.25,
+  "plateau_neighbour_rule": "neighbours = planned cells of the same hypothesis differing in exactly one grid parameter (P2-D0 plan, horizon included). Statistic = GROSS information effect (mean over common active days of the signal gross cluster minus the P2-D0 control gross cluster): costs do not scale with the horizon, so net neighbour signs would test the cost structure, not parameter smoothness. Every neighbour effect must be > 0 and their median >= plateau_min_ratio x the candidate effect; a neighbour without a result, or a candidate without a positive effect, makes the plateau UNDETERMINABLE",
+  "regime_min_days": 3,
+  "regime_min_regimes": 2,
+  "remove_best_days_fraction": 0.1,
+  "remove_top_positions_fraction": 0.01,
+  "tier_majority_positive": true,
+  "top_symbol_share_max": 0.5
+ },
+ "status": "FROZEN at P2-F0 (2026-10-06) before any Alpha outcome exists, superseding v1 before any use; numeric thresholds are PROPOSED and need owner approval before the first real evaluation",
+ "supersedes": {
+  "changes": [
+   "inference combine_version 2 (three-way max, growing block)",
+   "dataset binding (registration and evidence carry the P2-C dataset id and hash; checked against the ledger spec)"
+  ],
+  "contract_set_sha256": "9f42105d2d408babdf8f7a96036dd1bdd46ee1ac858b23a7642a3ba1950398b6",
+  "reason": "v1 synthetic calibration study C1 failed its own frozen acceptance criterion: the v1 combined p (max of stationary bootstrap and HAC-t with Student df) rejected a true null at 8.6 % (iid normal), 9.3 % (AR(0.3), t4) and 14.0 % (AR(0.5), t4) at n = 14 and nominal 5 %. v1 is kept byte-identical as the record; no candidate and no real outcome was ever evaluated under it",
+  "version": "1.0.0"
+ },
+ "verdicts": {
+  "effects": {
+   "fragile": [
+    "E03 EXEC-STRESS alpha or net <= 0",
+    "E04 not above the P2-D0 control",
+    "E05 cost-to-gross > 0.5",
+    "E06 refusals",
+    "E07 no edge at 500 USDT depth",
+    "E08 explained by a trivial benchmark",
+    "E09 EXEC-BASE net <= 0 in the window",
+    "A02 BTC-model alpha <= 0",
+    "R09 one-row stale signal keeps < 25 %",
+    "R11 day fragility",
+    "R12 symbol fragility"
+   ],
+   "insufficient": [
+    "S00 screen raw p > 0.20",
+    "S02 selection screen (Romano-Wolf adjusted p > 0.50 or round absent)",
+    "undeterminable economics (E02, E04)"
+   ],
+   "invalid": [
+    "I01..I10"
+   ],
+   "min_n": [
+    "N01"
+   ],
+   "provisional": [
+    "S01 local Holm",
+    "P02 random entry beaten at 0.05",
+    "P03 time shift",
+    "R01-R08",
+    "R10",
+    "A03 alpha share",
+    "M01 Romano-Wolf",
+    "M02 deflated Sharpe",
+    "undeterminable E07 / E08 / R07 / R09 / A02"
+   ],
+   "reject": [
+    "A01 net alpha <= 0",
+    "E01 EXEC-BASE net significantly negative",
+    "E02 gross upper bound below the cost",
+    "P01 worse than the median random entry",
+    "D0 category REJECTED"
+   ]
+  },
+  "forward": [
+   "FORWARD_REJECTED",
+   "FORWARD_INSUFFICIENT",
+   "FORWARD_DECAYED",
+   "FORWARD_CONSISTENT"
+  ],
+  "in_sample": [
+   "INVALID_EVIDENCE",
+   "INSUFFICIENT_EVIDENCE",
+   "REJECTED",
+   "FRAGILE",
+   "FORWARD_CONFIRMATION_REQUIRED",
+   "PROVISIONAL"
+  ],
+  "meaning": {
+   "FORWARD_CONFIRMATION_REQUIRED": "passed the in-sample SCREEN: no integrity, economic, attribution, placebo-median or noise-calibrated fragility failure and net-alpha p <= screen_alpha; may be proposed for ONE pre-registered forward test; it is not evidence of an edge",
+   "FRAGILE": "a positive net alpha that fails an economic-realism, benchmark, leakage-canary or noise-calibrated fragility condition",
+   "INSUFFICIENT_EVIDENCE": "below the minimum sample, or the net alpha is not even suggestive (screen); absence of evidence, not evidence of absence",
+   "INVALID_EVIDENCE": "the evidence itself fails integrity (binding, W3, window, PIT, duplicates, position rebuild, currency, implausibility); nothing about the strategy is concluded",
+   "PROVISIONAL": "also passes the local (Holm) and global (Romano-Wolf, deflated Sharpe) multiplicity controls, the random-entry and time-shift placebos and every deterministic robustness condition in-sample; still requires the forward test; never a deployment approval",
+   "REJECTED": "the claim of an executable edge is contradicted: net alpha <= 0 (exposure or costs explain the return), net significantly negative, gross cannot cover costs, worse than the median exposure-matched random entry, or P2-D0 REJECTED"
+  },
+  "never": [
+   "PROVEN",
+   "CONFIRMED",
+   "VALIDATED",
+   "SUCCESS"
+  ],
+  "precedence": "INVALID_EVIDENCE > INSUFFICIENT_EVIDENCE(min_n) > REJECTED > FRAGILE > INSUFFICIENT_EVIDENCE > FORWARD_CONFIRMATION_REQUIRED > PROVISIONAL"
+ },
+ "version": "2.0.0"
+}

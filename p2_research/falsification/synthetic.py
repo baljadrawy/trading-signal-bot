@@ -259,6 +259,8 @@ class Round:
                             "horizon": hz, "direction": "long",
                             "kind": "information" if t["params"].get("mode") == "information" else "directional"},
               "registration": registration, "window": win, "rows": rows, "day_context": P["ctx"]}
+        if isinstance(registration, dict) and "dataset" in registration:
+            ev["dataset"] = registration["dataset"]
         if claimed == "reentry":
             ev["claimed_positions"] = [[r["sym"], r["t_ms"]] for r in rows if r["sig"]]
         return ev
