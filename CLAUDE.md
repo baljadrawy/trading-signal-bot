@@ -28,6 +28,7 @@ research/skill_application/.venv/bin/python -m pytest tests/ -q               # 
 - **صور مثبّتة:** scanner على صورة `deploy/aiohttp-3.14.3/IMAGES.md`، و analyzer على صورة D3B-1 المثبّتة في `docker-compose.yml`؛ telegram و trade_tracker و signal_engine على صور CR-2 في `deploy/cr2-signal-ready/IMAGES.md` — لا إعادة بناء ولا إعادة وسم أبداً.
 - **claude_review مُتقاعد من التشغيل (CR-2):** ليس خدمة في `docker-compose.yml`؛ المسار النشط signal_engine → `signal.ready` → telegram → trade_tracker. الحاوية المتوقفة `trading_claude_review` وصورتها والمصدر والبيانات التاريخية محفوظة للتراجع (`deploy/cr2-signal-ready/RETIREMENT.md`) — حذفها بتفويض منفصل فقط.
 - **مصدر الحقيقة:** `docker-compose.yml` في الإنتاج يجب أن يطابق الـblob المُراجَع في Git؛ أي تغيير عبر PR ثم تثبيت منفصل بتفويض مستقل مع تحقق `config --hash`.
+- **التشغيل في الخلفية والبحث (إلزامي):** [docs/ops/BACKGROUND_EXECUTION.md](docs/ops/BACKGROUND_EXECUTION.md) — لا انتظار بـ`pgrep -f` (يطابق نفسه)؛ انتظر بـPID/حالة unit/ملف إكمال تحت `timeout`؛ كل عملية خلفية لها مالك ومدة قصوى؛ جرد ما بدأته قبل التسليم؛ اليتامى تُقتل فقط بعد إثبات الهوية وانعدام الاعتماد. **كل بحث/محاكاة/معايرة عبر `ops/research/bin/research-run`** ([RESEARCH_EXECUTION_LAYER.md](docs/ops/RESEARCH_EXECUTION_LAYER.md)): قبول مشروط بصحة الـCollector، تجميد تلقائي، R1 افتراضياً.
 - **قاعدة التوقف المطلقة:** أي شيء غير متوقع (hash مختلف، diff غير متوقع، تغيّر هوية حاوية، بوابة فاشلة، سرّ في المخرجات) = **توقّف وارجع للمالك**. لا تشخيص ثم متابعة.
 
 ## قواعد حرجة (تغلب الافتراضات)
