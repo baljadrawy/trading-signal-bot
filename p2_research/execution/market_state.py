@@ -339,7 +339,7 @@ def _ingest(C: _Collector, B, r, ctrl, boots):
         RD._ingest(B, r, ctrl)                           # control records: reader dedupe / conflict semantics
 
 
-def _read_segment(C, B, base, rel, d, mans, ctrl, boots):
+def _read_segment(C, B, base, rel, d, mans, ctrl, boots, observer=None):
     if d not in mans:
         mans[d] = RD._manifest(base, d)
     p = os.path.join(base, rel)
@@ -362,6 +362,8 @@ def _read_segment(C, B, base, rel, d, mans, ctrl, boots):
                     continue
                 r = json.loads(line)
                 RD.validate_record(r)
+                if observer is not None:
+                    observer(r)                          # read-only side channel (P2-X1 calibration); never alters state
                 _audit_record(C.A, r)
                 _ingest(C, B, r, ctrl, boots)
                 n += 1
@@ -375,8 +377,11 @@ def _read_segment(C, B, base, rel, d, mans, ctrl, boots):
     B.provenance["segments"].append({"path": rel, "sha256": dig, "records": n})
 
 
-def load_sealed(base: str, days: list, query_times=None) -> ForwardMarketState:
-    """Load consecutive SEALED days (plus the last day's spill-over hour). Unsealed days are refused."""
+def load_sealed(base: str, days: list, query_times=None, observer=None) -> ForwardMarketState:
+    """Load consecutive SEALED days (plus the last day's spill-over hour). Unsealed days are refused.
+
+    ``observer`` (P2-X1, optional): a callable receiving every validated raw record (a deep copy is NOT made; the
+    observer must treat it as read-only). It never changes the returned state (tested)."""
     ds = RD.open_dataset(base)
     days = sorted(set(days))
     if not days:
@@ -404,7 +409,7 @@ def load_sealed(base: str, days: list, query_times=None) -> ForwardMarketState:
     C = _Collector(query_times)
     mans, ctrl, boots = {}, {}, set()
     for rel, d in sorted(set(want)):
-        _read_segment(C, B, base, rel, d, mans, ctrl, boots)
+        _read_segment(C, B, base, rel, d, mans, ctrl, boots, observer)
     C.check_duplicates(B.quality)
     recs = sorted((v[1] for v in ctrl.values()), key=lambda r: (r["available_at_ms"], r["recv_ts_ns"], r["obs_id"]))
     RD.process_control(B, recs, set())

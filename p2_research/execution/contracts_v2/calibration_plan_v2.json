@@ -1,0 +1,62 @@
+{
+ "contract": "tsb.p2x.calibration_plan",
+ "contract_version": 2,
+ "id": "X1-CALIBRATION-PLAN",
+ "version": "2.0.0",
+ "frozen": "2026-10-06",
+ "status": "PREDECLARED before any real-data run of P2-X1 (committed before the calibration / join tools touch sealed data); never tuned on any return, P&L or outcome",
+ "purpose": "execution and market-structure calibration only: observed spread, quote age, depth age, displayed depth, reconstruction reliability, field availability, network RTT observation. No alpha, no returns, no P&L, no labels, no Paper data, no W3",
+ "eligible_data": {
+  "days": ["2026-10-04", "2026-10-05"],
+  "window_start": "W3 end (2026-10-04T15:26:43.497803Z), exclusive bound rounded UP to the next millisecond; every statistic uses only records with sample_ms (sampled streams) or available_at_ms (control records) >= window_start",
+  "window_end_exclusive": "2026-10-06T00:00:00Z (the 2026-10-05 spill-over hour is loaded only because the 2026-10-05 seal covers it; it never enters a statistic)",
+  "source": "sealed PASS days only, backed up and restore-tested; read through the P2-C reader verification (seal, day-close, manifest, sidecar, record counts)",
+  "pre_window_records": "records of 2026-10-04 before window_start are integrity-verified by the loader (whole-segment SHA checks) but excluded from every statistic; at a decision time they can only be used as the PIT state known at that time (the same rule as P2-X0)"
+ },
+ "execution_timestamps": {
+  "decision_grid": "grid-15m-plus390s-v1 (P2-C), every T with window_start <= T and T + 5000 ms < window_end_exclusive",
+  "latencies_ms": [0, 1000, 5000],
+  "universe": "every symbol of the universe epoch known at T (P2-C as-of rule)",
+  "meaning": "the instants at which EXEC-IDEALIZED / EXEC-BASE / EXEC-STRESS would read market state; NOT observed order times"
+ },
+ "notional_set_quote": [50.0, 500.0, 5000.0],
+ "notional_rationale": "50 USDT = the current Paper stake; 500 and 5,000 = one and two orders of magnitude above it. Declared before running; an order larger than the displayed notional of the side is REFUSED (UNAVAILABLE), never extrapolated",
+ "buckets": {
+  "quote_age_ms_upper_bounds": [1000, 10000, 60000, 120000, 600000],
+  "quote_age_labels": ["<=1s", "1-10s", "10-60s", "60-120s", "120-600s", ">600s"],
+  "liquidity_state_displayed_notional_upper_bounds_quote": [50000.0, 500000.0, 5000000.0],
+  "liquidity_state_labels": ["<50k", "50k-500k", "500k-5M", ">=5M"],
+  "liquidity_state_definition": "bid + ask notional of the first 10 levels of the PIT depth snapshot at the same execution timestamp (depth VALID or DEGRADED); otherwise 'depth_unavailable'",
+  "health_state_definition": "the latest collector health record known at the timestamp: HEALTHY vs not HEALTHY"
+ },
+ "proximity_windows_ms": {
+  "post_connection_event": 60000,
+  "connection_events": ["ws_connected", "ws_disconnected", "ws_connect_failed", "ws_rotation", "data_stall_reconnect", "ws_task_dead", "controlled_reconnect_test"],
+  "connection_of_stream": "book streams -> the connection whose name contains 'book'; depth streams -> the one containing 'depth'; an unknown connection name affects every stream (X0 rule)",
+  "gap_adjacent": 60000,
+  "gap_adjacent_definition": "POST-HOC descriptive QA only: a boundary S of a stream within 60 s before the first missing boundary or within 60 s after the end of a gap of the same stream (gap records are written when the gap closes, so this is never a real-time signal)",
+  "classes": ["post_connection_event", "gap_adjacent", "steady"],
+  "class_precedence": "post_connection_event > gap_adjacent > steady"
+ },
+ "percentiles": [0.01, 0.05, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.999],
+ "percentile_method": "nearest rank on the sorted sample (same as P2-X0 coverage)",
+ "reconstruction_reliability": {
+  "state": "X0-DQ book / depth state (VALID / DEGRADED / INVALID) at the timestamp, by tier and latency",
+  "confirmed_exact": "the selected record's sample_ms >= t (the collector already confirmed that no newer quote was received up to t) or t equals the selected record's sample_ms",
+  "latest_persisted_only": "otherwise: the selected record is the latest PERSISTED quote; quotes received in (last boundary, t] and superseded before the next boundary were never persisted (unobserved window = confirmation_gap_ms)"
+ },
+ "threshold_classification_rule": {
+  "OPERATIONAL_ONLY": "the threshold's documented purpose (SCHEMA.md section 3 / collector health) is persistence or stream health (presence, dead-stream bound, cadence multiple), not a bound on execution-relevant quote age",
+  "DEFENSIBLE_RESEARCH_THRESHOLD": "requires BOTH a documented execution-quality rationale AND empirical support on eligible sealed data (the threshold lies above the p99.9 of the age at execution timestamps of normally operating streams and below the age at which the stream is known not to observe)",
+  "INSUFFICIENTLY_SUPPORTED": "neither condition holds",
+  "consequence": "any threshold that is not DEFENSIBLE_RESEARCH_THRESHOLD is used by P2-X only as a POLICY value with provenance ASSUMED"
+ },
+ "stress_classification_rule": {
+  "EMPIRICALLY_CALIBRATED": "fitted to or validated against realized fills / commissions of the same venue and order type (requires real fills: none exist)",
+  "POLICY_OR_LITERATURE_INSPIRED": "inherited from a frozen protocol or a documented public convention, not fitted",
+  "PURE_SENSITIVITY": "a bounded what-if value with no empirical or policy anchor",
+  "rule": "a value is EMPIRICALLY_CALIBRATED only with realized-fill evidence; otherwise it stays an ASSUMED sensitivity value"
+ },
+ "outputs": ["calibration.json (aggregates, canonical)", "exec_points.jsonl.gz (one row per instrument x decision time x latency; canonical, gzip mtime 0)", "manifest.json (logical_hash over everything except wall-clock fields)"],
+ "forbidden": ["returns", "P&L", "labels / labels.jsonl.gz", "Paper / DB / Telegram", "W3", "unsealed or active-day data", "tuning anything on an outcome"]
+}
