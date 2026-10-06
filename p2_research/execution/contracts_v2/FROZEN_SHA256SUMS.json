@@ -1,0 +1,15 @@
+{
+ "files": {
+  "calibration_plan_v2.json": "d02ad543cfca69b21cbbef11424e987debfff6c3492b37196442bd4a784a2195",
+  "fee_schedule_v2.json": "99cdac8567cdafe2f136947bdaa95a498628e0502024706b90cd99e83cf8f71f",
+  "models_v2.json": "e134367dd586ea677f3c00a2cc890250a4f93ac6111d898a9032f1bb0161cb4e",
+  "p2c_join_v2.json": "96e662cb0e9c8dd0c2a51048731fe4e15d959ab0302d3900d58629c4ddc300b4",
+  "reconciliation_design_v2.json": "ea2172622b95090209f2102141680a67bd8c2a811d636f4ddd7f57a6ae636516",
+  "result_schema_v2.json": "312e9e50afa33e8a539e539aed0f6c8e75c6310526cc84fc89e9c1316b5376ba",
+  "scenarios_v2.json": "526c7efdeaee647a5d8816e79f306fb799c671ba7f0a4b554c09ea90b4b38add",
+  "terminology_v2.json": "e12eb4c94488f77b17b1a2a3661be34c25c7987469787775a76a367717d56017"
+ },
+ "record": "tsb.p2x.frozen_sha256",
+ "record_version": 2,
+ "set": "X1"
+}

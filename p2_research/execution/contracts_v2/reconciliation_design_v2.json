@@ -1,0 +1,39 @@
+{
+ "contract": "tsb.p2x.reconciliation_design",
+ "contract_version": 2,
+ "id": "X1-RECON-DESIGN",
+ "version": "2.0.0",
+ "frozen": "2026-10-06",
+ "status": "DESIGN ONLY. Nothing here is implemented or executed: no Paper data is read, no Paper or collector change, no live trading, no credentials, no order. Any implementation needs a separate owner authorization (P2G-ADR-10 instrumentation gaps; Class B procedure for any production change).",
+ "paper_r1_reconciliation": {
+  "purpose": "compare, per Paper trade, three prices of the same intended execution, without using any outcome to choose fees, latency, slippage, stale thresholds or scenarios",
+  "columns": {
+   "a_paper_assumed_fill": {"source": "PAPER-R1 trade.opened entry price (and the exit price at close)", "provenance": "ASSUMED (a Paper simulation price, not a market fill)"},
+   "b_p2x_reference": {"source": "P2-X legs under EXEC-IDEALIZED / EXEC-BASE / EXEC-STRESS for the same instrument at the Paper decision event_time_ms (collector book / depth, obs_id recorded)", "provenance": "per component, as in the leg"},
+   "c_future_real_fill": {"source": "an exchange fill report, only if live trading were ever separately authorized", "provenance": "MEASURED when it exists; UNAVAILABLE now"}
+  },
+  "join": "candidate_id -> signal_id -> tracker events (P2C_RESEARCH_LAYER section 8); market state as-of join on available_at_ms <= event_time_ms; requires the host clock offset per event (DERIVED from collector clock checks) and the collector book obs_id used for the Paper entry price (P2G-ADR-10 gap 2)",
+  "reported_differences": ["a - b.touch at T (bps, by scenario)", "a - b.fill (bps, by scenario)", "c - b (future)", "c - a (future)", "time offsets: Paper event_time_ms vs collector observed_at_ms of the reference quote"],
+  "guards": ["Paper outcomes only outside W3 and only through a predeclared evaluation", "differences are execution diagnostics, never inputs to alpha selection", "no outcome-based tuning of any execution assumption"]
+ },
+ "actual_fill_calibration_path": {
+  "purpose": "the fields a future, separately authorized real-order experiment must record so that components can move from ASSUMED / UNAVAILABLE toward MEASURED",
+  "fields": [
+   {"field": "client_order_id", "use": "unique join key from decision to order to fills"},
+   {"field": "decision_time_ms + decision_ref (p2c_row_ref / execution request id)", "use": "links the order to the research decision"},
+   {"field": "client_order_created_ts_ns (host clock) + host_clock_offset_ms + offset_uncertainty_ms", "use": "signal_decision and application_processing latency (MEASURED on the host)"},
+   {"field": "request_sent_ts_ns (host clock)", "use": "order_creation latency"},
+   {"field": "exchange order id", "use": "exchange-side identity"},
+   {"field": "exchange transactTime / acknowledgement time", "use": "network_to_order_entry + exchange ack latency (MEASURED, with clock offset)"},
+   {"field": "response_received_ts_ns (host clock)", "use": "observed order round trip"},
+   {"field": "order status transitions (NEW, PARTIALLY_FILLED, FILLED, EXPIRED, REJECTED + reason)", "use": "fill probability, refusal and rejection rates"},
+   {"field": "fills[]: trade id, price, qty, commission, commissionAsset, isMaker, trade time", "use": "realized fill price, realized slippage vs the P2-X touch / depth walk at send time, partial fills, liquidity role"},
+   {"field": "executedQty, cummulativeQuoteQty, orig qty / quoteOrderQty", "use": "fill completeness, VWAP"},
+   {"field": "commission totals in quote currency (with conversion source if paid in another asset)", "use": "fee verification -> fee schedule VERIFIED_REALIZED_COMMISSIONS (provenance MEASURED) as a NEW fee schedule version"},
+   {"field": "collector book / depth obs_id at request_sent_ts and at transactTime", "use": "reference prices for realized slippage and market impact measurement"},
+   {"field": "rate-limit / weight headers and errors", "use": "operational latency outliers"}
+  ],
+  "promotion_rule": "a component becomes MEASURED only from these recorded fields for the same venue, market type, order type and size range; until then it stays ASSUMED / ESTIMATED / UNAVAILABLE. Calibrated values enter as NEW contract versions; nothing is rewritten",
+  "not_authorized_now": ["live orders", "test orders against the exchange", "API keys or any credential", "Paper or collector changes"]
+ }
+}

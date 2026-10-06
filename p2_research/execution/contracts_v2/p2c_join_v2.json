@@ -1,0 +1,50 @@
+{
+ "contract": "tsb.p2x.p2c_join",
+ "contract_version": 2,
+ "id": "X1-JOIN",
+ "version": "2.0.0",
+ "frozen": "2026-10-06",
+ "principle": "a versioned adapter / contract layer between P2-C (feature set p2c-fs 1.0.0, label set p2c-ls 1.0.0, frozen) and P2-X (v1 legs, frozen; v2 contract set). No frozen historical output is rewritten: P2-C rows keep their bytes and row ids, P2-X legs keep their estimate ids. The adapter adds an execution request per P2-C row and a joined record per estimate.",
+ "canonical_identity": {
+  "source": "p2_research/instrument.py (unchanged)",
+  "fields": ["asset_class", "venue", "product", "instrument_id", "symbol", "base_currency", "quote_currency", "settlement_currency", "calendar_id"],
+  "calendar": "crypto-24x7-utc (timezone UTC, sessions continuous, day boundary 00:00:00Z = the collector seal unit)",
+  "instrument_id_format": "<asset_class>:<venue>:<product>:<symbol>, e.g. crypto:binance:spot:BTCUSDT",
+  "implemented_markets": ["crypto:binance:spot"],
+  "other_markets": "refused (UnsupportedMarket); P2G-ADR-01"
+ },
+ "join_key": ["instrument_id", "decision_time_ms"],
+ "join_key_rule": "P2-C row (symbol, decision_time_ms) -> instrument_id = binance_spot_instrument(symbol).instrument_id; exactly one P2-C row per key and exactly one P2-X estimate per (key, scenario, side); anything else is AMBIGUOUS and must be 0",
+ "missing_fields_resolution": [
+  {"id": "F1", "gap": "P2-C rows carry symbol only, no canonical instrument_id",
+   "home": "CANONICAL_INSTRUMENT_IDENTITY",
+   "resolution": "derived deterministically by the adapter via p2_research.instrument.binance_spot_instrument(symbol) (crypto Binance spot only; any other market refused); the execution request carries the full identity and instrument_id_derivation. The frozen P2-C feature set is NOT changed; storing instrument_id per row is deferred to a future feature-set version"},
+  {"id": "F2", "gap": "P2-X estimates carry no reference to the P2-C dataset / row",
+   "home": "EXECUTION_REQUEST",
+   "resolution": "p2c_row_ref = {dataset_logical_hash, feature_set {id, version, registry_sha256}, row_id} on every execution request, echoed on every joined record (and on scenario_set_result); the v1 leg record is not modified"},
+  {"id": "F3", "gap": "dataset identity names differ (P2-X market_data.dataset_sha256 vs P2-C source.dataset_json_sha256; per-day seal SHAs)",
+   "home": "MANIFEST_METADATA",
+   "resolution": "mapping P2-X market_data.dataset_sha256 == P2-C source.dataset_json_sha256, dataset_id equal, every P2-X day a P2-C day with an EQUAL seal_sha256; otherwise the join is refused (JOIN_IDENTITY_MISMATCH). The join manifest records the P2-C manifest logical hash and the features-file SHA"},
+  {"id": "F4", "gap": "P2-X quantities have no per-field knowledge time",
+   "home": "EXECUTION_RESULT",
+   "resolution": "result_schema_v2.json leg_field_knowledge_time (STATIC / DECISION / EXECUTION / UNAVAILABLE_BY_DESIGN / REFERENCE for every leg field, nested fields individually); the joined record splits decision_side (STATIC + DECISION) and label_side (EXECUTION + UNAVAILABLE_BY_DESIGN) and states knowledge_time_ms for both sides; an unmapped field refuses the join"},
+  {"id": "F5", "gap": "P2-X tier = record tier at execution time; P2-C tier = universe-epoch tier known at T",
+   "home": "RESEARCH_DATASET (decision side) + EXECUTION_RESULT (label side)",
+   "resolution": "the request carries decision_epoch_tier (= the P2-C row tier, epoch known at T); the joined record renames the leg tier to label_side.execution_record_tier. Any feature-side or stratification use takes decision_epoch_tier only"},
+  {"id": "F6", "gap": "P2-X exit leg and P2-C exe.net_ret_h are different exit definitions",
+   "home": "EXECUTION_REQUEST + MANIFEST_METADATA",
+   "resolution": "every request names its exit_definition; label families are declared distinct (see exit_definitions); a trial declares exactly one family; mixing families in one trial is refused unless a mapping is predeclared in the trial specification"}
+ ],
+ "exit_definitions": {
+  "p2x_entry_leg": {"id": "P2X-ENTRY-TOUCH-AT-T-PLUS-LATENCY-v1", "definition": "BUY leg: touch (ask) of the book at T + scenario latency, adjusted by the scenario slippage; label family x1.*"},
+  "p2x_exit_leg": {"id": "P2X-EXIT-TOUCH-AT-TEXIT-PLUS-LATENCY-v1", "definition": "SELL leg at a separately requested exit decision time T_exit: touch (bid) at T_exit + scenario latency, adjusted by the scenario slippage (depth walk for BASE / STRESS); label family x1.*"},
+  "p2c_exe_label": {"id": "P2C-EXE-NET-RET-H-v1", "definition": "p2c-ls 1.0.0 exe.net_ret_h: ln(bid of the first book in (T+h, T+h+60 s] / entry ask of the first book in (T, T+60 s]) - 2 x 10 bps; top of book only, no latency model, no depth; label family exe.*"},
+  "rule": "x1.* and exe.* are different labels; neither is a substitute for the other"
+ },
+ "pit_rule": "decision-side fields are available at or before T (P2-X PIT view; P2-C feature_available_at <= T); label-side fields are known only at T + latency (or later) and never enter a feature. W3 decision or execution times are refused (unmatched with reason), never read",
+ "records": {
+  "execution_request": "tsb.p2x.execution_request v1: request_id, join_contract, contract_set_sha256, instrument (+ derivation), decision_time_ms, decision_epoch_tier, universe_id, p2c_row_ref, scenario, direction, side, leg, order_notional, exit_definition",
+  "joined_execution": "tsb.p2x.joined_execution v1: joined_id, join_key, request_id, estimate_id, p2c_row_ref, decision_epoch_tier, exit_definition, knowledge_time_ms, decision_side, label_side"
+ },
+ "adapter": "p2_research.execution.join (stdlib; reads only the P2-C manifest and the key / PIT columns of features.jsonl.gz plus two decision-time quality values for a same-state consistency check; never opens labels.jsonl.gz)"
+}

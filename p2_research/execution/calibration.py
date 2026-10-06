@@ -346,6 +346,8 @@ def population_b(S, Ts, plan) -> tuple:
                         walks[f"{side}.{int(N)}"] = c if w is None else {"class": c, "levels_used": w["levels_used"],
                                                                          "slippage_bps": _r(w["s"] * 1e4)}
                         agg[f"walk.{k}.{side}.{int(N)}"][c] += 1
+                        if w is not None:
+                            dist[f"walk_slippage_bps.{k}.{side}.{int(N)}"].append(_r(w["s"] * 1e4))
                 row["walk"] = walks
                 cur = (row["book"]["obs"], row["depth"]["obs"])
                 if L == 0:
@@ -369,12 +371,19 @@ def network_and_feed(O: Observer, plan) -> dict:
             "clock_states": dict(sorted(collections.Counter(str(c[4]) for c in ck).items())),
             "rtt_min_of_3_ms": pctl([_r(c[1], 3) for c in ck if c[1] is not None], fs),
             "rtt_all_probes_ms": pctl([_r(x, 3) for x in probes], fs),
+            "rtt_by_probe_position_ms": {str(i): dict(pctl([_r(c[5][i], 3) for c in ck if len(c[5]) > i], fs),
+                                                      share_over_500ms=_r(sum(1 for c in ck if len(c[5]) > i and c[5][i] > 500)
+                                                                          / max(1, sum(1 for c in ck if len(c[5]) > i)), 4))
+                                         for i in range(max((len(c[5]) for c in ck), default=0))},
             "skew_ms": pctl([_r(c[2], 3) for c in ck if c[2] is not None], fs),
             "uncertainty_ms": pctl([_r(c[3], 3) for c in ck if c[3] is not None], fs),
             "market_observed_minus_exchange_event_ms": pctl(list(O.market_delivery), fs),
             "notes": ["RTT = t1 - t0 of a public market-data REST probe (/api/v3/time) from the collector host: a "
                       "MEASURED network lower-bound observation; it is NOT an order round trip and does not measure "
                       "order creation, exchange matching, acknowledgement or fill reporting",
+                      "rtt_by_probe_position: probe 0 is the first request of each 10-minute clock check (after "
+                      "~10 min idle); a larger probe-0 RTT is consistent with connection setup, which is not "
+                      "itself observed (collector HTTP internals are not recorded)",
                       "market observed - exchange event time: !miniTicker@arr only (book / depth carry no event "
                       "time); raw host clock vs exchange clock (skew not removed) and includes up to ~1 s of "
                       "exchange-side batching: descriptive only"]}

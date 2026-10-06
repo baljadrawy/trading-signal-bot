@@ -1,0 +1,35 @@
+{
+ "contract": "tsb.p2x.terminology",
+ "contract_version": 2,
+ "id": "X1-TERMS",
+ "version": "2.0.0",
+ "frozen": "2026-10-06",
+ "extends": {"id": "X0-TERMS", "version": "1.0.0", "file": "contracts/terminology_v1.json", "sha256": "067d55e7ef858d4bded731b8f7a151a496305be043125f2567e459c29bed8381", "rule": "every X0 term keeps its exact v1 definition; v1 stays byte-identical; the terms below are ADDED (no X0 term is redefined)"},
+ "scope": "crypto / Binance Spot / long-only, marketable (taker) orders; research only (paper-only program, no orders, no credentials)",
+ "terms": [
+  {"term": "observed_spread_bps", "definition": "(ask - bid) / mid * 1e4 of the PIT book state at a timestamp: a MEASURED/DERIVED market-structure observation. It is NOT a forecast of a future realized cost and is never joined to returns in P2-X1."},
+  {"term": "realized_execution_cost", "definition": "the cost actually paid by a real order (fill price vs reference, commissions, partial fills). UNAVAILABLE: no order is ever sent; it needs the actual-fill calibration path (reconciliation_design_v2.json)."},
+  {"term": "execution_timestamp", "definition": "t = T + scenario latency at which a scenario reads market state. A research instant, NOT an observed order time."},
+  {"term": "latency_scenario", "definition": "a declared research sensitivity value of the decision-to-fill delay (0 / 1 / 5 s). ASSUMED; it is not an observed order latency and is never presented as one."},
+  {"term": "network_rtt_observation", "definition": "t1 - t0 of the collector's public market-data REST probe (/api/v3/time on the public market-data host) from this host: a MEASURED lower-bound observation of network round trip to a public endpoint; it does not measure order entry, matching, acknowledgement or fill reporting."},
+  {"term": "quote_age_ms", "definition": "t - observed_at_ms of the PIT-selected book record (X0 definition, unchanged). For a persisted boundary S: S - observed_at_ms (sample-and-hold age)."},
+  {"term": "depth_age_ms", "definition": "t - observed_at_ms of the PIT-selected depth snapshot."},
+  {"term": "reconstruction_confirmed_exact", "definition": "the PIT-selected book record has sample_ms >= t: the collector had already confirmed that no newer quote was received up to t, so the record is exactly the latest received quote at t."},
+  {"term": "reconstruction_latest_persisted_only", "definition": "otherwise: the selected record is the latest PERSISTED quote; quotes received in (last boundary, t] and superseded before the next boundary were never persisted; the unobserved window is confirmation_gap_ms."},
+  {"term": "displayed_depth_consumption", "definition": "the volume-weighted price of walking the displayed levels of one sampled depth snapshot for a declared notional (X0-S2 / X1-S2). A lower bound on the cost of consuming displayed liquidity at the snapshot instant; NOT market impact, NOT realized slippage."},
+  {"term": "coverage_refusal", "definition": "an estimate whose fill is UNAVAILABLE (book or depth INVALID, or the notional exceeds displayed depth): reported with its reason and counted; never replaced by a fallback or extrapolation."},
+  {"term": "knowledge_time_class", "definition": "for each field of a P2-X leg: STATIC (inputs / contract / identity known before T), DECISION (market state available at or before T), EXECUTION (state available only at or before T + latency: post-decision, label side only), UNAVAILABLE_BY_DESIGN (never computed in a leg), REFERENCE (an opaque content id usable only as a join key). See result_schema_v2.json."}
+ ],
+ "truth_boundary": {
+  "statement": "P2-X reconstructs touch (top-of-book) and displayed-book-consumption scenarios from sampled public market data, but it cannot measure actual market impact, realized slippage, fill probability, queue position or realized execution cost: no order is ever submitted, so there are no acknowledgements, fills, partial fills or commissions, and the data carry no trade prints and no exchange event time on book or depth.",
+  "frozen": true,
+  "consequence": "every slippage value is ESTIMATED (displayed-depth walk) or ASSUMED (fixed sensitivity); market impact and adverse selection stay UNAVAILABLE; nothing is ever labelled realized"
+ },
+ "classification_vocabularies": {
+  "stress_value": ["EMPIRICALLY_CALIBRATED", "POLICY_OR_LITERATURE_INSPIRED", "PURE_SENSITIVITY"],
+  "threshold": ["OPERATIONAL_ONLY", "DEFENSIBLE_RESEARCH_THRESHOLD", "INSUFFICIENTLY_SUPPORTED"],
+  "latency_component": ["MEASURED", "DERIVED", "ESTIMATED", "ASSUMED", "UNAVAILABLE"],
+  "scenario_purpose": ["LOWER_BOUND_REFERENCE", "PRIMARY_FUTURE_SCENARIO", "SENSITIVITY_TEST"]
+ },
+ "provenance_classes": "unchanged from X0-TERMS 1.0.0 (MEASURED, DERIVED, ESTIMATED, ASSUMED, UNAVAILABLE; a composite takes the weakest); ASSUMED is never presented as MEASURED"
+}

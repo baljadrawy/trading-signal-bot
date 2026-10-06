@@ -44,6 +44,14 @@ def pct(xs) -> dict:
     return {"n": len(s), "min": s[0], "p50": p(0.5), "p90": p(0.9), "p99": p(0.99), "max": s[-1]}
 
 
+def seq_order(depth_seq, book_seq) -> str:
+    """Order of a depth snapshot vs a book record in the shared update-ID space; 'unknown' if either id is missing
+    (P2-X1 D-X1-1: an unknown order was previously counted as 'book_newer')."""
+    if not isinstance(depth_seq, int) or not isinstance(book_seq, int):
+        return "unknown"
+    return "depth_newer" if depth_seq > book_seq else "same" if depth_seq == book_seq else "book_newer"
+
+
 def _inside(child, parent):
     c, p = os.path.realpath(child), os.path.realpath(parent)
     return c == p or c.startswith(p + os.sep)
@@ -130,8 +138,7 @@ def run(base: str, days: list, out_dir: str, code_commit: str, notional: float =
                 ages[f"depth_bid_displayed_notional.{tier}"].append(round(sum(p * x for p, x in d[3]), 2))
                 agg[f"depth_side_levels.{tier}"][f"N={d[5]} bids={len(d[3])} asks={len(d[4])}"] += 1
                 if b is not None:
-                    seqd = d[6] - b[7] if isinstance(d[6], int) and isinstance(b[7], int) else None
-                    agg[f"depth_vs_book_seq.{tier}"]["depth_newer" if seqd and seqd > 0 else "same" if seqd == 0 else "book_newer"] += 1
+                    agg[f"depth_vs_book_seq.{tier}"][seq_order(d[6], b[7])] += 1
             # post-hoc QA (never an estimate input): boundaries later known to be inside a gap of this stream
             for kind, cl in (("book", cb), ("depth", cd)):
                 gs = [g for g in S.gaps if g["stream_key"] == f"{kind}|{sym}" and g["first_missing_ms"] <= T < g["end_ms"]]

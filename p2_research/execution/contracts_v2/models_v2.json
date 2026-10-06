@@ -1,0 +1,107 @@
+{
+ "contract": "tsb.p2x.models",
+ "contract_version": 2,
+ "frozen": "2026-10-06",
+ "relation_to_v1": "X1 models are NEW versions (2.0.0) of the X0 models; their arithmetic is IDENTICAL to v1 (same execution rule, same latency values, same slippage arithmetic, same stale / data-quality rules). v2 changes only classification, provenance labelling and documented purpose, as required by P2-X1. contracts/models_v1.json stays byte-identical and keeps governing every v1 estimate.",
+ "execution_models": [
+  {"id": "X1-EXEC-TOUCH", "version": "2.0.0", "supersedes": "X0-EXEC-TOUCH 1.0.0 (arithmetic identical)",
+   "definition": "marketable (taker) order; long-only: entry = BUY against the ask, exit = SELL against the bid of the PIT book state at execution_time; fill = touch adjusted by the declared slippage model; no partial fills, no limit orders, no shorting",
+   "touch_source": "bookTicker book record (type=book), latest with available_at_ms <= execution_time",
+   "decision_reference_source": "bookTicker book record, latest with available_at_ms <= decision_time",
+   "reference_price": "decision mid (analytic reference, never a fill) and execution-time touch (the executable reference)"}
+ ],
+ "latency_models": [
+  {"id": "X1-LAT-0", "version": "2.0.0", "latency_ms": 0, "provenance": "ASSUMED", "classification": "RESEARCH_SENSITIVITY_SCENARIO",
+   "definition": "execution_time = decision_time (idealized, instantaneous; a lower-bound reference)",
+   "not": "an observed order latency"},
+  {"id": "X1-LAT-1S", "version": "2.0.0", "latency_ms": 1000, "provenance": "ASSUMED", "classification": "RESEARCH_SENSITIVITY_SCENARIO",
+   "definition": "execution_time = decision_time + 1000 ms",
+   "justification": "a round, order-of-magnitude research value: above the MEASURED warm public-REST round trip from this host (min-of-3 RTT 251-296 ms) and of the order of the MEASURED first-request round trip after idling (median about 1.04 s); aligned with the 1 s collector sample grid. The order path (decision, processing, order creation, order-entry network, matching, acknowledgement, fill report) is UNAVAILABLE, so 1 s is NOT evidenced as an end-to-end latency",
+   "not": "an observed order latency"},
+  {"id": "X1-LAT-5S", "version": "2.0.0", "latency_ms": 5000, "provenance": "ASSUMED", "classification": "RESEARCH_SENSITIVITY_SCENARIO",
+   "definition": "execution_time = decision_time + 5000 ms",
+   "justification": "stress sensitivity: 5 x the base value (slow decision loop, queueing, retries); equals the Tier-2 depth cadence; not derived from any return",
+   "not": "an observed order latency or a prediction"}
+ ],
+ "latency_resolution_limit": "the data resolve a latency only to the sampling cadence of the stream: book T0 1 s, T2 2 s, T1 10 s; depth T0 1 s, T2 5 s, T1 60 s. Measured on eligible sealed data: at T+1 s the Tier-1 book record equals the T record in 873 / 875 cases and the Tier-1 depth snapshot in 875 / 875; at T+5 s the Tier-1 depth snapshot is still the T snapshot in 875 / 875. Latency sensitivity is therefore partly invisible for Tier 1 and must be read together with the reconstruction state (confirmed_exact vs latest_persisted_only)",
+ "latency_decomposition": {
+  "rule": "every component carries one class; the end-to-end decision-to-fill latency is ASSUMED (the scenario value) because the order path components are UNAVAILABLE. A MEASURED network observation to a public market-data endpoint is a lower-bound observation, not proof of any end-to-end value",
+  "components": [
+   {"component": "exchange_event_to_collector_receive (market data feed)", "class": "DERIVED", "scope": "!miniTicker@arr only",
+    "evidence": "observed_at_ms - exchange_event_time_ms on eligible sealed data: p50 176 ms, p99 1.7 s (host clock vs exchange clock, skew -23..-2 ms not removed, includes exchange-side batching); book / depth carry no exchange event time -> UNAVAILABLE for the streams that set the touch"},
+   {"component": "signal_decision (strategy computation from data availability to decision)", "class": "UNAVAILABLE",
+    "evidence": "no strategy is evaluated in P2-X; research decision times are grid instants; Paper decision timing is not read (forbidden) and not instrumented for research"},
+   {"component": "application_processing (decision to order intent)", "class": "UNAVAILABLE", "evidence": "no order path exists (paper-only)"},
+   {"component": "order_creation (build, sign, serialize)", "class": "UNAVAILABLE", "evidence": "no order code path, no credentials (forbidden)"},
+   {"component": "network_to_order_entry (host to exchange order endpoint)", "class": "UNAVAILABLE",
+    "proxy": {"class": "MEASURED", "what": "round trip t1 - t0 of the collector's public REST probe /api/v3/time (public market-data host, not the order-entry endpoint)",
+              "evidence": "eligible sealed data, 194 clock checks x 3 probes: min-of-3 RTT 250.7-295.5 ms (p50 262 ms); warm probes (positions 1-2) median about 263 ms; first probe after about 10 min idle median about 1.04 s, max 2.6 s",
+              "status": "lower-bound observation only"}},
+   {"component": "exchange_matching_and_ack", "class": "UNAVAILABLE", "evidence": "no order submitted, no acknowledgement timestamps"},
+   {"component": "fill_report", "class": "UNAVAILABLE", "evidence": "no fills, no partial fills, no commissions"},
+   {"component": "host_clock_offset", "class": "DERIVED", "evidence": "collector clock checks: skew -22.9..-2.3 ms with uncertainty (RTT/2) 125-148 ms; needed for any future reconciliation of host and exchange timestamps"},
+   {"component": "end_to_end_decision_to_fill", "class": "ASSUMED", "evidence": "the scenario latency (0 / 1 / 5 s)"}
+  ]
+ },
+ "slippage_models": [
+  {"id": "X1-S0", "version": "2.0.0", "kind": "touch_only", "bps_per_side": 0.0, "provenance": "ASSUMED",
+   "classification": "PURE_SENSITIVITY", "definition": "fill = touch exactly (declared zero slippage beyond the touch); a lower-bound reference"},
+  {"id": "X1-S1-ZERO", "version": "2.0.0", "kind": "fixed_stress", "bps_per_side": 0.0, "provenance": "ASSUMED",
+   "classification": "PURE_SENSITIVITY", "definition": "fill = touch * (1 + side * 0 bps): the zero point of the sensitivity table"},
+  {"id": "X1-S1-LOW", "version": "2.0.0", "kind": "fixed_stress", "bps_per_side": 5.0, "provenance": "ASSUMED",
+   "classification": "POLICY_OR_LITERATURE_INSPIRED", "definition": "fill = touch * (1 + side * 5 bps)",
+   "anchor": "P2-D0 protocol section 9 slippage sensitivity +5 bps per side (itself a predeclared, unfitted policy value)"},
+  {"id": "X1-S1-MODERATE", "version": "2.0.0", "kind": "fixed_stress", "bps_per_side": 10.0, "provenance": "ASSUMED",
+   "classification": "POLICY_OR_LITERATURE_INSPIRED", "definition": "fill = touch * (1 + side * 10 bps)",
+   "anchor": "P2-D0 protocol section 9 slippage sensitivity +10 bps per side (predeclared, unfitted); NOT a 'realistic' value"},
+  {"id": "X1-S1-SEVERE", "version": "2.0.0", "kind": "fixed_stress", "bps_per_side": 25.0, "provenance": "ASSUMED",
+   "classification": "PURE_SENSITIVITY", "definition": "fill = touch * (1 + side * 25 bps)",
+   "anchor": "none: a bounded what-if (2.5 x the assumed fee unit)"},
+  {"id": "X1-S2-DEPTHWALK", "version": "2.0.0", "kind": "displayed_depth_walk", "provenance": "ESTIMATED",
+   "classification": "DISPLAYED_DEPTH_CONSUMPTION_ESTIMATE",
+   "definition": "walk the PIT depth snapshot (latest with available_at_ms <= execution_time) on the order side for order_notional: BUY spends order_notional quote across asks ascending; SELL sells order_notional / depth_L1_bid base across bids descending; s = side * (vwap - depth_L1) / depth_L1 (relative to the snapshot's own level 1); fill = book touch * (1 + side * s)",
+   "unavailable_when": ["no depth snapshot", "depth INVALID (too stale, missing, previous run, not observing)", "invalid or crossed ladder", "order_notional exceeds the displayed notional of the side (never extrapolated)"],
+   "truth_boundary": "a lower bound on the cost of consuming DISPLAYED liquidity at the snapshot instant; not market impact, not realized slippage (terminology_v2.json truth_boundary)",
+   "known_limitation": "the snapshot can be older than the book touch (Tier-1 depth age at execution timestamps about 30-41 s; at the EXEC-BASE timestamp T + 1 s its level 1 crosses the newer book touch in 33.9 % (buy) / 31.3 % (sell) of Tier-1 cases, 6.5 % / 6.3 % Tier 2, 10.0 % / 8.1 % Tier 0): flagged depth_book_inconsistent, the walk is then a ladder SHAPE estimate"}
+ ],
+ "stress_values_classification": {
+  "values_bps_per_side": [0, 5, 10, 25],
+  "result": "ASSUMED SENSITIVITY SCENARIOS: 0 = PURE_SENSITIVITY (zero point), 5 and 10 = POLICY_OR_LITERATURE_INSPIRED (P2-D0 protocol values, themselves unfitted), 25 = PURE_SENSITIVITY. None is EMPIRICALLY_CALIBRATED (that requires realized fills; none exist). 10 bps is not called realistic.",
+  "kept_because": "they are small, bounded, predeclared and keep P2-D comparability; they bracket unobserved effects (quotes superseded inside a sampling interval, replenishment, impact) that the displayed-depth walk cannot see. No value was changed, so no new arithmetic version is needed (v2 only relabels)"
+ },
+ "stale_policies": [
+  {"id": "X1-STALE-POLICY", "version": "2.0.0", "supersedes": "X0-STALE-COLLECTOR 1.0.0 (thresholds and rules identical)",
+   "provenance": "ASSUMED", "status": "POLICY",
+   "source": "the collector's own semantics read from the run record of the boot that wrote the record (semantics.stale_ms, sampling_profile.cadence_ms); defaults = SCHEMA.md values. No threshold is derived from any return.",
+   "book": {"TOO_STALE": "quote_age_ms > hard limit (Tier 0: stale_ms.book_t0; Tier 1/2: stale_ms.book_t12_dead)",
+            "DEGRADED": "quote_age_ms > soft limit (Tier 0: stale_ms.book_t0; Tier 1/2: stale_ms.book_t12_suspect)",
+            "VALID": "otherwise"},
+   "depth": {"TOO_STALE": "quote_age_ms > stale_ms.depth_by_tier[t<tier>]", "DEGRADED": "quote_age_ms > the stream cadence", "VALID": "age <= cadence"},
+   "confirmation": {"MISSING": "confirmation_gap_ms > 3 x cadence", "DEGRADED": "confirmation_gap_ms > cadence", "VALID": "otherwise"},
+   "threshold_classification": [
+    {"threshold": "book_t0 = 120 s", "class": "OPERATIONAL_ONLY", "evidence": "documented as a dead-stream / no-change bound for an event-driven stream; eligible sealed data: Tier-0 book age at execution timestamps max 2.7 s, at persisted boundaries max 7.2 s", "use_in_p2x": "POLICY (ASSUMED)"},
+    {"threshold": "book_t12_suspect = 120 s", "class": "OPERATIONAL_ONLY", "evidence": "a health warning bound; it coincides with the collector hold window (120 s) that already caps persisted ages; observed max 81.8 s (T1) / 116.2 s (T2) at boundaries, 33 s / 78 s at execution timestamps", "use_in_p2x": "POLICY (ASSUMED)"},
+    {"threshold": "book_t12_dead = 600 s", "class": "OPERATIONAL_ONLY", "evidence": "dead-stream bound; never reachable by a persisted boundary (hold window 120 s) and pre-empted by the 3 x cadence confirmation rule", "use_in_p2x": "POLICY (ASSUMED)"},
+    {"threshold": "depth t0 = 2 s", "class": "OPERATIONAL_ONLY", "evidence": "persistence bound set from push inter-arrival (about 1 s); persisted ages are censored at it (max 1.99 s); execution-timestamp age <= 0.85 s; no execution-quality rationale documented", "use_in_p2x": "POLICY (ASSUMED)"},
+    {"threshold": "depth t2 = 15 s (3 x cadence)", "class": "OPERATIONAL_ONLY", "evidence": "cadence multiple; execution-timestamp age p99 3.5 s, max 12 s", "use_in_p2x": "POLICY (ASSUMED)"},
+    {"threshold": "depth t1 = 180 s (3 x cadence)", "class": "OPERATIONAL_ONLY", "evidence": "cadence multiple; it admits a 30-41 s old Tier-1 snapshot at every execution timestamp, whose level 1 crosses the newer book touch in about a third of cases: as an execution-quality threshold it would be INSUFFICIENTLY_SUPPORTED", "use_in_p2x": "POLICY (ASSUMED); Tier-1 walks stay flagged"},
+    {"threshold": "confirmation MISSING > 3 x cadence; DEGRADED > cadence", "class": "OPERATIONAL_ONLY", "evidence": "the collector HEALTHY rule / freshness classes", "use_in_p2x": "POLICY (ASSUMED)"}
+   ],
+   "result": "no collector threshold is a DEFENSIBLE_RESEARCH_THRESHOLD; all are used as POLICY values with provenance ASSUMED. No new threshold is introduced (none could be justified without outcome data)"}
+ ],
+ "data_quality_policies": [
+  {"id": "X1-DQ", "version": "2.0.0", "supersedes": "X0-DQ 1.0.0 (rules identical)",
+   "states": {"VALID": "no rule fired", "DEGRADED": "estimate produced, flagged", "INVALID": "fail closed: execution price UNAVAILABLE (never a favorable or fallback fill)"},
+   "rules": "identical to X0-DQ 1.0.0 (contracts/models_v1.json): invalid / degraded / informational rules, depth rules gate X1-S2 only, load-level ambiguity and seal checks"}
+ ],
+ "refusals": [
+  {"item": "market impact", "reason": "no trade prints, no queue position, no hidden / iceberg liquidity, depth is a sampled top-N snapshot (truth boundary)"},
+  {"item": "realized slippage / realized execution cost", "reason": "no order is ever submitted; no fills"},
+  {"item": "partial fills / fill probability", "reason": "no order-book event stream between samples; no fills"},
+  {"item": "limit / maker orders", "reason": "queue position is unobservable"},
+  {"item": "adverse selection", "reason": "a future post-entry LABEL, kept distinct from slippage"},
+  {"item": "shorting, futures, margin, other markets", "reason": "not authorized (P2G-ADR-01)"},
+  {"item": "intermediate quotes between samples", "reason": "never persisted"},
+  {"item": "extrapolation beyond displayed depth", "reason": "refused: UNAVAILABLE"}
+ ]
+}

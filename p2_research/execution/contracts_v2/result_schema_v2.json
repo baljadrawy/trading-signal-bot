@@ -1,0 +1,69 @@
+{
+ "contract": "tsb.p2x.result_schema",
+ "contract_version": 2,
+ "frozen": "2026-10-06",
+ "leg_record": "unchanged: tsb.p2x.execution_estimate record_version 1 (contracts/result_schema_v1.json leg_fields). A leg made with the v2 contract set carries the v2 contract_set_sha256 and v2 scenario / model versions, hence a different estimate_id; v1 legs are never rewritten",
+ "quantity_encoding": "unchanged: {value, provenance, reason}; UNAVAILABLE = null + reason, never 0",
+ "knowledge_time_classes": {
+  "STATIC": "inputs, contract identity, dataset identity, instrument identity and declared times: known before T",
+  "DECISION": "market state with available_at_ms <= T (decision side; usable as a feature-side reference)",
+  "EXECUTION": "market state with available_at_ms <= T + latency: POST-DECISION; label side only, never a feature",
+  "UNAVAILABLE_BY_DESIGN": "always UNAVAILABLE in a leg (future labels / refused quantities); label side",
+  "REFERENCE": "an opaque content id (hash over the whole leg): a join key only, never a feature"
+ },
+ "leg_field_knowledge_time": {
+  "record": "STATIC", "record_version": "STATIC", "kind": "STATIC", "estimate_id": "REFERENCE",
+  "scenario": "STATIC", "models": "STATIC", "contract_set_sha256": "STATIC", "market_data": "STATIC",
+  "instrument": "STATIC", "direction": "STATIC", "side": "STATIC", "leg": "STATIC", "liquidity_role": "STATIC",
+  "order_notional": "STATIC", "decision_time_ms": "STATIC", "execution_time_ms": "STATIC", "latency_ms": "STATIC",
+  "fee_bps": "STATIC",
+  "decision_bid": "DECISION", "decision_ask": "DECISION", "decision_mid": "DECISION",
+  "market_data_age.decision_book_quote_age_ms": "DECISION",
+  "data_quality.decision_book": "DECISION",
+  "source_refs.decision_book": "DECISION",
+  "tier": "EXECUTION",
+  "bid": "EXECUTION", "ask": "EXECUTION", "mid": "EXECUTION", "touch": "EXECUTION", "fill": "EXECUTION",
+  "spread": "EXECUTION", "spread_bps": "EXECUTION", "spread_cost_bps": "EXECUTION", "slippage_bps": "EXECUTION",
+  "interaction_bps": "EXECUTION", "total_cost_bps": "EXECUTION", "latency_drift_bps": "EXECUTION",
+  "market_data_age.book_quote_age_ms": "EXECUTION", "market_data_age.book_confirmation_gap_ms": "EXECUTION",
+  "market_data_age.depth_quote_age_ms": "EXECUTION", "market_data_age.depth_confirmation_gap_ms": "EXECUTION",
+  "market_data_age.connection_event_age_ms": "EXECUTION",
+  "data_quality.state": "EXECUTION", "data_quality.book": "EXECUTION", "data_quality.depth": "EXECUTION",
+  "cost_provenance": "EXECUTION", "depth_walk": "EXECUTION",
+  "source_refs.book": "EXECUTION", "source_refs.depth": "EXECUTION",
+  "adverse_selection_bps": "UNAVAILABLE_BY_DESIGN", "market_impact_bps": "UNAVAILABLE_BY_DESIGN",
+  "gross_return": "UNAVAILABLE_BY_DESIGN", "net_return": "UNAVAILABLE_BY_DESIGN"
+ },
+ "knowledge_time_rule": "every leg field (nested fields of market_data_age, data_quality and source_refs individually) has exactly one class; an unmapped field refuses the join (join.split_by_knowledge_time). With latency 0, EXECUTION fields equal decision-time state but stay on the label side by class, so one rule covers all scenarios",
+ "scenario_set_result": {
+  "record": "tsb.p2x.scenario_set_result", "record_version": 1,
+  "builder": "p2_research.execution.scenario_result.build (validate_scenario_set)",
+  "fields": [
+   ["result_id", "sha256 of the canonical record without result_id"],
+   ["instrument", "canonical identity"], ["direction", "'long'"], ["order_notional", "{value, currency}"],
+   ["entry_decision_time_ms", "int"], ["exit_decision_time_ms", "int"], ["p2c_row_ref", "object or null (join contract F2)"],
+   ["contract_set_sha256", "of the contract set the legs were made with"],
+   ["gross_return", "Quantity DERIVED: decision mid (exit) / decision mid (entry) - 1, cost-free; UNAVAILABLE + reason if a mid is missing"],
+   ["scenarios", "EXACTLY {EXEC-IDEALIZED, EXEC-BASE, EXEC-STRESS}: each {scenario, entry/exit/round-trip ids, net_return Quantity, market_gross_return_at_execution_times Quantity, components {entry, exit: spread_cost_bps, fee_bps, slippage_bps, interaction_bps, total_cost_bps, latency_drift_bps (Quantities with provenance)}, cost_provenance, data_quality_state, coverage {state AVAILABLE|REFUSED, reason, entry_reason, exit_reason}}"],
+   ["component_provenance", "{component: {scenario: weakest provenance of entry+exit}} for every component and net_return"]
+  ],
+  "forbidden": "no single collapsed net, price or cost at the top level (net_return, estimated_price, fill_price, price, cost_bps, total_cost_bps refused); a missing net is UNAVAILABLE, never 0; all three scenarios must be present"
+ },
+ "evaluation_report": {
+  "required": {
+   "gross": "aggregate gross (cost-free) figure(s) with provenance",
+   "net": "per scenario {EXEC-IDEALIZED, EXEC-BASE, EXEC-STRESS}",
+   "cost_to_gross_ratio": "per scenario: total execution cost / gross edge (reported, not thresholded here)",
+   "turnover_sensitivity": "per scenario: how net changes with the number of round trips (cost per round trip x turnover)",
+   "execution_coverage": "per scenario: {available, refused, refusal_rate, refusal_reasons}",
+   "component_provenance": "per component and scenario"
+  },
+  "validator": "p2_research.execution.scenario_result.validate_evaluation_report",
+  "economic_success_principle": [
+   "gross > 0 alone is never success",
+   "a success claim must rest on the net figures under EXEC-BASE AND EXEC-STRESS together with execution coverage / refusal, the cost-to-gross ratio and turnover sensitivity",
+   "EXEC-IDEALIZED alone never supports a success claim (lower bound only)",
+   "no threshold is defined here: success criteria are predeclared separately, before any evaluation, and never chosen on outcomes"
+  ]
+ }
+}

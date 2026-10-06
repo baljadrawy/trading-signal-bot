@@ -486,10 +486,6 @@ class TestSealedAdapter(unittest.TestCase):
             load_sealed(unsealed, [C.D2])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestCoverageTool(unittest.TestCase):
     def test_coverage_deterministic_and_guarded(self):
         from p2_research.execution import coverage as CV
@@ -508,3 +504,7 @@ class TestCoverageTool(unittest.TestCase):
             CV.run(base, [C.D1], os.path.join(base, "out"), "f" * 40)
         with self.assertRaises(SystemExit):
             CV.run(base, [C.D1], os.path.join(CV.FORBIDDEN_ROOT, "x0"), "f" * 40)
+
+
+if __name__ == "__main__":
+    unittest.main()
