@@ -1,0 +1,18 @@
+{
+ "contract": "tsb.p2rm.risk_snapshot_schema",
+ "contract_version": 1,
+ "record": "tsb.p2rm.risk_snapshot",
+ "record_version": 1,
+ "id": "RM0-SNAPSHOT",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "flow": "PIT market state -> hypothetical portfolio -> exposure engine -> metrics -> flags -> deterministic RiskSnapshot. No actions.",
+ "metric_value": {
+  "shape": "{value, class, state, reason, flags}",
+  "rules": "value null <=> class UNAVAILABLE <=> state in {UNAVAILABLE, INSUFFICIENT_HISTORY}; a null has a reason; class in {MEASURED, DERIVED, ASSUMED, POLICY, UNAVAILABLE}; state in RM0-QUALITY"
+ },
+ "required_blocks": ["record", "record_version", "snapshot_time_ms", "snapshot_time_utc", "contracts", "inputs", "positions", "exposure", "heat", "concentration", "volatility", "correlation", "btc_exposure", "liquidity", "regime", "drawdown", "diversification", "risk_contribution", "flags", "actions", "quality", "unavailable", "provenance", "snapshot_id"],
+ "actions": "always the empty list: a snapshot never orders, sizes, halts, resumes, notifies or writes anywhere",
+ "identity": "snapshot_id = sha256 of the canonical JSON (sorted keys, 12 significant digits) of the record without snapshot_id; identical inputs give byte-identical output",
+ "provenance": "market data identity (dataset id, dataset.json sha256, sealed days, per-day seal sha256, reader and loader versions), RM0 contract-set sha256, P2-X v2 contract-set sha256, inputs sha256; never a host path"
+}

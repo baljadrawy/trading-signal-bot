@@ -1,0 +1,32 @@
+{
+ "contract": "tsb.p2rm.position",
+ "contract_version": 1,
+ "id": "RM0-POSITION",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "scope": "canonical HYPOTHETICAL position for portfolio-risk measurement. Crypto / Binance spot is the only authorized market (P2G-ADR-01); the identity is the canonical p2_research.instrument identity so a later market adapter needs no new field (P2G-ADR-02, readiness only).",
+ "fields": {
+  "asset_class": {"type": "str", "required": true, "rule": "== canonical instrument asset_class (crypto)"},
+  "venue": {"type": "str", "required": true, "rule": "== canonical venue (binance)"},
+  "product": {"type": "str", "required": true, "rule": "== canonical product (spot)"},
+  "instrument_id": {"type": "str", "required": true, "rule": "== binance_spot_instrument(symbol).instrument_id"},
+  "symbol": {"type": "str", "required": true, "rule": "^[A-Z0-9]{2,30}$ with a recognised quote asset"},
+  "quote_currency": {"type": "str", "required": true, "rule": "== canonical quote currency of the symbol"},
+  "side": {"type": "str", "required": true, "rule": "long (AUTHORIZED) | short (CONCEPTUAL, NOT AUTHORIZED: refused unless conceptual_short=True, used only by contract tests)"},
+  "quantity": {"type": "number", "required": true, "rule": "finite, > 0 (base units)"},
+  "reference_price": {"type": "number", "required": true, "rule": "finite, > 0 (quote per base)"},
+  "notional": {"type": "number", "required": true, "rule": "finite, > 0, |notional - quantity x reference_price| <= 1e-9 x notional (magnitude; the side carries the sign)"},
+  "decision_time_ms": {"type": "int", "required": true, "rule": "<= snapshot time (PIT); not inside W3"},
+  "reference_time_ms": {"type": "int", "required": true, "rule": "time of the reference price observation; <= decision_time_ms"},
+  "hypothesis_id": {"type": "str|null", "required": false, "rule": "optional ledger-style id ^H-[A-Za-z0-9._-]+$; informational only, never used in any computation"},
+  "strategy_id": {"type": "str|null", "required": false, "rule": "optional free id; informational only"},
+  "provenance": {"type": "object", "required": true, "rule": "{source: str, class: SYNTHETIC_FIXTURE | HYPOTHETICAL_RESEARCH, ...}; PAPER, LIVE, ACCOUNT or BALANCE provenance is refused (no private balances, no Paper positions)"}
+ },
+ "unknown_fields": "refused",
+ "duplicates": {
+  "identity": "instrument_id",
+  "default_policy": "reject",
+  "aggregate_policy": "same instrument and same side: quantity and notional summed, reference_price = notional / quantity, decision/reference times = max, hypothesis_id kept only if identical (else null), provenance lists the merged positions; opposite sides on one instrument are always refused"
+ },
+ "ordering": "normalized portfolios are sorted by instrument_id; input order never matters"
+}

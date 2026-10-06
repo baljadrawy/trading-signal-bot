@@ -1,0 +1,47 @@
+{
+ "contract": "tsb.p2rm.policy",
+ "contract_version": 1,
+ "id": "RM0-POLICY",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "status": "RESEARCH FLAGS ONLY. Every threshold here is POLICY with provenance ASSUMED: uncalibrated, chosen before any real-data run, never derived from returns, never an action, never enforcement, never synced to B3 or Paper. A flag only annotates a snapshot.",
+ "hypothetical_capital": {
+  "value": 10000,
+  "currency": "USDT",
+  "class": "ASSUMED",
+  "provenance_required": "ASSUMED_HYPOTHETICAL",
+  "note": "a fixture input for heat ratios; it is not a private balance and is never read from an exchange account, Paper, the DB or B3"
+ },
+ "research_flag_thresholds": [
+  {"id": "RM0-F-LARGEST-SHARE", "metric": "concentration.largest_share", "op": ">=", "value": 0.5, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-LOW-EFFECTIVE-N", "metric": "concentration.effective_n_notional", "op": "<", "value": 3, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-VOL-HEAT", "metric": "heat.vol_heat", "op": ">=", "value": 0.05, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-HIGH-AVG-CORR", "metric": "correlation.average_pairwise_weighted", "op": ">=", "value": 0.7, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-BTC-BETA", "metric": "btc_exposure.portfolio_beta_to_btc", "op": ">=", "value": 0.8, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-HIGH-VOL-SHARE", "metric": "volatility.high_vol_notional_share", "op": ">=", "value": 0.25, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-WEAK-LIQ-SHARE", "metric": "liquidity.weak_liquidity_share", "op": ">", "value": 0.0, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  {"id": "RM0-F-LIQ-UNKNOWN", "metric": "liquidity.notional_liquidity_unknown", "op": ">", "value": 0.0, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false}
+ ],
+ "research_references": {
+  "high_vol_multiple_of_universe_median": {"value": 2.0, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  "weak_liquidity_utilization": {"value": 0.5, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false, "meaning": "position notional >= 50 % of the displayed liquidation-side notional"},
+  "weak_liquidity_spread_bps": {"value": 10.0, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false},
+  "depth_age_research_reference_ms": {"value": 10000, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false, "meaning": "a COUNT of positions whose depth snapshot is older than 10 s; P2-X1 found Tier-1 depth 30-41 s old under a 180 s collector limit; this does not change any P2-X state"},
+  "vol_spike_ratio": {"value": 2.0, "class": "POLICY", "provenance": "ASSUMED", "calibrated": false}
+ },
+ "documented_paper_policy": {
+  "status": "DOCUMENTED AS-IS ONLY. Not read by any RM0 computation, not the definition of any RM0 metric or threshold, never changed, never synced. Source: owner instruction 2026-10-06.",
+  "mode": "PAPER",
+  "hard_halt": "7 consecutive losses",
+  "MAX_DAILY_LOSS_PERCENT": 3,
+  "MAX_WEEKLY_LOSS_PERCENT": 10,
+  "MAX_DRAWDOWN_PERCENT": 15,
+  "effective_max_open": "2 = min(MAX_OPEN_TRADES=10, RISK_CANARY_MAX_OPEN_TRADES=2)",
+  "stake_usdt": 50,
+  "soft_reduce_mode": "3 or more net losses halve the cap"
+ },
+ "count_references_documented_only": {
+  "status": "position-count references reported for information (headroom = reference - count); DOCUMENTED Paper values, not RM0 limits, never enforced",
+  "references": {"paper_effective_max_open": 2, "paper_nominal_max_open_trades": 10}
+ }
+}

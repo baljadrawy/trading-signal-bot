@@ -1,0 +1,14 @@
+{
+ "files": {
+  "metrics_v1.json": "2a0cf5b33abbab391b8709e39e8c13134d869ade67183c91e27ceaca88c89184",
+  "policy_v1.json": "681848c57822c9671e7137ba6ae88dc710ce704c3ff1f06b94c8d1e4304ed160",
+  "portfolios_v1.json": "b736e7319881cbf997bb3f004380932154d7788697aea25121437907fce44f89",
+  "position_contract_v1.json": "af63e4fa246545380b4748433f9e308a5d5fc67aa9d86bbd768f5359fced21e6",
+  "quality_states_v1.json": "f06c09336be35b11248ef1b969bbeb18639ea4bd7a08ed7f330e35c3e55fc845",
+  "snapshot_schema_v1.json": "c6e875f3176f9b489c3a9c86d3534645b1a5b94b2e87ce3d782af85f416fcd7a",
+  "validation_plan_v1.json": "fb717827fd89f2e95d117905c356d33312ffef2a9cf4cb4cc2947ba27ba2d76b"
+ },
+ "record": "tsb.p2rm.frozen_sha256",
+ "record_version": 1,
+ "set": "RM0"
+}

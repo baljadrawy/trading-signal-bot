@@ -1,0 +1,186 @@
+{
+ "contract": "tsb.p2rm.metrics",
+ "contract_version": 1,
+ "id": "RM0-METRICS",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "scope": "P2-RM0 portfolio and risk MEASUREMENT definitions. Crypto / Binance spot only. Measurement only: no metric triggers, sizes, limits, selects or optimizes anything. Never derived from or tuned on strategy outcomes, H01-H07, the 48 planned trials, PAPER-R1 or W3.",
+ "classes": {
+  "MEASURED": "a value read from a sealed public market-data record (bid, ask, depth level, candle close, timestamp)",
+  "DERIVED": "deterministic arithmetic on MEASURED values and on position-contract inputs (returns, vol, correlation, beta, exposure, shares, ages)",
+  "ASSUMED": "an input or modelling choice not measured by RM0 (hypothetical capital, sqrt-time scaling, BTC/USDT as the BTC reference, the reference-notional exposure basis); any composite that uses one is ASSUMED",
+  "POLICY": "a research flag threshold (policy_v1.json); uncalibrated, never an action, never a definition of a metric",
+  "UNAVAILABLE": "value null plus a reason; never 0"
+ },
+ "composition_rule": "a composite takes the weakest class of its parts in the order MEASURED < DERIVED < ASSUMED; any UNAVAILABLE part makes it UNAVAILABLE; POLICY applies only to threshold fields",
+ "rounding": "floats are rounded to 12 significant digits (p2_research.execution.schema.rnd), canonical JSON with sorted keys",
+ "w3": {
+  "interval": "[2026-08-19T09:33:46Z, 2026-10-04T15:26:43.497803Z) half-open, microsecond exact",
+  "snapshot_time": "a snapshot time inside W3 is refused (W3SealedError)",
+  "market_observations": "a book or depth record whose available_at lies inside W3 is masked (treated as absent, flag w3_masked_record); a candle whose interval starts before the W3 end is masked (never used, counted as w3_masked)",
+  "structural_metadata": "run-chain facts and the universe epoch effective at T (announced by a lifecycle record) are structural metadata, used exactly as in P2-C / P2-X; they carry no price or outcome"
+ },
+ "pit": "every input used at snapshot time T satisfies available_at_ms <= T; candles additionally require close_ms < T; accessors refuse t > T (PITViolation) and re-assert availability of every returned element",
+ "returns": {
+  "id": "RM0-RET",
+  "version": "1.0.0",
+  "timeframe": "15m",
+  "bar_ms": 900000,
+  "definition": "r_k = ln(close_k / close_{k-1}) for consecutive 15m bars k-1, k, both CLOSED (close_ms < T), available (available_at_ms <= T) and not W3-masked",
+  "window": "the declared number L of most recent expected returns: bar opens E-(L-1)*bar_ms .. E, where E = floor((T - bar_ms) / bar_ms) * bar_ms is the open of the last bar closed by T",
+  "gap_rule": "no bridging, no interpolation, no fill: a return exists only when both consecutive bars are present",
+  "states": {
+   "INSUFFICIENT_HISTORY": "present returns < declared min_obs (includes history before the collector start or masked by W3); value null",
+   "STALE_INPUT": "the bar with open E is not available at T (fetch not yet visible); computed on the available bars",
+   "GAP_AFFECTED": "a bar strictly between the first and last present bar of the window is missing",
+   "DEGRADED_INPUT": "a candle used carries clock_suspect"
+  }
+ },
+ "exposure": {
+  "id": "RM0-EXPOSURE",
+  "version": "1.0.0",
+  "basis": "reference notional n_i from the position contract (quantity x reference price, quote currency); class DERIVED. Mark-to-market at T (quantity x PIT mid at T) is reported separately and never replaces the basis",
+  "signed_notional": "s_i = +n_i (long), -n_i (conceptual short)",
+  "gross": "G = sum |s_i|",
+  "net": "N = sum s_i",
+  "long": "sum of n_i over long positions",
+  "short": "sum of n_i over conceptual short positions (short is NOT authorized; any short position sets the flag short_side_conceptual_not_authorized)",
+  "count": "number of positions after duplicate-identity normalization",
+  "breakdowns": "gross and net by symbol, by tier (universe epoch known at T; a symbol outside it -> bucket NOT_IN_UNIVERSE_AT_T), by venue and by quote currency",
+  "flat": "G = 0 is a valid known zero (P0); every weight-based metric is UNAVAILABLE(flat_portfolio), never 0"
+ },
+ "heat": {
+  "id": "RM0-HEAT",
+  "version": "1.0.0",
+  "purpose": "ex-ante size of the open book relative to an ASSUMED hypothetical capital. It is NOT a realized-loss breaker and is NOT defined from any B3 limit (B3 daily/weekly/drawdown limits are realized-loss circuit breakers; heat is an exposure measure; no B3 number appears in this definition)",
+  "inputs": {
+   "measured_exposure": "G and |s_i| (DERIVED from the position contract)",
+   "volatility": "sigma_1d_i = RM0-VOL long-lookback 15m sigma x sqrt(96) (DERIVED; sqrt-time scaling ASSUMED)",
+   "capital": "C, ASSUMED hypothetical capital (policy_v1.json hypothetical_capital); never a private balance, never read from any account"
+  },
+  "outputs": {
+   "exposure_heat": "H_E = G / C (ASSUMED, state ASSUMED_INPUT)",
+   "vol_heat_ccy": "V = sum |s_i| sigma_1d_i, quote currency: sum of standalone one-sigma one-day moves with NO diversification credit (equivalent to all correlations = 1); DERIVED (scaling ASSUMED)",
+   "vol_heat": "H_V = V / C (ASSUMED)",
+   "exceeds_capital": "structural flag G > C (spot without margin cannot hold more than its capital); STRUCTURAL, not POLICY"
+  },
+  "refusal": "V and H_V require sigma for EVERY position; otherwise null with state INSUFFICIENT_HISTORY or UNAVAILABLE and the per-position coverage; never a partial sum presented as complete",
+  "thresholds": "research flags only, POLICY/ASSUMED in policy_v1.json"
+ },
+ "concentration": {
+  "id": "RM0-CONC",
+  "version": "1.0.0",
+  "weights": "w_i = |s_i| / G over symbols (one position per instrument after normalization)",
+  "largest_share": "max w_i",
+  "top3_share": "sum of the three largest w_i (all if fewer than three)",
+  "hhi": "sum w_i^2",
+  "effective_n_notional": "1 / HHI: a NOTIONAL-ONLY count; it ignores correlation, volatility and liquidity and is never presented as a number of independent bets",
+  "tier_concentration": "tier shares and HHI over tier-aggregated gross",
+  "flat": "UNAVAILABLE(flat_portfolio)"
+ },
+ "volatility": {
+  "id": "RM0-VOL",
+  "version": "1.0.0",
+  "estimator": "sample standard deviation (n-1) of RM0-RET returns",
+  "lookback_long_returns": 96,
+  "min_obs_long": 48,
+  "lookback_short_returns": 16,
+  "min_obs_short": 12,
+  "daily_equivalent": "sigma_1d = sigma_15m_long x sqrt(96); the sqrt-time (iid) scaling is ASSUMED",
+  "vol_ratio": "sigma_15m_short / sigma_15m_long (vol-spike primitive); null when either is null or sigma_long = 0",
+  "notional_weighted": "sum w_i sigma_1d_i (requires every sigma)",
+  "high_vol": "position flag when sigma_15m_long_i >= policy multiple x the median sigma_15m_long of the universe known at T (median over symbols with a value; requires at least half of the universe)",
+  "portfolio_vol_proxy": "sqrt(s' Sigma s) x sqrt(96) in quote currency, Sigma the RM0-COV sample covariance; only under the RM0-COV condition, else UNAVAILABLE"
+ },
+ "correlation": {
+  "id": "RM0-CORR",
+  "version": "1.0.0",
+  "estimator": "Pearson correlation of pairwise-aligned RM0-RET returns (bars where both have a return)",
+  "lookback_returns": 96,
+  "min_obs": 48,
+  "zero_variance": "UNAVAILABLE(zero_variance)",
+  "confidence": "Fisher-z 95% interval tanh(atanh(r) +/- 1.96/sqrt(n-3)), descriptive only (assumes iid normal returns); with n <= 96 15m returns from about 1.4 days the interval is wide and no correlation is a stable estimate",
+  "aggregates": {
+   "average_pairwise_weighted": "sum_{i<j} w_i w_j rho_ij / sum_{i<j} w_i w_j",
+   "average_pairwise_unweighted": "mean of rho_ij over i<j",
+   "max_pairwise": "max rho_ij",
+   "rule": "aggregates require EVERY pair; otherwise null with the pair coverage (fail closed); fewer than 2 positions -> UNAVAILABLE(fewer_than_two_positions)"
+  }
+ },
+ "btc": {
+  "id": "RM0-BTC",
+  "version": "1.0.0",
+  "reference_instrument": "crypto:binance:spot:BTCUSDT",
+  "reference_choice_class": "ASSUMED (BTC/USDT spot as the BTC market reference)",
+  "direct_btc_weight": "sum of |s_i| over positions whose base currency is BTC, divided by G (DERIVED)",
+  "correlation_with_btc": "RM0-CORR of each position with the reference (per position) and sum w_i rho_i,btc (requires every value)",
+  "beta_to_btc": "beta_i = cov(r_i, r_btc) / var(r_btc), sample (n-1) moments on pairwise-aligned returns, lookback 96, min_obs 48; portfolio beta = sum_i (s_i / G) beta_i; BTC-beta-equivalent notional = sum_i s_i beta_i",
+  "naming_rule": "correlation is never called beta; the three measures are reported separately",
+  "insufficient": "INSUFFICIENT_HISTORY is a legitimate output; an unknown beta is null, never 0"
+ },
+ "covariance": {
+  "id": "RM0-COV",
+  "version": "1.0.0",
+  "alignment": "common bars where EVERY position has an RM0-RET return within the long lookback",
+  "condition": "n_common >= max(min_obs_long, 5 x k), k = number of positions",
+  "estimator": "sample covariance (n-1)",
+  "outputs": "portfolio_vol_proxy, diversification_ratio, euler risk contribution; all UNAVAILABLE(covariance_condition_not_met) otherwise",
+  "effective_bets": "eigen / minimum-torsion effective number of bets is REFUSED in v1 (precision not supported by about 1.4 days of 15m data)"
+ },
+ "liquidity": {
+  "id": "RM0-LIQ",
+  "version": "1.0.0",
+  "p2x_reuse": {
+   "contract_set": "p2_research/execution/contracts_v2 (P2-X1, frozen)",
+   "contract_set_sha256": "f20e22a5e79b2ab36caa180ca25d652e6e273c2ad72392ed860c2d7f72aa88d0",
+   "stale_policy": "X1-STALE-POLICY@2.0.0 (implemented by p2_research.execution.quality.classify)",
+   "data_quality_policy": "X1-DQ@2.0.0 (same implementation)",
+   "depth_walk": "X1-S2-DEPTHWALK@2.0.0 (implemented by p2_research.execution.model.depth_walk)"
+  },
+  "time": "snapshot time T with zero latency: book and depth are the PIT records at T. This is NOT an EXEC-* scenario (EXEC-BASE executes at T + 1 s, after the snapshot); EXEC-BASE stays an ASSUMED P2-X scenario",
+  "liquidation_side": "long -> sell into the displayed bids; conceptual short -> buy from the displayed asks",
+  "per_position": "tier, book state, spread_bps, book quote age, depth state, depth age, displayed side notional (all levels), utilization = n_i / displayed side notional, depth sufficiency (walk ok / notional_exceeds_displayed_depth / refused), touch half-spread cost n_i x spread_bps / 2 / 1e4",
+  "aggregates": "notional_weak_liquidity, notional_beyond_displayed_depth, notional_liquidity_unknown (book or depth INVALID or refused: kept separate, never counted as liquid or as zero), stale_depth positions (P2-X staleness DEGRADED/TOO_STALE) and depth_age_over_research_reference positions, weighted spread bps sum w_i spread_bps_i (requires every spread)",
+  "weak_definition": "a position is weak-liquidity when its depth walk is notional_exceeds_displayed_depth, or utilization or spread_bps reaches the POLICY research references (policy_v1.json)",
+  "impact": "market impact, realized slippage and fill probability are UNAVAILABLE always (P2-X truth boundary: no orders, no fills, no trade prints, no exchange event time on book/depth)"
+ },
+ "regime_primitives": {
+  "id": "RM0-REGIME",
+  "version": "1.0.0",
+  "status": "measurement primitives only; NO named states in v1; never trading rules; research-only",
+  "population": "the universe epoch known at T",
+  "direction": "median over the universe of ln(close_E / close_{E-L}) for L in {16, 96} 15m bars (both bars present), plus the BTC reference value",
+  "breadth": "share of universe symbols with a positive 16-bar log return among those with a value",
+  "volatility": "median sigma_15m (short and long lookbacks) over the universe and the median of the per-symbol vol ratio",
+  "liquidity_condition": "median spread_bps at T over symbols with a non-INVALID book, share of the universe with a non-INVALID book, share with a non-INVALID depth state, median depth age",
+  "coverage_rule": "a universe median or share requires values for at least half of the universe, else INSUFFICIENT_HISTORY / UNAVAILABLE with the coverage"
+ },
+ "drawdown": {
+  "id": "RM0-DD",
+  "version": "1.0.0",
+  "input": "an equity curve [(t_ms, equity, available_at_ms)] supplied by the caller; RM0 only accepts provenance SYNTHETIC_TEST_PATH and never manufactures a strategy equity curve",
+  "pit": "every point must have t_ms <= T and available_at_ms <= T, else the whole curve is refused (PITViolation)",
+  "current_drawdown": "1 - E_last / max(E up to last)",
+  "max_drawdown": "max over t of 1 - E_t / max(E up to t)",
+  "underwater_duration": "current: t_last - t(last running peak) when E_last < peak, 0 otherwise; max: longest interval below the running peak (censored at t_last when still underwater, flagged)",
+  "recovery_time": "time from the max-drawdown trough to the first t with E_t >= the prior peak; null with reason not_recovered_by_snapshot_time when none",
+  "velocity": "max_drawdown / ((t_trough - t_peak) / 1 day) only when at least 3 points span the peak-to-trough interval; else UNAVAILABLE",
+  "absent": "no equity curve -> every drawdown metric UNAVAILABLE(no_equity_curve_supplied), never 0",
+  "insufficient": "fewer than 2 points -> INSUFFICIENT_HISTORY"
+ },
+ "diversification": {
+  "id": "RM0-DIVERS",
+  "version": "1.0.0",
+  "rule": "never a bare symbol count and never a single score: a profile of concentration (effective_n_notional, largest_share), correlation (average and max pairwise), BTC exposure (direct weight, portfolio beta, weighted correlation), volatility (high-vol share) and liquidity (weak-liquidity share), plus diversification_ratio = sum |s_i| sigma_i / sigma_p under the RM0-COV condition",
+  "limiting_factors": "the research flags that fire on these components",
+  "refused": "effective number of independent bets (eigen / torsion) is refused in v1"
+ },
+ "risk_contribution": {
+  "id": "RM0-RC",
+  "version": "1.0.0",
+  "notional": "w_i = |s_i| / G",
+  "standalone_vol": "|s_i| sigma_i / sum_j |s_j| sigma_j (requires every sigma)",
+  "covariance_euler": "RC_i = s_i (Sigma s)_i / (s' Sigma s), sums to 1, only under the RM0-COV condition",
+  "no_optimization": "descriptive decomposition only; no weights are solved for, no target is set"
+ }
+}

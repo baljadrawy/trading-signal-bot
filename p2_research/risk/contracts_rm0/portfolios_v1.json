@@ -1,0 +1,27 @@
+{
+ "contract": "tsb.p2rm.portfolio_fixtures",
+ "contract_version": 1,
+ "id": "RM0-PORTFOLIOS",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "status": "deterministic HYPOTHETICAL TEST FIXTURES, not strategies. Membership uses only the universe epoch known at T, alphabetical symbol order and (P6 only) the displayed depth at T. Never built from returns, P&L, signals, H01-H07, trials, Paper or W3. Notionals are ASSUMED fixture inputs.",
+ "common": {
+  "side": "long",
+  "provenance": {"class": "SYNTHETIC_FIXTURE", "source": "RM0-PORTFOLIOS@1.0.0"},
+  "reference_price": "PIT mid (bid + ask) / 2 of the book at T whose P2-X X1-STALE-POLICY / X1-DQ state is not INVALID; reference_time = that record's available_at_ms",
+  "missing_reference": "the member is refused and recorded in fixture_refusals; it is never substituted by another symbol",
+  "quantity": "notional / reference_price",
+  "decision_time": "T",
+  "tier_order": "tier members of the epoch known at T, sorted by symbol"
+ },
+ "portfolios": [
+  {"id": "P0", "name": "flat", "members": []},
+  {"id": "P1", "name": "single position", "members": [{"rule": "symbol", "symbol": "BTCUSDT", "notional": 1000}]},
+  {"id": "P2", "name": "equal notional", "members": [{"rule": "tier_first", "tier": 0, "n": 2, "notional": 1000}, {"rule": "tier_first", "tier": 1, "n": 3, "notional": 1000}]},
+  {"id": "P3", "name": "concentrated (dominant position)", "members": [{"rule": "symbol", "symbol": "ETHUSDT", "notional": 6000}, {"rule": "tier_first", "tier": 2, "n": 3, "notional": 500}]},
+  {"id": "P4", "name": "BTC-heavy", "members": [{"rule": "symbol", "symbol": "BTCUSDT", "notional": 5000}, {"rule": "symbol", "symbol": "ETHUSDT", "notional": 1000}, {"rule": "tier_first", "tier": 1, "n": 2, "notional": 500}]},
+  {"id": "P5", "name": "alt basket without BTC (and without ETH)", "members": [{"rule": "tier_first", "tier": 2, "n": 5, "notional": 1000, "exclude_base": ["BTC", "ETH"]}]},
+  {"id": "P6", "name": "weak-liquidity stress", "members": [{"rule": "tier_weakest_displayed_bid", "tier": 2, "n": 3, "notional": 3000}], "selection": "the n tier-2 symbols with the smallest displayed bid-side notional (all levels) of the PIT depth at T whose depth state is not INVALID; ties by symbol; selection by displayed liquidity at T only, never by returns"},
+  {"id": "P7", "name": "near the position-count boundary", "members": [{"rule": "all_tiers_first", "n": 9, "notional": 500}], "note": "9 = the documented nominal Paper MAX_OPEN_TRADES 10 minus one, and above the documented effective 2; documented references only (policy_v1.json count_references_documented_only); not an RM0 limit"}
+ ]
+}

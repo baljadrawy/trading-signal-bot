@@ -1,0 +1,34 @@
+{
+ "contract": "tsb.p2rm.validation_plan",
+ "contract_version": 1,
+ "id": "RM0-VALIDATION-PLAN",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "status": "PREDECLARED before any real-data run; committed and pushed first. Structural validation only: coverage, quality states, refusals, PIT, determinism. No outcome, P&L, Sharpe, profit factor, win rate, predictive power or ranking is computed.",
+ "dataset": "/home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1 (read-only)",
+ "sealed_days": ["2026-10-04", "2026-10-05"],
+ "scope_rule": "2026-10-04 strictly after the W3 end (partial) and 2026-10-05 (full). The active day 2026-10-06 is never read beyond the spill-over hour certified by the 2026-10-05 seal. A further sealed day is reported, not used, unless separately verified and the purpose is unchanged.",
+ "sources": {
+  "A": "the two sealed-day backups /home/tradmin/backups/tsb-p2-forward/p2-forward-continuous-v1/<day>/ (SHA256SUMS verified)",
+  "B": "the live dataset's sealed files for exactly the same paths (byte-identical to A, else STOP); the growing active-day manifest is replaced by the sealed snapshot from the 2026-10-05 backup"
+ },
+ "decision_times_utc": [
+  "2026-10-04T15:36:30Z", "2026-10-04T18:06:30Z", "2026-10-04T21:06:30Z", "2026-10-04T23:51:30Z",
+  "2026-10-05T00:06:30Z", "2026-10-05T00:21:30Z", "2026-10-05T04:06:30Z", "2026-10-05T08:06:30Z",
+  "2026-10-05T12:06:30Z", "2026-10-05T16:06:30Z", "2026-10-05T20:06:30Z", "2026-10-05T23:51:30Z"
+ ],
+ "offgrid_pit_probe_times_utc": ["2026-10-05T06:00:30Z", "2026-10-05T18:00:30Z"],
+ "offgrid_pit_probe_rationale": "30 s after a 15m bar close, before the candle fetch (steady-state lag up to 164 s): the just-closed bar is CLOSED but NOT YET AVAILABLE, so the poison counterfactual (that bar replaced by an absurd later fetch) exercises the candle availability guard on real data; snapshots there are expected to be STALE_INPUT. Chosen by calendar only.",
+ "decision_time_rationale": "grid-15m-plus390s-v1 points: the first post-W3 grid point (no history: exercises INSUFFICIENT_HISTORY), every few hours, both sides of the 2026-10-05 00:10:10Z universe transition, and the last grid point of each day. Chosen by calendar only.",
+ "portfolios": ["P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7"],
+ "equity_curve": "none on real data (drawdown must be UNAVAILABLE(no_equity_curve_supplied)); the drawdown engine is validated on synthetic paths only",
+ "checks": {
+  "coverage": "per snapshot and metric: state counts, null reasons, fixture refusals",
+  "pit_truncation": "for every T: snapshots from a state truncated to available_at <= T (books, depth, confirmation boundaries, candles, health, lifecycle, clock, gaps, epochs) must be byte-identical",
+  "pit_poison": "for every T: future records replaced or injected with absurd values (books, depth ladders, candles incl. BTC, a late-announced and a future universe epoch, DEGRADED health, a connection event, a gap) must leave every snapshot byte-identical",
+  "determinism": "two runs from source A and one from source B: identical logical hash and byte-identical files",
+  "reference": "independent reference implementation (statistics module, fractions) for gross, net, largest share, top-3, HHI, effective N, sigma, pairwise correlation, beta and portfolio sigma; max abs difference <= 1e-9 (relative for currency values)",
+  "pass": "0 PIT violations, 0 determinism differences, 0 reference differences beyond tolerance"
+ },
+ "stop_conditions": ["PIT uncertain", "future or unsealed data needed", "W3 needed", "Paper or Collector change needed", "determinism failure", "resource violation (envelope: systemd-run scope CPUQuota=100% MemoryMax=2G, nice 15, ionice c3, prlimit 2 GiB)"]
+}

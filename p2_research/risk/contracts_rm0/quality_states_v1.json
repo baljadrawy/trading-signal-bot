@@ -1,0 +1,24 @@
+{
+ "contract": "tsb.p2rm.quality_states",
+ "contract_version": 1,
+ "id": "RM0-QUALITY",
+ "version": "1.0.0",
+ "frozen": "2026-10-06",
+ "states": {
+  "VALID": "all inputs available at T, PIT-safe, within the declared freshness, full declared window",
+  "ASSUMED_INPUT": "value present; it depends on an ASSUMED input (hypothetical capital, sqrt-time scaling, BTC reference choice)",
+  "DEGRADED_INPUT": "value present; an input was marked DEGRADED by its source policy for a non-staleness reason (P2-X X1-DQ: collector not healthy, clock suspect, confirmation degraded) or a candle carries clock_suspect",
+  "GAP_AFFECTED": "value present; the declared window has internal missing observations (no bridging) but n >= min_obs",
+  "STALE_INPUT": "value present; the latest expected input was not yet available at T, or an input is DEGRADED for staleness by the P2-X stale policy",
+  "INSUFFICIENT_HISTORY": "value null; fewer observations than the declared minimum (including history before the collector start or masked by W3)",
+  "UNAVAILABLE": "value null; not computable (missing or INVALID input, zero variance, flat portfolio, refused by design, condition not met)"
+ },
+ "precedence_worst_first": ["UNAVAILABLE", "INSUFFICIENT_HISTORY", "STALE_INPUT", "GAP_AFFECTED", "DEGRADED_INPUT", "ASSUMED_INPUT", "VALID"],
+ "rules": [
+  "value null <=> class UNAVAILABLE <=> state in {UNAVAILABLE, INSUFFICIENT_HISTORY}; a null always carries a reason",
+  "no zero-fill: an unknown beta, correlation, volatility, liquidity or drawdown is null, never 0",
+  "a known zero (flat exposure, no short positions, zero current drawdown on a supplied curve) is a value with its class",
+  "the primary state of a composite is the worst state of its parts; flags list every state that applies",
+  "every snapshot lists every null metric with its path, state and reason (unavailable)"
+ ]
+}
