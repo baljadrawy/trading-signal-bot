@@ -1,0 +1,27 @@
+{
+ "after": "post-confirmation edge / drift monitoring is a later roadmap stage (Edge/Drift Monitoring); Paper forward evidence (PAPER-R1 linkage) is not authorized and is not part of this contract",
+ "alpha": 0.05,
+ "decay_min_ratio": 0.25,
+ "decay_rule": "FORWARD_DECAYED when the forward net alpha < decay_min_ratio x the in-sample net alpha",
+ "efficacy_rule": "once, at the planned end: the full P2-F0 battery on the forward window (window.kind = forward). Forward local pass = battery verdict FORWARD_CONFIRMATION_REQUIRED or PROVISIONAL, i.e. no invalid / reject / fragile / insufficient effect, with S01 = Holm across the registered set at 0.05 on the forward net alpha; plateau and global search controls do not apply to a pre-registered set; strict = PROVISIONAL-level (every deterministic robustness rule also held)",
+ "eligibility": "only an in-sample verdict of FORWARD_CONFIRMATION_REQUIRED or PROVISIONAL; at most max_set_size candidates per forward test, all frozen and registered (forward_registration) before the forward window's first day",
+ "haircut": 0.5,
+ "harm_alpha": 0.05,
+ "harm_rule": "weekly looks; stop with FORWARD_REJECTED when the one-sided p of mean < 0 (core test on the negated series) is below the O'Brien-Fleming-type spending increment of that look; there is NO early stop for success",
+ "length_formula": "n = ceil(((z_{1-alpha} + z_power) * sd_is / (haircut * mean_is))^2 * deff_is), clamped to [min_days, max_days]; infeasible when the unclamped n > max_days (verdict stays FORWARD_CONFIRMATION_REQUIRED with note forward_infeasible)",
+ "look_every_days": 7,
+ "max_days": 120,
+ "max_set_size": 3,
+ "min_days": 28,
+ "power": 0.8,
+ "record": "tsb.p2f.forward_rules",
+ "record_version": 1,
+ "verdicts": {
+  "FORWARD_CONSISTENT": "survived one pre-registered forward test; the strongest P2-F label; not proof and not a deployment approval",
+  "FORWARD_DECAYED": "forward local pass but forward mean < decay_min_ratio x in-sample mean",
+  "FORWARD_INSUFFICIENT": "forward battery INSUFFICIENT_EVIDENCE or FRAGILE",
+  "FORWARD_REJECTED": "harm stop, or the forward battery verdict is REJECTED / INVALID_EVIDENCE"
+ },
+ "version": "1.0.0",
+ "window": "starts at the first eligible sealed day after BOTH the P2-D0 forward-untouched boundary (day 29 for round 1) and the latest label end read by any in-sample evidence of the round (label-tail rule); consecutive eligible days; never W3"
+}

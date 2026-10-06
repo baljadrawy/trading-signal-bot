@@ -1,0 +1,10 @@
+{
+ "files": {
+  "f0_calibration_plan_v1.json": "2b7af4e10ec3f8c1534c12b5cb16855aad4a1279a007df40f26a5168d5d8ae77",
+  "f0_evidence_schema_v1.json": "9d059a2a83efda1b180791d2d54ee28eaff9b56dd23016cc1ef209f3fb0c2e6b",
+  "f0_forward_v1.json": "021089e73d9176bab1a02ec56eef12709242182ac6c6ce3663d6e9d7a3111f7b",
+  "f0_protocol_v1.json": "4608e74ed3cbc557fc4ef690cb76c5e538d119f18c7bd8ce6b8ee96da7ed2d9f"
+ },
+ "record": "tsb.p2f.frozen_sha256",
+ "record_version": 1
+}
