@@ -214,3 +214,20 @@ real-vs-synthetic difference:
 | steady-state candle fetch lag 15m ≤ 164 s, 1h/4h/1d ≤ 314 s (< 390 s grid offset); startup backfill up to 14.5 h late | matches assumption | `latest_closed_candle_unavailable` never occurred |
 | market snapshot components can be up to 110 s old (p99 29 s); first snapshot (startup_complete=false) misses 22 symbols | data-quality limitation | context features use the snapshot as-is; startup snapshot not used |
 | spill-over-hour gaps/health (D+1 rotation) are counted in the manifest reader counters | documentation | they cannot be known at a decision time of D (PIT) |
+
+## 13. Real-data notes (P2-D1, first full sealed day 2026-10-05)
+
+Range build `2026-10-04..2026-10-05` (10-04 = protocol warm-up only, never evaluated; 10-05 = eligible full day 1),
+streaming, code `6db8ba5`, logical hash `10cbae45…8469`: 5,187 rows (10-04 1,444; 10-05 3,743 = 96 decision times,
+38 + 95 × 39 symbols), 58 excluded (`in_downtime`, 10-04 before the first run). Rebuilt from the sealed backups
+(streaming) and in-memory: identical logical hash and byte-identical content (evidence `p2d1-*`). Data-readiness only:
+no outcome distribution was inspected.
+
+| Finding | Class | Effect |
+|---|---|---|
+| the 9 long-history features are populated on 10-05 from 14:06:30Z (1h-based, ctx) / 14:21:30Z (96-candle) / 00:06:30Z (`mom.ret_1d_1`); earlier rows `insufficient_history` | warm-up (by design, O3): the collector started 2026-10-04 14:25Z with a shallow backfill | populated 1,482–3,648 of 3,743 rows; independent recomputation 0 mismatches; from 2026-10-06 a full day is warm |
+| a symbol added by a universe transition (GTCUSDT, 2026-10-05 00:10:10Z) has no candle backfill | benign (no network in P2-C) | 1d features null all day (`latest_closed_candle_unavailable`), 96-candle features until 24 h after the addition |
+| registry `required_history` of `mom.dist_high_15m_96` / `mom.dist_low_15m_96` says 96 closed 15m; the implementation uses the shared 97-candle fetch | documentation discrepancy (registry frozen in p2c-fs 1.0.0) | null for one extra decision time per symbol at the end of warm-up (38 rows on 10-05); no PIT effect; fix only in a future feature-set version |
+| 24h labels: 10-04 rows labelled from sealed 10-05 data (1,444 / 1,444); 10-05 rows `beyond_loaded_range` (3,743) | by design | 24h machinery exercised; never filled from the active day |
+| the dataset build reads the active D+1 manifest file to verify the 8 spill-over (00Z) segments that the D seal covers | benign | the backup build uses the sealed manifest snapshot and gives the same logical hash |
+| 10-04 decision rows before E (14:36:30–15:21:30Z) carry market labels | documentation (P2-C1 O6) | collector market data, not W3 outcomes; 10-04 is excluded from evaluation (`pre_E_or_warm_up_day`) |
