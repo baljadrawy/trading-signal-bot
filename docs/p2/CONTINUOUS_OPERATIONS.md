@@ -191,6 +191,8 @@ A fail-closed stop works as follows:
 | Capability | Monitor (`ops/p2f_cont_monitor.py`) | Operator | Owner |
 |---|---|---|---|
 | Read cgroup, /proc, health, incidents, day / seal records | ✓ (no Docker, no signals, writes only its own output dir outside the dataset) | ✓ | ✓ |
+| Bind the monitor to a (re)created collector | ✗ (never follows a new container by itself; a stale binding is CRITICAL `binding_stale`) | `p2f_monitor_bind.py bind --reason … --restart` (`docker inspect` read-only + Docker-free proof) | — |
+| Start / stop / restart the monitor | ✗ | `systemctl --user start/stop/restart tsb-p2f-monitor.service` only (never a hand-started monitor, §6a) | install / remove the unit, linger |
 | Start / stop / restart collector | ✗ | gated scripts only (`p2f_continuous_up.sh`, `p2f_continuous_stop.sh`) | authorizes continuous mode |
 | Acknowledge incidents | ✗ | `p2f_incident_ack.sh` (reference + reason required; hash-bound; works while stopped) | ✓ |
 | Seal / back up days | ✗ | `p2f_seal_day.py`, `p2f_backup.py` | schedule needs owner authorization |
@@ -210,6 +212,50 @@ A fail-closed stop works as follows:
 
 **Known limit:** OS-level separation of the monitor needs a dedicated user without Docker-group membership. That is
 recommended, not yet done.
+
+## 6a. Monitor supervision (G4, 2026-10-07)
+
+The monitor is a **systemd user service** of `tradmin`, not a process in a terminal, tmux pane or agent scope.
+
+| Item | Value |
+|---|---|
+| Unit | `~/.config/systemd/user/tsb-p2f-monitor.service` (repo `p2_forward/ops/systemd/`), enabled (`WantedBy=default.target`), in `tsbops.slice` |
+| Session independence | user lingering is enabled for `tradmin` (`loginctl show-user tradmin -p Linger` = yes): the user manager runs from boot and does not stop when the last session ends; the unit's cgroup is `user@1000.service/tsbops.slice/tsb-p2f-monitor.service`, never a `session-*.scope` |
+| Program | `/home/tradmin/ops/tsb-p2-forward/p2f_cont_monitor.py --dataset … --binding-file …/monitor/p2-forward-continuous-v1.binding.json --out …/monitor/p2-forward-continuous-v1` |
+| Single writer | `<out>/.monitor.lock` (flock, held for the process lifetime). A second lock-honouring instance exits 75 before writing anything. A writer that does not honour the lock (a hand-started legacy monitor on the same `--out`) is refused at start and, if it appears later and persists across two scans, makes the supervised monitor write a CRITICAL `monitor_yield` alert and exit 75: there are never two concurrent writers. |
+| Readiness / hang | `Type=notify`: READY after the first `status.json`; `WATCHDOG=1` every loop, `WatchdogSec=120` (a hung loop is aborted and restarted) |
+| Restart | `Restart=on-failure`, 10 s growing to 120 s; at most 6 starts per 15 min, then the unit stays **failed**. Exit 2 / 75 / 78 (usage, duplicate writer, bad binding) are never restarted: restarting cannot fix them. |
+| Stop | `KillMode=control-group`, SIGTERM then SIGKILL of the whole cgroup after 15 s |
+| Exit record | `ExecStopPost` (`--record-exit`) appends every stop to `monitor_lifecycle.jsonl`; a non-success result (crash, kill, watchdog, OOM) also appends a CRITICAL `monitor_exit` line to `alerts.jsonl` |
+| Start record | each start appends `event=start` to `monitor_lifecycle.jsonl` with the previous status time and `status_gap_s` (the monitoring gap) |
+| Writer identity | `status.json` → `monitor`: `supervisor`, `unit`, `pid`, `invocation_id`, `cid`, `binding` (file, sha256, container name), `binding_check` (Docker-free proof), `code_sha256`. `samples.jsonl`, `procs.jsonl` and the existing `alerts.jsonl` kinds are unchanged. |
+| Resources | slice `CPUWeight=1000` (research.slice is `idle`, agent scopes 100), unit `CPUWeight=1000`, `MemoryHigh=192M`, `MemoryMax=256M`, `TasksMax=32`, `OOMScoreAdjust=100` (the lowest an unprivileged user manager can set; research jobs are 500), `OOMPolicy=continue` (an OOM-killed sampler child only costs one sample) |
+
+**Binding.** The binding file is written only by `p2f_monitor_bind.py bind`: it resolves the container NAME
+`tsb-p2-forward-collector` with `docker inspect` (read-only), requires running + compose labels
+`tsb-p2-forward/collector` + the dataset mounted read-write at `/data`, and cross-checks Docker-free that the
+container's cgroup scope runs `python -m p2_forward` whose `/data` is the dataset (same device and inode). The
+previous binding is appended to `<binding>.history.jsonl`. With `--restart` it restarts only the monitor unit and
+waits (bounded) for a status written by the new process against the new id. `p2f_monitor_bind.py show` is the
+read-only check (exit 0 match, 3 mismatch/stale, 4 no running collector). At every 60 s sample the monitor itself
+re-proves the binding: bound scope alive and its collector's `/data` is the dataset, else CRITICAL
+`binding_dataset_mismatch`; bound scope gone while another scope runs a collector on this dataset: STOPPED +
+CRITICAL `binding_stale:collector_now=<id12>`. It never silently follows a new container.
+
+**Failure visibility.** A crash or restart loop shows up as: the unit state (`systemctl --user is-failed
+tsb-p2f-monitor.service`), `monitor_exit` CRITICAL lines in `alerts.jsonl`, `monitor_lifecycle.jsonl`, the journal
+(`journalctl --user -u tsb-p2f-monitor.service`), and a stale `status.json`. The research layer (G2) trusts the
+status only when it is fresh (older of mtime and `t_ms` ≤ 180 s), severity is INFO/WARNING, the writer is this unit
+and (admission) the unit is active with the writer as its MainPID/InvocationID; otherwise admission refuses and the
+watchdog freezes research.
+
+**Operations.**
+- Status: `systemctl --user status tsb-p2f-monitor.service`; `p2f_monitor_bind.py show`.
+- Restart (e.g. after a code update): `systemctl --user restart tsb-p2f-monitor.service` (gap ≈ 10–20 s, recorded).
+- After the start limit was hit: read the journal and `alerts.jsonl`, fix the cause, then
+  `systemctl --user reset-failed tsb-p2f-monitor.service && systemctl --user start tsb-p2f-monitor.service`.
+- Never start `p2f_cont_monitor.py` by hand on the production `--out`; never `kill` its pid (use systemctl).
+- Rollback to the pre-G4 arrangement: the G4 evidence `rollback/ROLLBACK.md` (research then refuses: intended).
 
 ## 7. Operator runbook
 
@@ -244,10 +290,10 @@ recommended, not yet done.
    existing ack file that does not validate (`p2f_ack_binding.py check <dataset> <id>`) is an owner escalation.
 4. Start: `P2F_ACK_PREVIOUS=<boot8 of the stopped run> p2f_continuous_up.sh <tag> <image id> <dataset> <config> <compose>`
    with the same image, config, dataset and compose (limits unchanged). The gate re-validates every binding.
-5. Re-bind the observe-only monitor: it is bound to one container id (`--cid`). Stop ONLY the old monitor process
-   (`kill <its pid>`, SIGTERM; it is observe-only) and start a new one with the new container id and the same `--out`:
-   `cd /home/tradmin/ops/tsb-p2-forward && setsid nohup python3 p2f_cont_monitor.py --dataset <dataset> --cid <full new id>
-   --out monitor/p2-forward-continuous-v1 >> monitor/p2-forward-continuous-v1/monitor.out 2>&1 < /dev/null &`.
+5. Re-bind the supervised monitor (§6a) to the new container: `cd /home/tradmin/ops/tsb-p2-forward &&
+   ./p2f_monitor_bind.py bind --reason "<why, evidence path>" --restart`. It validates the container by name and
+   restarts only the monitor unit; until then the monitor shows STOPPED + CRITICAL `binding_stale` (research refused).
+   Never start a monitor by hand.
 6. Verify: the incident shows `ack` in `state.json` and an `ack` event (merged by the new run); a WARNING
    `previous_run_stopped_failed` is expected (the old incident is NOT re-raised); `runs/downtime-<new boot>.json` has
    `cause: stopped_failed`, the previous boot, `from_ms` = the stop's `stop_requested_ms` and `until_ms` set;
@@ -257,7 +303,8 @@ recommended, not yet done.
 
 **After a host reboot:**
 1. Run the production checks first (PAPER state, B3).
-2. The collector is down by design.
+2. The collector is down by design. The monitor unit starts at boot (linger) and reports STOPPED
+   (`collector_not_running`) until the collector runs again; after the restart re-bind it (step 5 above).
 3. Review the incident and markers.
 4. Preserve the evidence.
 5. Restart with `P2F_ACK_PREVIOUS` if the previous run did not stop cleanly (and acknowledge any CRITICAL first, as above).
@@ -332,5 +379,5 @@ long-duration validation.
 5. Run the isolation probe.
 6. Run the production pre-check.
 7. Start with `p2f_continuous_up.sh`.
-8. Start the observe-only monitor.
+8. Bind and start the supervised monitor (§6a): `p2f_monitor_bind.py bind --reason … --restart`.
 9. Schedule the daily seal and backup, or run them manually. Scheduling needs owner authorization.
