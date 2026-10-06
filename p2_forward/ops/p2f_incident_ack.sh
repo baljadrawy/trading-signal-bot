@@ -1,19 +1,10 @@
 #!/bin/bash
-# OPERATOR: acknowledge ONE incident after review (writes incidents/ack/<id>.json; the collector only reads it).
-# usage: p2f_incident_ack.sh <dataset_dir> <incident_id> <by> <reference>
+# OPERATOR: acknowledge ONE incident after review. Writes incidents/ack/<id>.json ONCE (0444, never overwritten) as a
+# hash-bound record of exactly that incident (id, key, severity, boot, opened/last time, full-record sha256), dataset and
+# run lineage (p2f_ack_binding.py). Works while the collector is RUNNING (it merges the file into state.json within one
+# health interval) and while it is STOPPED (p2f_continuous_up.sh validates the binding; the next run merges it).
+# usage: p2f_incident_ack.sh <dataset_dir> <incident_id> <by> <reference> <reason>
 set -euo pipefail
-DATA=$1; ID=$2; BY=$3; REF=$4
-python3 - "$DATA" "$ID" "$BY" "$REF" <<'PY'
-import json, os, sys, time
-data, iid, by, ref = sys.argv[1:]
-st = json.load(open(os.path.join(data, "incidents", "state.json")))
-inc = [i for i in st["incidents"] if i["id"] == iid]
-assert inc, f"unknown incident {iid}"
-p = os.path.join(data, "incidents", "ack", f"{iid}.json")
-assert not os.path.exists(p), "already acknowledged"
-assert ref.strip(), "a reference (ticket / evidence path) is required"
-with open(p + ".tmp", "w") as fh:
-    json.dump({"by": by, "ref": ref, "ts_ms": int(time.time() * 1000)}, fh)
-os.rename(p + ".tmp", p); os.chmod(p, 0o444)
-print("ACK", iid, inc[0]["key"], inc[0]["severity"])
-PY
+[ $# -eq 5 ] || { echo "usage: $0 <dataset_dir> <incident_id> <by> <reference> <reason>"; exit 64; }
+HERE=$(cd "$(dirname "$0")" && pwd)
+exec python3 -B "$HERE/p2f_ack_binding.py" ack "$1" "$2" "$3" "$4" "$5"

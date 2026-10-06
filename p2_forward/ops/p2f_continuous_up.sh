@@ -4,8 +4,12 @@
 # usage: p2f_continuous_up.sh <image_tag> <expected_image_id> <dataset_dir> <config_file> <compose_file>
 # Env: P2F_ACK_PREVIOUS=<boot8>  required when the previous run of this dataset did not stop cleanly (crash / kill /
 #      fail-closed): the operator confirms the evidence-preservation steps of the runbook were done.
+# Incidents: an active CRITICAL incident blocks the start unless state.json records its ack (merged by a running
+#      collector) OR incidents/ack/<id>.json is a VALID hash-bound ack of exactly that incident record, dataset and run
+#      lineage (p2f_ack_binding.py; written by p2f_incident_ack.sh while the collector is stopped). No override exists.
 set -euo pipefail
 IMG=$1; IID=$2; DATA=$3; CFG=$4; COMPOSE=$5; C=tsb-p2-forward-collector
+HERE=$(cd "$(dirname "$0")" && pwd)
 fail() { echo "REFUSED: $*"; exit 2; }
 actual=$(docker image inspect "$IMG" --format '{{.Id}}') || fail "image missing"
 [ "$actual" = "$IID" ] || fail "IMAGE_ID_MISMATCH tag=$IMG actual=$actual expected=$IID"
@@ -13,9 +17,10 @@ actual=$(docker image inspect "$IMG" --format '{{.Id}}') || fail "image missing"
 [ -z "$(docker ps -q --filter name=^/$C$)" ] || fail "collector already running"
 /usr/bin/grep -qE '^\s*restart: "no"' "$COMPOSE" || fail "compose restart policy is not \"no\""
 ! /usr/bin/grep -qE 'docker\.sock|ports:|network_mode: *host|privileged' "$COMPOSE" || fail "compose isolation check"
-python3 - "$CFG" "$DATA" <<'PY' || fail "config / dataset / incident gate"
+python3 - "$CFG" "$DATA" "$HERE" <<'PY' || fail "config / dataset / incident gate"
 import json, os, sys
 cfg, data = json.load(open(sys.argv[1])), sys.argv[2]
+sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[3]); import p2f_ack_binding as AB
 assert cfg.get("enabled") is True and cfg.get("mode") == "continuous" and cfg.get("max_runtime_s") == 0, "not an explicit continuous config"
 assert cfg.get("data_dir", "/data") == "/data", "data_dir must be /data (the mount)"
 ds = os.path.join(data, "dataset.json")
@@ -23,10 +28,9 @@ if os.path.exists(ds):
     assert json.load(open(ds))["dataset_id"] == cfg["dataset_id"], "dataset_id mismatch"
 else:
     assert not [x for x in os.listdir(data) if not x.startswith(".")], "fresh dataset dir must be empty"
-st = os.path.join(data, "incidents", "state.json")
-if os.path.exists(st):
-    crit = [i["id"] for i in json.load(open(st))["incidents"] if i["active"] and i["ack"] is None and i["severity"] == "CRITICAL"]
-    assert not crit, f"unacknowledged CRITICAL incidents: {crit[:5]} (p2f_incident_ack.sh after review)"
+crit = AB.gate(data)                                  # {id: problems}: no ack, or an ack that is not a valid binding
+assert not crit, f"unacknowledged CRITICAL incidents: {json.dumps(dict(list(crit.items())[:5]), sort_keys=True)} (p2f_incident_ack.sh after review)"
+print("incident gate: no blocking CRITICAL incident")
 runs = sorted((json.load(open(os.path.join(data, "runs", f))) for f in os.listdir(os.path.join(data, "runs")) if f.startswith("run-")),
               key=lambda r: r["created_ms"]) if os.path.isdir(os.path.join(data, "runs")) else []
 if runs:

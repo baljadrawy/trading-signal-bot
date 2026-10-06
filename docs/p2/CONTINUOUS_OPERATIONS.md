@@ -140,7 +140,10 @@ A malformed config can never become continuous: `mode` must be exactly `"continu
 **Files** (`<dataset>/incidents/`)
 - `state.json`: current state.
 - `events.jsonl`: open / update / resolve / ack history, fsynced.
-- `ack/<id>.json`: operator acknowledgements.
+- `ack/<id>.json`: operator acknowledgements, written once (0444, never overwritten) by `p2f_incident_ack.sh` as a
+  hash-bound record of exactly one incident record (id, key, severity, boot, first/last time, full-record sha256),
+  the dataset id and the run lineage (`ops/p2f_ack_binding.py`). A running collector merges it into `state.json`
+  (by / ref) and `events.jsonl` (`ack`) within one health interval; a stopped one merges it on its next start.
 - `external/*.json`: written by the seal and backup jobs.
 
 **Incident fields**
@@ -189,13 +192,16 @@ A fail-closed stop works as follows:
 |---|---|---|---|
 | Read cgroup, /proc, health, incidents, day / seal records | ✓ (no Docker, no signals, writes only its own output dir outside the dataset) | ✓ | ✓ |
 | Start / stop / restart collector | ✗ | gated scripts only (`p2f_continuous_up.sh`, `p2f_continuous_stop.sh`) | authorizes continuous mode |
-| Acknowledge incidents | ✗ | `p2f_incident_ack.sh` (reference required) | ✓ |
+| Acknowledge incidents | ✗ | `p2f_incident_ack.sh` (reference + reason required; hash-bound; works while stopped) | ✓ |
 | Seal / back up days | ✗ | `p2f_seal_day.py`, `p2f_backup.py` | schedule needs owner authorization |
 | Delete any data / evidence | ✗ | ✗ (only an owner-approved deletion list) | approval only |
 | Trading, Paper, risk, funded keys, learner, W3, walk-forward, dead letters | ✗ | ✗ | outside P2 |
 
 **Additional refusals by `p2f_continuous_up.sh`:**
-- unacknowledged CRITICAL incidents;
+- unacknowledged CRITICAL incidents: an active CRITICAL whose `state.json` ack is still empty passes only with a
+  VALID bound `ack/<id>.json` (no ack, legacy/unbound, malformed, tampered, stale, wrong incident, wrong dataset,
+  reused from another run lineage, dated before the incident's last occurrence or in the future: refused). There is
+  no override variable;
 - a non-explicit continuous config;
 - a dataset id mismatch;
 - a compose file that isn't `restart: "no"`, or that has ports, host networking, a Docker socket or privileged mode;
@@ -215,7 +221,7 @@ recommended, not yet done.
 | Is disk safe? | Health `disk.free_gb` and `collector_dir_gb` (aggregate); incidents `disk_warning` / `failclosed:disk_hard_stop`. |
 | Did we lose data? | The day seal report: `totals.unexplained` must be 0; `downtime_ms` and `downtime_intervals` list every explicit outage; gaps are in the gap records. |
 | Should I restart? | Only after a fail-closed or crash stop has been reviewed, and **never** for a FAILED state without reading the incident and its markers. |
-| Can I restart? | Use `p2f_continuous_up.sh`, which refuses while CRITICAL incidents are unacknowledged. |
+| Can I restart? | Use `p2f_continuous_up.sh`, which refuses while any CRITICAL incident lacks a valid bound acknowledgement (procedure below). |
 | How do I stop safely? | `p2f_continuous_stop.sh <dataset> <compose>`: graceful drain (≤ 450 s), then it prints the stop marker. Never `docker kill` / `docker rm` the collector, and never `docker exec` into it: an exec'd process trips the process-role check. |
 
 **Evidence to preserve before any restart (copy, never move or delete):**
@@ -227,12 +233,34 @@ recommended, not yet done.
 - `docker inspect` (State, ExitCode, OOMKilled);
 - `docker logs` of the exited container.
 
+**Recovery after a fail-closed (CRITICAL) stop** (corrected 2026-10-06; the earlier procedure deadlocked because
+`state.json` is updated only by a running collector):
+1. Run the production checks first (PAPER state, B3). Do not start between :12 and :25 past the hour (seal job at :17).
+2. Review the incident (`incidents/state.json`, `events.jsonl`), the `control/` fatal and stop markers and the gaps;
+   preserve the evidence listed above (copy, never move or delete). Never edit `state.json` or delete an incident.
+3. Acknowledge each active CRITICAL incident while the collector is stopped:
+   `p2f_incident_ack.sh <dataset> <incident_id> <by> <reference (evidence path, <= 200 chars)> <reason>`.
+   It refuses unknown, inactive or already-acknowledged incidents and never overwrites an existing ack file. An
+   existing ack file that does not validate (`p2f_ack_binding.py check <dataset> <id>`) is an owner escalation.
+4. Start: `P2F_ACK_PREVIOUS=<boot8 of the stopped run> p2f_continuous_up.sh <tag> <image id> <dataset> <config> <compose>`
+   with the same image, config, dataset and compose (limits unchanged). The gate re-validates every binding.
+5. Re-bind the observe-only monitor: it is bound to one container id (`--cid`). Stop ONLY the old monitor process
+   (`kill <its pid>`, SIGTERM; it is observe-only) and start a new one with the new container id and the same `--out`:
+   `cd /home/tradmin/ops/tsb-p2-forward && setsid nohup python3 p2f_cont_monitor.py --dataset <dataset> --cid <full new id>
+   --out monitor/p2-forward-continuous-v1 >> monitor/p2-forward-continuous-v1/monitor.out 2>&1 < /dev/null &`.
+6. Verify: the incident shows `ack` in `state.json` and an `ack` event (merged by the new run); a WARNING
+   `previous_run_stopped_failed` is expected (the old incident is NOT re-raised); `runs/downtime-<new boot>.json` has
+   `cause: stopped_failed`, the previous boot, `from_ms` = the stop's `stop_requested_ms` and `until_ms` set;
+   `verify_continuous.py <dataset> --run-chain` PASS; health HEALTHY, writer beat / durable lag small, new segments.
+7. A further CRITICAL after the restart opens a NEW incident id and needs its own acknowledgement; an old ack file is
+   never valid for it.
+
 **After a host reboot:**
 1. Run the production checks first (PAPER state, B3).
 2. The collector is down by design.
 3. Review the incident and markers.
 4. Preserve the evidence.
-5. Restart with `P2F_ACK_PREVIOUS` if the previous run did not stop cleanly.
+5. Restart with `P2F_ACK_PREVIOUS` if the previous run did not stop cleanly (and acknowledge any CRITICAL first, as above).
 6. Recovery salvages partial segments, and the downtime is recorded.
 
 **Never delete:**
