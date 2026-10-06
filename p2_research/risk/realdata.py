@@ -28,7 +28,7 @@ from . import snapshot as SN
 from .market import load_risk_market
 
 FORBIDDEN_OUT = ("/home/tradmin/research-data/trading-signal-bot/p2/",)
-TOOL_VERSION = "p2rm0-realdata-v1"
+TOOL_VERSION = "p2rm0-realdata-v1.1"                # v1.1: D-RM0-1 positive-control applicability
 
 
 class PlanError(ValueError):
@@ -143,15 +143,18 @@ def run(base: str, days: list, out_dir: str, code_commit: str, pit: bool = True)
                 totals[f"pit_{name}_compared"] += len(pids)
                 totals["pit_violations"] += len(diff)
             MP = PC.perturb_past(M, T, "BTCUSDT", C.bar_ms)
-            if MP is None:
-                rep["positive_control_past_btc_close_x1.5"] = {"applicable": False,
-                                                                "reason": "no closed, available, non-W3 BTC bar at T"}
+            consumers = PC.control_consumers(snaps["P1"])
+            if MP is None or not consumers:
+                why = ("no closed, available, non-W3 BTC bar at T" if MP is None else
+                       "no reported metric consumes the perturbed bar (all BTC-candle metrics null; D-RM0-1)")
+                rep["positive_control_past_btc_close_x1.5"] = {"applicable": False, "reason": why}
                 totals["positive_control_not_applicable"] += 1
             else:
                 ctl, _ = _snaps_at(MP, T, C, pids)
                 changed = [pid for pid in pids if SN.canonical_line(ctl[pid]) != SN.canonical_line(snaps[pid])]
                 ok = bool(changed)
-                rep["positive_control_past_btc_close_x1.5"] = {"applicable": True, "changed": changed, "detected": ok}
+                rep["positive_control_past_btc_close_x1.5"] = {"applicable": True, "consumers": consumers,
+                                                                "changed": changed, "detected": ok}
                 totals["positive_control_applicable"] += 1
                 totals["positive_control_failures"] += 0 if ok else 1
             pit_rep[iso] = rep

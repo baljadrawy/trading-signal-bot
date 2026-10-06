@@ -533,6 +533,18 @@ class TestPIT(unittest.TestCase):
         M = R.make_market(t=t, closes=R.factor_paths(sorted(R.TIERS), 1))
         self.assertIsNone(PC.perturb_past(M, t, "BTCUSDT"))
 
+    def test_positive_control_needs_a_consumer_D_RM0_1(self):
+        """D-RM0-1: an eligible past bar that no reported metric consumes (all INSUFFICIENT_HISTORY) cannot change
+        the snapshot; the control is then NOT APPLICABLE, not a detection failure."""
+        t = R.T0 + 10 * R.BAR + 390_000                            # 9 returns: every BTC-candle metric is null
+        M = R.make_market(t=t)
+        s = snap([R.position("BTCUSDT", 100, t=t)], M, t=t)
+        self.assertIsNotNone(PC.perturb_past(M, t, "BTCUSDT"))
+        self.assertEqual(PC.control_consumers(s), [])
+        self.assertEqual(line(snap([R.position("BTCUSDT", 100, t=t)], PC.perturb_past(M, t, "BTCUSDT"), t=t)), line(s))
+        full = snap([R.position("BTCUSDT", 100)])
+        self.assertTrue(PC.control_consumers(full))
+
     def test_offgrid_closed_not_yet_available_bar(self):
         t = R.T - 390_000 + 30_000                                 # 30 s after a bar close: that bar is not fetched yet
         M = R.make_market(t=t)

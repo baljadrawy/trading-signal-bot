@@ -138,3 +138,21 @@ def perturb_past(M: RiskMarket, T: int, sym: str, bar_ms: int = 900_000) -> Risk
     lst[idx[-1]] = (c[0], c[1], c[2], c[3], c[4] * 1.5, c[5], c[6], c[7], c[8], c[9])
     candles[(sym, "15m")] = lst
     return _market(M, M.state, candles)
+
+
+CONTROL_CONSUMERS = ("volatility.per_position.crypto:binance:spot:BTCUSDT.sigma_15m_short",
+                     "volatility.per_position.crypto:binance:spot:BTCUSDT.sigma_15m_long",
+                     "regime.btc_logret_16x15m", "regime.btc_logret_96x15m")
+
+
+def control_consumers(snap: dict) -> list:
+    """Reported metrics of ``snap`` that consume the BTC 15m bar perturbed by ``perturb_past`` and are non-null.
+    Empty -> the positive control cannot change the snapshot and is NOT APPLICABLE (D-RM0-1)."""
+    out = []
+    for path in CONTROL_CONSUMERS:
+        o = snap
+        for part in path.split("."):
+            o = o.get(part) if isinstance(o, dict) else None
+        if isinstance(o, dict) and o.get("value") is not None:
+            out.append(path)
+    return out
