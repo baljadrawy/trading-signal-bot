@@ -49,9 +49,11 @@ research-run run ... -- CMD            (caller: agent shell or human; may exit, 
   - `state == HEALTHY`;
   - health age at most 30 s;
   - writer `durable_lag_ms` at most 5000 and `beat_age_ms` at most 3000.
-- **Monitor:**
-  - severity not DEGRADED or CRITICAL; the known WARNING incident is allowed;
-  - `status.json` age at most 180 s.
+- **Monitor** (G4: the monitor is the supervised user unit `tsb-p2f-monitor.service`; config `monitor_unit`):
+  - severity is on the allow-list `monitor_ok_severities` = INFO or WARNING (the known WARNING incident is allowed); DEGRADED, CRITICAL, **STOPPED**, a missing or unknown severity all refuse;
+  - `status.json` age at most 180 s, where age is the **older** of the file mtime and the content `t_ms` (a touched file or a copied old document is not fresh). Missing or unreadable status refuses (`monitor_unreadable` + `monitor_stale age_s=None`);
+  - the status names its writer (`status.json` → `monitor`): `supervisor == systemd-user` and `unit == monitor_unit`, else `monitor_unsupervised` (a legacy or manual monitor is not trusted);
+  - `systemctl --user show monitor_unit` (read-only): `ActiveState=active`, and its `MainPID` and `InvocationID` equal the writer's pid and invocation, else `monitor_unit_state=…` / `monitor_writer_not_unit_main` (`verify_monitor_unit`).
 - **Time:** not inside a protected window. These are UTC, half-open ranges:
   - hourly :12–:25;
   - daily 23:50–00:45;
@@ -73,7 +75,7 @@ research-run run ... -- CMD            (caller: agent shell or human; may exit, 
   - durable lag over 5 s;
   - beat age over 3 s;
   - loop lag over 5 s;
-  - monitor DEGRADED or CRITICAL;
+  - monitor not trusted and clean (G4, same rule as admission without the systemctl call): severity off the allow-list (incl. STOPPED), unreadable, older than `monitor_status_age_s_freeze` = 180 s (dead, hung or crash-looping monitor), or not written by `monitor_unit`. A normal monitor restart (about 10–20 s) stays well inside 180 s and does not freeze research;
   - steal over 2.0 vCPU over 5 s;
   - PSI memory some avg10 over 1 %;
   - inside a protected window;
@@ -124,8 +126,8 @@ For a job that was killed, the measurement comes from the watchdog's last 2 s sa
 - memory.low protection is ineffective until root sets ancestor protection (S6). Research is made the preferred OOM victim instead.
 - Steal and VM pauses cannot be prevented. The watchdog freezes on a steal spike to leave room for catch-up after a stall.
 - With `CPUWeight=idle`, research can be starved by agent sessions. That is acceptable for batch work.
-- The runtime slice properties vanish when the user manager restarts and are re-applied at each launch. `Linger=no`: if every tradmin session ends, the user manager and any running job stop. That is acceptable for batch work, and G4 (the monitor unit plus linger) changes it.
-- The monitor-freshness admission check refuses research if the monitor dies. That is intentional.
+- The runtime slice properties vanish when the user manager restarts and are re-applied at each launch. Since G4 (2026-10-07) tradmin lingers: the user manager, the monitor unit and running jobs no longer stop when every session ends. Jobs are transient units and are NOT restarted after a reboot.
+- The monitor checks refuse (admission) or freeze (watchdog) research whenever the monitor is dead, stale, unsupervised or alarmed. That is intentional: research never runs while the Collector is unobserved. A crash-looping monitor stays frozen-out until it is fixed; a job frozen longer than `max_frozen_s` is killed.
 
 ## Rollback
 - Stop a job: `research-run kill --job-id ID`, or `systemctl --user stop rj-ID.service`.

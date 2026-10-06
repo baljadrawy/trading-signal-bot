@@ -90,6 +90,41 @@ class TestAdmission(unittest.TestCase):
         os.utime(self.env["monitor"], (old, old))
         self.assertTrue(any(r.startswith("monitor_stale") for r in self.ev()["reasons"]))
 
+    def test_g4_refuses_stopped_unknown_missing_and_old_content(self):
+        for sev in ("STOPPED", "DEGRADED", None, "BOGUS"):
+            write_monitor(self.env["monitor"], sev)
+            self.assertIn(f"monitor_severity={sev}", self.ev()["reasons"])
+        # fresh mtime but old content (a copied/stuck document) is stale
+        write_monitor(self.env["monitor"], "WARNING", t_ms=int((time.time() - 600) * 1000))
+        self.assertTrue(any(r.startswith("monitor_stale") for r in self.ev()["reasons"]))
+        os.unlink(self.env["monitor"])
+        d = self.ev()
+        self.assertFalse(d["admit"])
+        self.assertIn("monitor_unreadable", d["reasons"])
+        self.assertIn("monitor_stale age_s=None", d["reasons"])
+
+    def test_g4_refuses_unsupervised_or_foreign_writer(self):
+        write_monitor(self.env["monitor"], "WARNING", supervisor=None)          # legacy monitor: no identity
+        self.assertIn("monitor_unsupervised writer=None/None", self.ev()["reasons"])
+        write_monitor(self.env["monitor"], "WARNING", unit="other.service")
+        self.assertIn("monitor_unsupervised writer=systemd-user/other.service", self.ev()["reasons"])
+        write_monitor(self.env["monitor"], "INFO")
+        self.assertTrue(self.ev()["admit"])
+
+    def test_g4_unit_state_cross_check(self):
+        from research_exec import hostsignals as hs
+        write_monitor(self.env["monitor"], "WARNING", pid=77, invocation_id="i1")
+        m = hs.read_monitor(self.env["monitor"])
+        kw = dict(ok_severities=["INFO", "WARNING"], max_age_s=180, monitor_unit="test-p2f-monitor.service")
+        ok = {"ActiveState": "active", "SubState": "running", "MainPID": "77", "InvocationID": "i1"}
+        self.assertEqual(hs.monitor_problems(m, unit=ok, **kw), [])
+        self.assertIn("monitor_unit_state=failed/failed",
+                      hs.monitor_problems(m, unit=dict(ok, ActiveState="failed", SubState="failed"), **kw))
+        self.assertTrue(any(r.startswith("monitor_writer_not_unit_main")
+                            for r in hs.monitor_problems(m, unit=dict(ok, MainPID="78"), **kw)))
+        self.assertTrue(any(r.startswith("monitor_writer_not_unit_main")
+                            for r in hs.monitor_problems(m, unit=dict(ok, InvocationID="i2"), **kw)))
+
     def test_refuses_inside_protected_window(self):
         d = self.ev(now_utc=U(10, 15))
         # evaluate() uses cfg windows; the test config has none -> admit. Use real windows:
@@ -131,9 +166,11 @@ class TestWatchdogLogic(unittest.TestCase):
         self.cfg = config.load_config(None)
         self.ok = {"state": "HEALTHY", "health_age_s": 2, "durable_lag_ms": 800, "beat_age_ms": 100,
                    "loop_lag_max_60s_ms": 200}
+        self.mon_ok = {"severity": "WARNING", "age_s": 30.0,
+                       "writer": {"supervisor": "systemd-user", "unit": self.cfg["monitor_unit"], "pid": 1}}
 
     def ft(self, health=None, monitor=None, steal=0.3, psi=None, window=None, pause=False):
-        return freeze_triggers(self.cfg, health or self.ok, monitor or {"severity": "WARNING"}, steal,
+        return freeze_triggers(self.cfg, health or self.ok, monitor or self.mon_ok, steal,
                                psi or {"some_avg10": 0.0}, window, pause)
 
     def test_clean(self):
@@ -145,7 +182,12 @@ class TestWatchdogLogic(unittest.TestCase):
         self.assertTrue(self.ft(health=dict(self.ok, beat_age_ms=3001)))
         self.assertTrue(self.ft(health=dict(self.ok, health_age_s=31)))
         self.assertTrue(self.ft(health=dict(self.ok, loop_lag_max_60s_ms=5001)))
-        self.assertTrue(self.ft(monitor={"severity": "DEGRADED"}))
+        self.assertTrue(self.ft(monitor=dict(self.mon_ok, severity="DEGRADED")))
+        # G4: stale / unreadable / STOPPED / unsupervised monitor freezes research
+        self.assertTrue(any(r.startswith("monitor_stale") for r in self.ft(monitor=dict(self.mon_ok, age_s=181))))
+        self.assertTrue(self.ft(monitor={"severity": "UNREADABLE", "age_s": None}))
+        self.assertIn("monitor_severity=STOPPED", self.ft(monitor=dict(self.mon_ok, severity="STOPPED")))
+        self.assertTrue(self.ft(monitor=dict(self.mon_ok, writer={})))
         self.assertTrue(self.ft(steal=2.1))
         self.assertTrue(self.ft(psi={"some_avg10": 1.5}))
         self.assertTrue(self.ft(window="hourly-seal"))

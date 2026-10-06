@@ -16,7 +16,7 @@
 ## 2. Every background process is attributable
 - When you start it, record the **PID or unit name**, an **owner tag** (for example `agent:<task>` or `basim`), the purpose and the **maximum lifetime**.
 - Prefer `systemd-run --user --unit=<name> -p RuntimeMaxSec=<s> --description="... owner=<tag>"`. A bare `&` or `nohup` is not attributable.
-- Never start a background process inside a tmux or agent scope that hosts a production observer, such as the P2 monitor. Use a transient unit instead.
+- Never start a background process inside a tmux or agent scope that hosts a production observer. Use a transient unit instead. Since G4 (2026-10-07) the P2 monitor is the supervised user unit `tsb-p2f-monitor.service`; never start a second monitor by hand (it refuses on the single-writer lock, and research admission only trusts the unit).
 
 ## 3. Every background process has a bounded lifetime
 - Bound it with `RuntimeMaxSec=` or `timeout <N>`, or tie it to a parent unit (`BindsTo=`). Nothing may run "until someone notices".

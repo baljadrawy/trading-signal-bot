@@ -34,6 +34,8 @@ def read_health(path: str, now: float | None = None) -> dict:
 
 
 def read_monitor(path: str, now: float | None = None) -> dict:
+    """Flat view of the monitor status. age_s is the OLDER of file mtime and the content timestamp t_ms, so
+    neither a touched file nor a copied old document looks fresh. Never raises (UNREADABLE instead)."""
     now = time.time() if now is None else now
     try:
         st = os.stat(path)
@@ -41,8 +43,53 @@ def read_monitor(path: str, now: float | None = None) -> dict:
             s = json.load(fh)
     except Exception as exc:
         return {"severity": "UNREADABLE", "error": f"{type(exc).__name__}: {exc}", "age_s": None}
+    ages = [now - st.st_mtime]
+    t_ms = s.get("t_ms")
+    if isinstance(t_ms, (int, float)):
+        ages.append(now - t_ms / 1000.0)
+    w = s.get("monitor") if isinstance(s.get("monitor"), dict) else {}
     return {"severity": s.get("severity"), "severity_reasons": s.get("severity_reasons"),
-            "age_s": now - st.st_mtime}
+            "age_s": max(ages), "t_ms": t_ms,
+            "writer": {k: w.get(k) for k in ("supervisor", "unit", "pid", "invocation_id", "cid")}}
+
+
+def unit_state(unit: str) -> dict:
+    """systemctl --user show (read-only) for the monitor unit. {} when systemctl is unavailable."""
+    import subprocess
+    try:
+        r = subprocess.run(["systemctl", "--user", "show", "-p", "ActiveState,SubState,MainPID,InvocationID", unit],
+                           capture_output=True, text=True, timeout=10)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+
+
+def monitor_problems(m: dict, *, ok_severities, max_age_s, monitor_unit: str | None,
+                     unit: dict | None = None) -> list[str]:
+    """Pure trust rule shared by admission and watchdog (empty list = trusted and clean).
+
+    Fail closed on: unreadable / missing, stale (dead, hung or crash-looping monitor), any severity outside the
+    allow-list, a writer that is not the configured systemd unit (legacy or manual monitor), and - when the
+    unit state is supplied - an inactive unit or a writer pid/invocation that is not the unit's current one."""
+    r = []
+    sev = m.get("severity")
+    if sev == "UNREADABLE":
+        r.append("monitor_unreadable")
+    elif sev not in ok_severities:
+        r.append(f"monitor_severity={sev}")
+    age = m.get("age_s")
+    if age is None or age > max_age_s:
+        r.append(f"monitor_stale age_s={None if age is None else round(age, 1)}")
+    if monitor_unit and sev != "UNREADABLE":
+        w = m.get("writer") or {}
+        if w.get("supervisor") != "systemd-user" or w.get("unit") != monitor_unit:
+            r.append(f"monitor_unsupervised writer={w.get('supervisor')}/{w.get('unit')}")
+        if unit is not None:
+            if unit.get("ActiveState") != "active":
+                r.append(f"monitor_unit_state={unit.get('ActiveState')}/{unit.get('SubState')}")
+            elif str(w.get("pid")) != unit.get("MainPID") or w.get("invocation_id") != unit.get("InvocationID"):
+                r.append(f"monitor_writer_not_unit_main writer_pid={w.get('pid')} main_pid={unit.get('MainPID')}")
+    return r
 
 
 # ---------------------------------------------------------------- CPU / steal

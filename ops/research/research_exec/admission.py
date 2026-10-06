@@ -54,14 +54,15 @@ def evaluate(cfg: dict, profile: dict, *, now_utc: dt.datetime | None = None,
         if ba is None or ba > a["beat_age_ms_max"]:
             reasons.append(f"beat_age_ms={ba}>{a['beat_age_ms_max']}")
 
-    # 2. Independent monitor (severity; known WARNING incidents allowed).
+    # 2. Independent monitor (G4): fresh, allow-listed severity (known WARNING incidents allowed), written by
+    #    the configured supervised unit, and that unit is active with the writer as its main process.
     if a.get("require_monitor_fresh", True):
         m = hs.read_monitor(cfg["monitor_status_path"])
-        inputs["monitor"] = m
-        if m.get("severity") in a["monitor_bad_severities"] or m.get("severity") == "UNREADABLE":
-            reasons.append(f"monitor_severity={m.get('severity')}")
-        if m.get("age_s") is None or m["age_s"] > a["monitor_status_age_s_max"]:
-            reasons.append(f"monitor_stale age_s={m.get('age_s')}")
+        unit = cfg.get("monitor_unit") if a.get("require_monitor_supervised", True) else None
+        us = hs.unit_state(unit) if unit and a.get("verify_monitor_unit", True) else None
+        inputs["monitor"] = dict(m, unit_state=us)
+        reasons += hs.monitor_problems(m, ok_severities=a["monitor_ok_severities"],
+                                       max_age_s=a["monitor_status_age_s_max"], monitor_unit=unit, unit=us)
 
     # 3. Protected window.
     inside, name = hs.in_protected_window(cfg["windows_utc"], now_utc)

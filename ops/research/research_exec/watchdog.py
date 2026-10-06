@@ -5,7 +5,7 @@ when the job stops), its own loop exits as soon as the job unit is inactive, and
 RuntimeMaxSec is a hard upper bound. If it ever has to exit while the job is still active
 (e.g. it was stopped by hand) it STOPS the job: research never runs unsupervised.
 
-Per tick: read Collector health + monitor + steal + PSI + MemAvailable + windows + pause file.
+Per tick: read Collector health + monitor (fresh/allow-listed/supervised, G4) + steal + PSI + MemAvailable + windows + pause file.
   any freeze trigger  -> systemctl --user freeze <job>   (paused, not destroyed)
   clean for resume_clean_s while frozen -> thaw
   frozen longer than max_frozen_s, or memory danger -> group kill (SIGKILL whole cgroup), stop
@@ -52,8 +52,11 @@ def freeze_triggers(cfg: dict, health: dict, monitor: dict | None, steal_vcpu: f
     ll = health.get("loop_lag_max_60s_ms")
     if ll is not None and ll > w["loop_lag_ms_freeze"]:
         r.append(f"loop_lag_ms={ll}")
-    if monitor and monitor.get("severity") in w["monitor_bad_severities"]:
-        r.append(f"monitor_severity={monitor.get('severity')}")
+    if monitor is not None:
+        # G4: a dead, hung, crash-looping, unsupervised or alarmed monitor freezes research (never kills it)
+        unit = cfg.get("monitor_unit") if cfg["admission"].get("require_monitor_supervised", True) else None
+        r += hs.monitor_problems(monitor, ok_severities=w["monitor_ok_severities"],
+                                 max_age_s=w["monitor_status_age_s_freeze"], monitor_unit=unit)
     if steal_vcpu is not None and steal_vcpu > w["steal_vcpu_freeze"]:
         r.append(f"steal_vcpu={steal_vcpu:.2f}")
     if psi_mem.get("some_avg10", 0.0) > w["psi_mem_some_avg10_freeze"]:

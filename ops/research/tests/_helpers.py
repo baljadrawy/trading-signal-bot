@@ -28,10 +28,20 @@ def write_health(path, state="HEALTHY", durable_lag_ms=100, beat_age_ms=50, ts_m
     os.replace(tmp, path)
 
 
-def write_monitor(path, severity="WARNING"):
+TEST_MONITOR_UNIT = "test-p2f-monitor.service"
+
+
+def write_monitor(path, severity="WARNING", t_ms=None, supervisor="systemd-user", unit=TEST_MONITOR_UNIT,
+                  pid=4242, invocation_id="inv-test"):
+    """Fake G4 monitor status (writer identity block included unless supervisor is None)."""
+    doc = {"severity": severity, "severity_reasons": ["incident:test"],
+           "t_ms": int(time.time() * 1000) if t_ms is None else t_ms}
+    if supervisor is not None:
+        doc["monitor"] = {"supervisor": supervisor, "unit": unit, "pid": pid, "invocation_id": invocation_id,
+                          "cid": "ab" * 32}
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
-        json.dump({"severity": severity, "severity_reasons": ["incident:test"]}, fh)
+        json.dump(doc, fh)
     os.replace(tmp, path)
 
 
@@ -42,12 +52,12 @@ def make_env(base_dir=None, **over):
     write_health(health)
     write_monitor(monitor)
     cfg = {
-        "health_path": health, "monitor_status_path": monitor,
+        "health_path": health, "monitor_status_path": monitor, "monitor_unit": TEST_MONITOR_UNIT,
         "state_dir": os.path.join(d, "state"), "windows_utc": [],
-        "admission": {"sample_s": 0.3, "psi_cpu_some_avg60_max": 100.0,
+        "admission": {"verify_monitor_unit": False, "sample_s": 0.3, "psi_cpu_some_avg60_max": 100.0,
                       "psi_mem_some_avg60_max": 100.0, "memavail_margin_gib": 0.0,
                       "disk_free_gb_min": 0.0, "steal_ratio_max": 1.0, "steal_vcpu_max": 100.0},
-        "watchdog": {"interval_s": 0.5, "steal_vcpu_freeze": 100.0, "psi_mem_some_avg10_freeze": 100.0,
+        "watchdog": {"monitor_status_age_s_freeze": 3600, "interval_s": 0.5, "steal_vcpu_freeze": 100.0, "psi_mem_some_avg10_freeze": 100.0,
                      "kill_psi_mem_full_avg10": 100.0, "kill_memavail_gib": 0.5,
                      "resume_clean_s": 2.0, "max_frozen_s": 120.0},
         "slice": {"name": "research.slice"},

@@ -39,6 +39,9 @@ SLICE = {"name": "research.slice", "cpu_quota_pct": 800, "memory_max": 12 * GIB,
 DEFAULTS = {
     "health_path": "/home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1/health/collector_health.json",
     "monitor_status_path": "/home/tradmin/ops/tsb-p2-forward/monitor/p2-forward-continuous-v1/status.json",
+    # G4: the monitor is the supervised systemd user service below. Its status.json names its writer
+    # (supervisor/unit/pid/invocation); a status written by anything else is not trusted (fail closed).
+    "monitor_unit": "tsb-p2f-monitor.service",
     "state_dir": os.path.join(HOME, ".local/state/research-runner"),
     "python": "/usr/bin/python3",
     # Protected windows (UTC). hourly: [start_min, end_min) ; daily: ["HH:MM","HH:MM") may wrap midnight.
@@ -54,7 +57,10 @@ DEFAULTS = {
         "beat_age_ms_max": 3000,
         "require_monitor_fresh": True,
         "monitor_status_age_s_max": 180,
-        "monitor_bad_severities": ["DEGRADED", "CRITICAL"],
+        # allow-list (G4): anything else - DEGRADED, CRITICAL, STOPPED, missing, unknown - refuses
+        "monitor_ok_severities": ["INFO", "WARNING"],
+        "require_monitor_supervised": True,   # status.json written by the configured systemd unit
+        "verify_monitor_unit": True,          # + unit active and its MainPID/InvocationID == the status writer
         "sample_s": 5.0,
         "steal_ratio_max": 0.40,
         "steal_vcpu_max": 1.0,
@@ -69,7 +75,8 @@ DEFAULTS = {
         "durable_lag_ms_freeze": 5000,
         "beat_age_ms_freeze": 3000,
         "loop_lag_ms_freeze": 5000,
-        "monitor_bad_severities": ["DEGRADED", "CRITICAL"],
+        "monitor_ok_severities": ["INFO", "WARNING"],
+        "monitor_status_age_s_freeze": 180,   # G4: a dead/hung/crash-looping monitor freezes research
         "steal_window_s": 5.0,
         "steal_vcpu_freeze": 2.0,
         "psi_mem_some_avg10_freeze": 1.0,
