@@ -258,6 +258,13 @@ status only when it is fresh (older of mtime and `t_ms` ≤ 180 s), severity is 
 and (admission) the unit is active with the writer as its MainPID/InvocationID; otherwise admission refuses and the
 watchdog freezes research.
 
+**Collector limits (G3 readiness, additive; deployed only with the owner-authorized monitor update).** The monitor
+reads the collector's `cpu.max` / `memory.max` / `memory.swap.max` / `pids.max` from its cgroup scope at every sample
+(no hard-coded 384 MiB). `mem_pct_of_limit` uses the observed limit; `status.json` carries `limits` (raw, parsed,
+expectation, mismatch). The binding records the limits at bind time after checking them against `docker inspect`.
+A mismatch or an unreadable/unlimited limit is a WARNING (`limit_mismatch:<file>`, `limit_<file>_*`,
+`memory_limit_unknown`). The G3 resize procedure and its fail-closed gate: `P2F_G3_RESIZE_READINESS.md`.
+
 **Operations.**
 - Status: `systemctl --user status tsb-p2f-monitor.service`; `p2f_monitor_bind.py show`.
 - Restart (e.g. after a code update): `systemctl --user restart tsb-p2f-monitor.service` (gap ≈ 10–20 s, recorded).

@@ -30,6 +30,13 @@ G4 supervision (additive; the four files above keep their formats):
   scope runs a collector on this dataset) is CRITICAL `binding_stale`, a wrong dataset is CRITICAL
   `binding_dataset_mismatch`. It never silently follows a new container: re-binding is an explicit step.
   systemd: Type=notify READY after the first status write, WATCHDOG=1 every loop (a hung loop is killed and restarted).
+
+G3 readiness (additive): the collector's limits are read from its cgroup scope (cpu.max, memory.max, memory.swap.max,
+  pids.max) at every sample instead of a hard-coded 384 MiB. status.json "limits" = raw + parsed values, the expectation
+  (binding "limits" recorded by p2f_monitor_bind.py, else this process's first observation) and any mismatch.
+  mem_pct_of_limit uses the observed memory.max (None when unlimited / unreadable -> WARNING memory_limit_unknown);
+  samples gain mem_limit_bytes, cpu_quota_cores, cpu_pct_of_quota and swap_current. A limit that differs from the
+  expectation is WARNING limit_mismatch:<file>; an unreadable / malformed / unlimited limit is WARNING limit_<file>_*.
 """
 import argparse
 import datetime as dt
@@ -51,7 +58,11 @@ BINDING_SCHEMA = "p2f-monitor-binding-v1"
 CID_RE = re.compile(r"^[0-9a-f]{64}$")
 LOCK_NAME, LIFECYCLE = ".monitor.lock", "monitor_lifecycle.jsonl"
 CGROOT = "/sys/fs/cgroup/system.slice"
-MEM_LIMIT = 402653184
+# G3 readiness: the collector's limits are READ from its cgroup scope at every sample (no hard-coded copy of the
+# compose limits). The binding file may carry the limits recorded at bind time (p2f_monitor_bind.py); without one the
+# first observation of this process is the baseline. A difference is a WARNING `limit_mismatch:<file>`; an unreadable
+# or unlimited ("max") memory limit is a WARNING and the memory thresholds are then not evaluated (None, not a guess).
+LIMIT_FILES = ("cpu.max", "memory.max", "memory.swap.max", "pids.max")
 HC = ("python -c \"import json,time,sys;h=json.load(open('/data/health/collector_health.json'));sys.exit(0 if "
       "time.time()*1000-h['ts_ms']<30000 and h['state'] in ('HEALTHY','STARTING','DISABLED','STOPPING','STOPPED') "
       "else 1)\"")
@@ -84,6 +95,49 @@ def kv(text):
         if v.strip().lstrip("-").isdigit():
             out[k] = int(v)
     return out
+
+
+def read_limits(scope):
+    """Effective limits of a cgroup v2 scope, Docker-free. Raw strings as the kernel shows them plus parsed values:
+    memory_max_bytes / pids_max (int, or None for "max" / unreadable), cpu quota and period (us) and quota in cores.
+    `problems` lists what is unreadable, malformed or unlimited."""
+    raw = {f: (rd(os.path.join(scope, f)) or "").strip() or None for f in LIMIT_FILES}
+    out = {"source": "cgroup", "scope": os.path.basename(scope), "cpu_max_raw": raw["cpu.max"],
+           "memory_max_raw": raw["memory.max"], "memory_swap_max_raw": raw["memory.swap.max"],
+           "pids_max_raw": raw["pids.max"], "memory_max_bytes": None, "memory_swap_max_bytes": None, "pids_max": None,
+           "cpu_quota_us": None, "cpu_period_us": None, "cpu_quota_cores": None, "problems": []}
+    for f, key in (("memory.max", "memory_max_bytes"), ("memory.swap.max", "memory_swap_max_bytes"), ("pids.max", "pids_max")):
+        v = raw[f]
+        if v is None:
+            out["problems"].append(f"{f}_unreadable")
+        elif v == "max":
+            out["problems"].append(f"{f}_unlimited")
+        elif v.isdigit() and int(v) > 0 or (v == "0" and f == "memory.swap.max"):
+            out[key] = int(v)
+        else:
+            out["problems"].append(f"{f}_malformed")
+    v = (raw["cpu.max"] or "").split()
+    if not v:
+        out["problems"].append("cpu.max_unreadable")
+    elif len(v) == 2 and v[1].isdigit() and int(v[1]) > 0 and (v[0] == "max" or v[0].isdigit() and int(v[0]) > 0):
+        out["cpu_period_us"] = int(v[1])
+        if v[0] == "max":
+            out["problems"].append("cpu.max_unlimited")
+        else:
+            out["cpu_quota_us"] = int(v[0])
+            out["cpu_quota_cores"] = round(int(v[0]) / int(v[1]), 4)
+    else:
+        out["problems"].append("cpu.max_malformed")
+    return out
+
+
+def limit_expectation(binding):
+    """Bound expectation {file: raw string} from the binding file (p2f_monitor_bind.py >= G3 readiness), else None."""
+    lim = (binding or {}).get("limits") if isinstance(binding, dict) else None
+    if not isinstance(lim, dict):
+        return None
+    exp = {f: lim.get(f) for f in LIMIT_FILES if isinstance(lim.get(f), str)}
+    return exp or None
 
 
 def role(p):
@@ -214,6 +268,8 @@ class Monitor:
         self.t0 = time.time()
         self.foreign_seen = set()
         self.ident = getattr(a, "ident", None) or {}
+        self.limit_expect = getattr(a, "limit_expect", None)      # from the binding file (or None)
+        self.limit_baseline = None                                # first observation (no binding limits)
         os.makedirs(a.out, exist_ok=True)
 
     def day_dir(self):
@@ -249,7 +305,7 @@ class Monitor:
 
     def sample(self):
         a, m = self.a, int(time.time() * 1000)
-        scope = f"/sys/fs/cgroup/system.slice/docker-{a.cid}.scope"
+        scope = f"{CGROOT}/docker-{a.cid}.scope"
         alive = os.path.exists(scope) and bool((rd(scope + "/cgroup.procs") or "").split())
         cpu, mem_ev = kv(rd(scope + "/cpu.stat")), kv(rd(scope + "/memory.events"))
         memst = kv(rd(scope + "/memory.stat"))
@@ -271,10 +327,17 @@ class Monitor:
         else:
             cpu_cores = None
         self.prev_cpu = {**cpu, "_t": m}
+        lim = self.limits(scope) if alive else dict(read_limits(scope), problems=[], not_alive=True)
         ins = h.get("instrumentation") or {}
         s = {"t_ms": m, "alive": alive, "health_state": h.get("state"), "health_age_s": None if not h else round((m - h.get("ts_ms", 0)) / 1000, 1),
              "reasons": (h.get("reasons") or [])[:10], "warnings": (h.get("warnings") or [])[:10],
-             "mem_current": cur, "mem_anon": anon, "mem_pct_of_limit": round(100 * (anon if anon is not None else cur) / MEM_LIMIT, 1),
+             "mem_current": cur, "mem_anon": anon, "mem_limit_bytes": lim["memory_max_bytes"],
+             "mem_pct_of_limit": None if not lim["memory_max_bytes"] else
+             round(100 * (anon if anon is not None else cur) / lim["memory_max_bytes"], 1),
+             "cpu_quota_cores": lim["cpu_quota_cores"],
+             "cpu_pct_of_quota": None if cpu_cores is None or not lim["cpu_quota_cores"] else
+             round(100 * cpu_cores / lim["cpu_quota_cores"], 1),
+             "swap_current": int((rd(scope + "/memory.swap.current") or "0").strip() or 0) if alive else None,
              "oom_kill": mem_ev.get("oom_kill"), "pids": int((rd(scope + "/pids.current") or "0").strip() or 0),
              "cpu_cores_60s": None if cpu_cores is None else round(cpu_cores, 3), "throttled_frac_60s": None if thr is None else round(thr, 4),
              "sampler_lateness_max_60s_ms": ins.get("sampler_lateness_max_60s_ms"), "loop_lag_max_60s_ms": ins.get("loop_lag_max_60s_ms"),
@@ -284,8 +347,24 @@ class Monitor:
              "disk_free_gb": round(du.free / 1e9, 1), "dataset_gb": (h.get("disk") or {}).get("collector_dir_gb"),
              "incidents_active": [{k: i.get(k) for k in ("id", "key", "severity", "count")} for i in act][:20],
              "last_closed_day": days[-1] if days else None, "last_sealed_day": seals[-1] if seals else None,
-             "universe_epoch": h.get("universe_epoch"), "connection_age_s": h.get("connection_age_s")}
+             "universe_epoch": h.get("universe_epoch"), "connection_age_s": h.get("connection_age_s"),
+             "_limits": lim}
         return s
+
+    def limits(self, scope):
+        """Observed limits + comparison with the expectation (binding) or the first observation of this process."""
+        lim = read_limits(scope)
+        obs = {f: lim[k] for f, k in (("cpu.max", "cpu_max_raw"), ("memory.max", "memory_max_raw"),
+                                       ("memory.swap.max", "memory_swap_max_raw"), ("pids.max", "pids_max_raw"))}
+        if self.limit_expect:
+            exp, src = self.limit_expect, "binding"
+        else:
+            if self.limit_baseline is None and all(obs.values()):
+                self.limit_baseline = dict(obs)
+            exp, src = self.limit_baseline, "first_observation"
+        lim["expected"], lim["expected_source"] = exp, src if exp else "none"
+        lim["mismatch"] = sorted(f for f, v in (exp or {}).items() if obs.get(f) != v)
+        return lim
 
     def binding_check(self, s):
         """Docker-free validation that the bound container is the collector of THIS dataset (each full sample)."""
@@ -329,10 +408,20 @@ class Monitor:
             r.append(("DEGRADED", f"health:{s['health_state']}"))
         if s["health_state"] in ("FAILED", "STOPPED_INCOMPLETE"):
             r.append(("CRITICAL", f"health:{s['health_state']}"))
-        if s["mem_pct_of_limit"] >= 90:
+        lim = s.get("_limits") or {}
+        if s["mem_pct_of_limit"] is None:
+            if s["alive"]:
+                r.append(("WARNING", "memory_limit_unknown"))                  # thresholds not evaluable: visible
+        elif s["mem_pct_of_limit"] >= 90:
             r.append(("CRITICAL", "memory_ge_90pct"))
         elif s["mem_pct_of_limit"] >= 75:
             r.append(("WARNING", "memory_ge_75pct"))
+        if s["alive"]:
+            for pr in lim.get("problems") or []:
+                if pr != "memory.max_unlimited":                               # already memory_limit_unknown
+                    r.append(("WARNING", f"limit_{pr}"))
+            for f in lim.get("mismatch") or []:
+                r.append(("WARNING", f"limit_mismatch:{f}"))
         if s["oom_kill"]:
             r.append(("CRITICAL", f"oom_kill:{s['oom_kill']}"))
         if s["throttled_frac_60s"] is not None and s["throttled_frac_60s"] > 0.10:
@@ -382,10 +471,11 @@ class Monitor:
                 bc = self.binding_check(s)
                 sev, reasons = self.evaluate(dict(s, _binding=bc), bad)
                 s.update(severity=sev, severity_reasons=reasons)
+                lim = s.pop("_limits", None)
                 self.append("samples.jsonl", s)
                 tmp = os.path.join(self.a.out, "status.json.tmp")
                 with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(dict(s, monitor=dict(self.ident, binding_check=bc, status_written_ms=s["t_ms"])), fh,
+                    json.dump(dict(s, limits=lim, monitor=dict(self.ident, binding_check=bc, status_written_ms=s["t_ms"])), fh,
                               sort_keys=True, indent=1, default=str)
                 os.replace(tmp, os.path.join(self.a.out, "status.json"))
                 self.alert(sev, reasons, s)
@@ -456,6 +546,7 @@ def main(argv=None):
     elif not CID_RE.match(a.cid or ""):
         print(f"--cid must be a full 64-hex container id, got {a.cid!r}", file=sys.stderr)
         return EX_CONFIG
+    a.limit_expect = limit_expectation(binding)
     os.makedirs(a.out, exist_ok=True)
     lock_fd = acquire_lock(a.out)                       # BEFORE any write under --out
     if lock_fd is None:
@@ -474,7 +565,8 @@ def main(argv=None):
                "binding": {"source": "file" if binding else "argv", "path": a.binding_file,
                            "sha256": binding and binding["_sha256"],
                            "container_name": binding and binding["container_name"],
-                           "bound_at": binding and binding.get("bound_at")},
+                           "bound_at": binding and binding.get("bound_at"),
+                           "limits": a.limit_expect},
                "lock": os.path.join(a.out, LOCK_NAME), "code_sha256": sha256_file(os.path.abspath(__file__))}
     m = Monitor(a)
     if not a.once:

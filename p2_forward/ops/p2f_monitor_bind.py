@@ -14,6 +14,8 @@ Validation before a binding is written (all must hold, otherwise nothing is writ
   - it mounts --dataset read-write at /data;
   - Docker-free cross-check: /sys/fs/cgroup/system.slice/docker-<id>.scope contains `python -m p2_forward` whose
     /data is the same device+inode as --dataset.
+  - G3 readiness: the cgroup limits (cpu.max, memory.max, memory.swap.max, pids.max) equal what `docker inspect`
+    HostConfig implies; they are recorded in the binding ("limits") as the monitor's expectation.
 This tool never starts, stops or recreates the collector and never touches the dataset. The monitor itself never
 calls Docker: re-binding is always this explicit, attributable step (G3 recreates the collector with a new id).
 """
@@ -47,7 +49,45 @@ def inspect(name):
             "started_at": d["State"]["StartedAt"], "image": d["Config"]["Image"],
             "compose_project": lab.get("com.docker.compose.project"),
             "compose_service": lab.get("com.docker.compose.service"),
-            "mounts": [(m.get("Source"), m.get("Destination"), m.get("RW")) for m in d.get("Mounts") or []]}
+            "mounts": [(m.get("Source"), m.get("Destination"), m.get("RW")) for m in d.get("Mounts") or []],
+            "hostconfig": {k: (d.get("HostConfig") or {}).get(k) for k in ("NanoCpus", "CpuQuota", "CpuPeriod",
+                                                                          "Memory", "MemorySwap", "PidsLimit")}}
+
+
+def expected_cgroup(hc):
+    """What runc writes for these HostConfig values (cgroup v2): cpu.max "<quota> <period>", memory.max,
+    memory.swap.max = MemorySwap - Memory (MemorySwap -1 = unlimited, 0 = unset = 2 x Memory), pids.max."""
+    out, period = {}, hc.get("CpuPeriod") or 100000
+    if hc.get("NanoCpus"):
+        out["cpu.max"] = f"{hc['NanoCpus'] * period // 1_000_000_000} {period}"
+    elif hc.get("CpuQuota"):
+        out["cpu.max"] = f"{hc['CpuQuota']} {period}"
+    else:
+        out["cpu.max"] = f"max {period}"
+    mem = hc.get("Memory") or 0
+    out["memory.max"] = str(mem) if mem else "max"
+    ms = hc.get("MemorySwap")
+    if not mem:
+        out["memory.swap.max"] = None                      # not derivable without a memory limit: not compared
+    elif ms == -1:
+        out["memory.swap.max"] = "max"
+    else:
+        out["memory.swap.max"] = str((ms or 2 * mem) - mem)
+    pl = hc.get("PidsLimit")
+    out["pids.max"] = str(pl) if pl and pl > 0 else "max"
+    return out
+
+
+def limits_check(c):
+    """(limits recorded in the binding, problems): the cgroup's limits must equal what Docker reports."""
+    lim = M.read_limits(f"{M.CGROOT}/docker-{c['cid']}.scope")
+    obs = {"cpu.max": lim["cpu_max_raw"], "memory.max": lim["memory_max_raw"],
+           "memory.swap.max": lim["memory_swap_max_raw"], "pids.max": lim["pids_max_raw"]}
+    exp = expected_cgroup(c.get("hostconfig") or {})
+    bad = [f"limit_{f}_cgroup={obs[f]}_docker={v}" for f, v in exp.items() if v is not None and obs.get(f) != v]
+    bad += [f"limit_{f}_unreadable" for f, v in obs.items() if v is None]
+    return dict(obs, source="cgroup+docker_hostconfig", cpu_quota_cores=lim["cpu_quota_cores"],
+                memory_max_bytes=lim["memory_max_bytes"]), bad
 
 
 def validate(c, dataset):
@@ -65,6 +105,8 @@ def validate(c, dataset):
         bad.append("no_collector_process_in_scope")
     elif not ok:
         bad.append("scope_collector_data_is_not_dataset")
+    if pid is not None:
+        bad += limits_check(c)[1]
     return bad
 
 
@@ -75,6 +117,8 @@ def show(a):
     st = M.jrd(os.path.join(a.out, "status.json")) or {}
     out["status_monitor"] = st.get("monitor")
     out["status_age_s"] = round(time.time() - st["t_ms"] / 1000, 1) if st.get("t_ms") else None
+    out["live_limits"] = limits_check(c)[0] if c else None
+    out["status_limits"] = st.get("limits")
     print(json.dumps(out, indent=1, sort_keys=True, default=str))
     if not c or not c["running"]:
         return 4
@@ -89,7 +133,7 @@ def bind(a):
         return 3
     new = {"schema": M.BINDING_SCHEMA, "container_name": c["name"], "cid": c["cid"], "dataset": a.dataset,
            "image": c["image"], "compose_project": c["compose_project"], "compose_service": c["compose_service"],
-           "container_started_at": c["started_at"],
+           "container_started_at": c["started_at"], "limits": limits_check(c)[0],
            "bound_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "bound_by": os.environ.get("USER", "?"), "reason": a.reason}
     old = M.jrd(a.binding)

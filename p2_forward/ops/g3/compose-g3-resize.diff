@@ -1,0 +1,15 @@
+--- a/compose.yml
++++ b/compose.yml
+@@ -12,9 +12,9 @@
+     user: "1000:1000"
+     cap_drop: [ALL]
+     security_opt: ["no-new-privileges:true"]
+-    cpus: 0.5
+-    mem_limit: 384m
+-    memswap_limit: 384m
++    cpus: 1.5
++    mem_limit: 768m
++    memswap_limit: 768m
+     pids_limit: 64
+     tmpfs: ["/tmp:size=16m,mode=1777"]
+     environment:
