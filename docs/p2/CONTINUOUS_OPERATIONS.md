@@ -93,6 +93,15 @@ A malformed config can never become continuous: `mode` must be exactly `"continu
 - The new connection's connect is an up-transition. Pre-rotation values are never persisted as fresh after it, and
   any outage becomes explicit gaps.
 - A rotation that fails to overlap raises a WARNING incident.
+- Collector ≥ 1.5.0, prospective: between the replacement's first message and the close, a bounded per-stream
+  hand-off keeps the old socket until the replacement has reached the old socket's sequence on every stream that
+  was active during the overlap.
+  - The parameters are `ws_handoff_min_s` 2 s and `ws_handoff_timeout_s` 15 s.
+  - Older copies from a trailing socket are `seq_stale`, not regressions.
+  - An incomplete hand-off raises the WARNING incident `rotation_handoff_incomplete:<conn>` and explicit
+    post-hand-off gaps.
+  - The lifecycle `ws_handoff` records the old final sequence and the catch-up point per stream.
+  - See `P2F_ROTATION_SEQ_CONTINUITY.md`. The 2026-10-07 `seq_reset` incident came from the pre-1.5.0 timing.
 
 **Day close (collector)**
 - At day end + `day_close_after_s`, a day is closed: `days/<D>.json`, listing its files, sizes and manifest SHA-256.
@@ -349,7 +358,8 @@ long-duration validation.
 - throttled periods ≤ 10 % per hour;
 - sampler lateness > 2 s on ≤ 0.1 % of boundaries;
 - 0 429/418;
-- every rotation `overlap_ok`;
+- every rotation `overlap_ok` (collector ≥ 1.5.0: and its hand-off `complete`, with no `unresolved` stream in
+  `ws_handoff`);
 - backups and restore PASS.
 
 **Planned gated restart (if the owner authorizes it):**

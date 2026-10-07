@@ -355,3 +355,14 @@ Owner decision "FAST-TRACK CONTINUOUS COLLECTION". The audit is `p2cr-audit-2026
 | R13 | v2 reader support | MOVED TO P2-C (owner D6); schema v2 / `SCHEMA.md` unchanged |
 | CR-R07 | multi-run dataset / downtime / 1970 gap / aggregate cap | FIXED: dataset identity, downtime records, multi-run day verifier, crash-gap basis, aggregate cap |
 | CR-R12 | GC event cap | FIXED: bounded drain without a lifetime cap; drops are counted |
+
+## P2F rotation / sequence continuity (2026-10-07; branch `fix/p2f-rotation-seq-continuity-20261007`; not deployed)
+
+The production incident of 2026-10-07T00:10:10Z showed that the `m5` rule, as amended by `cb99c05`, was incomplete.
+The rows above stay as written. This row supersedes them prospectively (collector 1.5.0, continuous mode).
+Details: `docs/p2/P2F_ROTATION_SEQ_CONTINUITY.md`.
+
+| ID | Severity | Finding | Fix | Test |
+|---|---|---|---|---|
+| m5-R1 | MAJOR | a replacement socket that trails the one it replaces was classified as an exchange-side reset (3 × `seq_reset` and a latched DEGRADED incident). `cb99c05` only covered the ~1 ms before the old socket was closed, its test set `overlap=True` by hand, and the 10-05 / 10-06 transition regressions (45 / 126) were wrongly accepted as "benign overlap" covered by it | per-socket-epoch continuity: an older message from a socket whose own order is intact is a bounded `seq_stale` copy; `seq_reset` needs a genuine in-socket regression (20 in a row, m5) or a replacement that does not catch up within 30 s; rotation hand-off with frozen per-stream targets, bounded timeout, fail-closed incomplete hand-off, and `ws_handoff` continuity telemetry (old final sequence, catch-up point) | `tests/test_p2f_rotation_continuity.py`, `tests/test_p2f_rotation_e2e.py` |
+

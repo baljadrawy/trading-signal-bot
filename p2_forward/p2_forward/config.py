@@ -11,7 +11,7 @@ import re
 
 from . import cal
 
-VERSION = "p2cr-collector-1.4.0"
+VERSION = "p2cr-collector-1.5.0"                  # 1.5.0: rotation hand-off / sequence continuity
 SCHEMA = "tsb.p2.forward"
 SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)
 SAMPLE_SEMANTICS = "latest_received_at_or_before_sample_ms"
@@ -106,6 +106,10 @@ DEFAULTS = {
     "fc_durable_lag_s": 60,                  # fail-closed stop: not durable this long
     "process_check_interval_s": 5,           # in-container process-role self-check period (continuous)
     "process_violation_checks": 2,           # consecutive sightings of an unknown process => fail-closed stop
+    # ---- P2F rotation / sequence continuity (collector >= 1.5.0; continuous mode only) ----
+    "ws_handoff_min_s": 2.0,                 # rotation: minimum overlap after the replacement's first data message
+    "ws_handoff_timeout_s": 15.0,            # rotation: bounded wait for per-stream catch-up, then fail closed
+    "seq_catchup_timeout_s": 30,             # a socket may trail the accepted sequence this long, then seq_reset
 }
 
 
@@ -213,6 +217,13 @@ def _validate_continuous(cfg: dict) -> None:
             raise ConfigError(f"{k} must be an integer in [1, 86400]")
     if cfg["fc_writer_stall_s"] * 1000 <= 5000 or cfg["fc_durable_lag_s"] * 1000 <= 10_000:
         raise ConfigError("fail-closed writer limits must exceed the DEGRADED limits (5 s / 10 s)")
+    mn, to, cu = cfg["ws_handoff_min_s"], cfg["ws_handoff_timeout_s"], cfg["seq_catchup_timeout_s"]
+    if not (isinstance(mn, (int, float)) and not isinstance(mn, bool) and 0 <= mn <= 10):
+        raise ConfigError("ws_handoff_min_s must be a number in [0, 10]")
+    if not (isinstance(to, (int, float)) and not isinstance(to, bool) and mn < to <= 60):
+        raise ConfigError("ws_handoff_timeout_s must be a number in (ws_handoff_min_s, 60]")
+    if not (_is_int(cu) and to <= cu <= 300):
+        raise ConfigError("seq_catchup_timeout_s must be an integer in [ws_handoff_timeout_s, 300]")
 
 
 def config_hash(cfg: dict) -> str:

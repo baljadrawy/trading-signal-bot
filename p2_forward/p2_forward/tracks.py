@@ -61,6 +61,51 @@ class Held:
         return None, EVICTED
 
 
+class EpochSeq:
+    """What ONE socket epoch (one WebSocket session) delivered for one stream: first / last sequence and receive time
+    (accepted OR discarded messages), the current run of messages behind the accepted value, and divergence."""
+    __slots__ = ("first", "first_ns", "last", "last_ns", "behind_since_ns", "behind_n", "diverged", "regress_n",
+                 "stale_n")
+
+    def __init__(self, seq: int, recv_ns: int):
+        self.first, self.first_ns, self.last, self.last_ns = seq, recv_ns, None, None
+        self.behind_since_ns, self.behind_n, self.diverged, self.regress_n, self.stale_n = None, 0, False, 0, 0
+
+
+class SeqContinuity:
+    """Per-stream sequence continuity across socket epochs (P2F rotation repair, collector >= 1.5.0, continuous mode).
+
+    Binance semantics: bookTicker `u` and partial-depth `lastUpdateId` are per-symbol order-book update ids. They are
+    monotonic but SPARSE (not every id is pushed), so a forward jump is normal and carries no gap information. ONE
+    WebSocket session delivers a stream in exchange order (one TCP stream), but two sessions (rotation overlap,
+    reconnect) have NO mutual ordering: a replacement session served by a slower gateway can trail the one it replaces.
+
+    Invariant (replaces "20 consecutive older updates on the stream"):
+      - accept a message iff its seq >= the accepted latest (hw); any epoch may advance hw;
+      - seq < hw from an epoch whose OWN order is intact (seq >= that epoch's previous seq) is a STALE copy (overlap or
+        catch-up duplicate): discarded, never a regression, never persisted. It is tolerated only within a bounded
+        catch-up window: recv <= max(start of this epoch's behind-run, receive time of hw) + catchup. Beyond that the
+        replacement did not reach the id space it replaces -> `seq_reset` (cause `catchup_timeout`): a genuine
+        discontinuity, accepted VISIBLY (lifecycle + DEGRADED latched incident), never silent;
+      - seq < the SAME epoch's previous seq is a genuine in-socket regression (`seq_regression`); after 20 of them in a
+        row the new id space is accepted as an exchange-side reset (`seq_reset`, cause `in_socket_regression`, m5).
+    `watch` (set by a rotation hand-off): first message of epoch `ep` reaching `target` (the old epoch's final seq)."""
+    MAX_EPOCHS = 4
+
+    def __init__(self):
+        self.eps = {}                             # epoch -> EpochSeq
+        self.watch = None                         # {"ep", "target", "hit": (seq, recv_ns) | None}
+
+    def ep(self, epoch: int, seq: int, recv_ns: int) -> EpochSeq:
+        st = self.eps.get(epoch)
+        if st is None:
+            st = self.eps[epoch] = EpochSeq(seq, recv_ns)
+            if len(self.eps) > self.MAX_EPOCHS:   # bounded: drop the epoch that delivered least recently
+                old = min((e for e in self.eps if e != epoch), key=lambda e: self.eps[e].last_ns or 0)
+                del self.eps[old]
+        return st
+
+
 class StreamTrack:
     """bookTicker / partial-depth stream: held values + subscription + gap state."""
 
@@ -80,9 +125,74 @@ class StreamTrack:
         self.never_ready_reported = False
         self.msgs = 0
         self.regress_run = 0
+        self.seqc = SeqContinuity()               # continuous mode (on_seq); unused by the bounded path (on_msg)
+        self.await_after_ns = None                # fail-closed hand-off: values received before this are not live
 
     # ---- messages ----
+    def on_seq(self, recv_ns: int, data, seq: int, epoch: int, catchup_ns: int, reset_after: int = 20):
+        """Continuous mode: epoch-aware sequence continuity (see SeqContinuity). Returns (result, info) where result
+        is None | "first" (accepted), "seq_stale" (overlap / catch-up duplicate, discarded), "seq_regression"
+        (in-socket regression, discarded) or "seq_reset" (accepted visibly); info is a dict for telemetry or None."""
+        sc = self.seqc
+        st = sc.ep(epoch, seq, recv_ns)
+        latest = self.values.latest
+        prev = st.last
+        if latest is None or seq >= latest[2]:
+            info = None
+            if st.behind_n:
+                info = {"caught_up": True, "behind_n": st.behind_n, "behind_ms": (recv_ns - st.behind_since_ns) // 1_000_000}
+            st.behind_since_ns, st.behind_n, st.diverged, st.regress_n = None, 0, False, 0
+            st.last, st.last_ns = seq, recv_ns
+            self._watch(epoch, seq, recv_ns)
+            if self.await_after_ns is not None and recv_ns >= self.await_after_ns:
+                self.await_after_ns = None
+            return self._accept(recv_ns, data, seq), info
+        hw, hw_ns = latest[2], latest[0]
+        st.last, st.last_ns = seq, recv_ns
+        self._watch(epoch, seq, recv_ns)
+        if st.behind_since_ns is None:
+            st.behind_since_ns = recv_ns
+        st.behind_n += 1
+        info = None
+        if prev is not None and seq < prev and not st.diverged:   # the SAME socket went backwards
+            st.diverged = True
+            info = {"first_in_socket_regression": True, "prev_seq": prev, "hw": hw}
+        if st.diverged:
+            st.regress_n += 1
+            if st.regress_n < reset_after:
+                return "seq_regression", info
+            cause = "in_socket_regression"
+        else:
+            st.stale_n += 1
+            if recv_ns <= max(st.behind_since_ns, hw_ns) + catchup_ns:
+                return "seq_stale", None
+            cause = "catchup_timeout"
+        info = {"cause": cause, "hw": hw, "hw_recv_ns": hw_ns, "behind_n": st.behind_n,
+                "behind_ms": (recv_ns - st.behind_since_ns) // 1_000_000, "regress_n": st.regress_n}
+        st.behind_since_ns, st.behind_n, st.diverged, st.regress_n = None, 0, False, 0
+        self.values.push((max(recv_ns, hw_ns), data, seq))     # the new id space, accepted visibly (m5)
+        self.msgs += 1
+        return "seq_reset", info
+
+    def _watch(self, epoch: int, seq: int, recv_ns: int) -> None:
+        w = self.seqc.watch
+        if w is not None and w["hit"] is None and epoch == w["ep"] and seq >= w["target"]:
+            w["hit"] = (seq, recv_ns)
+
+    def _accept(self, recv_ns: int, data, seq: int):
+        latest = self.values.latest
+        if latest is not None and recv_ns < latest[0]:
+            recv_ns = latest[0]                   # wall-clock step back: never reorder (counted by the caller)
+        self.values.push((recv_ns, data, seq))
+        self.msgs += 1
+        if self.ready_ms is None:
+            self.ready_ms = recv_ns // 1_000_000
+            self.ready_ns = recv_ns
+            return "first"
+        return None
+
     def on_msg(self, recv_ns: int, data, seq: int, overlap: bool = False) -> str | None:
+        """Bounded mode (and the pre-1.5.0 rule kept for it): 20 consecutive older messages = reset."""
         latest = self.values.latest
         if latest is not None and seq < latest[2]:
             if overlap:                           # P2-CR: rotation overlap (two sockets, one stream): an older copy is
@@ -148,8 +258,12 @@ class MarketTrack(StreamTrack):
         self.snap = Held(cadence, max(hold_ms, 3 * cadence))   # item = (newest_recv_ns, snapshot dict | None=current)
         self.max_age_ms = max_age_ms
         self.newest = None                        # newest component recv_ns
+        self.stale_components = 0                 # continuous: older-E copies not applied (trailing socket)
 
-    def on_array(self, recv_ns: int, arr: list) -> str | None:
+    def on_array(self, recv_ns: int, arr: list, stale_guard_ns: int | None = None) -> str | None:
+        """stale_guard_ns (continuous mode, collector >= 1.5.0): a component whose event time `E` is OLDER than the
+        held component's is a copy from a trailing socket (rotation overlap / catch-up) and never overwrites the newer
+        one, unless the held component is older than the guard window (then the older E is accepted: never stuck)."""
         r = recv_ns if self.newest is None else max(recv_ns, self.newest)
         sn = self.snap
         if sn.latest is not None:
@@ -162,6 +276,12 @@ class MarketTrack(StreamTrack):
         for t in arr:
             s = t.get("s") if isinstance(t, dict) else None
             if isinstance(s, str) and s.endswith("USDT"):
+                if stale_guard_ns is not None:
+                    cur = self.components.get(s)
+                    e_new, e_cur = t.get("E"), (cur[1].get("E") if cur is not None else None)
+                    if isinstance(e_new, int) and isinstance(e_cur, int) and e_new < e_cur and r - cur[0] <= stale_guard_ns:
+                        self.stale_components += 1
+                        continue
                 self.components[s] = (r, t); n += 1
         if not n:
             return None

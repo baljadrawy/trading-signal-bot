@@ -260,6 +260,21 @@ counters as well.
 warning). After 20 consecutive regressions the new sequence is accepted as an exchange-side reset: lifecycle
 `seq_reset` plus a hard health reason.
 
+**Sequence continuity across sockets (collector ≥ 1.5.0, continuous mode; bounded mode keeps the rule above).**
+- Each WebSocket session is a socket epoch (`ws_connected.epoch`). An older id from a socket whose own order is
+  intact is a `seq_stale` copy:
+  - it is discarded and counted, and is neither a regression nor persisted;
+  - it is tolerated for `seq_catchup_timeout_s` (30 s) after the later of its behind-run start and the receipt of
+    the accepted value.
+- `seq_reset` (lifecycle `cause`) is one of:
+  - `in_socket_regression`: the same socket went backwards 20 times in a row;
+  - `catchup_timeout`: a socket stayed behind beyond that window.
+- Rotations hand off per stream. See `docs/p2/P2F_ROTATION_SEQ_CONTINUITY.md` for:
+  - lifecycle `ws_handoff` (old final sequence and catch-up point per stream);
+  - lifecycle `ws_superseded_closed`;
+  - lifecycle `seq_regression`;
+  - the `rotation_handoff_incomplete:<conn>` WARNING incident.
+
 **Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
 host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as
 lifecycle `clock_round_failed` and is retried after 30 s.

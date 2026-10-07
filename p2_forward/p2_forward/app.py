@@ -292,6 +292,13 @@ class Collector:
         self.day_close = {}                    # day -> last close attempt result
         self.universe_next_ms = None
         self.transitions = 0
+        # ---- P2F rotation hand-off / sequence continuity (collector >= 1.5.0, continuous mode) ----
+        self.epoch_n = 0                       # socket epochs: one per WebSocket session (each connect)
+        self.superseded = {}                   # conn name -> old WSConnection being handed off (overlap phase)
+        self.handoff_tasks = set()
+        self.seq_reset_last = None             # last seq_reset detail (incident detail, additive)
+        self.seq_regression_events = 0         # in-socket regression lifecycle records written (bounded)
+        self.catchup_ns = int(cfg.get("seq_catchup_timeout_s", 30)) * 1_000_000_000
 
     @property
     def stream_state(self) -> dict:
@@ -518,7 +525,8 @@ class Collector:
             r = recv_ns // 1_000_000
             if cname:
                 self.activity[cname].data(r)
-            if self.market is not None and self.market.on_array(recv_ns, data) == "first":
+            if self.market is not None and self.market.on_array(
+                    recv_ns, data, stale_guard_ns=self.catchup_ns if self.continuous else None) == "first":
                 self._stream_ready(self.market)
             return
         tr = self.tracks.get(name)
@@ -535,7 +543,10 @@ class Collector:
         latest = tr.values.latest
         if latest is not None and recv_ns < latest[0]:
             self.stats["recv_clock_regression"] = self.stats.get("recv_clock_regression", 0) + 1
-        res = tr.on_msg(recv_ns, data, seq, overlap=self.continuous and cname in self.rotating)
+        if self.continuous:                                          # P2F 1.5.0: epoch-aware continuity
+            self._on_seq(conn, tr, recv_ns, data, seq)
+            return
+        res = tr.on_msg(recv_ns, data, seq, overlap=False)           # bounded mode: unchanged pre-1.5.0 rule
         if res == "seq_regression":
             self.stats["rejected"]["seq_regression"] += 1           # older message (e.g. rotation overlap): ignore
         elif res == "seq_reset":
@@ -543,6 +554,49 @@ class Collector:
             self.lifecycle("seq_reset", {"stream": tr.name, "seq": seq})
         elif res == "first":
             self._stream_ready(tr)
+
+    # ---------- P2F 1.5.0: socket epochs and sequence continuity (continuous mode) ----------
+    def _epoch_of(self, conn) -> int:
+        """Socket epoch of a message: assigned at each connect (on_state). Messages without a connection object
+        (offline harness) share epoch 0."""
+        ep = getattr(conn, "p2f_epoch", None) if conn is not None else 0
+        if ep is None:
+            ep = self._new_epoch(conn)
+        return ep
+
+    def _new_epoch(self, conn) -> int:
+        self.epoch_n += 1
+        try:
+            conn.p2f_epoch = self.epoch_n
+        except AttributeError:
+            pass
+        return self.epoch_n
+
+    def _on_seq(self, conn, tr, recv_ns: int, data, seq: int) -> None:
+        ep = self._epoch_of(conn)
+        res, info = tr.on_seq(recv_ns, data, seq, ep, self.catchup_ns)
+        st = self.stats
+        if res == "first":
+            self._stream_ready(tr)
+        elif res == "seq_stale":
+            st["seq_stale"] = st.get("seq_stale", 0) + 1                  # overlap / catch-up copy: never a regression
+        elif res == "seq_regression":
+            st["rejected"]["seq_regression"] += 1                         # genuine: the same socket went backwards
+            if info is not None and self.seq_regression_events < 500:
+                self.seq_regression_events += 1
+                self.lifecycle("seq_regression", {"stream": tr.name, "conn": getattr(conn, "name", None), "epoch": ep,
+                                                  "seq": seq, **info})
+        elif res == "seq_reset":
+            st["seq_reset"] = st.get("seq_reset", 0) + 1
+            causes = st.setdefault("seq_reset_causes", {})
+            causes[info["cause"]] = causes.get(info["cause"], 0) + 1
+            self.seq_reset_last = {"stream": tr.name, "cause": info["cause"], "seq": seq, "hw": info["hw"]}
+            self.lifecycle("seq_reset", {"stream": tr.name, "seq": seq, "conn": getattr(conn, "name", None), "epoch": ep,
+                                         **{k: v for k, v in info.items() if k != "hw_recv_ns"},
+                                         "hw_recv_ms": info["hw_recv_ns"] // 1_000_000})
+        if info is not None and info.get("caught_up"):
+            st["seq_catchups"] = st.get("seq_catchups", 0) + 1
+            st["seq_catchup_max_ms"] = max(st.get("seq_catchup_max_ms", 0), info["behind_ms"])
 
     def _stream_ready(self, tr) -> None:
         self.lifecycle("stream_ready", {"stream": tr.name, "ready_ms": tr.ready_ms, "ready_ns": tr.ready_ns,
@@ -598,6 +652,16 @@ class Collector:
 
     def on_state(self, conn, state: str) -> None:
         m = now_ms()
+        if self.continuous and state != "connected" and self.superseded.get(conn.name) is conn:
+            # P2F 1.5.0: the OLD socket of a hand-off ended (e.g. server close after serverShutdown) while its
+            # replacement is up: not a disconnect of the connection (no down transition, subscriptions of the
+            # replacement untouched) and never a reconnect of the old object. The hand-off ends early, fail-closed.
+            conn._closing = True
+            self.lifecycle("ws_superseded_closed", {"conn": conn.name, "state": state,
+                                                    "epoch": getattr(conn, "p2f_epoch", None)})
+            return
+        if self.continuous and state == "connected":
+            self._new_epoch(conn)                                       # each WebSocket session = a new epoch
         if state == "connected":
             self.activity[conn.name].transitions.append((m, True))
             if conn.streams:
@@ -610,7 +674,8 @@ class Collector:
                 t = self._track(n)
                 if t is not None and t.sub not in ("FAILED",):
                     t.sub = "PENDING"
-        self.lifecycle(f"ws_{state}", {"conn": conn.name, "reconnects": getattr(conn, "reconnects", 0)})
+        self.lifecycle(f"ws_{state}", {"conn": conn.name, "reconnects": getattr(conn, "reconnects", 0),
+                                       **({"epoch": getattr(conn, "p2f_epoch", None)} if self.continuous else {})})
         if self.state == "RUNNING" and self.ws_start_ms is not None:
             try:
                 self.write_health()                    # connection transitions are reflected in health immediately
@@ -659,34 +724,203 @@ class Collector:
 
     async def rotate(self, old: WSConnection, reason: str, streams: list | None = None) -> dict:
         """Overlap rollover: open a replacement, wait for its first message, then close the old connection.
-        `streams` (F10): the replacement subscribes to a new stream list (universe transition)."""
+        `streams` (F10): the replacement subscribes to a new stream list (universe transition).
+        Continuous mode (P2F 1.5.0): between the replacement's first message and the close, a bounded per-stream
+        HAND-OFF keeps the old socket until the replacement has reached, on every stream active during the overlap,
+        the sequence the old socket had reached (frozen target). An incomplete hand-off fails closed (explicit
+        uncertainty: WARNING incident + post-hand-off gaps); the old socket's final sequences are recorded and a
+        post-close audit (lifecycle `ws_handoff`) records where the replacement reached them."""
         if old.name in self.rotating:
             return {"conn": old.name, "reason": reason, "skipped": "already_rotating"}
         self.rotating.add(old.name)
+        new = None
         try:
             t0 = now_ms()
             new = self._new_conn(old.name, list(streams) if streams is not None else old.streams)
             new.task = asyncio.create_task(new.run(), name=old.name + "-r")
+            handoff = None
             try:
-                await asyncio.wait_for(new.first_msg.wait(), timeout=60)
-                overlap_ok = True
-            except asyncio.TimeoutError:
-                overlap_ok = False
-            t1 = now_ms()
+                try:
+                    await asyncio.wait_for(new.first_msg.wait(), timeout=60)
+                    overlap_ok = True
+                except asyncio.TimeoutError:
+                    overlap_ok = False
+                t1 = now_ms()
+                if self.continuous and overlap_ok:
+                    handoff = await self._handoff(old, new)
+            except asyncio.CancelledError:                               # stop during a rotation: nothing leaks
+                if self.continuous:
+                    await new.close()
+                raise
             await old.close()
+            close_ns = time.time_ns()
+            if self.superseded.get(old.name) is old:
+                del self.superseded[old.name]
             if old in self.conns:
                 self.conns[self.conns.index(old)] = new
             ev = {"conn": old.name, "reason": reason, "started_ms": t0, "new_first_msg_ms": t1, "overlap_ok": overlap_ok,
                   "old_last_msg_ms": (old.last_msg_ns or 0) // 1_000_000, "streams": len(new.streams)}
+            audit = None
+            if handoff is not None:
+                ev["handoff"] = {k: v for k, v in handoff.items() if not k.startswith("_")}
+                ev["handoff"]["close_ms"] = close_ns // 1_000_000
+                audit = self._handoff_close(old, new, handoff, close_ns, reason)
             self.rotation["events"].append(ev)
             if len(self.rotation["events"]) > 50:                       # bounded history (continuous mode)
                 del self.rotation["events"][:-50]
             self.lifecycle("ws_rotation", ev)
             if not overlap_ok and self.incidents is not None:            # F24: surfaced, never silent
                 self.incidents.raise_(f"rotation_overlap_failed:{old.name}", "WARNING", ev)
+            if handoff is not None and not handoff["complete"] and handoff["reason"] != "stopping" \
+                    and self.incidents is not None:                      # P2F 1.5.0: continuity not established
+                self.incidents.raise_(f"rotation_handoff_incomplete:{old.name}", "WARNING",
+                                      {k: ev["handoff"][k] for k in ("reason", "pending", "pending_streams", "close_ms")})
+            if audit is not None:
+                t = self._spawn(self._handoff_audit(audit))
+                if t is not None:
+                    self.handoff_tasks.add(t); t.add_done_callback(self.handoff_tasks.discard)
             return ev
         finally:
             self.rotating.discard(old.name)
+            if self.superseded.get(old.name) is old:
+                del self.superseded[old.name]
+
+    def _reached(self, name: str, ep, target: int) -> bool:
+        tr = self.tracks.get(name)
+        st = tr.seqc.eps.get(ep) if tr is not None else None
+        return st is not None and st.last is not None and st.last >= target
+
+    def _old_targets(self, names: list, old_ep, since_ns: int) -> dict:
+        """Streams the OLD socket delivered at or after since_ns (active during the overlap) -> its seq now."""
+        out = {}
+        for n in names:
+            tr = self.tracks.get(n)
+            st = tr.seqc.eps.get(old_ep) if tr is not None else None
+            if st is not None and st.last is not None and st.last_ns is not None and st.last_ns >= since_ns:
+                out[n] = st.last
+        return out
+
+    async def _handoff(self, old, new) -> dict:
+        """Bounded per-stream hand-off (P2F 1.5.0). Targets are FROZEN at first_msg + ws_handoff_min_s (a replacement
+        with a constant lag never reaches a moving target): every stream the old socket delivered during the overlap
+        must be reached by the replacement's own sequence. Ends at catch-up, timeout, old socket ended, replacement
+        disconnected or stop; never waits longer than ws_handoff_timeout_s."""
+        self.superseded[old.name] = old
+        h0 = time.time_ns()
+        mn, to = float(self.cfg["ws_handoff_min_s"]), float(self.cfg["ws_handoff_timeout_s"])
+        old_ep, new_ep = getattr(old, "p2f_epoch", None), getattr(new, "p2f_epoch", None)
+        olds = set(old.streams)
+        names = [n for n in new.streams if n in olds and n in self.tracks]
+        targets, reason = None, None
+        while True:
+            el = (time.time_ns() - h0) / 1e9
+            if self.stop_event.is_set():
+                reason = "stopping"
+            elif getattr(old, "_closing", False) or not getattr(old, "connected", True):
+                reason = "old_closed"
+            elif not getattr(new, "connected", True):
+                reason = "new_disconnected"
+            if targets is None and (el >= mn or reason is not None):
+                targets = self._old_targets(names, old_ep, h0)
+            pending = [n for n, tg in (targets or {}).items() if not self._reached(n, new_ep, tg)]
+            if reason is None and targets is not None and not pending:
+                reason = "caught_up"
+            elif reason is None and el >= to:
+                reason = "timeout"
+            if reason is not None:
+                break
+            await asyncio.sleep(0.05)
+        return {"complete": not pending and reason in ("caught_up", "old_closed"), "reason": reason,
+                "old_epoch": old_ep, "new_epoch": new_ep, "min_s": mn, "timeout_s": to, "duration_ms": (time.time_ns() - h0) // 1_000_000,
+                "streams": len(names), "targets": len(targets or {}), "pending": len(pending),
+                "pending_streams": sorted(pending)[:20], "_names": names, "_pending": pending,
+                "_targets": targets or {}}
+
+    def _handoff_close(self, old, new, handoff: dict, close_ns: int, reason: str) -> dict:
+        """At the close of the old socket: record its FINAL per-stream sequence and the replacement's position,
+        fail closed for pending streams (values received before the close are not persisted until the replacement
+        delivers an accepted message), and arm a watch for the first replacement message reaching the old final."""
+        old_ep, new_ep = handoff["old_epoch"], handoff["new_epoch"]
+        streams, pend = {}, set(handoff["_pending"])
+        for n in handoff["_names"]:
+            tr = self.tracks.get(n)
+            if tr is None:
+                continue
+            o, w = tr.seqc.eps.get(old_ep), tr.seqc.eps.get(new_ep)
+            d = {"target": handoff["_targets"].get(n), "old_final": o.last if o else None,
+                 "old_final_ms": (o.last_ns // 1_000_000) if o and o.last_ns else None,
+                 "new_first": w.first if w else None, "new_first_ms": (w.first_ns // 1_000_000) if w else None,
+                 "new_at_close": w.last if w else None, "await": n in pend and not handoff["complete"]}
+            if d["await"]:
+                tr.await_after_ns = close_ns
+            if d["old_final"] is not None:
+                hit = (w.last, w.last_ns) if w is not None and w.last is not None and w.last >= d["old_final"] else None
+                tr.seqc.watch = {"ep": new_ep, "target": d["old_final"], "hit": hit, "before_close": hit is not None}
+                d["_watch"] = tr.seqc.watch
+            streams[n] = d
+        return {"conn": old.name, "reason": reason, "old_epoch": old_ep, "new_epoch": new_ep, "close_ns": close_ns,
+                "handoff": {k: v for k, v in handoff.items() if not k.startswith("_")}, "streams": streams}
+
+    async def _handoff_audit(self, a: dict) -> None:
+        """Post-close continuity audit: waits (bounded by seq_catchup_timeout_s) until the replacement reached every
+        old final sequence, then records lifecycle `ws_handoff` with one continuity class per stream:
+        proven (id ranges overlap), ahead (replacement already newer while both were open), resumed (replacement
+        silent until after the close, then newer), quiet (no message on the replacement yet), unresolved (only
+        OLDER messages: continuity NOT established -> fail closed), no_old (old socket never delivered)."""
+        end, why = a["close_ns"] + self.catchup_ns, "deadline"
+        try:
+            while time.time_ns() < end and not self.stop_event.is_set():
+                if all(d["_watch"]["hit"] is not None for d in a["streams"].values() if "_watch" in d):
+                    why = "all_reached"; break
+                await asyncio.sleep(0.1)
+            else:
+                why = "stopping" if self.stop_event.is_set() else why
+        except asyncio.CancelledError:
+            why = "stopping"
+            self._handoff_record(a, why)
+            raise
+        self._handoff_record(a, why)
+
+    def _handoff_record(self, a: dict, why: str) -> None:
+        classes, out, unresolved = collections.Counter(), {}, []
+        for n, d in sorted(a["streams"].items()):
+            w = d.pop("_watch", None)
+            hit = w["hit"] if w is not None else None
+            if d["old_final"] is None:
+                c = "no_old"
+            elif hit is not None:
+                c = "proven" if d["new_first"] is not None and d["new_first"] <= d["old_final"] else \
+                    "ahead" if d["new_first_ms"] is not None and d["new_first_ms"] <= a["close_ns"] // 1_000_000 else "resumed"
+                d["reach_seq"], d["reach_ms"] = hit[0], hit[1] // 1_000_000
+                d["reached_before_close"] = bool(w.get("before_close"))
+            else:
+                tr = self.tracks.get(n)
+                st = tr.seqc.eps.get(a["new_epoch"]) if tr is not None else None
+                d["new_last"] = st.last if st is not None else None
+                d["new_stale_n"] = st.stale_n if st is not None else None
+                c = "quiet" if d["new_first"] is None and (st is None or st.first is None) else "unresolved"
+                if c == "unresolved":
+                    unresolved.append(n)
+                    if tr is not None:
+                        tr.await_after_ns = max(tr.await_after_ns or 0, a["close_ns"])   # fail closed from here on
+            tr = self.tracks.get(n)
+            if tr is not None and tr.seqc.watch is w:
+                tr.seqc.watch = None
+            d["class"] = c
+            classes[c] += 1
+            out[n] = {k: v for k, v in d.items() if v is not None}
+        self.stats["handoffs"] = self.stats.get("handoffs", 0) + 1
+        hc = self.stats.setdefault("handoff_classes", {})
+        for k, v in classes.items():
+            hc[k] = hc.get(k, 0) + v
+        self.lifecycle("ws_handoff", {"conn": a["conn"], "reason": a["reason"], "old_epoch": a["old_epoch"],
+                                      "new_epoch": a["new_epoch"], "close_ms": a["close_ns"] // 1_000_000,
+                                      "audit_end": why, "handoff": a["handoff"], "classes": dict(classes),
+                                      "unresolved": unresolved[:50], "streams": out})
+        if unresolved and why != "stopping" and self.incidents is not None:
+            self.incidents.raise_(f"rotation_handoff_incomplete:{a['conn']}", "WARNING",
+                                  {"reason": "unresolved_after_close", "unresolved": unresolved[:20],
+                                   "close_ms": a["close_ns"] // 1_000_000})
 
     # ---------- sampling ----------
     def _conn_obj(self, name: str):
@@ -754,6 +988,8 @@ class Collector:
                 up = self.last_up(tr.conn, s)
                 if up is not None and val[0] // 1_000_000 < up:
                     cause = "awaiting_post_reconnect_data"     # M3: value from before the reconnect is not live
+                elif tr.await_after_ns is not None and val[0] < tr.await_after_ns <= s * 1_000_000:
+                    cause = "awaiting_post_reconnect_data"     # P2F 1.5.0: hand-off continuity not established
         if cause is not None:
             tr.missing(s, cause)
             return
@@ -884,6 +1120,7 @@ class Collector:
                 retiered.append({"stream": n, "symbol": t.symbol, "from_tier": t.tier, "to_tier": nt.tier,
                                  "from_cadence_ms": t.cadence, "to_cadence_ms": nt.cadence})
                 nt.values, nt.ready_ms, nt.ready_ns, nt.msgs = t.values, t.ready_ms, t.ready_ns, t.msgs
+                nt.seqc, nt.await_after_ns = t.seqc, t.await_after_ns        # P2F 1.5.0: continuity state too
                 nt.sub, nt.sub_sent_ms, nt.ack_ms = t.sub, t.sub_sent_ms, t.ack_ms
                 nt.deadline_base_ms = s
         for n, nt in new_tracks.items():
@@ -1069,7 +1306,8 @@ class Collector:
             if cur > self.fc_seen.get(key, 0):
                 self.fc_seen[key] = cur
                 self.incidents.raise_(key, "WARNING" if key in ("wall_clock_step", "handler_errors") else "DEGRADED",
-                                      {"total": cur})
+                                      {"total": cur, **({"last": self.seq_reset_last, "causes": st.get("seq_reset_causes")}
+                                                        if key == "seq_reset" else {})})
         ws = self.writer.status()
         if ws["beat_age_ms"] is not None and ws["beat_age_ms"] >= 1000 * cfg["fc_writer_stall_s"]:
             self.fail_closed("writer_stalled", {"beat_age_ms": ws["beat_age_ms"]}); return
@@ -1692,6 +1930,11 @@ class Collector:
         return {"dropped": dict(st["dropped"]), "malformed": st["malformed"], "unknown_stream": st["unknown_stream"],
                 "unknown_event": st["unknown_event"], "handler_errors": st["handler_errors"],
                 "seq_regression": st["rejected"].get("seq_regression", 0), "seq_reset": st.get("seq_reset", 0),
+                **({"seq_stale": st.get("seq_stale", 0), "seq_reset_causes": dict(st.get("seq_reset_causes", {})),
+                    "seq_catchups": st.get("seq_catchups", 0), "seq_catchup_max_ms": st.get("seq_catchup_max_ms", 0),
+                    "handoffs": st.get("handoffs", 0), "handoff_classes": dict(st.get("handoff_classes", {})),
+                    "market_component_stale": self.market.stale_components if self.market else 0}
+                   if self.continuous else {}),
                 "rejected": dict(st["rejected"]), "emit_failed": dict(st["emit_failed"]),
                 "writer_rejected": dict(st["writer_rejected"]), "write_errors": st["write_errors"],
                 "segments_quarantined": st["segments_quarantined"], "duplicates_dropped": st["duplicates_dropped"],
