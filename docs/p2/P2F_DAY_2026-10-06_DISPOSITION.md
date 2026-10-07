@@ -48,6 +48,9 @@ stored in this repository and as a read-only file in the deployment evidence
    external incident unchanged. It may add records; it may not replace these.
 4. The CRITICAL incident `inc-1791335970908-b1b7edb6-3` (`external:seal-2026-10-06-1791335968422.json`) is to be
    acknowledged by reference to this disposition, only inside the controlled 1.5.0 deployment window, after the clean
-   stop and before the start (hash-bound ack via `p2f_incident_ack.sh`, owner approval B). As of this record it is
-   NOT yet acknowledged (the 2026-10-07 deployment preflight stopped before the window). The acknowledgement closes
-   reviewed operational state; it does not rewrite history.
+   stop and before the start (hash-bound ack via `p2f_incident_ack.sh`, owner approval B). The 2026-10-07 preflight
+   stopped before the window (effective config_hash); after the owner's decision the window ran and the incident was
+   ACKNOWLEDGED on 2026-10-07T13:27:42.551Z (`ts_ms` 1791379662551) while the collector was stopped:
+   `incidents/ack/inc-1791335970908-b1b7edb6-3.json`, file SHA-256 `84dde1a0…`, binding SHA-256 `d15939bf…`,
+   reference = this disposition (evidence copy). It was merged by the 1.5.0 run `acae43bf`. The acknowledgement
+   closes reviewed operational state; it does not rewrite history.
