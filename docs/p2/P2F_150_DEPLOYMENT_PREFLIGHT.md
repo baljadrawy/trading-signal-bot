@@ -55,3 +55,11 @@ rotation within 30 s yields a false-positive `unresolved` WARNING; `close_ns` re
 `p2f_cont_monitor.py` hard-codes `MEM_LIMIT = 402653184`. Correct while the collector stays at 384 MiB. Before, or
 atomically with, any memory-limit change (G3, 768 MiB), monitor resource reporting must use the collector's actual
 limit (cgroup `memory.max`/`cpu.max` or the binding). Not changed here.
+
+## 5. Owner decision after the STOP (2026-10-07)
+
+The owner ACCEPTED `7e95bb3035aca8f52e7b96aaae3d6ae97483090e0e3f5e5ef2777c2f66d74c79` as the verified effective
+`config_hash` of the byte-identical `configs/continuous-v1.json` (SHA-256 `ebe6be13…`, unchanged) under collector
+1.5.0. The difference from `270ee3b9…` (1.4.0) comes only from the three defaulted timer keys in the effective
+configuration (`ws_handoff_min_s` 2.0, `ws_handoff_timeout_s` 15.0, `seq_catchup_timeout_s` 30). The deployment then
+proceeded as authorized; records in the addendum evidence directory next to the sealed preflight evidence.
