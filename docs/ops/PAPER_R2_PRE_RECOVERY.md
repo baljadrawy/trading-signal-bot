@@ -178,3 +178,43 @@ sent no command.
 
 **Next owner action:** `/resume` in the private chat with @Jadrawybot. Then run the §5.1 C read-only checks and the
 +1 h, +24 h and +72 h checkpoints.
+
+### Owner action
+The owner personally sent `/resume` to @Jadrawybot and received a successful reply. The agent sent no command.
+
+### Phase C — immediate post-resume verification: PASS (immediate operational); 2026-10-08T10:53:52Z
+- **Effective B3:** `2026-10-08|f|manual_resume|30463`.
+  - `risk_management` row 30463 holds `is_trading_paused=false` and `pause_reason=manual_resume`, and it is the only
+    row after 30459. Ids 30460–30462 are absent: these are sequence gaps (consumed ids with no committed rows). No
+    rows were deleted, and the gap has no state effect.
+  - Historical halt row 30459 is preserved.
+  - Recovery epochs remain exactly **3** (latest id 3). No extra recovery or resume event occurred.
+- **Resume timestamp (T0):** `risk_management` has no time column, `track_commit_timestamp` is off, and neither an
+  outbox event nor a telegram log line records the resume. T0 is therefore **bounded**:
+  - after 10:48:57Z (the scanner still logged "paused: risk:loss_streak_halt");
+  - at or before 10:53:52Z (row 30463 present);
+  - corroborated by the scanner cycle at 10:53:57Z, which ran unpaused (18 coins eligible).
+
+  T0 for checkpoints = **10:53:52Z** (conservative upper bound). Phase B at 10:45:35Z had confirmed no row then.
+- **Hard breakers:** none active. Epoch 3 has no closes, so the streak is 0. No daily, weekly or drawdown halt.
+- **Trades:** 0 open, 0 admitted since the recovery, 0 results, 0 signals yet.
+  - **The admission path after resume is not yet observed.** It is not claimed as passed.
+  - 0 trades without a result in PAPER-R1/R2. Dead letters total 269, with 0 new since recovery and no replay.
+- **Runtime:** the five containers are unchanged (IDs, images, config-hash labels), healthy, RestartCount 0.
+  Heartbeats ≤ 296 s (scanner tolerance 900) with 0 errors. 0 error-like log lines since 10:40Z in any service.
+- **Config:** compose blob `3ad35a87`; `env_unchanged=yes`; `PAPER_TRADING=true`.
+  - Unchanged limits: loss streak 7; daily 3 %, weekly 10 %, drawdown 15 %; open cap 2; stake 50; fee 0.15.
+  - No live capability.
+  - Collector `ce4e6b6656a5` HEALTHY and independent of Paper.
+- **Caveats in force:** C1 (gross labels; evaluate on net) and C2 (dead letter ≠ inadmissible; no replay).
+
+### PAPER-R2 checkpoints
+These are read-only, run independently later. No waiters or scheduled jobs exist.
+
+| Checkpoint | Time (UTC) | Scope |
+|---|---|---|
+| T0 + 1 h | 2026-10-08T11:54Z | B3 state; health and restarts; first admissions vs rules (≤ 2 open, no same-symbol, valid signal and risk decision); fee 0.15; trade↔result 1:1 |
+| T0 + 24 h | 2026-10-09T10:54Z | stability; net P&L (not gross labels); dead letters by cause; risk events; §5 stop conditions |
+| T0 + 72 h | 2026-10-11T10:54Z | stability assessment; continuation recommendation (observation only; no strategy tuning) |
+
+If any hard breaker fires, Paper stays halted. There is no automatic recovery; the owner decides.
