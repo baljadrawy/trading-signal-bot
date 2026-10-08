@@ -278,3 +278,27 @@ Job directories stay as evidence.
 3. **Window:** proposed 2026-10-09 08:45–09:10Z. That is after the 24-h comparison, clear of the hh:12–25 window,
    and clear of the ±30 min around the proactive rotation (≈ 07:27Z). Recompute from health before starting.
 4. **Owner authorisation** for R2 `--allow-elevated` and R3 `--attended` (operator present, hermes idle).
+
+---
+
+## 8. G6 Steps 2–8 — prioritised implementation plan (2026-10-08; documentation only, nothing applied)
+Priority = (risk reduced) ÷ (blast radius). Every step needs its own owner authorisation, one service at a time, with
+before/after identity capture and a GitHub checkpoint. Production limits and host settings are unchanged today.
+
+| Prio | Step | Change | Mechanism / class | Precondition | Verify | Rollback |
+|---|---|---|---|---|---|---|
+| 1 | **7a** | limits for the **unbounded** web containers (wishlist-app, xsch-app, xsch-caddy): memory 768M/768M/256M, memswap = mem, pids 256 | each project's own compose + its governance; Class B per service; Caddy via its reload rule | project owner approval; low-traffic window | `memory.max`, `memory.swap.max` = 0, health ×2 | previous compose blob |
+| 2 | **3** | monitor unit `MemorySwapMax=0` | user unit drop-in; restart of `tsb-p2f-monitor` (≈ 2 s gap) | Collector HEALTHY; outside protected windows | unit cgroup `memory.swap.max` = 0; fresh status; G2 admit | remove the drop-in, restart |
+| 3 | **4** | Collector `oom_score_adj −500` (+ verify `cpu.weight` 500) | Collector compose; gated stop/up; G4 rebind | G3 24-h comparison done; no rotation within ±30 min | `/proc/<pid>/oom_score_adj`, cgroup `cpu.weight` file (runc mapping) | `compose.pre-*` backup |
+| 4 | **5** | postgres memswap = mem, mem 1G, oom −300 | shared-postgres compose; Class B | **all 3 DB tenants' owners**; next planned DB maintenance (≈ 90 s) | `memory.max`, swap 0, checkpoint latency | previous compose |
+| 5 | **6** | Paper containers memswap = mem (+ CPU caps telegram/tracker) | trading-signal-bot compose PR + gated per-service recreate | next owner-approved Paper release; Paper not mid-checkpoint | per-container swap 0; B3 unchanged; heartbeats | image/compose rollback per `IMAGES.md` |
+| 6 | **7b** | hermes swap cap (memswap = mem + 1G) + oom +300 | hermes project's compose | hermes owner decision | swap.max = 1G; oom_score_adj | previous compose |
+| 7 | **8** | host: `system.slice MemoryLow≈2G`, `vm.dirty_bytes≈512M`, user@ io delegation | root; user-manager restart for io delegation | step 2 done (monitor survives the restart); owner root window | sysctl/slice values; PSI; monitor uptime | revert drop-ins/sysctl |
+
+- **Ordering:**
+  - Step 1 closes the only global-OOM paths with the lowest blast radius.
+  - Steps 2–3 protect the forward-evidence path.
+  - Steps 4–6 need other owners or a planned release.
+  - Step 7 is root-level and last.
+- **Read-only facts (from §1 / §3):** 4 GiB swap; 0 production OOM; all container `oom_score_adj` 0; three containers
+  unbounded; research already swap-isolated (G6 step 1).
