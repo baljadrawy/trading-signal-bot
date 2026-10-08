@@ -86,6 +86,34 @@ class TestMixedQuoteFailsClosed(unittest.TestCase):
         s = snap([R.position("BTCUSDT", 1000), R.position("ETHBTC", 0.2, px=0.03)])
         for b in s["exposure"]["by_venue"].values():
             self.assertIsNone(b["gross"]["value"])
+        # acceptance gap 1: tier buckets are single-quote here (tier0 USDT, tier1 BTC) but unlabelled -> refused
+        tiers = s["exposure"]["by_tier"]
+        self.assertGreaterEqual(len(tiers), 2)
+        for b in tiers.values():
+            for k in ("gross", "net"):
+                self.assertIsNone(b[k]["value"])
+                self.assertEqual(b[k]["reason"], MIXED)
+                self.assertEqual(b[k]["class"], V.UNAVAILABLE)
+            self.assertIsInstance(b["count"], int)                                   # non-monetary count kept
+        for b in s["exposure"]["by_quote_currency"].values():                        # the valid partition
+            self.assertIsNotNone(b["gross"]["value"])
+
+    def test_single_quote_tier_breakdown_still_valid(self):
+        s = snap([R.position("BTCUSDT", 1000), R.position("AAAUSDT", 500)])
+        self.assertTrue(all(b["gross"]["value"] is not None for b in s["exposure"]["by_tier"].values()))
+
+    def test_realdata_feeds_quote_currency_to_reference(self):
+        """acceptance gap 2: the real-data validation call passes (symbol, signed_notional, quote_currency)."""
+        import inspect
+        from p2_research.risk import realdata as RDT
+        src = inspect.getsource(RDT)
+        self.assertIn('(p["symbol"], p["signed_notional"], p["quote_currency"])', src)
+        s = snap([R.position("BTCUSDT", 5000), R.position("ETHBTC", 0.5, px=0.03)])
+        P = {"lookback": 96, "min_obs_long": 48, "min_obs_corr": 48, "bar_ms": 900_000, "btc_symbol": "BTCUSDT"}
+        rv = REF.metrics({}, [(p["symbol"], p["signed_notional"], p["quote_currency"]) for p in s["positions"]], R.T, P)
+        self.assertEqual(REF.compare({k: rv[k] for k in ("exposure.gross", "exposure.net")},
+                                     {k: REF.snapshot_values(s)[k] for k in ("exposure.gross", "exposure.net")}), [])
+        self.assertIsNone(rv["exposure.gross"])
 
 
 class TestSingleQuote(unittest.TestCase):

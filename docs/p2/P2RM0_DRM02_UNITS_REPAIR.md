@@ -83,3 +83,16 @@ It is deferred to a predeclared later version.
    - Fix: pass `(symbol, signed_notional, quote_currency)` there and in `tests/test_risk_rm0.py:630`.
 
 **Recommendation:** apply corrections 1–2 as one small commit with a test, then re-review the diff only. Accept after.
+
+### Acceptance gaps corrected (owner-authorised, 2026-10-08)
+1. **Tier breakdown:** `snapshot.py` `_exposure`. When the portfolio is mixed, `by_tier` gross/net are refused with
+   `mixed_quote_currencies_no_fx_conversion`. Counts are kept. `by_quote_currency` stays the valid partition.
+   Single-quote tier breakdowns are unchanged.
+2. **Reference inputs:** `realdata.py:129` and `tests/test_risk_rm0.py:630` now pass
+   `(symbol, signed_notional, quote_currency)`, so the independent reference applies its own currency rule.
+
+**Tests:**
+- Focused (`test_risk_units_drm02`): 13/13. New assertions cover mixed tiers refused, single-quote tiers valid, and
+  the reference receiving currency metadata with agreement on null.
+- RM0 suite: 66/66, including USDT-only P0–P7 byte-identical to `9c7b750`.
+- Frozen contracts and evidence are untouched.

@@ -111,18 +111,20 @@ def _exposure(ctx, ps, cap) -> dict:
         out["long"] = V.mv(_fs(p.notional for p in ps if p.side == "long"), V.DERIVED)
         out["short"] = V.mv(_fs(p.notional for p in ps if p.side == "short"), V.DERIVED)
 
-    def bd(keyf):
+    def bd(keyf, refuse_mixed=False):
         acc = {}
         for p in ps:
             acc.setdefault(keyf(p), []).append(p)
         def one(v):
-            if len({p.quote_currency for p in v}) > 1:
+            # D-RM0-2: a cross-portfolio breakdown whose buckets may be in different currencies is unlabelled, so
+            # it is refused as a whole when the portfolio is mixed (by_quote_currency is the valid partition).
+            if (refuse_mixed and len(quotes) > 1) or len({p.quote_currency for p in v}) > 1:
                 return {"gross": V.na(MIXED), "net": V.na(MIXED), "count": len(v)}
             return {"gross": V.mv(_fs(abs(p.signed_notional) for p in v), V.DERIVED),
                     "net": V.mv(_fs(p.signed_notional for p in v), V.DERIVED), "count": len(v)}
         return {str(k): one(v) for k, v in sorted(acc.items(), key=lambda kv: str(kv[0]))}
     out["by_symbol"] = bd(lambda p: p.symbol)
-    out["by_tier"] = bd(lambda p: f"tier{tiers[p.symbol]}" if p.symbol in tiers else NOT_IN_UNIVERSE)
+    out["by_tier"] = bd(lambda p: f"tier{tiers[p.symbol]}" if p.symbol in tiers else NOT_IN_UNIVERSE, refuse_mixed=True)
     out["by_venue"] = bd(lambda p: p.venue)
     out["by_quote_currency"] = bd(lambda p: p.quote_currency)
     marks = {}

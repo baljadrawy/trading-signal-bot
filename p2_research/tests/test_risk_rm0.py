@@ -627,7 +627,7 @@ class TestDeterminismReference(unittest.TestCase):
         for pid in C.plan["portfolios"]:
             fx = PF.build(pid, ctx.view)
             s = SN.build_snapshot(ctx, fx["positions"])
-            rv = REF.metrics(M.candles, [(p["symbol"], p["signed_notional"]) for p in s["positions"]], R.T,
+            rv = REF.metrics(M.candles, [(p["symbol"], p["signed_notional"], p["quote_currency"]) for p in s["positions"]], R.T,
                              RDT._ref_params(C))
             self.assertEqual(REF.compare(rv, REF.snapshot_values(s)), [], pid)
 
