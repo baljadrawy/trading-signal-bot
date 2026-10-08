@@ -55,3 +55,31 @@ until the owner reviews this repair.
 ## Known limitation (unchanged)
 L-RM0-1: universe and regime medians do not carry per-symbol STALE state. Values are correct; this is labelling only.
 It is deferred to a predeclared later version.
+
+## Acceptance review of `5f22431` (2026-10-08, read-only): CONDITIONAL
+**Passed:**
+- **Nulls stay null.** `V.mv`/`na` and `check_tree` enforce null ⇔ UNAVAILABLE with a reason; canonical JSON keeps
+  `null`; `reference.compare` treats null ≠ number as a difference. No `or 0` style coercion exists in `risk/`.
+- **Unknown is not safe.** `exceeds_hypothetical_capital` is `null`, not `false`; threshold flags skip null values;
+  no downstream consumer derives pass/fail from refused values.
+- **Single-quote compatibility.** USDT-only P0–P7 are byte-identical to `9c7b750`, excluding the contracts block
+  and `snapshot_id`.
+- **The reference is independent.** It uses its own quote-set rule over its own tuples, not `snapshot.py` code.
+- **Frozen material is unchanged.** RM0 base set (0 files changed), P2-D0 and P2-X contract sets are untouched, and
+  the RM0 v1 evidence seal still verifies.
+
+**Gaps (each a small correction; neither affects any USDT-only or sealed result):**
+1. **`exposure.by_tier` is exported without a unit** (`snapshot.py`, `_exposure`, the `by_tier` line). In a
+   mixed portfolio each tier bucket can be single-quote and therefore VALID, but the buckets are in different
+   currencies with no unit label. Example: tier0 = 5000 USDT and tier1 = 0.5 BTC, both VALID. A consumer that sums
+   tiers would silently mix units.
+   - Smallest fix: when the portfolio is mixed, refuse `by_tier` gross/net with `mixed_quote_currencies_no_fx_conversion`.
+     `by_quote_currency` remains the valid partition, and `by_symbol` stays (the unit is the position's
+     `quote_currency`).
+   - Add one test assertion.
+2. **Real-data validation does not pass quote currencies to the independent reference** (`realdata.py:129`). It
+   calls `REF.metrics` with `(symbol, signed_notional)` pairs, so the reference cannot apply its own currency rule.
+   A mixed real-data portfolio would show a spurious disagreement. That is fail-loud, not silent.
+   - Fix: pass `(symbol, signed_notional, quote_currency)` there and in `tests/test_risk_rm0.py:630`.
+
+**Recommendation:** apply corrections 1–2 as one small commit with a test, then re-review the diff only. Accept after.
