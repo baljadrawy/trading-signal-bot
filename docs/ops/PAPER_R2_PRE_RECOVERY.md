@@ -1,0 +1,136 @@
+# PAPER-R2 — final pre-recovery verification (2026-10-08)
+
+**Status:** read-only verification. **Nothing was executed.** No `/recover_risk`, `/resume`, `/pause` or other
+Telegram command was sent. B3, risk settings, code, Compose and the Collector are unchanged.
+
+## Verdict
+**GO, conditional.** No technical or safety-critical blocker remains. Recovery may proceed only when:
+1. the owner records decisions D-P1 to D-P5 (§6);
+2. the fresh pre-command checks in §5.1 pass at command time.
+
+## 1. Verified current state (2026-10-08 10:20–10:30Z; evidence `paper-r2-prerecovery-*`)
+
+| Check | Result | Baseline / reference |
+|---|---|---|
+| B3 | `2026-10-07\|t\|risk:loss_streak_halt\|30459` | halt review (sealed `f9b08d63…`) |
+| Recovery epochs | 2; latest `2026-10-04T15:26:43.497803Z` | PAPER-R1 recovery |
+| Open trades | 0 → runbook Case B (needs owner acknowledgement) | — |
+| Containers | scanner `891c46fddcf5`, analyzer `938664984ac3`, signal_engine `7c663dc07252`, telegram `91680b909017`, tracker `3f40e244b5c1`; all healthy, RestartCount 0 | `paper-resume-prep-20261004T144030Z/01_prod_pre.txt` |
+| Image IDs | `63b38e7a…`, `b9b13d95…`, `80096a98…`, `e5f3096b…`, `698d3173…` | MATCH `IMAGES.md` (P1-D: develop `59297305`; scanner: aiohttp 3.14.3) |
+| Compose | blob `3ad35a87…`; all five `config --hash` values equal the running containers' config-hash labels | MATCH |
+| Env | `.env` + `.env.binance` digests equal the CR-2 baseline (`env_unchanged=yes`) | MATCH |
+| Heartbeats | analyzer 10 s, signal_engine 10 s, telegram 3 s, tracker 21 s, scanner 290 s (tolerance 900); all with 0 errors | within tolerance |
+| Halt effectiveness | since 2026-10-07T00:24:47Z: 0 signals, 0 trades opened, 0 results, 0 new risk rows. Last trade id 3663 opened 00:18:43 | effective |
+
+### Code identity: production checkout vs running code (resolved)
+- The running `trade_tracker/main.py`, `telegram/main.py`, `shared/risk_epoch.py` and `shared/triple_barrier.py` are
+  **byte-identical** to git `59297305`.
+- The production checkout `/home/tradmin/trading-signal-bot` sits on branch `integration/research-pipeline` @ `63da7d3`
+  with uncommitted changes. `59297305` is not an ancestor of it, and its app files differ.
+- No container bind-mounts code from that checkout. The mounts are only logs, models and the evidence directories.
+  Runtime code comes solely from the pinned images, and Compose (blob `3ad35a87`) and env match the baseline.
+- **Not a blocker.** It is a standing hazard: any build from the production checkout (Class C, forbidden) would ship
+  the wrong code. Rollback stays image-ID based.
+
+## 2. Risk controls (verified)
+- **Container env (tracker, telegram, scanner):** `PAPER_TRADING=true`, `STOP_ON_CONSECUTIVE_LOSSES=7`,
+  `MAX_DAILY_LOSS_PERCENT=3`, `MAX_WEEKLY_LOSS_PERCENT=10`, `MAX_DRAWDOWN_PERCENT=15`,
+  `RISK_CANARY_MAX_OPEN_TRADES=2`, `TRADE_AMOUNT_USDT=50`, `RISK_CAPITAL_USDT=500`.
+- **Effective open cap:** `MAX_OPEN_TRADES` is not set, so the code default of 10 applies, and
+  min(10, 2) = **2**. Observed maximum concurrency was 2.
+- **Fees:** net = `profit_usdt − 50×0.3/100` (0.15 USDT) on every trade (`shared/risk_epoch.py`, hash matches).
+- **Loss streak:** a trailing run of net < 0, ordered by `exit_time, id`, from the effective epoch. It fired at 7/7.
+- **Soft reduce:** at 3 losses (×0.5 → cap 1) and 5 losses (×0.1). It resets on a net-non-negative close.
+- **No DB override:** the live `optimizer_settings` hold only signal-side keys.
+- **Recorder:** `EVIDENCE_V2_ENABLED=true`. That is the baseline state at PAPER-R1, and the env digests are unchanged.
+
+## 3. October 6 stall implications
+- **What happened:** Paper failed closed. Price fetches timed out, the WS outage lasted 87 s and one cycle errored.
+  No trade in the loss tail was affected, and every container has had a single boot.
+- **Residual risk:** during a provider stall, open-trade stops are evaluated late. The paper fill is then
+  min(stop, observed) × 0.999, so the accounting stays honest but the result is worse. This is not safety-critical
+  in Paper (no funds).
+- **Unresolved and outside Paper:** provider/hypervisor stalls can recur, and there is no time-stamped host
+  telemetry. Both are tracked under G5/G6 and S7. **No unresolved safety-critical Paper issue.**
+
+## 4. Documented caveats (confirmed, no history changed)
+- **C1 — gross/net.** The trade WIN/LOSS label and `risk_management.wins/losses` use gross P&L; all risk decisions
+  use net. In PAPER-R1, 3 "WIN" break-even trades were net losses. PAPER-R2 reports must use the **net** fields.
+- **C2 — dead letters vs polling.** A `signal.delivered` dead letter does not make a signal inadmissible. Admission is
+  poll-driven (2 h window, with dedup per symbol/timeframe/candle and no same-symbol overlap). Dead letters total 269
+  (245 + 24). **No replay**, and no history is changed.
+
+## 5. PAPER-R2 epoch definition
+**Purpose:** operational observation of the unchanged system. It is not Alpha evidence, it involves no strategy
+tuning, and it does not count toward any live-trading criterion (PAPER_ONLY).
+
+**Configuration:** exactly as verified in §1–2. Nothing changes at recovery.
+
+**Metrics (read-only, at checkpoints):**
+- B3 state and admissions;
+- rejections by reason;
+- open count (≤ 2);
+- per-trade fee (= 0.15);
+- trade → result pairing (1:1);
+- consecutive net losses;
+- daily, weekly and drawdown %;
+- dead-letter count, split into cap-full deferral vs other;
+- heartbeat ages and errors;
+- container RestartCount and health;
+- host stalls (from the collector monitor).
+
+**Stop conditions:** each requires owner review. There is no automatic recovery.
+1. Any hard risk halt fires: loss streak 7, daily 3 %, weekly 10 % or drawdown 15 %. Stay halted.
+2. Any admission rule violation: more than 2 open, a same-symbol overlap, an admission while halted or paused, or a
+   duplicate signal admitted twice.
+3. Any accounting mismatch: fee ≠ 0.15, a trade without a result or the reverse, or a non-reconciling fill.
+4. Any change to `PAPER_TRADING`, `EXECUTION_MODE`, risk env, Compose blob or image IDs that is not part of an
+   authorised release.
+5. A container restart, an unhealthy state, or a heartbeat beyond tolerance for more than 2 consecutive checks;
+   DB errors.
+6. Dead letters growing for any reason other than cap-full deferral.
+7. A host/provider stall over 60 s while trades are open. Review and record; do not halt automatically.
+
+**Checkpoints:** +1 h, +24 h and +72 h after `/resume`, as read-only snapshots, each reusing the PAPER-R1 snapshot
+tooling.
+
+### 5.1 Owner-only recovery runbook (PREPARED, NOT EXECUTED)
+**A. Fresh pre-command checks.** Run immediately before; all are read-only.
+1. B3 = `2026-10-07|t|risk:loss_streak_halt|30459` (no change).
+2. `select count(*) from active_trades where status='open'` = 0.
+3. The five container IDs, image IDs and config-hash labels equal §1; all healthy; RestartCount 0.
+4. Compose blob `3ad35a87…`; `env_unchanged=yes`.
+5. Heartbeats within tolerance.
+6. Not within ±30 min of a planned infrastructure change.
+
+**B. Owner actions** (Telegram, owner account only, private chat with @Jadrawybot):
+1. `/recover_risk <explicit reason>`. Example reason: "Reviewed PAPER-R1 halt (paper-halt-review-20261007T203557Z): halt
+   correct, no defect; caveats C1/C2 accepted; PAPER-R2 observation epoch."
+   - Expect a reply that confirms a new recovery epoch.
+   - If **no reply**, do not retry. Run the read-only routing check first (lesson from 2026-10-04: wrong bot/chat).
+2. After the read-only check in C1–C2 passes: `/resume`. Expect the resume reply.
+
+**C. Immediate post-recovery verification** (read-only):
+1. `risk_recovery_events` count = 3, the latest epoch timestamp is the DB `NOW()` of the command, and
+   `open_positions_at_recovery` = 0.
+2. After `/resume`: B3 shows the new row (`…|f|manual_resume|<id>`).
+3. Containers unchanged.
+4. First admissions within the rules (≤ 2 open, fee 0.15).
+
+**D. Contingency:**
+- Unexpected reply or state → stop and do not re-issue. Report.
+- After `/recover_risk`, if anything is off before `/resume`: do not resume. The admin pause is still set, so no
+  trades are admitted.
+- After `/resume`, if a stop condition fires: the owner sends `/pause`. That is an owner action, and the risk
+  breakers continue to work regardless.
+
+## 6. Owner decisions required before step B
+- D-P1 resume (yes/no);
+- D-P2 accept caveat C1 (or fix before resume);
+- D-P3 accept caveat C2 with no replay (or schedule the expiry state);
+- D-P4 accept the §5 epoch definition and stop conditions;
+- D-P5 post-stall control re-validation (optional; not required by this verification).
+
+## 7. Actions that require separate owner authorisation
+`/recover_risk <reason>`, `/resume`, `/pause`, any C1/C2 code fix (PR + gated deploy), any Compose/env/image change,
+any dead-letter replay (recommended: never), and any change to risk limits.
