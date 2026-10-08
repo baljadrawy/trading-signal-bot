@@ -57,6 +57,12 @@ def main(argv=None) -> int:
     r.add_argument("--setenv", action="append", default=[])
     r.add_argument("--config")
     r.add_argument("--wait", action="store_true")
+    r.add_argument("--mi-campaign", help="opt-in MI Phase 1S campaign (requires config mi.enabled)")
+    mi = sub.add_parser("mi", help="MI campaign lifecycle (opt-in; config mi.enabled)")
+    mi.add_argument("action", choices=["open", "close", "recover", "status"])
+    mi.add_argument("--campaign")
+    mi.add_argument("--reservation-cpu-s", type=float)
+    mi.add_argument("--config")
     ad = sub.add_parser("admit")
     ad.add_argument("--profile", default="R1")
     ad.add_argument("--config")
@@ -77,10 +83,30 @@ def main(argv=None) -> int:
                                           allow_elevated=a.allow_elevated, attended=a.attended,
                                           max_runtime_s=a.max_runtime_s)
             return launcher.launch(cfg, job_id=a.job_id, owner=a.owner, profile=prof, cmd=cmd,
-                                   cwd=a.cwd, setenv=a.setenv, config_path=a.config, wait=a.wait)
+                                   cwd=a.cwd, setenv=a.setenv, config_path=a.config, wait=a.wait,
+                                   mi_campaign=a.mi_campaign)
         except (ValueError, PermissionError, FileExistsError, RuntimeError) as exc:
             print(f"research-run: {exc}", file=sys.stderr)
             return 2
+    if a.command == "mi":
+        from . import mi_campaign as MIC
+        cfg = _cfg(a)
+        try:
+            if a.action == "open":
+                if not a.campaign or a.reservation_cpu_s is None:
+                    raise MIC.MIError("open needs --campaign and --reservation-cpu-s")
+                out = MIC.open_campaign(cfg, a.campaign, a.reservation_cpu_s, ensure_parent=launcher.ensure_slice)
+            elif a.action == "close":
+                out = MIC.close_campaign(cfg, a.campaign)
+            elif a.action == "recover":
+                out = MIC.recover_campaign(cfg, a.campaign)
+            else:
+                out = MIC.status(cfg)
+        except Exception as exc:                     # incl. LedgerTamper / BudgetExceeded: fail closed, exit 2
+            print(f"research-run mi: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(out, indent=2, sort_keys=True, default=str))
+        return 0
     if a.command == "admit":
         cfg = _cfg(a)
         prof = config.resolve_profile(cfg, a.profile, workers=None, allow_elevated=True,

@@ -36,6 +36,17 @@ PROFILES = {
 SLICE = {"name": "research.slice", "cpu_quota_pct": 800, "memory_max": 12 * GIB,
          "tasks_max": 1024, "cpu_weight": "idle"}
 
+# MI Phase 1S CPU envelope (mi_cpuguard). DISABLED by default: only an explicit --config with
+# {"mi": {"enabled": true}} plus a per-job --mi-campaign opts in. Owner ceilings (2026-10-08): the aggregate rate is
+# at most 600 % and the cumulative budget at most 28 800 CPU-s; config may lower them, never raise them.
+MI_MAX_QUOTA_PCT = 600
+MI_MAX_CAP_CPU_S = 28_800
+MI = {"enabled": False, "slice": "research-mi.slice", "cpu_quota_pct": 600, "cpu_weight": "idle",
+      "memory_max": 10 * GIB, "tasks_max": 1024, "cap_cpu_s": 28_800, "margin_cpu_s": 12.0, "poll_s": 1.0,
+      "max_gap_s": 3.0, "guard_cpu_quota_pct": 20, "guard_memory_max": "64M", "guard_runtime_max_s": 36 * 3600,
+      "ready_timeout_s": 60.0, "wait_cgroup_s": 30.0, "close_timeout_s": 120.0,
+      "cgroup_root": "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"}
+
 DEFAULTS = {
     "health_path": "/home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1/health/collector_health.json",
     "monitor_status_path": "/home/tradmin/ops/tsb-p2-forward/monitor/p2-forward-continuous-v1/status.json",
@@ -107,6 +118,7 @@ def load_config(path: str | None = None) -> dict:
     cfg = copy.deepcopy(DEFAULTS)
     cfg["profiles"] = copy.deepcopy(PROFILES)
     cfg["slice"] = copy.deepcopy(SLICE)
+    cfg["mi"] = copy.deepcopy(MI)
     if path:
         with open(path, "r", encoding="utf-8") as fh:
             over = json.load(fh)

@@ -61,6 +61,7 @@ class Guard:
         self.poll_s, self.max_gap_s, self.clock, self.sleep, self.done, self.log = poll_s, max_gap_s, clock, sleep, done, log
         self.baseline = self.last = self.last_t = None
         self.outcome = None
+        self.stop_requested = None          # set from a signal handler (SIGTERM/SIGINT) -> KILL + charge
 
     # ------------------------------------------------------------------ lifecycle
     def start(self):
@@ -79,6 +80,8 @@ class Guard:
 
     def step(self) -> str:
         """One poll. Returns CONTINUE, KILL or DONE (and finalizes on KILL / DONE)."""
+        if self.stop_requested:
+            return self._finish("KILL", f"stop_requested: {self.stop_requested}")
         now = self.clock()
         if now - self.last_t > self.max_gap_s:
             return self._finish("KILL", f"guard_gap {now - self.last_t:.2f}s > {self.max_gap_s}s")

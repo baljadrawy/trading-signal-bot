@@ -24,8 +24,9 @@ def guard_unit(campaign: str) -> str:
     return f"mi-cpuguard-{campaign}.service"
 
 
-def guard_cmd(campaign: str, python: str, args: list, runtime_max_s: int) -> list:
-    return ["systemd-run", "--user", "--quiet", f"--unit={guard_unit(campaign)}", "--slice=app.slice",
+def guard_cmd(campaign: str, python: str, args: list, runtime_max_s: int, pythonpath: str | None = None) -> list:
+    env = [f"--setenv=PYTHONPATH={pythonpath}"] if pythonpath else []
+    return ["systemd-run", "--user", "--quiet", f"--unit={guard_unit(campaign)}", "--slice=app.slice", *env,
             "-p", "CPUQuota=20%", "-p", "MemoryMax=64M", "-p", "MemorySwapMax=0", "-p", "Restart=no",
             # CollectMode: a dead guard is unloaded at once, so a BindsTo/Requisite job can never (re)start it
             # (integration finding I3: BindsTo= also pulls a start of a loaded-but-dead transient guard).

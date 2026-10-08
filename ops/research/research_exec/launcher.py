@@ -52,7 +52,8 @@ def ensure_slice(cfg: dict) -> dict:
     return {"cmd": args, "rc": r.returncode, "stderr": r.stderr.strip()}
 
 
-def build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv):
+def build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv, slice_name=None, extra_props=None):
+    """slice_name / extra_props are only set for an opted-in MI campaign job; defaults keep the original argv."""
     rj, _ = unit_names(job_id)
     p = profile
     env = {
@@ -66,7 +67,7 @@ def build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv):
         env[k] = f"{PKG_ROOT}:{v}" if k == "PYTHONPATH" else v
     # No --collect on the job unit: a failed job (e.g. Result=oom-kill) stays loaded until the
     # watchdog has recorded its Result and run `reset-failed` (a successful one unloads itself).
-    args = ["systemd-run", "--user", "--quiet", f"--unit={rj}", f"--slice={cfg['slice']['name']}",
+    args = ["systemd-run", "--user", "--quiet", f"--unit={rj}", f"--slice={slice_name or cfg['slice']['name']}",
             f"--description=research job {job_id} owner={owner} profile={p['name']}",
             f"--working-directory={cwd}",
             "-p", f"CPUQuota={p['cpu_quota_pct']}%", "-p", "CPUWeight=idle",
@@ -75,6 +76,7 @@ def build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv):
             "-p", f"TasksMax={p['tasks_max']}", "-p", f"OOMScoreAdjust={p['oom_score_adj']}",
             "-p", "OOMPolicy=kill", "-p", "KillMode=control-group", "-p", "TimeoutStopSec=20",
             "-p", f"RuntimeMaxSec={p['max_runtime_s']}"]
+    args += list(extra_props or [])
     for k, v in sorted(env.items()):
         args.append(f"--setenv={k}={v}")
     args += [cfg["python"], "-m", "research_exec", "_jobwrap", job_dir, lock, "--", *cmd]
@@ -98,7 +100,7 @@ def build_watchdog_cmd(cfg, job_id, owner, profile, job_dir, config_path):
 
 
 def launch(cfg, *, job_id, owner, profile, cmd, cwd=None, setenv=None, config_path=None,
-           wait=False, steal_sample=None, log=print) -> int:
+           wait=False, steal_sample=None, log=print, mi_campaign=None) -> int:
     if not JOB_ID_RE.match(job_id):
         raise ValueError("job id must match [a-z0-9][a-z0-9-]{0,47}")
     if not OWNER_RE.match(owner or ""):
@@ -106,6 +108,10 @@ def launch(cfg, *, job_id, owner, profile, cmd, cwd=None, setenv=None, config_pa
     if not cmd:
         raise ValueError("no command given after --")
     rj, rw = unit_names(job_id)
+    mi = None
+    if mi_campaign is not None:                      # opt-in MI job: validated BEFORE anything is created
+        from . import mi_campaign as MIC
+        mi = MIC.job_extra(cfg, mi_campaign, profile)
     job_dir = os.path.join(cfg["state_dir"], "jobs", job_id)
     if os.path.exists(job_dir):
         raise FileExistsError(f"job dir exists: {job_dir} (job ids are single-use; pick a new id)")
@@ -118,6 +124,8 @@ def launch(cfg, *, job_id, owner, profile, cmd, cwd=None, setenv=None, config_pa
     launch_rec = {"job_id": job_id, "owner": owner, "profile": profile, "cmd": cmd, "cwd": cwd,
                   "units": {"job": rj, "watchdog": rw}, "lock": lock, "created_at": utc_now(),
                   "config_path": config_path, "launcher_pid": os.getpid()}
+    if mi:
+        launch_rec["mi"] = mi
     atomic_write_json(os.path.join(job_dir, "launch.json"), launch_rec)
 
     decision = adm.evaluate(cfg, profile, steal_sample=steal_sample)
@@ -131,7 +139,8 @@ def launch(cfg, *, job_id, owner, profile, cmd, cwd=None, setenv=None, config_pa
 
     sl = ensure_slice(cfg)
     launch_rec["slice_runtime_props"] = sl
-    jargs = build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv)
+    jargs = build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv,
+                          slice_name=mi["slice"] if mi else None, extra_props=mi["props"] if mi else None)
     wargs = build_watchdog_cmd(cfg, job_id, owner, profile, job_dir, config_path)
     launch_rec["systemd_run"] = {"job": jargs, "watchdog": wargs}
     r = _run(jargs)
