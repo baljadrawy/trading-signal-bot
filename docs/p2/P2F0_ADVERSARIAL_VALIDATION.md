@@ -601,3 +601,22 @@ Weaknesses I see in my own design:
   Neither failure was tuned away. A v3 should state Monte-Carlo-feasible criteria and could make A01 robust to
   alpha noise, for example by rejecting on an upper confidence bound rather than on the point estimate. That would
   trade attribution clarity for power, so it is an owner-visible choice.
+
+## 11. Status review (2026-10-08, read-only)
+- **Branch:** `feature/p2f0-adversarial-validation-20261006` @ `b20d56f`, remote verified; `test_falsification_f0`
+  passes. Not merged; nothing deployed.
+- **Dependency change:** RM0 D-RM0-2 is repaired on `feature/p2rm0-portfolio-risk-20261006` @ `5f22431` (RM0-UNITS
+  1.1.0, not merged). F0 keeps refusing `risk_inputs` (I01) and keeps its own one-quote-currency check (I08) until
+  RM0 is owner-accepted and merged. Only then should a versioned F0 amendment admit RM0 inputs.
+- **Open items and why none can be done offline now:**
+
+  | Item | Blocked by |
+  |---|---|
+  | C4 null-calibration (50 reps cannot reach the bound) | compute: needs about 10× reps via the G2 runner (R1) in an authorised window; same gate as G5 |
+  | C7 REJECT-routing (57–70 % vs the 80 % target) | an owner decision on criteria attainable by Monte-Carlo n; contract v3 |
+  | Independent red-team generators | must be written without sight of the battery, which needs a separate author or session; owner to schedule |
+  | Romano-Wolf / DSR dedicated null study | compute (same gate as C4) |
+  | P2-X join-hash binding; forward-test length; threshold approval (`PROPOSED_NOT_OWNER_APPROVED`) | owner decisions, then F-contract v3 |
+  | F-D0-1/3/5 → P2-D0 v2 amendment proposal | owner decision; P2-D0 frozen files stay untouched |
+
+- **Unchanged:** the 28-day eligibility gate. There is no Alpha claim.
