@@ -392,3 +392,56 @@ Procedural control:
 - **D3** additionally verifies that `research-run mi ledger-check` reports `NO_GENESIS` (no ledger exists) and that
   **no** MI file exists in either directory.
 - **Genesis (`mi init --approve-genesis`) moves to D4 activation**, with separate owner approval.
+
+---
+
+## 9. Inert deployment record — D1–D3 (2026-10-08 22:43–22:47Z, owner-authorized)
+
+**Preconditions (all passed).**
+
+- Time 22:44Z: outside every protected window.
+- Deployed runner tree byte-identical to `0f12d3a` (13 files).
+- Heavy and light locks free; 0 `rj-*` / `rw-*` / `mi-*` units; research.slice inactive.
+- Dry admission R1: admit = true, reasons [].
+- 12 containers running with 0 restarts; Collector `ce4e6b6656a5` healthy.
+- Monitor MainPID 3551927, NRestarts 0, status fresh.
+
+**D1 — backup.**
+
+- Location: `/home/tradmin/backups/research-runner-backup-pre-micpu-20261008T224516Z/`.
+- Contents: `research-runner.tar` (SHA-256 `5e093f27…6cb40b95`), `FILES.sha256` (13 files), `ROLLBACK.md`.
+- Restore-verified by extracting and running `sha256sum -c`. Sealed read-only.
+
+**D2 — deploy (inert).** 9 files, written byte-for-byte from `git show 1eac499:…` (not the working copy):
+
+- `research_exec/{config,launcher,__main__,mi_campaign}.py`;
+- `mi_cpuguard/{__init__,ledger,guard,guard_main,units}.py`.
+
+The whole deployed tree (19 files) equals `1eac499`. Tests are not deployed, per convention.
+
+**D3 — verification.**
+
+- **Offline suite on a copy of the deployed bytes:** 105 tests, OK. 11 skipped: 9 opt-in real-systemd tests, and 2
+  git-dependent tests that were run separately.
+- **Non-MI equivalence on the deployed launcher:** job and watchdog argv identical to `0f12d3a` for R1, R2, R3 and
+  LIGHT.
+- **Code rollback:** the `edc2b6d` ledger code refuses the new format.
+- **`mi.enabled` default:** false. `mi ledger-check` with the deployed config is refused ("MI integration is
+  disabled").
+- **Read-only diagnostic** with an ephemeral, uninstalled config: `NO_GENESIS`, both checkpoints missing. Neither MI
+  directory exists afterwards.
+- **No genesis, no campaign state.**
+- **Dry admission:** admit = true, reasons [].
+- **Units and processes:** 0 MI / research units; research.slice and research-mi.slice inactive; 0 guard processes.
+- **Services:** all 12 containers identical to the pre-deploy snapshot (ID, StartedAt, RestartCount, health).
+  Monitor identical (MainPID, NRestarts, InvocationID). Collector HEALTHY.
+- **Evidence:** `/home/tradmin/backups/micpu-inert-deploy-20261008T2245Z/` (sealed, `SHA256SUMS`).
+
+**Status:**
+
+| | |
+|---|---|
+| Saved | `feature/mi-cpu-guard-20261008` |
+| Merged | no |
+| Deployed | **inert** (MI disabled) |
+| Operationally validated | inert verification only. Activation (D4: genesis, real-kernel smoke test) is **not** done and needs separate owner approval |
