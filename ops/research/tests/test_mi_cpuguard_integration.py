@@ -30,6 +30,15 @@ BURN = ("import multiprocessing as m,time,sys\n"
         "[p.start() for p in ps];[p.join() for p in ps]\n")
 
 
+def _temp_ledger(td):
+    """Throwaway strict ledger for a test (temp dir only): genesis + two checkpoints, as the hardened ledger requires.
+    The permanent MI ledger is never touched by these tests; their CPU is accounted there separately by the operator."""
+    led = L.BudgetLedger(os.path.join(td, "b.jsonl"), checkpoints=[os.path.join(td, "b.checkpoint.json"),
+                                                                  os.path.join(td, "anchor", "b.anchor.json")])
+    led.init_genesis(created_by="real-kernel-test")
+    return led
+
+
 def sh(*a, timeout=60):
     return subprocess.run(list(a), capture_output=True, text=True, timeout=timeout)
 
@@ -96,7 +105,7 @@ class RealKernel(unittest.TestCase):
         burn, r = self.run_unit("burn", ["/usr/bin/python3", "-c", BURN, "4", "60"])
         self.assertEqual(r.returncode, 0, r.stderr)
         with tempfile.TemporaryDirectory() as td:
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = _temp_ledger(td)
             g = Guard(reader=lambda: read_usage_usec(self.cg()), killer=lambda: systemd_kill(burn), ledger=led,
                       campaign=self.tag, reservation_cpu_s=4.0, margin_cpu_s=2.0, poll_s=0.5, max_gap_s=1.5)
             self.assertTrue(g.start())
@@ -140,7 +149,7 @@ class RealKernel(unittest.TestCase):
         anchor, _ = self.run_unit("anchor", ["/bin/sleep", "60"])
         time.sleep(0.5)
         with tempfile.TemporaryDirectory() as td:
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = _temp_ledger(td)
             killed = []
             g = Guard(reader=lambda: read_usage_usec(self.cg()), killer=lambda: killed.append(1), ledger=led,
                       campaign=self.tag, reservation_cpu_s=3.0, margin_cpu_s=1.0, poll_s=0.2, max_gap_s=1.0)

@@ -504,3 +504,73 @@ read-only copies of the ledger, both checkpoints and the final config.
 2. Re-run the 4 real-kernel tests, accounted in the ledger.
 3. Run the one ≤ 30 CPU-s LIGHT smoke campaign.
 4. Disable MI again.
+
+---
+
+## 11. D4-R limited recovery and completion (2026-10-08 23:32–23:35Z) — D4 COMPLETE
+
+**Pre-checks passed:**
+
+- outside protected windows (finished before the 23:50 day close);
+- deployed tree equals `1eac499` (19 files);
+- both locks free; 0 units; admission (LIGHT) admits with no reasons;
+- ledger `f5983b83…` OK at seq 2 (2 checkpoints, lag 0, 28 770 remaining);
+- 12 containers and the monitor unchanged since D4.
+
+**Test-only fix.** `tests/test_mi_cpuguard_integration.py` I2 / I4 now use a temporary genesis ledger with two
+checkpoints (`_temp_ledger`). No deployed product file changed. Offline: 105 tests OK, 9 opt-in skipped.
+
+**Real-kernel tests: 4 / 4 PASS.**
+
+| Test | Result |
+|---|---|
+| I1 | 5.58 cores under the 600 % cap |
+| I2 | budget kill at 2.006 / 2.0 limit, charged 2.07 ≤ 4.0 |
+| I3 | guard death stops the job; no start without a guard |
+| I4 | counter loss → kill and full charge |
+
+They were accounted as `d4r-realkernel-tests`: **30 CPU-s charged** (the full reservation, because I3 / I4 CPU is not
+individually measured).
+
+**Smoke campaign `d4r-smoke`:**
+
+- Reservation 30 CPU-s (limit 18). One LIGHT job, `synthetic_cpu.py` with 8 units × 3 M iterations and 2 spawned
+  workers.
+- **Containment:** all 5 job processes (jobwrap, script, resource tracker, 2 workers) were in
+  `research.slice/research-mi.slice/rj-d4r-smoke-j1.service`.
+- **Slice:** `cpu.max = 600000 100000`, `memory.swap.max = 0`. Guard in `app.slice`, active.
+- **Charge:** job finished with exit 0. Slice delta 6.882077 CPU-s. The guard closed with DONE and **charged 6.882077
+  CPU-s** (`cgroup_usage_usec`); the job's own last-sampled cgroup reading was 6.811 CPU-s. Campaign status
+  `closed`.
+
+**Ledger after D4 + D4-R:**
+
+| seq | Event |
+|---|---|
+| 0 | genesis |
+| 1–2 | `d4-realkernel-tests` 30 |
+| 3–4 | `d4r-realkernel-tests` 30 |
+| 5–6 | `d4r-smoke` reserved 30, charged 6.882077 |
+
+Charged 66.882077, **remaining 28 733.117923 CPU-s**. No open reservation. Both checkpoints at lag 0.
+
+**Return to disabled / inactive:**
+
+- `mi-d4.json` → `enabled: false`.
+- research-mi.slice runtime properties reverted (drop-in removed).
+- research-mi.slice and research.slice stopped after confirming 0 processes; both inactive, as before D4.
+- 0 MI / research units; 0 guard and jobwrap processes.
+- 12 containers and the monitor **identical** to the pre-D4-R snapshot; Collector HEALTHY.
+
+**Permissions.**
+
+- Recorded deviation (D4): the ledger file was briefly set to 0444 right after genesis and restored to 0664 about
+  10 s later, content unchanged.
+- Final state: MI directories 0775, ledger and checkpoints 0664, config 0600, all owned by `tradmin:tradmin`, **no
+  world-writable file**.
+- Note: `atomic_write` creates files with the umask (0664), so modes follow the umask. Explicit 0600 / 0700 modes are
+  a possible later hardening; it is not needed for D4.
+
+**Evidence:** `/home/tradmin/backups/micpu-d4r-completion-20261008T2333Z/` (sealed, `SHA256SUMS` `0955c554…`). It
+holds ledger, checkpoint and anchor copies, the guard log and campaign record, the real-kernel and offline test
+output, open / close / run output, and before / after snapshots.
