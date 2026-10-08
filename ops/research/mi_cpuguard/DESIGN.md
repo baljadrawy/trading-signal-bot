@@ -445,3 +445,62 @@ The whole deployed tree (19 files) equals `1eac499`. Tests are not deployed, per
 | Merged | no |
 | Deployed | **inert** (MI disabled) |
 | Operationally validated | inert verification only. Activation (D4: genesis, real-kernel smoke test) is **not** done and needs separate owner approval |
+
+---
+
+## 10. D4 limited activation — STOPPED at the real-kernel tests (2026-10-08 22:51–22:53Z)
+
+**Preconditions passed:**
+
+- outside protected windows;
+- deployed tree equals `1eac499` (19 files);
+- both locks free; 0 units;
+- admission (LIGHT) admits with no reasons;
+- no MI lineage anywhere (both MI directories absent; no `budget.*` file outside worktrees);
+- 12 containers and the monitor snapshotted.
+
+**Genesis (first-ever):**
+
+| | |
+|---|---|
+| ledger_id | **`f5983b83c32c4278996ec642d385977a`** |
+| epoch | 0 |
+| cap | 28 800 CPU-s |
+| genesis hash | `370cc53029fc6329…` |
+| config | dedicated `~/.config/research-runner/mi-d4.json` |
+| checkpoints | `~/.local/state/research-runner/mi/budget.checkpoint.json` and `~/.config/research-runner/mi/budget.anchor.json` |
+
+**Real-kernel tests (`MI_CPUGUARD_INTEGRATION=1`, wall time 6.3 s):**
+
+| Test | Result |
+|---|---|
+| I1 | PASS: 9 children → 5.72 cores, under the 600 % cap |
+| I3 | PASS: a job stops with its guard, and no start is possible without a guard |
+| **I2, I4** | **ERROR**: the test file still builds a throwaway ledger with the pre-hardening API (no genesis, no checkpoints). The hardened ledger correctly refused it with `NO_GENESIS` (fail closed). The opt-in file was never run offline, so the gap went unseen. A product defect has **not** been shown; a stale test has |
+
+**Absolute STOP rule applied.**
+
+- No test patch, no smoke campaign.
+- The tests' consumption was accounted in the permanent ledger as reserve + charge `d4-realkernel-tests`, charging the **full 30 CPU-s reservation** as an upper bound. I1 measured 9.43 CPU-s; the ceiling over all four tests is about 20 CPU-s.
+- Ledger: seq 2, charged 30.0, **remaining 28 770.0**, no open reservation.
+
+**Return to disabled:**
+
+- `mi-d4.json` now has `enabled: false`.
+- 0 MI / test units; research-mi.slice inactive; 0 guard processes.
+- 12 containers and the monitor **identical** to the pre-D4 snapshot; Collector HEALTHY.
+
+**Deviation:** right after genesis, the ledger file was mistakenly set read-only (0444). It was restored to 0664
+within 10 s, before any further write. Content hash `e27b0fa5…` at seq 0 was unchanged, and `ledger-check` then
+reported OK.
+
+**Evidence:** `/home/tradmin/backups/micpu-d4-activation-20261008T2252Z/` (sealed, `SHA256SUMS` `921a5ba7…`). It holds
+read-only copies of the ledger, both checkpoints and the final config.
+
+**To finish D4 (owner approval needed):**
+
+1. Update I2 / I4 to use a temporary genesis ledger with two checkpoints. This is a test-only change; deployed code
+   is unchanged.
+2. Re-run the 4 real-kernel tests, accounted in the ledger.
+3. Run the one ≤ 30 CPU-s LIGHT smoke campaign.
+4. Disable MI again.
