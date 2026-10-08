@@ -2,20 +2,20 @@
 
 **Status:** built and validated 2026-10-06. Stage 1 of the owner-approved host resource governance. Usage is in [ops/research/README.md](../../ops/research/README.md); the governing rules are in [BACKGROUND_EXECUTION.md](BACKGROUND_EXECUTION.md).
 
-**Scope.** The layer protects the forward Collector and production services from research batch work on the shared VM. Its host has 12 shared ARM vCPUs, about 28 % steal and no swap. It also makes parallel research fast and reproducible. It **cannot** prevent provider VM stalls, host-node storage stalls or the steal tax. Under a whole-VM pause, the job, the watchdog and the Collector all stop together.
+**Scope.** The layer protects the forward Collector and production services from research batch work on the shared VM. Its host has 12 shared ARM vCPUs, about 28 % steal and (since 2026-10-07T20:29Z) a 4 GiB host swapfile, which research never uses (G6 step 1). It also makes parallel research fast and reproducible. It **cannot** prevent provider VM stalls, host-node storage stalls or the steal tax. Under a whole-VM pause, the job, the watchdog and the Collector all stop together.
 
 ## Architecture
 ```
 research-run run ... -- CMD            (caller: agent shell or human; may exit, job stays supervised)
   1. admission.evaluate()  -> admission.json (decision + every input); refuse => exit 3, nothing started
-  2. systemctl --user set-property --runtime research.slice  CPUWeight=idle CPUQuota=800% MemoryMax=12G TasksMax=1024
+  2. systemctl --user set-property --runtime research.slice  CPUWeight=idle CPUQuota=800% MemoryMax=12G MemorySwapMax=0 TasksMax=1024
   3. systemd-run --user  rj-<id>.service  (slice research.slice)
-        CPUQuota=<profile>  CPUWeight=idle  MemoryHigh/MemoryMax  TasksMax  OOMScoreAdjust=500
+        CPUQuota=<profile>  CPUWeight=idle  MemoryHigh/MemoryMax  MemorySwapMax=0  TasksMax  OOMScoreAdjust=500
         OOMPolicy=kill (memory.oom.group=1)  KillMode=control-group  TimeoutStopSec=20  RuntimeMaxSec
         main = python -m research_exec _jobwrap   -> flock <state>/<lock>.lock (held for the job's life)
                                                    -> CMD (env RESEARCH_WORKERS, PYTHONHASHSEED=0, *_NUM_THREADS=1)
                                                    -> jobwrap.json (wall, rusage, cgroup cpu.stat/memory.peak at exit)
-  4. systemd-run --user  rw-<id>.service  (app.slice, CPUQuota=20%, MemoryMax=128M, --collect)
+  4. systemd-run --user  rw-<id>.service  (app.slice, CPUQuota=20%, MemoryMax=128M, MemorySwapMax=0, --collect)
         BindsTo=rj After=rj RuntimeMaxSec=job+900  main = python -m research_exec _watchdog
         tick 2 s: Collector health + monitor + steal(5 s window) + PSI + MemAvailable + windows + pause file
           freeze triggers -> systemctl --user freeze rj      (cgroup v2 freezer: paused, not destroyed)
@@ -42,6 +42,7 @@ research-run run ... -- CMD            (caller: agent shell or human; may exit, 
 
 - Workers and runtime can only be **lowered** below the profile.
 - research.slice holds an aggregate runtime ceiling of 800 % / 12 G / 1024 tasks, so R3 is the hard maximum. Even with all ceilings in place, at least 4 vCPU stay free for production wake-ups, Hermes bursts and post-stall catch-up.
+- `MemorySwapMax=0` (G6 step 1, 2026-10-08) on the job unit, the watchdog unit and the slice: memory pressure is contained in the research cgroup (MemoryHigh reclaim, then group OOM kill) and never pushed to host swap, which has no IO isolation from the Collector writer or postgres.
 - `OOMScoreAdjust=+500` applies only to processes the layer launches; children inherit it. No host-wide OOM policy is changed.
 
 ## Admission (all must hold; config `admission`)

@@ -46,6 +46,7 @@ def ensure_slice(cfg: dict) -> dict:
     s = cfg["slice"]
     args = ["systemctl", "--user", "set-property", "--runtime", s["name"],
             f"CPUQuota={s['cpu_quota_pct']}%", f"MemoryMax={s['memory_max']}",
+            "MemorySwapMax=0",  # G6 step 1: research never uses host swap
             f"TasksMax={s['tasks_max']}", f"CPUWeight={s['cpu_weight']}"]
     r = _run(args)
     return {"cmd": args, "rc": r.returncode, "stderr": r.stderr.strip()}
@@ -70,6 +71,7 @@ def build_job_cmd(cfg, job_id, owner, profile, job_dir, lock, cmd, cwd, setenv):
             f"--working-directory={cwd}",
             "-p", f"CPUQuota={p['cpu_quota_pct']}%", "-p", "CPUWeight=idle",
             "-p", f"MemoryHigh={p['memory_high']}", "-p", f"MemoryMax={p['memory_max']}",
+            "-p", "MemorySwapMax=0",  # G6 step 1: pressure stays inside the job cgroup, not on disk
             "-p", f"TasksMax={p['tasks_max']}", "-p", f"OOMScoreAdjust={p['oom_score_adj']}",
             "-p", "OOMPolicy=kill", "-p", "KillMode=control-group", "-p", "TimeoutStopSec=20",
             "-p", f"RuntimeMaxSec={p['max_runtime_s']}"]
@@ -84,7 +86,7 @@ def build_watchdog_cmd(cfg, job_id, owner, profile, job_dir, config_path):
     args = ["systemd-run", "--user", "--quiet", f"--unit={rw}", "--collect",
             f"--description=research watchdog for {job_id} owner={owner}",
             "-p", f"BindsTo={rj}", "-p", f"After={rj}",
-            "-p", "CPUQuota=20%", "-p", "MemoryMax=128M", "-p", "TasksMax=32",
+            "-p", "CPUQuota=20%", "-p", "MemoryMax=128M", "-p", "MemorySwapMax=0", "-p", "TasksMax=32",
             "-p", "TimeoutStopSec=30",
             "-p", f"RuntimeMaxSec={profile['max_runtime_s'] + 900}",
             f"--setenv=PYTHONPATH={PKG_ROOT}", f"--setenv=RESEARCH_JOB_ID={job_id}",
