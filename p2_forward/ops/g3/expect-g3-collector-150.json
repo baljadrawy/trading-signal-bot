@@ -1,8 +1,8 @@
 {
  "schema": "p2f-g3-expect-v1",
- "_note": "G3 preflight expectations for collector 1.5.0 (container 0488866e2e04). Re-confirmed by the owner at execution time; any change of container / image / config / compose / monitor code needs a reviewed edit of this file. compose_backup is created in procedure step P0 (does not exist before the authorized stage).",
+ "_note": "G3 preflight expectations for collector 1.5.0 AFTER G3 Stage G 2026-10-08 (container ce4e6b6656a5, boot 2e12ddce, 1.5 CPU / 768 MiB / swap 0 / pids 64; was 0488866e2e04 at 0.5 / 384 MiB). Re-confirmed by the owner at execution time; any change of container / image / config / compose / monitor code needs a reviewed edit of this file. compose_backup is the read-only staged copy of the deployed compose (same bytes); the pre-G3 rollback compose is rollback.g3_pre_compose.",
  "container_name": "tsb-p2-forward-collector",
- "cid": "0488866e2e04a34a619379463447e5ded65908a17b787169586164492c2f8d7f",
+ "cid": "ce4e6b6656a5616c1d502ac0f2821a160762d1e251dff21845fee117e3900e87",
  "image_tag": "tsb-p2-forward:p2f-150-cd2935e-20261007T1105Z",
  "image_id": "sha256:69187360f144ec208c18bb261b7831bdb47952a5a9397f580fee4a703c56c45c",
  "git_commit": "cd2935eeb5f77e2932258df74d82004b6b7c47e8",
@@ -12,7 +12,7 @@
  "config_file_sha256": "ebe6be133c51a01e57be1da25da6454846a0b3205b514b959251872fd4bd8d10",
  "dataset": "/home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1",
  "dataset_id": "p2-forward-continuous-v1",
- "limits_before": {"cpu.max": "50000 100000", "memory.max": "402653184", "memory.swap.max": "0", "pids.max": "64"},
+ "limits_before": {"cpu.max": "150000 100000", "memory.max": "805306368", "memory.swap.max": "0", "pids.max": "64"},
  "health_max_age_s": 30,
  "hard_reason_classification": null,
  "min_observed_handoffs": 1,
@@ -42,14 +42,15 @@
  "op_minutes": 25,
  "rotation_margin_min": 30,
  "compose_file": "/home/tradmin/ops/tsb-p2-forward/compose.yml",
- "compose_sha256_before": "700fe7df13ecfccb21a7176c2c5ec4ed233c2bcc3de09c2c360c79dfac9fad9e",
- "compose_limits_before": {"cpus": "0.5", "mem_limit": "384m", "memswap_limit": "384m", "pids_limit": "64"},
+ "compose_sha256_before": "06f32bc51974cdfcd7d84f2c184ef100bba7c9ecdb3889252841b6cfb67602c5",
+ "compose_limits_before": {"cpus": "1.5", "mem_limit": "768m", "memswap_limit": "768m", "pids_limit": "64"},
  "rollback": {
   "previous_image_tag": "tsb-p2-forward:p2cr-3e58691-20261004T1422Z",
   "previous_image_id": "sha256:750ea690404c4022d5b4f61f051631b7d1f74913de207d281608d183aed59b2b",
   "tar": "/home/tradmin/backups/tsb-p2-forward-images/tsb-p2-forward_p2cr-3e58691-20261004T1422Z.rollback-1.4.0.tar",
   "tar_sha256": "64bccaffaaa66be07295878b937a2f829c86b17701dba5b1fae735a4588060d2",
-  "compose_backup": "/home/tradmin/ops/tsb-p2-forward/compose.pre-g3.yml"
+  "compose_backup": "/home/tradmin/ops/tsb-p2-forward/compose.g3-staged.yml",
+  "g3_pre_compose": {"path": "/home/tradmin/ops/tsb-p2-forward/compose.pre-g3.yml", "sha256": "700fe7df13ecfccb21a7176c2c5ec4ed233c2bcc3de09c2c360c79dfac9fad9e"}
  },
  "min_mem_available_gib": 4
 }
