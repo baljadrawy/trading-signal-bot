@@ -134,3 +134,47 @@ tooling.
 ## 7. Actions that require separate owner authorisation
 `/recover_risk <reason>`, `/resume`, `/pause`, any C1/C2 code fix (PR + gated deploy), any Compose/env/image change,
 any dead-letter replay (recommended: never), and any change to risk limits.
+
+## 8. Execution record
+
+**Owner decisions:** the owner approved D-P1 through D-P5. Approved decisions:
+- D-P1: observation only.
+- D-P2: C1 accepted; evaluate on net.
+- D-P3: C2 accepted; no replay.
+- D-P4: §5 stop conditions and checkpoints adopted.
+- D-P5: no heavy tests.
+
+### Phase A — pre-recovery gate: GO (2026-10-08T10:32:29Z)
+- **B3:** `2026-10-07|t|risk:loss_streak_halt|30459`. 2 recovery epochs; 0 open trades.
+- **Since halt:** 0 admissions, signals or results.
+- **Containers:** the five containers, images and config hashes equal the §1 baseline; heartbeats fresh.
+- **Code and config:** code matches `59297305`; compose blob `3ad35a87`; `env_unchanged=yes`; risk env unchanged.
+- **Telegram:** chat sha8 `61cbda04` (private); bot token sha8 `91aca75b` (@Jadrawybot).
+- **Collector:** HEALTHY.
+
+### Owner action
+The owner personally sent `/recover_risk <reason>` to @Jadrawybot and received a successful reply. The agent
+sent no command.
+
+### Phase B — recovery verification: VERIFIED (2026-10-08T10:45:35Z)
+- **Recovery events:** 3 (previously 2). Exactly one row was created after Phase A.
+  - id 3, `epoch_started_at` 2026-10-08T10:43:22.323782Z (DB time, after Phase A).
+  - Values: `halt_reason=loss_streak_halt`, `open_positions_at_recovery=0`, `consecutive_losses_before=7`.
+  - The actor, `acknowledged_by` sha8 `61cbda04`, is the owner.
+  - The reason cites PAPER-R2 and the halt review.
+- **Effective state:** the loss-streak breaker is cleared by the new epoch (0 closes since epoch 3). The admin pause
+  is **still active**: the latest decision row 30459 has `is_trading_paused=true`, and no new `risk_management` row
+  exists. B3 therefore still reads the historical row `2026-10-07|t|risk:loss_streak_halt|30459`. That is expected
+  until `/resume`, and matches the PAPER-R1 pattern.
+- **Admissions:** 0 open trades. Since the halt and since the recovery: 0 trades, 0 signals, 0 results. There was no
+  automatic resume.
+- **Runtime:** the five containers are unchanged (IDs, images, config-hash labels), all healthy, RestartCount 0.
+  Heartbeats ≤ 99 s with 0 errors.
+- **Config:** compose blob `3ad35a87`; `env_unchanged=yes`; `PAPER_TRADING=true`; loss streak 7; limits 3/10/15 %;
+  open cap 2; stake 50; fee 0.15. Telegram logs since 10:30Z show no error or unauthorised lines.
+- **Collector:** `ce4e6b6656a5` HEALTHY with 0 restarts. No conflicting maintenance window.
+- **`/resume` validity:** per the runbook, `/recover_risk` lifts the risk breaker and `/resume` lifts the separate
+  admin pause. The pause is the only remaining gate.
+
+**Next owner action:** `/resume` in the private chat with @Jadrawybot. Then run the §5.1 C read-only checks and the
++1 h, +24 h and +72 h checkpoints.
