@@ -13,6 +13,8 @@ Paper, Postgres and other containers run under the SYSTEM manager and are not ad
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import os
 import re
 import shlex
@@ -53,7 +55,12 @@ def mi_cfg(cfg: dict) -> dict:
 
 def paths(cfg: dict, campaign: str | None = None) -> dict:
     base = os.path.join(cfg["state_dir"], "mi")
-    out = {"base": base, "ledger": os.path.join(base, "budget.jsonl")}
+    out = {"base": base, "ledger": os.path.join(base, "budget.jsonl"),
+           "checkpoint": os.path.join(base, "budget.checkpoint.json"),
+           "anchor": os.path.join(cfg["mi"]["anchor_dir"], "budget.anchor.json"),
+           "open_lock": os.path.join(base, "open.lock"), "campaigns": os.path.join(base, "campaigns")}
+    if os.path.realpath(os.path.dirname(out["anchor"])) == os.path.realpath(base):
+        raise MIError("mi.anchor_dir must be independent of the runner state dir")
     if campaign:
         d = os.path.join(base, "campaigns", campaign)
         out.update(dir=d, campaign=os.path.join(d, "campaign.json"), ready=os.path.join(d, "ready.json"),
@@ -82,7 +89,57 @@ def _check_campaign(campaign: str):
 
 def _ledger(cfg):
     from mi_cpuguard import ledger as L
-    return L.BudgetLedger(paths(cfg)["ledger"], cap_cpu_s=mi_cfg(cfg)["cap_cpu_s"])
+    p = paths(cfg)
+    return L.BudgetLedger(p["ledger"], cap_cpu_s=mi_cfg(cfg)["cap_cpu_s"], checkpoints=[p["checkpoint"], p["anchor"]],
+                          single_open=True)
+
+
+@contextlib.contextmanager
+def _open_lock(cfg):
+    p = paths(cfg)
+    os.makedirs(p["base"], exist_ok=True)
+    fd = os.open(p["open_lock"], os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise MIError("another `mi open` is in progress (open lock held)")
+        yield
+    finally:
+        os.close(fd)
+
+
+def init_ledger(cfg, *, approve_genesis: bool, by: str) -> dict:
+    """FIRST-EVER genesis only (explicit owner flag). Refuses if any ledger, checkpoint, *.bak or campaign exists."""
+    mi_cfg(cfg)
+    if not approve_genesis:
+        raise MIError("genesis needs explicit owner approval (--approve-genesis)")
+    p = paths(cfg)
+    if os.path.isdir(p["campaigns"]) and os.listdir(p["campaigns"]):
+        raise MIError("NOT_FIRST_GENESIS: campaign records exist; the ledger was lost, not never created "
+                      "(use ledger-check and an owner-approved recovery)")
+    ev = _ledger(cfg).init_genesis(created_by=by)
+    return {"genesis": ev, "ledger": p["ledger"], "checkpoints": [p["checkpoint"], p["anchor"]]}
+
+
+def ledger_check(cfg) -> dict:
+    from mi_cpuguard import ledger as L
+    return L.diagnose(_ledger(cfg))
+
+
+def ledger_recover(cfg, action: str, *, approve: str, by: str, backup: str | None = None,
+                   declared_consumed_cpu_s: float | None = None, declared_campaigns=()) -> dict:
+    from mi_cpuguard import ledger as L
+    led = _ledger(cfg)
+    st = None
+    try:
+        st = led.state()
+    except L.LedgerError:
+        pass
+    if st and st["open_reservations"] and action != "rebuild-checkpoints":
+        raise MIError("ledger has an open campaign; close / recover it first")
+    return L.recover_ledger(led, action, approve=approve, by=by, backup_path=backup,
+                            declared_consumed_cpu_s=declared_consumed_cpu_s, declared_campaigns=declared_campaigns)
 
 
 def unit_show(unit: str, props="ActiveState,InvocationID,MainPID", run=_run) -> dict:
@@ -101,6 +158,7 @@ def mi_slice_cmd(cfg) -> list:
 def guard_cmd(cfg, campaign: str, reservation_cpu_s: float) -> list:
     m, p = mi_cfg(cfg), paths(cfg, campaign)
     args = ["--campaign", campaign, "--reservation-cpu-s", repr(float(reservation_cpu_s)), "--ledger", p["ledger"],
+            "--checkpoint", p["checkpoint"], "--checkpoint", p["anchor"], "--cap-cpu-s", str(float(m["cap_cpu_s"])),
             "--cgroup-dir", slice_cgroup_dir(cfg), "--kill-unit", m["slice"], "--ready-file", p["ready"],
             "--close-file", p["close"], "--wait-cgroup-s", str(m["wait_cgroup_s"]),
             "--margin-cpu-s", str(m["margin_cpu_s"]), "--poll-s", str(m["poll_s"]), "--max-gap-s", str(m["max_gap_s"])]
@@ -124,12 +182,19 @@ def anchor_cmd(cfg, campaign: str) -> list:
 # ------------------------------------------------------------------ lifecycle
 def open_campaign(cfg, campaign: str, reservation_cpu_s: float, *, run=_run, sleep=time.sleep,
                   clock=time.monotonic, ensure_parent=None) -> dict:
+    mi_cfg(cfg)
+    with _open_lock(cfg):
+        return _open_campaign(cfg, campaign, reservation_cpu_s, run=run, sleep=sleep, clock=clock,
+                              ensure_parent=ensure_parent)
+
+
+def _open_campaign(cfg, campaign, reservation_cpu_s, *, run, sleep, clock, ensure_parent) -> dict:
     m = mi_cfg(cfg)
     _check_campaign(campaign)
     p = paths(cfg, campaign)
     led = _ledger(cfg)
-    st = led.state()                                   # LedgerTamper propagates: corrupted ledger -> refuse
-    if os.path.exists(p["campaign"]) or campaign in st["open_reservations"]:
+    st = led.state()           # strict: missing / truncated / forked / stale / corrupt ledger or checkpoint -> refuse
+    if os.path.exists(p["campaign"]) or campaign in st["campaigns"]:
         raise MIError(f"campaign {campaign} already exists (ids are single-use; use recover / close)")
     if st["open_reservations"]:
         # one campaign at a time: all campaigns share the one slice counter (a second guard would double-charge
@@ -143,6 +208,7 @@ def open_campaign(cfg, campaign: str, reservation_cpu_s: float, *, run=_run, sle
         raise MIError(f"{guard_unit(campaign)} is already loaded")
     os.makedirs(p["dir"])
     rec = {"campaign": campaign, "reservation_cpu_s": reservation_cpu_s, "created_at": utc_now(),
+           "ledger_id": st["ledger_id"], "ledger_epoch": st["epoch"], "ledger_seq_at_open": st["seq"],
            "slice": m["slice"], "cgroup_dir": slice_cgroup_dir(cfg), "guard_unit": guard_unit(campaign),
            "anchor_unit": anchor_unit(campaign), "status": "opening"}
     atomic_write_json(p["campaign"], rec)
@@ -183,6 +249,9 @@ def job_extra(cfg, campaign: str, profile: dict, *, run=_run) -> dict:
     rec, ready = read_json(p["campaign"]), read_json(p["ready"])
     if not rec or rec.get("status") != "open" or not ready:
         raise MIError(f"campaign {campaign} is not open and ready")
+    st = _ledger(cfg).state()                          # strict integrity check before every MI job
+    if st["ledger_id"] != rec.get("ledger_id") or campaign not in st["open_reservations"]:
+        raise MIError(f"campaign {campaign} is not an open reservation of the current ledger (fail closed)")
     if profile["cpu_quota_pct"] > m["cpu_quota_pct"]:
         raise MIError(f"profile {profile['name']} quota {profile['cpu_quota_pct']} % exceeds the MI slice quota")
     u = unit_show(guard_unit(campaign), run=run)

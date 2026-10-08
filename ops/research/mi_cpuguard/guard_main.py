@@ -63,6 +63,9 @@ def main(argv=None, *, killer=None, sleep=time.sleep, clock=time.monotonic) -> i
     ap.add_argument("--poll-s", type=float, default=POLL_S)
     ap.add_argument("--max-gap-s", type=float, default=MAX_POLL_GAP_S)
     ap.add_argument("--anchor-pids", type=int, default=1)
+    ap.add_argument("--checkpoint", action="append", required=True,
+                    help="ledger checkpoint location (repeat; >= 2 independent places)")
+    ap.add_argument("--cap-cpu-s", type=float, default=None)
     a = ap.parse_args(argv)
 
     def say(o):
@@ -87,7 +90,12 @@ def main(argv=None, *, killer=None, sleep=time.sleep, clock=time.monotonic) -> i
         except Exception:
             return False                      # unreadable pids -> not done; the counter read decides faults
 
-    g = Guard(reader=lambda: read_usage_usec(a.cgroup_dir), killer=kill, ledger=L.BudgetLedger(a.ledger),
+    if len(a.checkpoint) < 2:
+        say({"verdict": "REFUSED", "reason": "at least two independent checkpoint locations are required"})
+        return 3
+    led = L.BudgetLedger(a.ledger, checkpoints=a.checkpoint, single_open=True,
+                         **({"cap_cpu_s": a.cap_cpu_s} if a.cap_cpu_s is not None else {}))
+    g = Guard(reader=lambda: read_usage_usec(a.cgroup_dir), killer=kill, ledger=led,
               campaign=a.campaign, reservation_cpu_s=a.reservation_cpu_s, margin_cpu_s=a.margin_cpu_s,
               poll_s=a.poll_s, max_gap_s=a.max_gap_s, done=done, log=say, sleep=sleep, clock=clock)
 
@@ -102,7 +110,7 @@ def main(argv=None, *, killer=None, sleep=time.sleep, clock=time.monotonic) -> i
     try:
         if not g.start():
             return 2
-    except (L.BudgetExceeded, L.LedgerTamper) as e:
+    except (L.BudgetExceeded, L.LedgerError) as e:
         say({"verdict": "REFUSED", "reason": f"{type(e).__name__}: {e}"})
         return 3
     try:

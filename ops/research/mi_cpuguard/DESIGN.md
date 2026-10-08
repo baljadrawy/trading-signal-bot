@@ -256,3 +256,139 @@ mi-phase1s.json`.
    allows a concurrent LIGHT job of ≤ 200 %.
 5. **The guard's SIGTERM charge path** relies on systemd's default TimeoutStopSec of 90 s; the guard reacts within
    one poll (1 s).
+
+---
+
+## 8. Budget-ledger reset protection (2026-10-08; development only)
+
+**Threat.** Deleting, truncating, rolling back, replaying or forking the ledger, or running older code against it,
+must never free CPU budget or silently restart at zero.
+
+### Mechanism
+
+- **Ledger identity.** Event 0 is `genesis`, carrying a random `ledger_id` and `epoch`. Every line is hash-chained
+  (`seq`, `prev`, `hash`).
+- **Two independent checkpoints.**
+  - `state_dir/mi/budget.checkpoint.json`;
+  - `~/.config/research-runner/mi/budget.anchor.json`, which is outside both the runner state dir and the code
+    tree. A config that puts it inside the state dir is refused.
+
+  Each checkpoint is self-hashed and records ledger_id, epoch, seq, head, the totals, open reservations and **every
+  campaign id ever used**. Both are written atomically (tmp → fsync → rename → directory fsync).
+- **Every mutation** (reserve, charge or recover, under one flock) first verifies the chain and every checkpoint:
+  - each checkpoint is present and its self-hash is valid;
+  - it has the same ledger_id;
+  - its (seq, head) is a prefix of the ledger;
+  - the ledger is at most **one** event ahead. That one-event case is an interrupted checkpoint write, so the
+    checkpoints are rolled forward.
+
+  Then the event is appended with fsync, and both checkpoints are rewritten.
+- **`state()` is strict and read-only.** It never initializes and never rolls forward.
+
+**Refusal codes.** Each one fails closed: campaign open refuses, guard reserve / charge refuses (the guard STOPs),
+and `job_extra` refuses.
+
+| Code | Meaning |
+|---|---|
+| `NO_GENESIS` | no ledger and no checkpoint |
+| `LEDGER_MISSING` | the ledger is gone but a checkpoint exists |
+| `TORN_TAIL` | interrupted line |
+| `LEDGER_CORRUPT` | broken chain, empty file or unknown event |
+| `TRUNCATED_OR_ROLLED_BACK` | the ledger is shorter than a checkpoint |
+| `FORK_OR_REPLAY` | a different hash at the checkpointed seq |
+| `LEDGER_ID_MISMATCH` | foreign ledger |
+| `CHECKPOINT_MISSING` / `CHECKPOINT_CORRUPT` | checkpoint absent, or a bad self-hash |
+| `CHECKPOINT_STALE` | the ledger is more than one event ahead |
+
+**Durable campaign identity.**
+
+- A campaign record binds `ledger_id`, `epoch` and the seq at open.
+- Every MI job re-checks that its campaign is an open reservation **of the current ledger**.
+- Campaign ids are single-use across the whole lineage, including after carry-forward.
+- Only one campaign may be open, enforced inside the ledger lock. `mi open` also holds a non-blocking open lock.
+
+**Genesis vs recovery.**
+
+- `research-run mi init --approve-genesis` creates the **first-ever** ledger only. It refuses when any ledger,
+  checkpoint, `*.bak` copy or campaign record exists (`NOT_FIRST_GENESIS`). Genesis is part of activation, not of
+  deployment.
+- `research-run mi ledger-check` is read-only. It prints the status and a one-time owner **approval token** per
+  recovery action. The token is bound to the exact ledger bytes, the best checkpoint head and the set of broken
+  checkpoints, so any change after the check invalidates it.
+- `research-run mi ledger-recover --recover-action A --approve TOKEN` supports these actions:
+
+| Action | Behaviour |
+|---|---|
+| `rebuild-checkpoints` | intact ledger; any surviving checkpoint must be a prefix; survivors are preserved as `*.corrupt-*.bak`; a `checkpoint_rebuilt` event is appended |
+| `torn-tail` | only the trailing partial line is removed; the original is preserved as `*.torn-*.bak`; the removed bytes' hash is recorded |
+| `restore-backup --backup F` | accepted only if the backup contains the checkpointed head of this ledger (never an older or foreign copy); the replaced file is preserved |
+| `carry-forward` | **destructive recovery**: a new epoch whose `carry_forward` event charges **max(best checkpoint committed, owner-declared)** and carries every used campaign id. With no surviving checkpoint the owner **must** declare prior consumption (fail-closed choice: the full cap). The old ledger is moved to `*.superseded-*.bak`, never deleted |
+
+- No action ever reduces recorded consumption.
+
+**Code rollback.** The previous ledger module (`edc2b6d`) **refuses** a genesis-format ledger (unknown event
+`genesis`), so rolling the code back cannot reuse or reset the budget; MI simply cannot run. The pre-integration
+runner `0f12d3a` has no MI code at all. In both cases the ledger files are untouched.
+
+### Offline evidence
+
+Full discovery: **105 tests, OK, 9 skipped** (the opt-in real-systemd suites), stable over 2 runs; see
+`EVIDENCE_ledger_integrity_20261008.txt`.
+
+| Suite | Tests |
+|---|---|
+| `test_mi_ledger_integrity.py` | **25 / 25** (0 skipped) |
+| `test_mi_integration.py` | 21 / 21, re-run on the strict ledger |
+| `test_mi_cpuguard.py` | 21 / 21 |
+| Pre-existing runner suites | 29 / 29 |
+
+| Requirement | Evidence (`test_mi_ledger_integrity`) |
+|---|---|
+| Genesis | first-ever only; refused without the flag, twice, after ledger loss, while the anchor survives, or with campaign records present; no silent initialization by `state` / `reserve` / `open` |
+| Deletion | ledger deleted → `LEDGER_MISSING`; state-dir wipe → caught by the external anchor |
+| Truncation / rollback | last event dropped → `TRUNCATED_OR_ROLLED_BACK`; empty file → `LEDGER_CORRUPT`; old copy restored, even together with the old state-dir checkpoint → caught |
+| Replay / fork | re-chained ledger with altered charges → `FORK_OR_REPLAY`; foreign ledger → `LEDGER_ID_MISMATCH` |
+| Code rollback | the old ledger module from `edc2b6d` refuses both `state` and `reserve` |
+| Checkpoints | corrupt JSON / edited value without the hash → `CORRUPT`; forged head with a recomputed self-hash → `FORK_OR_REPLAY`; anchor missing → `MISSING`; rebuild needs a token, preserves survivors and keeps charges; rebuild refused if a survivor contradicts the ledger |
+| Interrupted writes | torn tail refused, then repaired with a token (original preserved, charges kept); a crash between ledger append and checkpoint write → rolled forward by the next mutation; two unreconciled events → `STALE`; a crash between the two checkpoint writes → OK and re-synced; a failed atomic write leaves the previous checkpoint intact and no temp file |
+| Concurrency | 8 processes reserving at once → exactly 1 succeeds (single open); a concurrent `mi open` → refused "in progress" before any side effect |
+| Destructive recovery | carry-forward needs a token, keeps max(checkpoint, declared) = 180 when 50 is declared, starts epoch 1, old ids stay used, and nothing is deleted; total loss needs a declaration (the full cap exhausts the budget); restore-backup refuses an older backup and accepts the current one; tokens are bound to the exact state |
+| Opt-in / non-MI | CLI refuses `open` before genesis; `init` needs `--approve-genesis` and works only once; MI is disabled by default; non-MI argv is byte-identical to `0f12d3a` (integration suite) |
+
+### Residual risk (documented, not solvable locally)
+
+The only reset path left is the simultaneous deletion of the ledger, **both** checkpoints, all `*.bak` copies and
+all campaign records in two independent directory trees, followed by an owner-approved `init --approve-genesis`.
+
+Procedural control:
+
+- after every campaign close, record `ledger_id`, epoch, seq, head and committed in the GitHub evidence checkpoint;
+- before any genesis, the owner confirms that GitHub holds no prior lineage;
+- the Phase 1S output and derivation map bind the ledger head.
+
+### Backup procedure (preserves the audit trail)
+
+1. Take a backup only when `mi status` shows **no open reservation**, and never during a campaign.
+2. Tar **both** `~/.local/state/research-runner/mi/` and `~/.config/research-runner/mi/`, record the SHA-256, and
+   store the archive outside both trees.
+3. Record `mi ledger-check` (ledger_id, seq, head, committed) next to the archive.
+4. **Never copy files back by hand**; the checkpoints would report a rollback anyway. Restoring is only
+   `mi ledger-recover --recover-action restore-backup --backup <ledger.jsonl> --approve <token>`, which refuses any
+   backup older than the surviving checkpoints.
+
+### Rollback procedures
+
+| Level | Procedure |
+|---|---|
+| Config | Set `mi.enabled = false` (the default). MI is inert, and the ledger and checkpoints are untouched |
+| Code (runner) | Restore the pre-deployment runner tar. **Never** touch `state_dir/mi` or `~/.config/research-runner/mi`; they are outside the code tree by design |
+| Code rollback to `edc2b6d` | Not permitted after genesis (it refuses the ledger: fail-closed). Roll back only to `0f12d3a` (no MI) or forward |
+| Running campaign | `mi close`; if stuck, stop the guard unit, which kills the slice and charges; then `mi recover` |
+| Ledger damage | `mi ledger-check`, then the owner-approved `mi ledger-recover`. **Never** delete or re-initialize |
+
+### Updated deployment plan (still NOT executed)
+
+- **D2 (inert)** adds `mi_cpuguard/ledger.py` and the new tests.
+- **D3** additionally verifies that `research-run mi ledger-check` reports `NO_GENESIS` (no ledger exists) and that
+  **no** MI file exists in either directory.
+- **Genesis (`mi init --approve-genesis`) moves to D4 activation**, with separate owner approval.

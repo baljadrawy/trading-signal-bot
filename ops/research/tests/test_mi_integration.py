@@ -186,7 +186,7 @@ def make_cfg(tmp, **mi):
     cfg["python"] = sys.executable
     cfg["mi"].update({"enabled": True, "poll_s": 0.05, "margin_cpu_s": 1.0, "max_gap_s": 2.0,
                       "ready_timeout_s": 15.0, "wait_cgroup_s": 5.0, "close_timeout_s": 15.0,
-                      "cgroup_root": os.path.join(tmp, "cg")})
+                      "cgroup_root": os.path.join(tmp, "cg"), "anchor_dir": os.path.join(tmp, "anchor")})
     cfg["mi"].update(mi)
     return cfg
 
@@ -198,6 +198,7 @@ class Base(unittest.TestCase):
         self.cfg = make_cfg(self.td.name)
         self.prof = config.resolve_profile(self.cfg, "R1", workers=None, allow_elevated=False, attended=False,
                                            max_runtime_s=None)
+        MIC.init_ledger(self.cfg, approve_genesis=True, by="test")
 
     def tearDown(self):
         self.host.close()
@@ -207,7 +208,7 @@ class Base(unittest.TestCase):
         return MIC.open_campaign(self.cfg, c, res, run=self.host.run, sleep=time.sleep)
 
     def ledger(self):
-        return L.BudgetLedger(MIC.paths(self.cfg)["ledger"], cap_cpu_s=self.cfg["mi"]["cap_cpu_s"]).state()
+        return MIC._ledger(self.cfg).state()
 
 
 # ====================================================================== 1-2: opt-in, non-MI behaviour preserved
@@ -364,8 +365,7 @@ class FailClosed(Base):
 
     def test_corrupted_ledger_refuses_open_without_side_effects(self):
         led = MIC.paths(self.cfg)["ledger"]
-        os.makedirs(os.path.dirname(led), exist_ok=True)
-        L.BudgetLedger(led).reserve("old", 1.0)
+        MIC._ledger(self.cfg).reserve("old", 1.0)
         with open(led, "a") as fh:
             fh.write('{"seq": 99, "bogus": true}\n')
         n = len(self.host.calls)
@@ -409,7 +409,8 @@ class KillScope(unittest.TestCase):
             rc = guard_main.main(["--campaign", "x", "--reservation-cpu-s", "10", "--ledger", led,
                                   "--cgroup-dir", "/sys/fs/cgroup/system.slice/docker-x.scope",
                                   "--kill-unit", "docker-x.scope", "--ready-file", os.path.join(td, "r"),
-                                  "--close-file", os.path.join(td, "c")])
+                                  "--close-file", os.path.join(td, "c"), "--checkpoint", os.path.join(td, "k1"),
+                                  "--checkpoint", os.path.join(td, "a", "k2")])
             self.assertEqual(rc, 3)
             self.assertFalse(os.path.exists(led))
 
@@ -431,7 +432,7 @@ class RollbackAndRecovery(Base):
         self.host.fail_unit_prefix = "mi-cpuguard-"
         with self.assertRaises(MIC.MIError):
             self.open("o1")
-        self.assertEqual(self.ledger()["events"], 0)
+        self.assertEqual(self.ledger()["events"], 1)                         # genesis only: nothing reserved
         with open(MIC.paths(self.cfg, "o1")["campaign"]) as fh:
             self.assertEqual(json.load(fh)["status"], "aborted")
         with self.assertRaises(MIC.MIError):
@@ -453,7 +454,7 @@ class RollbackAndRecovery(Base):
         a = MIC.close_campaign(self.cfg, "o4", run=self.host.run)
         b = MIC.close_campaign(self.cfg, "o4", run=self.host.run)
         self.assertEqual((a["status"], b["status"]), ("closed", "closed"))
-        self.assertEqual(self.ledger()["events"], 2)                         # one reserve, one charge
+        self.assertEqual(self.ledger()["events"], 3)                         # genesis, one reserve, one charge
 
     def test_recover_refused_while_guard_alive_then_clean_after_close(self):
         self.open("o5")

@@ -56,8 +56,17 @@ class Clock:
         return self.t
 
 
+def new_ledger(tmp, name="budget.jsonl", genesis=True, **kw):
+    """A strict ledger with two independent checkpoints (state dir + a separate anchor dir)."""
+    led = L.BudgetLedger(os.path.join(tmp, name), checkpoints=[os.path.join(tmp, name + ".checkpoint.json"),
+                                                               os.path.join(tmp, "anchor", name + ".anchor.json")], **kw)
+    if genesis and not os.path.exists(led.path):
+        led.init_genesis(created_by="test")
+    return led
+
+
 def mk(tmp, counter, reservation=100.0, clock=None, **kw):
-    led = L.BudgetLedger(os.path.join(tmp, "budget.jsonl"))
+    led = new_ledger(tmp)
     g = Guard(reader=counter.read, killer=counter.kill, ledger=led, campaign=kw.pop("campaign", "c1"),
               reservation_cpu_s=reservation, clock=clock or Clock(1.0), sleep=lambda s: None, **kw)
     return g, led
@@ -140,7 +149,7 @@ class G2FailClosed(unittest.TestCase):
             def bad_kill():
                 c.killed = True
                 raise OSError("systemctl failed")
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = new_ledger(td, "b.jsonl")
             g = Guard(reader=c.read, killer=bad_kill, ledger=led, campaign="k", reservation_cpu_s=40.0,
                       clock=Clock(), sleep=lambda s: None)
             g.start()
@@ -216,9 +225,9 @@ class G4Charging(unittest.TestCase):
             self.assertTrue(out["stop_campaign"])
 
 
-def _reserve_worker(path, q):
+def _reserve_worker(td, q, single_open=False):
     try:
-        L.BudgetLedger(path).reserve(f"w{os.getpid()}", 5000.0)
+        new_ledger(td, "b.jsonl", genesis=False, single_open=single_open).reserve(f"w{os.getpid()}", 5000.0)
         q.put("ok")
     except L.BudgetExceeded:
         q.put("refused")
@@ -227,7 +236,7 @@ def _reserve_worker(path, q):
 class G5Ledger(unittest.TestCase):
     def test_cap_and_open_reservations_count_as_consumed(self):
         with tempfile.TemporaryDirectory() as td:
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = new_ledger(td, "b.jsonl")
             self.assertEqual(led.cap, 28_800.0)
             led.reserve("a", 20_000)
             with self.assertRaises(L.BudgetExceeded):
@@ -238,7 +247,7 @@ class G5Ledger(unittest.TestCase):
 
     def test_crash_recovery_charges_full_reservation(self):
         with tempfile.TemporaryDirectory() as td:
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = new_ledger(td, "b.jsonl")
             led.reserve("crashed", 3_000)
             led.recover("crashed")
             st = led.state()
@@ -246,26 +255,26 @@ class G5Ledger(unittest.TestCase):
 
     def test_tamper_is_detected(self):
         with tempfile.TemporaryDirectory() as td:
-            p = os.path.join(td, "b.jsonl")
-            led = L.BudgetLedger(p)
+            led = new_ledger(td, "b.jsonl")
+            p = led.path
             led.reserve("a", 100)
             led.charge("a", 50, "cgroup_usage_usec")
             with open(p) as fh:
                 lines = fh.read().splitlines()
             with open(p, "w") as fh:
-                fh.write(lines[0] + "\n" + lines[1].replace('"actual_cpu_s":50.0', '"actual_cpu_s":5.0') + "\n")
+                fh.write("\n".join(lines[:2] + [lines[2].replace('"actual_cpu_s":50.0', '"actual_cpu_s":5.0')]) + "\n")
             with self.assertRaises(L.LedgerTamper):
                 led.state()
             with self.assertRaises(L.LedgerTamper):
                 led.reserve("b", 1)
             with open(p, "w") as fh:
-                fh.write(lines[1] + "\n")                             # truncated head
+                fh.write(lines[2] + "\n")                             # truncated head
             with self.assertRaises(L.LedgerTamper):
                 led.state()
 
     def test_double_charge_and_unknown_campaign_refused(self):
         with tempfile.TemporaryDirectory() as td:
-            led = L.BudgetLedger(os.path.join(td, "b.jsonl"))
+            led = new_ledger(td, "b.jsonl")
             led.reserve("a", 10)
             led.charge("a", 5, "x")
             with self.assertRaises(L.LedgerTamper):
@@ -275,17 +284,17 @@ class G5Ledger(unittest.TestCase):
 
     def test_concurrent_reservations_are_serialized(self):
         with tempfile.TemporaryDirectory() as td:
-            p = os.path.join(td, "b.jsonl")
+            new_ledger(td, "b.jsonl")
             q = mp.get_context("fork").Queue()
-            ps = [mp.get_context("fork").Process(target=_reserve_worker, args=(p, q)) for _ in range(8)]
+            ps = [mp.get_context("fork").Process(target=_reserve_worker, args=(td, q)) for _ in range(8)]
             for x in ps:
                 x.start()
             for x in ps:
                 x.join(30)
             res = sorted(q.get(timeout=5) for _ in ps)
             self.assertEqual(res.count("ok"), 5)                       # 5 x 5 000 <= 28 800 < 6 x 5 000
-            st = L.BudgetLedger(p).state()
-            self.assertEqual((st["events"], st["committed_cpu_s"]), (5, 25_000))
+            st = new_ledger(td, "b.jsonl", genesis=False).state()
+            self.assertEqual((st["events"], st["committed_cpu_s"]), (6, 25_000))          # genesis + 5 reserves
 
 
 class G6WallClock(unittest.TestCase):

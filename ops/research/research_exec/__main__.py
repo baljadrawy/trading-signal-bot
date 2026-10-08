@@ -59,9 +59,17 @@ def main(argv=None) -> int:
     r.add_argument("--wait", action="store_true")
     r.add_argument("--mi-campaign", help="opt-in MI Phase 1S campaign (requires config mi.enabled)")
     mi = sub.add_parser("mi", help="MI campaign lifecycle (opt-in; config mi.enabled)")
-    mi.add_argument("action", choices=["open", "close", "recover", "status"])
+    mi.add_argument("action", choices=["init", "open", "close", "recover", "status", "ledger-check",
+                                       "ledger-recover"])
     mi.add_argument("--campaign")
     mi.add_argument("--reservation-cpu-s", type=float)
+    mi.add_argument("--approve-genesis", action="store_true", help="init only: first-ever genesis (owner)")
+    mi.add_argument("--recover-action", choices=["rebuild-checkpoints", "torn-tail", "restore-backup", "carry-forward"])
+    mi.add_argument("--approve", help="owner approval token printed by `mi ledger-check`")
+    mi.add_argument("--by", default=os.environ.get("USER", "owner"))
+    mi.add_argument("--backup")
+    mi.add_argument("--declared-consumed-cpu-s", type=float)
+    mi.add_argument("--declared-campaigns", default="")
     mi.add_argument("--config")
     ad = sub.add_parser("admit")
     ad.add_argument("--profile", default="R1")
@@ -92,7 +100,15 @@ def main(argv=None) -> int:
         from . import mi_campaign as MIC
         cfg = _cfg(a)
         try:
-            if a.action == "open":
+            if a.action == "init":
+                out = MIC.init_ledger(cfg, approve_genesis=a.approve_genesis, by=a.by)
+            elif a.action == "ledger-check":
+                out = MIC.ledger_check(cfg)
+            elif a.action == "ledger-recover":
+                out = MIC.ledger_recover(cfg, a.recover_action, approve=a.approve or "", by=a.by, backup=a.backup,
+                                         declared_consumed_cpu_s=a.declared_consumed_cpu_s,
+                                         declared_campaigns=[c for c in a.declared_campaigns.split(",") if c])
+            elif a.action == "open":
                 if not a.campaign or a.reservation_cpu_s is None:
                     raise MIC.MIError("open needs --campaign and --reservation-cpu-s")
                 out = MIC.open_campaign(cfg, a.campaign, a.reservation_cpu_s, ensure_parent=launcher.ensure_slice)

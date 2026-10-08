@@ -45,7 +45,10 @@ MI = {"enabled": False, "slice": "research-mi.slice", "cpu_quota_pct": 600, "cpu
       "memory_max": 10 * GIB, "tasks_max": 1024, "cap_cpu_s": 28_800, "margin_cpu_s": 12.0, "poll_s": 1.0,
       "max_gap_s": 3.0, "guard_cpu_quota_pct": 20, "guard_memory_max": "64M", "guard_runtime_max_s": 36 * 3600,
       "ready_timeout_s": 60.0, "wait_cgroup_s": 30.0, "close_timeout_s": 120.0,
-      "cgroup_root": "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"}
+      "cgroup_root": "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service",
+      # second, independent ledger checkpoint: outside the runner state dir AND outside the code tree, so neither
+      # a state-dir loss nor a code rollback can silently reset the budget
+      "anchor_dir": os.path.join(HOME, ".config/research-runner/mi")}
 
 DEFAULTS = {
     "health_path": "/home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1/health/collector_health.json",
@@ -124,6 +127,7 @@ def load_config(path: str | None = None) -> dict:
             over = json.load(fh)
         cfg = _merge(cfg, over)
     cfg["state_dir"] = os.path.expanduser(cfg["state_dir"])
+    cfg["mi"]["anchor_dir"] = os.path.expanduser(cfg["mi"]["anchor_dir"])
     return cfg
 
 
