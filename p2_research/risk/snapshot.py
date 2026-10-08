@@ -24,6 +24,10 @@ from .position import normalize
 
 RECORD, RECORD_VERSION = "tsb.p2rm.risk_snapshot", 1
 NOT_IN_UNIVERSE = "NOT_IN_UNIVERSE_AT_T"
+# D-RM0-2 (RM0-UNITS 1.1.0): a cross-position monetary or notional-weighted aggregate is VALID only when every
+# position it aggregates has the same canonical quote currency. No FX conversion exists, none is invented.
+MIXED = "mixed_quote_currencies_no_fx_conversion"
+CAP_MISMATCH = "capital_currency_mismatch_no_fx_conversion"
 
 
 class SnapshotInputError(ValueError):
@@ -111,9 +115,12 @@ def _exposure(ctx, ps, cap) -> dict:
         acc = {}
         for p in ps:
             acc.setdefault(keyf(p), []).append(p)
-        return {str(k): {"gross": V.mv(_fs(abs(p.signed_notional) for p in v), V.DERIVED),
-                         "net": V.mv(_fs(p.signed_notional for p in v), V.DERIVED), "count": len(v)}
-                for k, v in sorted(acc.items(), key=lambda kv: str(kv[0]))}
+        def one(v):
+            if len({p.quote_currency for p in v}) > 1:
+                return {"gross": V.na(MIXED), "net": V.na(MIXED), "count": len(v)}
+            return {"gross": V.mv(_fs(abs(p.signed_notional) for p in v), V.DERIVED),
+                    "net": V.mv(_fs(p.signed_notional for p in v), V.DERIVED), "count": len(v)}
+        return {str(k): one(v) for k, v in sorted(acc.items(), key=lambda kv: str(kv[0]))}
     out["by_symbol"] = bd(lambda p: p.symbol)
     out["by_tier"] = bd(lambda p: f"tier{tiers[p.symbol]}" if p.symbol in tiers else NOT_IN_UNIVERSE)
     out["by_venue"] = bd(lambda p: p.venue)
@@ -128,13 +135,17 @@ def _exposure(ctx, ps, cap) -> dict:
             st, fl = LQ._state_from_dq(c)
             marks[p.instrument_id] = V.mv(p.sign * p.quantity * (b[3] + b[4]) / 2, V.DERIVED, st, flags=fl)
     out["mark_to_market_signed_notional_at_t"] = marks
-    out["mark_to_market_net_at_t"] = V.combine([marks[p.instrument_id] for p in ps], _fs)
+    out["mark_to_market_net_at_t"] = (V.na(MIXED) if len(quotes) > 1 else
+                                      V.combine([marks[p.instrument_id] for p in ps], _fs))
     refs = ctx.C.policy["count_references_documented_only"]["references"]
     out["count_references_documented_only"] = {k: {"reference": v, "headroom": v - len(ps)} for k, v in sorted(refs.items())}
-    return out, G
+    return out, (None if len(quotes) > 1 else G)
 
 
 def _concentration(ctx, ps, G) -> dict:
+    if G is None:
+        return {k: V.na(MIXED) for k in ("largest_share", "top3_share", "hhi", "effective_n_notional", "tier_hhi")} | {
+            "tier_shares": {}}
     if not ps or G <= 0:
         r = "flat_portfolio"
         return {k: V.na(r) for k in ("largest_share", "top3_share", "hhi", "effective_n_notional", "tier_hhi")} | {
@@ -199,7 +210,10 @@ def _volatility(ctx, ps, G):
         sig1d[p.instrument_id] = d1
     out = {"timeframe": "15m", "lookback_long_returns": L, "lookback_short_returns": Ls, "per_position": per,
            "universe_median_sigma_15m_long": umed}
-    if not ps or G <= 0:
+    if G is None:
+        out["notional_weighted_sigma_1d"] = V.na(MIXED)
+        out["high_vol_notional_share"] = V.na(MIXED)
+    elif not ps or G <= 0:
         out["notional_weighted_sigma_1d"] = V.na("flat_portfolio")
         out["high_vol_notional_share"] = V.na("flat_portfolio")
     else:
@@ -253,7 +267,8 @@ def _correlation(ctx, ps, G) -> dict:
         return out
     ms = [m for *_, m in vals]
     wts = [abs(a.signed_notional) * abs(b.signed_notional) for a, b, _ in vals]
-    out["average_pairwise_weighted"] = V.combine(ms, lambda vs: _fs(w * v for w, v in zip(wts, vs)) / _fs(wts))
+    out["average_pairwise_weighted"] = (V.na(MIXED) if G is None else
+                                        V.combine(ms, lambda vs: _fs(w * v for w, v in zip(wts, vs)) / _fs(wts)))
     out["average_pairwise_unweighted"] = V.combine(ms, lambda vs: _fs(vs) / len(vs))
     out["max_pairwise"] = V.combine(ms, max)
     return out
@@ -272,10 +287,17 @@ def _btc(ctx, ps, G) -> dict:
         per[p.instrument_id] = {"correlation_with_btc": rho, "beta_to_btc": bet, "n_obs": n, "ci95_descriptive": ci}
         rhos.append(rho)
         betas.append(bet)
-    direct = _fs(abs(p.signed_notional) for p in ps if p.base_currency == "BTC")
+    bps = [p for p in ps if p.base_currency == "BTC"]
+    direct = _fs(abs(p.signed_notional) for p in bps)
     out = {"reference_instrument": C.btc_reference, "reference_choice_class": V.ASSUMED,
            "naming_rule": "correlation and beta are separate measures; correlation is never called beta",
-           "per_position": per, "direct_btc_notional": V.mv(direct, V.DERIVED)}
+           "per_position": per,
+           "direct_btc_notional": (V.na(MIXED) if len({p.quote_currency for p in bps}) > 1 else V.mv(direct, V.DERIVED))}
+    if G is None:
+        for k in ("direct_btc_weight", "weighted_correlation_with_btc", "portfolio_beta_to_btc",
+                  "btc_beta_equivalent_notional"):
+            out[k] = V.na(MIXED)
+        return out
     if not ps or G <= 0:
         for k in ("direct_btc_weight", "weighted_correlation_with_btc", "portfolio_beta_to_btc",
                   "btc_beta_equivalent_notional"):
@@ -295,6 +317,11 @@ def _covariance(ctx, ps, G) -> dict:
     req = max(mo, 5 * k)
     out = {"alignment": "common bars where every position has a return", "k": k, "n_required": req}
     keys = ("portfolio_sigma_1d_ccy", "portfolio_sigma_1d_fraction_of_gross", "diversification_ratio")
+    if G is None:
+        out["n_common"] = 0
+        out.update({x: V.na(MIXED) for x in keys})
+        out["euler_contribution"] = {p.instrument_id: V.na(MIXED) for p in ps}
+        return out
     if k == 0 or G <= 0:
         out["n_common"] = 0
         out.update({x: V.na("flat_portfolio") for x in keys})
@@ -335,17 +362,25 @@ def _covariance(ctx, ps, G) -> dict:
 
 def _heat(ps, G, cap, sig1d) -> dict:
     C_ = cap["value"]
+    quotes = sorted({p.quote_currency for p in ps})
+    if G is None:
+        return {"definition": "RM0-HEAT 1.0.0 (not a B3 limit; an ex-ante exposure measure)",
+                "measured_exposure_gross": V.na(MIXED), "hypothetical_capital": V.mv(C_, V.ASSUMED, V.ASSUMED_INPUT),
+                "exposure_heat": V.na(MIXED), "vol_heat_ccy": V.na(MIXED), "vol_heat": V.na(MIXED),
+                "coverage": {"positions": len(ps), "with_sigma": sum(1 for p in ps if not V.is_null(sig1d[p.instrument_id]))},
+                "exceeds_hypothetical_capital": None}
+    cap_ok = not quotes or quotes == [cap["currency"]]
     vh = V.combine([sig1d[p.instrument_id] for p in ps], lambda vs: _fs(abs(p.signed_notional) * v for p, v in zip(ps, vs)),
                    cls_floor=V.ASSUMED) if ps else V.mv(0.0, V.DERIVED)
     out = {"definition": "RM0-HEAT 1.0.0 (not a B3 limit; an ex-ante exposure measure)",
            "measured_exposure_gross": V.mv(G, V.DERIVED),
            "hypothetical_capital": V.mv(C_, V.ASSUMED, V.ASSUMED_INPUT),
-           "exposure_heat": V.mv(G / C_, V.ASSUMED, V.ASSUMED_INPUT),
+           "exposure_heat": V.mv(G / C_, V.ASSUMED, V.ASSUMED_INPUT) if cap_ok else V.na(CAP_MISMATCH),
            "vol_heat_ccy": vh,
-           "vol_heat": (V.na(vh["reason"], vh["state"], vh["flags"]) if V.is_null(vh) else
+           "vol_heat": (V.na(CAP_MISMATCH) if not cap_ok else V.na(vh["reason"], vh["state"], vh["flags"]) if V.is_null(vh) else
                         V.mv(vh["value"] / C_, V.ASSUMED, V.worst(vh["state"], V.ASSUMED_INPUT), flags=vh["flags"])),
            "coverage": {"positions": len(ps), "with_sigma": sum(1 for p in ps if not V.is_null(sig1d[p.instrument_id]))},
-           "exceeds_hypothetical_capital": G > C_}
+           "exceeds_hypothetical_capital": (G > C_) if cap_ok else None}
     return out
 
 
@@ -412,12 +447,13 @@ def build_snapshot(market_or_ctx, positions, snapshot_time_ms: int | None = None
     vol["portfolio_vol_proxy"] = {k: cov[k] for k in ("portfolio_sigma_1d_ccy", "portfolio_sigma_1d_fraction_of_gross")}
     vol["portfolio_vol_proxy"]["condition"] = {"k": cov["k"], "n_common": cov["n_common"], "n_required": cov["n_required"]}
     liq_per = {p.instrument_id: LQ.position_liquidity(ctx.view, p, tiers.get(p.symbol), C.refs) for p in ps}
-    liq = {"per_position": liq_per, **LQ.aggregate(liq_per, ps, C.refs),
+    liq = {"per_position": liq_per, **LQ.aggregate(liq_per, ps, C.refs, mixed=G is None),
            "time_basis": "snapshot time T, zero latency (not an EXEC-* scenario; EXEC-BASE stays ASSUMED in P2-X)"}
     rec = {
         "record": RECORD, "record_version": RECORD_VERSION,
         "snapshot_time_ms": T, "snapshot_time_utc": _utc(T),
         "contracts": {"rm0_contract_set_sha256": C.sha256, "rm0_versions": C.versions(),
+                      "rm0_units_amendment_sha256": RC.units_amendment_sha256(),
                       "p2x_contract_set_sha256": X2.default().sha256,
                       "p2x_policies": C.metrics["liquidity"]["p2x_reuse"]},
         "inputs": {"capital": cap, "duplicate_policy": duplicates, "conceptual_short": conceptual_short,
@@ -439,6 +475,8 @@ def build_snapshot(market_or_ctx, positions, snapshot_time_ms: int | None = None
                     lambda vs: _fs(abs(p.signed_notional) * v for p, v in zip(ps, vs)), cls_floor=V.ASSUMED)
     if not ps:
         sav = {}
+    elif G is None:
+        sav = {p.instrument_id: V.na(MIXED) for p in ps}
     elif V.is_null(tot):
         sav = {p.instrument_id: V.na(tot["reason"], tot["state"], tot["flags"]) for p in ps}
     elif not tot["value"] > 0:
@@ -447,7 +485,8 @@ def build_snapshot(market_or_ctx, positions, snapshot_time_ms: int | None = None
         sav = {p.instrument_id: V.mv(abs(p.signed_notional) * sig1d[p.instrument_id]["value"] / tot["value"], V.DERIVED,
                                      tot["state"], flags=tot["flags"]) for p in ps}
     rec["risk_contribution"] = {
-        "notional": ({p.instrument_id: V.mv(abs(p.signed_notional) / G, V.DERIVED) for p in ps} if G > 0 else {}),
+        "notional": ({p.instrument_id: V.na(MIXED) for p in ps} if G is None else
+                     {p.instrument_id: V.mv(abs(p.signed_notional) / G, V.DERIVED) for p in ps} if G > 0 else {}),
         "standalone_vol": sav,
         "covariance_euler": cov["euler_contribution"],
         "covariance_condition": {"k": cov["k"], "n_common": cov["n_common"], "n_required": cov["n_required"]},

@@ -1,0 +1,20 @@
+{
+ "record": "tsb.p2rm.contract",
+ "id": "RM0-UNITS",
+ "version": "1.1.0",
+ "amends": {"contract_set": "contracts_rm0", "base_set_sha256_unchanged": true},
+ "defect": "D-RM0-2 (mixed quote currencies aggregated fail-open; found 2026-10-06 by the RM0 closure review)",
+ "units": {
+  "price": "quote currency per one unit of base asset (per instrument)",
+  "quantity": "base asset units (per instrument)",
+  "notional": "quote currency of the instrument (reference_notional = quantity x reference price)",
+  "fee": "quote currency of the instrument (P2-X contract; never summed across quotes)",
+  "returns_sigma_correlation_beta": "unitless (per instrument or pair)",
+  "shares_weights_heat": "unitless ratio, defined only over positions sharing one quote currency (and, for capital ratios, equal to the capital currency)"
+ },
+ "rule": "A cross-position monetary or notional-weighted aggregate is VALID only if every position it aggregates has the same canonical quote currency. Otherwise it is UNAVAILABLE with reason mixed_quote_currencies_no_fx_conversion. Capital ratios additionally require the portfolio quote currency to equal the hypothetical capital currency, else UNAVAILABLE with reason capital_currency_mismatch_no_fx_conversion and exceeds_hypothetical_capital = null.",
+ "currency_identity": "canonical quote currency from the instrument identity; no case folding and no stablecoin aliasing (USDT, FDUSD, USDC, TUSD, BUSD are distinct units); no epsilon: any non-zero foreign-quote position makes the set mixed",
+ "fx_conversion": "NOT SUPPORTED in this version; a future PIT-safe conversion basis with provenance is an extension point and is never invented",
+ "unchanged": "per-instrument and unitless values; partition by_quote_currency and by_symbol; counts; regime; drawdown",
+ "historical_evidence": "sealed RM0 v1 evidence (code 9c7b750, logical hash 9ff677e8...788b) is not rewritten; all its non-flat snapshots are single-quote USDT"
+}

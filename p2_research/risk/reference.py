@@ -46,13 +46,20 @@ def _beta(x, y):
 
 
 def metrics(candles: dict, positions: list, T: int, P: dict) -> dict:
-    """positions: [(symbol, signed_notional)]. P: lookback / min_obs parameters. Returns a flat {key: value|None}."""
+    """positions: [(symbol, signed_notional)] or [(symbol, signed_notional, quote_currency)]. P: lookback / min_obs
+    parameters. Returns a flat {key: value|None}. Independent D-RM0-2 rule: with more than one quote currency every
+    cross-position monetary or notional-weighted value is None (no FX conversion)."""
+    mixed = len({t[2] for t in positions if len(t) > 2}) > 1
+    positions = [(t[0], t[1]) for t in positions]
     out = {}
     L, mo, cmo, bar = P["lookback"], P["min_obs_long"], P["min_obs_corr"], P["bar_ms"]
     g = sum(Fraction(abs(s)) for _, s in positions)
-    out["exposure.gross"] = float(g)
-    out["exposure.net"] = float(sum(Fraction(s) for _, s in positions))
-    if g > 0:
+    out["exposure.gross"] = None if mixed else float(g)
+    out["exposure.net"] = None if mixed else float(sum(Fraction(s) for _, s in positions))
+    if mixed and positions:
+        for k in ("largest_share", "top3_share", "hhi", "effective_n_notional"):
+            out[f"concentration.{k}"] = None
+    elif g > 0:
         w = sorted((Fraction(abs(s)) / g for _, s in positions), reverse=True)
         h = sum(x * x for x in w)
         out["concentration.largest_share"] = float(w[0])
@@ -90,6 +97,8 @@ def metrics(candles: dict, positions: list, T: int, P: dict) -> dict:
             var = sum(sn[i] * sn[j] * statistics.covariance(cols[i], cols[j]) for i in range(k) for j in range(k))
             out["portfolio_sigma_1d_ccy"] = math.sqrt(var) * math.sqrt(96) if var > 0 else None
         else:
+            out["portfolio_sigma_1d_ccy"] = None
+        if mixed:
             out["portfolio_sigma_1d_ccy"] = None
     return out
 

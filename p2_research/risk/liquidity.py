@@ -105,7 +105,18 @@ def position_liquidity(view, p, tier, refs: dict) -> dict:
     return out
 
 
-def aggregate(per: dict, positions, refs: dict) -> dict:
+def aggregate(per: dict, positions, refs: dict, mixed: bool = False) -> dict:
+    """``mixed``: positions span more than one quote currency (D-RM0-2): every notional sum/weight is refused."""
+    if mixed:
+        MX = "mixed_quote_currencies_no_fx_conversion"
+        return {"notional_weak_liquidity": V.na(MX), "notional_liquidity_unknown": V.na(MX),
+                "notional_beyond_displayed_depth": V.na(MX),
+                "positions_stale_depth_policy": sum(1 for p in positions if per[p.instrument_id]["stale_depth_policy"] is True),
+                "positions_depth_age_over_research_reference": sum(
+                    1 for p in positions if per[p.instrument_id]["depth_age_over_research_reference"] is True),
+                "positions_depth_unavailable": sum(1 for p in positions if per[p.instrument_id]["depth_sufficiency"] == "UNAVAILABLE"),
+                "market_impact": V.na("refused_unsupported_by_data:p2x_truth_boundary"),
+                "weak_liquidity_share": V.na(MX), "weighted_spread_bps": V.na(MX), "half_spread_cost_ccy_total": V.na(MX)}
     G = math.fsum(p.notional for p in positions)
     weak = math.fsum(p.notional for p in positions if per[p.instrument_id]["weak_liquidity"] is True)
     unknown = math.fsum(p.notional for p in positions if per[p.instrument_id]["weak_liquidity"] is None)

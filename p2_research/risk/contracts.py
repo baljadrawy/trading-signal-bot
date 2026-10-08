@@ -95,3 +95,21 @@ def default() -> RiskContracts:
     if _DEFAULT is None:
         _DEFAULT = RiskContracts()
     return _DEFAULT
+
+UNITS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contracts_rm0_v1_1")
+_UNITS_SHA = None
+
+
+def units_amendment_sha256() -> str:
+    """RM0-UNITS 1.1.0 (D-RM0-2): verify the frozen amendment and return the hash of its FROZEN_SHA256SUMS file."""
+    global _UNITS_SHA
+    if _UNITS_SHA is None:
+        sp = os.path.join(UNITS_DIR, SUMS_FILE)
+        with open(sp, encoding="utf-8") as fh:
+            sums = json.load(fh)
+        if sums.get("record") != SUMS_RECORD or sorted(sums.get("files") or {}) != ["units_v1.json"]:
+            raise RiskContractError("UNITS_AMENDMENT_SUMS_INVALID")
+        if _sha(os.path.join(UNITS_DIR, "units_v1.json")) != sums["files"]["units_v1.json"]:
+            raise RiskContractError("CONTRACT_HASH_MISMATCH: units_v1.json")
+        _UNITS_SHA = _sha(sp)
+    return _UNITS_SHA
