@@ -1,0 +1,87 @@
+{
+ "cdp_rules": {
+  "alpha": "alpha of the final step (0.05, 0.05, 0.025)",
+  "block_mean_days": "base (T1/T2 5, T3 28) x block_factor of the final step",
+  "exclusions": "every stress cell failing null control at the final step, listed verbatim; failing non-stress cells are also listed (they imply DESCRIPTIVE_ONLY via ladder FAIL)",
+  "ladder_step": "smallest k in {0,1,2} at which every non-stress null cell of the task (incl. T2 verification cells) has fp_k/n <= 5/100 (exact) AND Wilson-95 UB <= 0.07 (tie |UB-0.07| <= 1e-12 fails); none -> FAIL -> task DESCRIPTIVE_ONLY; every step needed must be present for every cell, else UNRESOLVED_LADDER",
+  "n_star_T1_T2": "upward-closed: the smallest grid positive count c (non-stress, non-verification cells) such that EVERY such cell with positives >= c has power pass_k/n >= 80/100 at BSS_min (0.02); none -> T1 INSUFFICIENT_ALWAYS / T2 DESCRIPTIVE_ONLY",
+  "t2_breakout_count_threshold": "ceil(n*_T2 x 10 / 3) in exact integers; B2 verification: every non-stress T2 cell (incl. pi=0.2) with n_events >= threshold must pass power, else STOP; no such cell -> DESCRIPTIVE_ONLY (THRESHOLD_BEYOND_GRID)",
+  "t3": "reference cells persistence 0.95 (both shapes): power < 50 % -> DESCRIPTIVE_ONLY; else every non-stress cell power >= 80 % -> n*_T3 = 517 days; else INSUFFICIENT_ALWAYS",
+  "trip_wire_ceiling": "max max_bss over all skill levels and non-stress cells of the task"
+ },
+ "fixture_tests": "p2_research/tests/test_mi_phase1.py: pass, ladder step 1, step 2, FAIL, infeasible n*, every STOP precondition, B2 check both ways, ties",
+ "implementation": "p2_research/mi/derive.py (MAP_VERSION mi-derivation-map-1.0.0; hashed in FROZEN_SHA256SUMS)",
+ "input_schema": {
+  "budget": {
+   "breach": "bool",
+   "cap_cpu_s": 28800,
+   "cumulative_cpu_s": "number",
+   "enforcement": "cgroup_cpu_budget_guard_v1",
+   "enforcement_verified": "bool"
+  },
+  "cells": {
+   "<cell_id>": {
+    "leak": {
+     "fire_k": "int",
+     "n": "int"
+    },
+    "miscal": {
+     "<variant>": {
+      "n": "int",
+      "reject_k": "int"
+     }
+    },
+    "null": {
+     "<step>": {
+      "b3_reject_k": "int",
+      "fp_k": "int",
+      "n": "int"
+     }
+    },
+    "skill": {
+     "<level>": {
+      "max_bss": "number",
+      "n": "int",
+      "pass_k": "int"
+     }
+    }
+   }
+  },
+  "contract_set_sha256": "str",
+  "final_step": {
+   "T1": "int",
+   "T2": "int",
+   "T3": "int"
+  },
+  "l2": {
+   "n": "int",
+   "null_fp_k": "int"
+  },
+  "protocol_sha256": "str",
+  "record": "tsb.mi.phase1s_output",
+  "record_version": 1,
+  "status": "COMPLETE | INCOMPLETE"
+ },
+ "numerics": "rational gates in exact integers; Wilson in IEEE-754 double, z = 1.959963984540054; ties toward the conservative side",
+ "record": "tsb.mi.derivation_map",
+ "stop_preconditions": [
+  "HASH_MISMATCH",
+  "UNPARSEABLE",
+  "WRONG_RECORD",
+  "INCOMPLETE_STATUS",
+  "PROTOCOL_MISMATCH",
+  "BUDGET_NOT_ENFORCED",
+  "BUDGET_BREACH",
+  "INCOMPLETE_GRID",
+  "INCOMPLETE_REPS",
+  "UNRESOLVED_FIELD",
+  "UNRESOLVED_LADDER",
+  "FINAL_STEP_MISMATCH",
+  "L2_MODEL_FIT_INFLATION",
+  "LEAK_CANARY_WEAK",
+  "B3_SIZE_FAIL",
+  "B3_POWER_FAIL",
+  "B2_REFERENCE_NOT_CONSERVATIVE"
+ ],
+ "version": "1.0.0"
+}

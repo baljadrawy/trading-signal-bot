@@ -1,0 +1,27 @@
+{
+ "base_commit": "3aff2cc99cd0e7423b030ac234ada28cbfd24cea",
+ "contract_set_sha256": "fdf3366480976db6ada1ac90b62f6b6db1edc35a59d1f3527cfcd6fcbf28e157",
+ "created_utc": "2026-10-08",
+ "events": 0,
+ "genesis_id": "adcdc0b23655075eb975604edf3110138e38416cc6c9f88de5ae7ec2f68effc7",
+ "head": {
+  "event_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "seq": -1
+ },
+ "hypothesis_ids_reserved": [
+  "H-MI-T1-downside-v1",
+  "H-MI-T2-falsebreak-v1",
+  "H-MI-T3-regime-v1"
+ ],
+ "ledger_code": "p2_research/ledger.py",
+ "ledger_code_sha256": "71df78bc9675b23bcc64e1c66c789a79b1e44f19f3b84abffbe0a4f69d300893",
+ "ledger_dir": "/home/tradmin/research-data/trading-signal-bot/mi/ledger",
+ "ledger_file": "trials.jsonl",
+ "ledger_file_present": false,
+ "ledger_record": "tsb.p2c.trial_ledger",
+ "ledger_version": 1,
+ "record": "tsb.mi.ledger_genesis",
+ "record_version": 1,
+ "rule": "no trial may be registered before MI-C v1.1 is pushed; real-data trials only after v1.1 and before Phase 2; synthetic Phase 1S runs are sealed manifests, not ledger trials",
+ "trials": 0
+}

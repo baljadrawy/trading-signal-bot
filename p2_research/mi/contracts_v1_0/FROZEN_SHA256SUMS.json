@@ -1,0 +1,16 @@
+{
+ "base_commit": "3aff2cc99cd0e7423b030ac234ada28cbfd24cea",
+ "contract_version": "1.0.0",
+ "files": {
+  "contract.py": "0f556528cf5e4da6a1931ce538a369da30f57cfcb5af3ab560a21916689c61a5",
+  "contracts_v1_0/mi_contract_v1_0.json": "3f9d008a3188f2fab75a0a26122f395f2a24191e3ef80260456908223d3782b0",
+  "contracts_v1_0/mi_derivation_map_v1_0.json": "9311b86de183780f1865e96771bbc660beed68492557b663ee817ec42a78cdf6",
+  "contracts_v1_0/mi_phase1s_protocol_v1_0.json": "412cb6062ea5b4f4c9b8bd9fa34cf0d449b4f8abcab4c173858791a9f9464202",
+  "derive.py": "92d1df60791ec396a8c48c289c28ff9d32c3e07c83568b05853c2654306e47bf",
+  "folds.py": "54b5fea3b265e9268595bca86a20fb99182adc022401978535fce80a325b2c9e",
+  "timeline.py": "a2fd01c27219fcdd6f6400cd0c3ddf754f0adce8ee9c044af98a2b803a991dc6"
+ },
+ "frozen_at_utc": "2026-10-08",
+ "note": "MI-C v1.0; calibration-dependent parameters provisional until v1.1 (Phase 1S derivation map); v1.0 is never edited",
+ "record": "tsb.mi.frozen_sums"
+}

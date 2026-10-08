@@ -1,0 +1,301 @@
+{
+ "cdp": [
+  "ladder_step",
+  "block_mean_days",
+  "alpha",
+  "n_star_T1",
+  "n_star_T2",
+  "t2_breakout_count_threshold",
+  "t3_status / n_star_T3",
+  "trip_wire_ceiling",
+  "exclusions"
+ ],
+ "data": {
+  "ds_0928": {
+   "class": "EXPLORATORY_CONDITIONAL (DS-1); certificate FAIL preserved",
+   "id": "ds-09284abbc6453ff59acd"
+  },
+  "eligibility_rules": "docs/mi/MI_ML_DATA_INVENTORY.md section 6 DS-1..DS-9 (verbatim, frozen by reference at this commit)",
+  "forward_collector": "never used historically",
+  "p2b": {
+   "id": "p2b-53de1a98c2792cd74206",
+   "use": "W2 S-MAJ consistency only (DS-4)"
+  },
+  "strategy_outcomes": "never MI inputs",
+  "w3": {
+   "freeze_guard": "any bar ending after 2026-08-19T09:33:46Z is a hard failure",
+   "interval": [
+    "2026-08-19T09:33:46Z",
+    "2026-10-04T15:26:43.497803Z"
+   ],
+   "status": "SEALED incl. market candles"
+  }
+ },
+ "forbidden_words": [
+  "VALIDATED",
+  "CONFIRMED",
+  "PROVEN"
+ ],
+ "governance": {
+  "amendment": "docs/mi/MI_ML_GOVERNANCE_AMENDMENT.md MI-ADR-01..08",
+  "authorizes": "nothing beyond Phase 1; no real data, no Phase 1S, no install, no production",
+  "decision_package": "docs/mi/MI_ML_DECISION_PACKAGE_P01.md @ 3aff2cc",
+  "owner_decisions_2026_10_08": {
+   "D13": "accepted in principle, NO compute",
+   "D15": "accepted; B2 = 0.3 subject to synthetic verification",
+   "D4": "option b",
+   "D5": "accepted; B1: S-MAJ development training from 2018-01-01",
+   "D6_D14": "accepted with K1/K2",
+   "D7": "A/B/C accepted",
+   "phase1": "contract, freeze, ledger genesis, lightweight synthetic tests only"
+  }
+ },
+ "inference_scope": "a verdict covers only the certified task x scope x horizon x grid region x HLE period; no broader claim",
+ "ledger": {
+  "code": "p2_research/ledger.py (P2-C trial ledger, unchanged)",
+  "dir": "/home/tradmin/research-data/trading-signal-bot/mi/ledger",
+  "hypothesis_ids": [
+   "H-MI-T1-downside-v1",
+   "H-MI-T2-falsebreak-v1",
+   "H-MI-T3-regime-v1"
+  ],
+  "real_trials": "registered only after v1.1 is pushed and before Phase 2",
+  "synthetic_runs": "sealed manifests, not ledger trials"
+ },
+ "name": "MI-C v1.0 (Market Intelligence ML, historical research track)",
+ "phase_gates": "docs/mi/MI_ML_DECISION_PACKAGE_P01.md section 9 (as corrected by K1-K5) + docs/mi/MI_PHASE1_CONTRACT.md",
+ "pit": {
+  "delta_act_s": 60,
+  "delta_avail_s": {
+   "15m": 120,
+   "1d": 300,
+   "1h": 120,
+   "4h": 120
+  },
+  "delta_compute_s": 60,
+  "implementation": "p2_research/mi/timeline.py",
+  "rules": [
+   "canonical end = open + tf; raw close fields map to the same end (archive -1 us, REST -1 ms)",
+   "feature uses bar b only if end(b) + delta_avail <= t_issue; late arrivals never back-filled",
+   "path-extreme labels: bars with open >= t_act; close-based labels: closes with end > t_act",
+   "fitted quantities use only bars available before their month / fold start",
+   "freeze: hard failure in features and labels"
+  ]
+ },
+ "record": "tsb.mi.contract",
+ "requirements": {
+  "A": {
+   "class": "mandatory integrity; failure -> INVALID_EVIDENCE",
+   "items": [
+    "A1 ledger registration before run; spec hashes bound",
+    "A2 PIT rules + boundary tests",
+    "A3 zero freeze/W3 violations",
+    "A4 DS-1..DS-9 + coverage manifest",
+    "A5 deterministic rebuild",
+    "A6 censoring/null counts per segment x scope",
+    "A7 leak canaries (label time-shift, shuffled features, feature delay, trip-wire ceiling from v1.1)",
+    "A8 every registered trial reported"
+   ]
+  },
+  "B": {
+   "B1": {
+    "alpha": "CDP (provisional 0.05)",
+    "block_mean_days": "CDP",
+    "multiplicity": "Holm within task (m<=2); Bonferroni x3 across tasks",
+    "test": "one-sided Brier-loss differential vs strongest dev-selected baseline; p = max(stationary block bootstrap 2000, Diebold-Mariano HAC fixed-b)"
+   },
+   "B2": "log-loss differential same sign",
+   "B3": "Cox slope CI contains 1, intercept CI contains 0, calibration-in-the-large CI contains 1",
+   "B4": "dev-fold sign consistency >= 2/3; per scope; T3 both vol states",
+   "B5": {
+    "n_star": "CDP",
+    "provisional_floors": {
+     "T1_T2": "300 positives / 100 event-days",
+     "T3": "30 transitions"
+    }
+   },
+   "B6": "W2 S-MAJ: BSS point >= 0 and slope CI contains 1 else FRAGILE",
+   "class": "statistical thresholds (gate HISTORICAL_LOCKED_SKILL per task x scope); structure frozen, CDP from v1.1"
+  },
+  "C": {
+   "class": "descriptive only",
+   "items": [
+    "reliability diagrams",
+    "debiased ECE + consistency-resampling null",
+    "sharpness",
+    "precision/recall at dev q80",
+    "per-fold / per-regime BSS",
+    "HMM stability",
+    "block-length sensitivity",
+    "S-ALT results",
+    "DS-6 / DS-7 variants",
+    "utility U1-U3"
+   ]
+  }
+ },
+ "segments": {
+  "development": {
+   "S-ALT": [
+    "2019-01-01",
+    "2024-12-31"
+   ],
+   "S-MAJ": [
+    "2018-01-01",
+    "2024-12-31"
+   ],
+   "class": "E1"
+  },
+  "folds": {
+   "eligibility": "decision_time <= fold_start - embargo AND label_end <= fold_start; evaluation rows censored when the label crosses the fold end",
+   "embargo_days": {
+    "T1": 1,
+    "T2": 1,
+    "T3": 7
+   },
+   "expanding": true,
+   "first": "2021-Q1",
+   "implementation": "p2_research/mi/folds.py",
+   "last": "2024-Q4",
+   "min_train_span_days": 730,
+   "n": 16
+  },
+  "hle": {
+   "after": "model-lock hash pushed",
+   "class": "E2",
+   "label_end_before": "2026-06-01",
+   "looks": 1,
+   "range": [
+    "2025-01-01",
+    "2026-05-31"
+   ]
+  },
+  "lookback_s_maj": [
+   "2017-08-17",
+   "2017-12-31"
+  ],
+  "shadow": {
+   "class": "E3",
+   "status": "separate protocol and approval"
+  },
+  "w2_check": {
+   "class": "E2b",
+   "range": [
+    "2026-06-01",
+    "freeze"
+   ],
+   "scope": "S-MAJ only"
+  }
+ },
+ "status": "FROZEN definitions; calibration-dependent parameters (CDP) provisional until MI-C v1.1 (Phase 1S, derivation map)",
+ "tasks": {
+  "T1": {
+   "baselines": [
+    "B0 expanding rate",
+    "B1 rate by liquidity bucket",
+    "B2 analytic 2*Phi(-theta/(sigma_EWMA(0.94)*sqrt(h)))",
+    "B3 logistic on log sigma"
+   ],
+   "candidates": [
+    "M1 L2 logistic (7 features)",
+    "M2 shallow GBM (<=200 trees, depth<=3, <=3-point grid on dev)"
+   ],
+   "decision_bar": "[T-4h, T)",
+   "features": [
+    "vol.rv_1h_24",
+    "vol.atr_norm_1h_14",
+    "vol.vol_ratio_15m_16_96",
+    "mom.dist_high_15m_96",
+    "ctx.btc_rv_1h_24",
+    "btc_logret_24h",
+    "hist.universe_ret_24h_median"
+   ],
+   "grid": "4h closes",
+   "label": "D24 = 1 if min(low of 15m bars with open in [T+15min, T+15min+24h)) <= p0 x (1 - 0.06); secondary D4: 3 % over [T+15min, T+4h15min)",
+   "name": "downside-risk probability",
+   "reference": "p0 = decision-bar close (REFERENCE price, not an executable entry price; executable-entry risk not modelled)",
+   "t_act": "T + 240 s",
+   "t_issue": "T + 180 s",
+   "variant_descriptive": "D24sigma (theta = 2 x sigma_24h)"
+  },
+  "T2": {
+   "baselines": [
+    "B0 expanding base rate",
+    "B1 rate by margin tercile",
+    "B3 logistic on margin"
+   ],
+   "candidates": [
+    "M1 L2 logistic",
+    "M2 shallow GBM"
+   ],
+   "decision_bar": "breakout bar t = [T-4h, T)",
+   "event": "close_t > L and close_t - L >= 0.25 x ATR14(4h, through t); no new event for the symbol within 6 bars",
+   "features": [
+    "margin/ATR",
+    "body_ratio",
+    "rel_volume_4h",
+    "range_compression_20/ATR",
+    "btc_logret_24h",
+    "hist.breadth"
+   ],
+   "grid": "4h closes",
+   "label": "FB = 1 if any close of bars t+1..t+6 with end > t_act is <= L; the breakout close is never a label",
+   "level": "L = max high of the 20 bars before t",
+   "name": "false-breakout probability"
+  },
+  "T3": {
+   "baselines": [
+    "B0 frequencies",
+    "B1 persistence (epsilon on dev)",
+    "B2 expanding 7-step Markov matrix"
+   ],
+   "candidates": [
+    "M1 multinomial logistic",
+    "M2 shallow GBM"
+   ],
+   "decision_bar": "1d bar of day d",
+   "features": [
+    "z30",
+    "sigma20/median",
+    "hist.breadth_20d",
+    "hist.dispersion",
+    "btc_eth_ret30_spread"
+   ],
+   "hmm": "2/3-state Gaussian HMM, identification only, descriptive",
+   "name": "BTC regime identification and transition",
+   "regime": "trend z30 = ln(C_d/C_{d-30})/(sigma60 x sqrt 30): up >= +0.5, down <= -0.5, else range; vol high if sigma20 >= 1.25 x trailing-365d median (expanding before 365 d); 6 states",
+   "t_issue": "d+1 00:06",
+   "targets": [
+    "R_{d+7} (multiclass)",
+    "TR = 1[R_{d+7} != R_d]"
+   ]
+  }
+ },
+ "universe": {
+  "exploratory": "S-ALT = PIT top-30 USDT by trailing-30d median quote volume, monthly, >= 200 1d bars, stablecoin / leveraged bases excluded, delisted kept to last bar; EXPLORATORY_ONLY ceiling (DS-3)",
+  "inferential": "S-MAJ = BTCUSDT, ETHUSDT",
+  "universe_features": "allowed in S-MAJ models only with the DS-7 without-variant and FRAGILE cap"
+ },
+ "utility": {
+  "U1": "exposure 1 - 0.5 x 1[p > q80_dev] vs matched-mean-exposure vol targeting; fee 2x10 bps, +20 bps stress; CVaR95, maxDD, Sharpe, turnover",
+  "U2": "net 24h forward reference return by predicted-FB quintile",
+  "U3": "regime-conditional vs unconditional vol targeting",
+  "label": "REFERENCE_PRICE_COUNTERFACTUAL",
+  "never": "achievable PnL, achievable drawdown reduction or executable edge; never part of skill"
+ },
+ "verdicts": [
+  "HISTORICAL_LOCKED_SKILL (E2, non-confirmatory)",
+  "FRAGILE",
+  "NO_SKILL",
+  "INSUFFICIENT_EVIDENCE",
+  "INVALID_EVIDENCE",
+  "EXPLORATORY_ONLY",
+  "DESCRIPTIVE_ONLY"
+ ],
+ "version": "1.0.0",
+ "versioning": {
+  "immutability": "v1.0 / v1.1 kept byte-identical",
+  "v1.0": "this set; pushed before Phase 1S",
+  "v1.1": "CDP only, by the frozen derivation map from one sealed COMPLETE Phase 1S output; pushed before Phase 2; any value not produced by the map is invalid",
+  "v1.2+": "owner-approved, only before Phase 2; after Phase 2 starts only more conservative (second verdict)"
+ }
+}

@@ -430,6 +430,16 @@ as real-data trials.
 
 ## §9a. Unresolved blockers (owner)
 
+**Phase 1 update (2026-10-08):**
+
+- B1 is resolved (S-MAJ development from 2018-01-01).
+- B2 is resolved (0.3, verified in Phase 1S by the derivation map).
+- **K3 item 4 is superseded.** The CPU cap is bounded by *measured* cgroup CPU (protocol G1–G7), not by
+  wall-clock time.
+- New **B5**: the runner lacks fail-closed CPU enforcement.
+
+See `MI_PHASE1_CONTRACT.md`. The original table follows.
+
 | ID | Blocker | Recommended resolution |
 |---|---|---|
 | **B1** | The K1 fold assertion fails under D5 (fold-1 training 723–730 days) | Option a: S-MAJ development training starts 2018-01-01 |
