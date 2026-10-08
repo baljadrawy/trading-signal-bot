@@ -197,3 +197,84 @@ then **step 2**, the ~25-minute G5 minimal ramp in a protected-window-free slot.
 - **Rollback:** restore `launcher.py` from the backup (`install` the saved file). It takes effect at the next research
   launch. No service restart is needed.
 - **Remaining G6 steps:** not started. Steps 2–8 still need separate authorisation; G5 benchmarks were not run.
+
+---
+
+## 7. G5 final benchmark preflight (2026-10-08 ~11:17Z): READY, start gated by prerequisites
+Read-only; no research job was launched and no limit was changed.
+
+**Verified:**
+- **Deployed runner:** byte-identical to `feature/g6s1-research-swap-isolation-20261008` @ `0f12d3a` (launcher
+  sha `9a5ff011…`; the remote SHA matches).
+  - G6 step 1 is in force: `MemorySwapMax=0` on job, watchdog and slice.
+- **Host snapshot (5 s):**
+  - CPU: busy 0.90 vCPU, steal 0.23 vCPU (ratio 0.21); load 0.78.
+  - Memory: MemAvailable 20.15 GiB; swap used 0.5 MiB.
+  - Pressure: CPU some avg60 0.09 %, memory 0.
+  - Collector ≈ 0.44 cores of 1.5; hermes idle.
+  - Capacity is unchanged from §1. 4→6→8 workers stays appropriate and keeps ≥ 4 vCPU free.
+- **Memory fit:** G2 measured a 62.8 MiB peak at 4 workers (≈ 16 MiB/worker). That projects to ≈ 0.13 GiB at 8
+  workers, far below MemoryHigh 8 GiB / MemoryMax 10 GiB. Admission needs MemAvailable ≥ MemoryMax + 6 GiB = 16 GiB;
+  20.15 GiB is available.
+
+**Confirmed parameters** (refined from §2.4: one identical plan for all stages, so speedup is measured on equal work
+and determinism is checked across worker counts):
+
+| Stage | Profile / opt-in | Workers | Plan | Expected wall |
+|---|---|---|---|---|
+| baseline | — | 0 | 5 min no research (60-s monitor and 5-s steal) | 5 min |
+| S1 | R1 (default) | 4 | `synthetic_cpu.py --units 240 --iters 30000000` (= 1,800 CPU-s; G2: 7.51 s/unit) | ≈ 7.5 min |
+| S2 | R2 `--allow-elevated` | 6 | same plan | ≈ 5.0 min |
+| S3 | R3 `--attended` (operator present, hermes idle) | 8 | same plan | ≈ 3.75 min |
+
+- Total ≈ 21 min, run sequentially (heavy lock).
+- Each stage uses its own job and checkpoint directory. Reusing a directory would resume completed units and
+  falsify the timings.
+- Command per stage:
+  `research-run run --job-id g5-s<N> --owner g5 --profile <P> [--allow-elevated|--attended] --max-runtime-s 1200 --wait -- python3 <runner>/examples/synthetic_cpu.py --units 240 --iters 30000000 --checkpoint <jobdir>/ckpt --out <jobdir>/merged.json`.
+
+**Safety gates** (all from the deployed config; none changed):
+- **Admission:**
+  - Collector HEALTHY, health ≤ 30 s, durable lag ≤ 5 s, beat ≤ 3 s;
+  - monitor fresh (≤ 180 s), INFO/WARNING only, written by the supervised `tsb-p2f-monitor.service`;
+  - outside the protected windows (hh:12–25, 23:50–00:45, 01:10–01:45);
+  - heavy lock free;
+  - steal ratio ≤ 0.40 and steal ≤ 1.0 vCPU (5 s);
+  - PSI CPU some avg60 ≤ 10 %, memory ≤ 0.10;
+  - MemAvailable ≥ MemoryMax + 6 GiB; disk ≥ 150 GB free.
+- **Freeze (watchdog, 2 s tick):**
+  - Collector health age > 30 s, durable lag > 5 s, beat > 3 s or loop lag > 5 s;
+  - monitor not INFO/WARNING or stale > 180 s;
+  - steal > 2.0 vCPU over 5 s; memory PSI some avg10 > 1 %;
+  - entering a protected window; the operator pause file.
+
+  Thaw after 120 s clean.
+- **Kill (whole group):** frozen > 4,200 s; MemAvailable < 3 GiB; memory PSI full avg10 > 10 %. Plus systemd OOM
+  group kill and RuntimeMaxSec.
+- **Promote a stage only if all hold:**
+  - efficiency ≥ 0.85 × workers versus 7.51 s/unit;
+  - steal ratio 60-s p95 ≤ 0.40;
+  - Collector loop-lag p99 ≤ 1.6 s, durable lag p99 ≤ 2.6 s, sampler lateness p99 ≤ 1.5 s, 0 DEGRADED;
+  - CPU PSI some avg60 ≤ 10 %;
+  - merged result hash identical across S1–S3;
+  - 0 new Collector incidents.
+- **Operator abort:** do not continue to the next stage on any failed criterion. Stop a running stage with the pause
+  file or `systemctl --user stop rj-g5-s<N>.service`.
+
+**Rollback:** no configuration changes, so nothing to roll back. After the run, verify:
+- no `rj-`/`rw-` units remain;
+- `research.slice` is inactive;
+- the heavy lock is free;
+- the Collector, monitor, Paper and container identities are unchanged.
+
+Job directories stay as evidence.
+
+**Remaining prerequisites (start gate):**
+1. **PAPER-R2 T0 + 1 h checkpoint** (due 2026-10-08T11:54Z) completed, so Paper's first post-resume admissions are
+   observed before any research load.
+2. **G3:** the first post-resize rotation (≈ 00:10Z 2026-10-09) passes. The 24-h comparison window
+   (2026-10-08T08:29Z → 2026-10-09T08:29Z) is collected **before** the benchmark, because research load inside that
+   window would confound the post-G3 steal/latency comparison.
+3. **Window:** proposed 2026-10-09 08:45–09:10Z. That is after the 24-h comparison, clear of the hh:12–25 window,
+   and clear of the ±30 min around the proactive rotation (≈ 07:27Z). Recompute from health before starting.
+4. **Owner authorisation** for R2 `--allow-elevated` and R3 `--attended` (operator present, hermes idle).
