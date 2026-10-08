@@ -446,6 +446,8 @@ pilot runs first. Via R1 only, never concurrent with G5 / F0 v3 / G6, and needs 
 
 **"Approved in principle" is not authorization to execute any phase.**
 
+Final decision package for D4–D7 and D13–D15 (exact values, alternatives, Phase 1 / 1S versioning and phase GO/NO-GO): `MI_ML_DECISION_PACKAGE_P01.md`.
+
 | # | Decision | Status | Condition / what is still needed |
 |---|---|---|---|
 | D1 | Governance amendment MI-ADR-01…08 (reference until PR #3; then ADR-022…029) | **Approve now (in principle)** | No execution authority; each phase still needs its own approval |
