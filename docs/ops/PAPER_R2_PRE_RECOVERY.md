@@ -218,3 +218,39 @@ These are read-only, run independently later. No waiters or scheduled jobs exist
 | T0 + 72 h | 2026-10-11T10:54Z | stability assessment; continuation recommendation (observation only; no strategy tuning) |
 
 If any hard breaker fires, Paper stays halted. There is no automatic recovery; the owner decides.
+
+### Checkpoint T0 + 1 h: PASS (2026-10-08T12:04:57Z; coverage 10:48:57Z → 12:04:57Z)
+- **State:** B3 `2026-10-08|f|manual_resume|30463`, with no new `risk_management` row. Recovery epochs remain 3. No
+  recovery, resume or pause transitions, and no breaker fired. 0 open trades.
+- **Verification levels:**
+
+  | Level | Status | Evidence |
+  |---|---|---|
+  | Scanner operational | ✔ | 16 cycles, 0 "paused" messages after 10:53Z, 16–19 eligible symbols per cycle |
+  | Signal pipeline | ✔ | 3 signals (15532 MINA, 15533 ORCA, 15534 PUMP, all 15m, `telegram_sent`); outbox `signal.ready` 3 and `signal.delivered` 3, all completed |
+  | Admission path | **observed ✔** | 3 trades (3664–3666) opened 20 s after their signals; all after T0; maximum concurrency 2 (ORCA and PUMP, 11:50–11:59); no same-symbol overlap |
+  | Full lifecycle | **observed ✔** | 3 `trade.opened` and 3 `trade.closed` completed; 3 results (3619–3621), one per trade, 0 duplicates |
+
+- **Accounting (net is authoritative):**
+
+  | Result | Symbol | Gross USDT | Net USDT | Exit (UTC) | Exit type |
+  |---|---|---|---|---|---|
+  | 3619 | MINA | −0.9891 | −1.1391 | 11:18:01 | stop |
+  | 3620 | PUMP | −0.7107 | −0.8607 | 11:59:01 | stop |
+  | 3621 | ORCA | −0.6049 | −0.7549 | 12:00:25 | non-stop, 0.67 h (expiry policy) |
+
+  - Totals: gross −2.3047, fees 0.45 (0.15 × 3), net **−2.7547**.
+  - Epoch-3 streak: **3 consecutive net losses** (limit 7). The soft-reduce threshold (≥ 3) is now reached, by design
+    (cap 1 for new admissions).
+  - Daily net ≈ −0.55 % of 500 (limit 3 %). No weekly or drawdown breach.
+- **Controls:** `PAPER_TRADING=true`, loss streak 7, 3/10/15 %, cap 2, stake 50, fee 0.15. Compose `3ad35a87`;
+  `env_unchanged=yes`.
+- **Dead letters:** 269 total, **0 new** since T0; no replay; no dead-letter→poll admission.
+- **Runtime:** the five containers are unchanged (IDs, images, config hashes), healthy, RestartCount 0; heartbeats
+  ≤ 35 s, 0 errors.
+  - 0 error-like log lines, except one tracker WARNING at 11:00:09: "invalidation-candle check for MINAUSDT/15m:
+    TimeoutError". It was transient and non-fatal; MINA later exited by stop.
+  - Collector `ce4e6b6656a5` HEALTHY with 0 restarts.
+- **Stop conditions:** none breached.
+- **Follow-ups for T0 + 24 h:** soft-reduce behaviour at cap 1; recurrence of the invalidation-check timeout;
+  C1 gross labels (all three are LOSS by both gross and net here).
