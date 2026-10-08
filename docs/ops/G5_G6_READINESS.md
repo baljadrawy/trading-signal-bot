@@ -166,3 +166,34 @@ Independent now: 1 (then 2). Dependent on G3 follow-up: 4. Needs other projects'
 ## 5. Recommended next authorised action
 Authorise **step 1** (research runner `MemorySwapMax=0` + memory-aware worker gate, Class A, no production restart),
 then **step 2**, the ~25-minute G5 minimal ramp in a protected-window-free slot.
+
+---
+
+## 6. G6 step 1 — research swap isolation: DONE (2026-10-08, owner-authorised)
+- **Change:** `MemorySwapMax=0` on research job units (`rj-*.service`), research watchdog units
+  (`rw-*.service`), and the runtime properties the runner applies to `research.slice`.
+  - Code: `ops/research/research_exec/launcher.py` on `feature/g6s1-research-swap-isolation-20261008` @ `0f12d3a`
+    (from `e5a4fcc`), plus regression test `tests/test_launcher_swap.py`.
+- **Unchanged:** MemoryHigh, MemoryMax, TasksMax, OOMScoreAdjust +500, OOMPolicy=kill, CPU envelopes, admission.
+- **Deployed:** only `~/ops/research-runner/research_exec/launcher.py`.
+  - sha256 `b6cfb2ef…` → `9a5ff011…`, which equals the repo blob.
+  - Backup: `research-runner-backup-pre-g6s1-20261008T110319Z`.
+- **Preflight:**
+  - 0 research or watchdog units loaded; heavy lock free;
+  - deployed tree byte-identical to `e5a4fcc` before the change;
+  - the change affects research units only, and no running service reads the file.
+- **Verification:**
+  - Tests: 22/22 (3 new swap tests plus the logic suite). The new tests fail on `e5a4fcc`.
+  - Rendered argv for LIGHT, R1, R2 and R3, the watchdog and the slice all contain `MemorySwapMax=0`, with other
+    properties unchanged.
+  - A 1-s probe unit in `research.slice` read `memory.swap.max=0`. The probe was not a research job, and the
+    empty slice was stopped afterwards.
+  - Dry `research-run admit --profile R1`: admit=true, reasons [].
+- **Production unchanged:**
+  - The same 12 container IDs, all up.
+  - Collector `ce4e6b6656a5` with 0 restarts, healthy.
+  - Monitor MainPID 3551927, NRestarts 0.
+  - B3 `2026-10-08|f|manual_resume|30463`.
+- **Rollback:** restore `launcher.py` from the backup (`install` the saved file). It takes effect at the next research
+  launch. No service restart is needed.
+- **Remaining G6 steps:** not started. Steps 2–8 still need separate authorisation; G5 benchmarks were not run.
