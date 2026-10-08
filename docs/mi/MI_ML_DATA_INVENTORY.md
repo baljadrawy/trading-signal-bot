@@ -7,13 +7,13 @@ outcome labels, strategy outcomes or W3 content were opened, and no production d
 
 | Dataset | Location | Content | Coverage | Integrity / status | MI use |
 |---|---|---|---|---|---|
-| **ds-09284abbc6453ff59acd** ("ds-0928", W1) | `~/research-data/trading-signal-bot/snapshots/ds-09284abbc6453ff59acd/` (5.7 GB) | Binance **spot USDT** OHLCV, 15m / 1h / 4h / 1d, 596 symbols; base columns + rolling-24h columns | BTC / ETH 2017-08-17 → **2026-05-31**. Rows: 15m 71.3 M, 1h 17.8 M, 4h 4.46 M, 1d 0.74 M. 1d listing years: 2017 6, 2018 16, 2019 65, 2020 106, 2021 123, then 41–100 per year. Median 1195 daily bars per symbol | Upstream checksums verified; normalized PASS; determinism PASS; leakage PASS. Files: 1499 PASS / 885 WARN; gap files 15m 377, 1h 377, 4h 112, 1d 17. Certificate **status FAIL**, critical `HISTORICAL_USDT_DOMINANCE_MISSING`; `MATERIAL_SURVIVORSHIP_LIMITATION`; universe `PARTIALLY_POINT_IN_TIME_CONTROLLED` (596 inferred listings, 177 inferred delistings, 0 known); `MACRO_DATA_UNAVAILABLE`; `eligible_for_phase2 = false` | **Primary** development / validation source. The FAIL concerns dominance and macro, which MI does not use; accepting this needs owner decision MI-D3 |
-| **p2b-53de1a98c2792cd74206** (W2) | `~/research-data/trading-signal-bot/p2/normalized/p2b-53de…/` (44 MB) | Same schema, 15m / 1h / 4h / 1d, **139 symbols**, 1 354 266 candles | 2025-11-01 → 2026-08-19T09:29:59Z, close < freeze | W3_PROOF PASS (0 post-freeze rows); 10 953 archives re-verified; 834 REST-validated; 237 SOURCE_UNAVAILABLE; 0 internal gaps; REST-vs-archive 17009/17010 match; seams 508 contiguous, 48 single-source | Candidate **final historical test** (W2). The universe is **decision-selected**: the symbols the bot signalled, plus BTC / ETH. It is not a PIT universe (see §4) |
+| **ds-09284abbc6453ff59acd** ("ds-0928", W1) | `~/research-data/trading-signal-bot/snapshots/ds-09284abbc6453ff59acd/` (5.7 GB) | Binance **spot USDT** OHLCV, 15m / 1h / 4h / 1d, 596 symbols; base columns + rolling-24h columns | BTC / ETH 2017-08-17 → **2026-05-31**. Rows: 15m 71.3 M, 1h 17.8 M, 4h 4.46 M, 1d 0.74 M. 1d listing years: 2017 6, 2018 16, 2019 65, 2020 106, 2021 123, then 41–100 per year. Median 1195 daily bars per symbol | Upstream checksums verified; normalized PASS; determinism PASS; leakage PASS. Files: 1499 PASS / 885 WARN; gap files 15m 377, 1h 377, 4h 112, 1d 17. Certificate **status FAIL**, critical `HISTORICAL_USDT_DOMINANCE_MISSING`; `MATERIAL_SURVIVORSHIP_LIMITATION`; universe `PARTIALLY_POINT_IN_TIME_CONTROLLED` (596 inferred listings, 177 inferred delistings, 0 known); `MACRO_DATA_UNAVAILABLE`; `eligible_for_phase2 = false` | **Conditionally usable for exploratory historical research only** (DS-1). The FAIL certificate and every finding are preserved unchanged. BTC/ETH and alt results are reported separately (DS-2), with an alt claim ceiling (DS-3) |
+| **p2b-53de1a98c2792cd74206** (W2) | `~/research-data/trading-signal-bot/p2/normalized/p2b-53de…/` (44 MB) | Same schema, 15m / 1h / 4h / 1d, **139 symbols**, 1 354 266 candles | 2025-11-01 → 2026-08-19T09:29:59Z, close < freeze | W3_PROOF PASS (0 post-freeze rows); 10 953 archives re-verified; 834 REST-validated; 237 SOURCE_UNAVAILABLE; 0 internal gaps; REST-vs-archive 17009/17010 match; seams 508 contiguous, 48 single-source | W2 consistency check (E2b), **BTC/ETH only** (DS-4). The universe is **decision-selected** (the symbols the bot signalled, plus BTC / ETH), so its alt rows are excluded until a PIT universe exists (D9 deferred) |
 | p2a-4821487044281371e146 | `~/research-data/trading-signal-bot/p2/canonical/…` | Strategy decisions, stored runtime snapshots, execution / trade lifecycle (W1 12 905 / W2 1 456 decisions) | 2026-04-08 → 2026-08-19 | 0 validation violations; W3 excluded at extraction | **Not an MI input** (strategy outcomes; MI-ADR-03). The schema can be reused |
 | ds-d82b982e7221e2dcc7b7 | `~/research-data/trading-signal-bot/ds-d82b…` | Superseded by ds-0928 | — | superseded | none |
 | p2-forward-continuous-v1 | `~/research-data/trading-signal-bot/p2/forward-continuous-v1/` (1.2 GB, live Collector tree) | Book / depth / closed klines / universe tiers, Tier 0–2 | 2026-10-04 (partly inside W3) → now. Sealed: 10-05, 10-07; 10-06 FAILED (health hole) | Collector-owned; the Ledger refuses to live there | **Reserved** for a future prospective shadow protocol (MI-ADR-03 / 06); never written to |
 
-**Not available locally (each would need an explicit acquisition decision, MI-D9):**
+**Not available locally (each would need an explicit acquisition decision, D9):**
 
 - full-universe W2 archives (for a PIT W2 universe);
 - historical BTC.D / ETH.D / USDT.D (none PIT);
@@ -30,7 +30,7 @@ The production `macro_history` table is daily, last-write-wins and not PIT, so i
 | `mom.*` (10), `vol.*` (5), `act.*` (3) | **yes**: same formulas on ds-0928 / p2b candles | Must be re-implemented as `REBUILT_*` with a new feature version; formulas unchanged |
 | `ctx.btc_ret_1h_1`, `ctx.btc_rv_1h_24` | yes | Identical to mom / vol on BTCUSDT rows |
 | `ctx.breadth_24h`, `ctx.universe_ret_24h_median`, `ctx.universe_disp_24h`, `ctx.xs_rank_ret_24h` | **approximate only**: the registry uses miniTicker rolling 24 h; historically a 1h-candle rolling-24h analogue over a PIT universe | Defined as new historical variants; survivorship-sensitive |
-| `ctx.tier` | no (forward universe epochs) | Replaced by a PIT liquidity rank built from candles (MI-D4) |
+| `ctx.tier` | no (forward universe epochs) | Replaced by a PIT liquidity rank built from candles (D4) |
 | `liq.*` (7), `dq.*` (8) | **no**: book / depth / Collector lifecycle are forward-only | Excluded from historical MI. P2-D H04's `liquidity_stress` regime branch therefore cannot be reproduced historically |
 
 **Existing labels** (`p2_research/labels.py`): `mkt.fwd_ret / mfe / mae / max_dd / decline_{1h,4h,24h}`.
@@ -51,14 +51,14 @@ The production `macro_history` table is daily, last-write-wins and not PIT, so i
 
 **Environment gap.** System `python3` has **no pyarrow** (checked 2026-10-08), so the Parquet stores cannot be read
 without a new isolated environment (pyarrow, numpy, pandas, scikit-learn; optionally lightgbm). That is owner
-decision MI-D8.
+decision D8.
 
 ## 4. Data-quality assessment for MI
 
 | Risk | Finding | Mitigation proposed |
 |---|---|---|
 | Survivorship | ds-0928 is archive-presence based: 177 inferred delistings included, 0 known delistings, `MATERIAL_SURVIVORSHIP_LIMITATION` | PIT liquidity universe built from candles available at T. Delisted symbols kept while present. Results reported separately for BTC / ETH (no survivorship) and the alt universe |
-| Universe selection (W2) | p2b covers only bot-signalled symbols plus BTC / ETH, so it is selection-biased | W2 test on BTC / ETH plus the PIT top-N chosen with data < 2026-06-01; any missing archives acquired under the P2-B guard (MI-D9). Otherwise the W2 test is BTC / ETH only |
+| Universe selection (W2) | p2b covers only bot-signalled symbols plus BTC / ETH, so it is selection-biased | W2 check is BTC/ETH only (DS-4). Acquisition of a PIT alt universe is deferred (D9) |
 | Timestamp integrity | Archive close = open + tf − 1 µs (REST: −1 ms); 2025+ archives are µs (auto-detected) | Decision time = bar close; a feature uses only bars with close < T; a label uses bars with open ≥ T |
 | Missing data | 377 / 596 symbols have 15m / 1h gaps; 1d 17 | Never synthesize. A label whose horizon overlaps a gap is censored and counted. A feature window containing a gap is null with a reason (P2-C convention) |
 | Availability-time leakage | Candles are available after close (archives later; REST at close). Dominance / macro is not PIT | Candle-only features; no macro; synthetic leak tests (one-bar-shift canary as in F0 R09) |
@@ -75,7 +75,40 @@ These are recorded in project memory and summarized here, not re-run:
 - Edge scans, SMC and falling-wedge tests.
 - The June live-learning system.
 
-Triple-barrier and stop-hit labels are closely related to downside events. **W1 market outcomes, and W2 up to
-about 2026-06-25, have therefore been looked at.** No historical period is pristine. MI historical results are
-development evidence; confirmation can only come from prospective shadow data or from a separately authorized W3
-opening protocol.
+**How the prior studies relate to the three tasks** (Phase 0.1 disclosure, C2):
+
+| Prior study (from project memory) | Period touched | Related MI label |
+|---|---|---|
+| 2026-06 XGBoost daily study, triple-barrier labels | ds-0928 lineage through about 2026-06 | T1: the stop-barrier hit is a downside event; T3: its "6 months = 99 % of net, regime beta" finding concerns regimes |
+| 9-year target-policy and stop-policy backtests | 2017–2026 (W1, part of W2) | T1: MAE and stop-hit distributions |
+| SMC / falling-wedge / structure tests | 2017–2026 | T2: breakout and CHoCH continuation or failure |
+| Edge scans, indicator studies, ICT validation | W1 | T1 / T2: features related to volatility, momentum and breakouts |
+| June live-learning cohort, learned gates, H04-like regime throttles | 2026-04 → 08 (W1 / W2) | T3: regime-conditional behaviour |
+| Strategy outcome tables (P2-A) | W1 / W2 | not MI inputs, but they reflect the same markets |
+
+**Consequence.** W1 market outcomes, and W2 up to about 2026-06-25, were looked at, including labels related to all
+three tasks.
+
+- No historical period is pristine.
+- The 2025-01 → 2026-05 segment is a **Historical Locked Evaluation** (E2): locked and pre-registered, but **not
+  independently confirmatory**.
+- Independent evidence can only come from prospective shadow data (E3), or from a separately authorized W3 opening
+  protocol.
+
+## 6. Dataset eligibility, exclusion and downgrade rules (Phase 0.1, C3)
+
+The underlying datasets and certificates are **not modified**. These rules live only in MI documents and, later,
+in MI manifests.
+
+| Rule | Content |
+|---|---|
+| **DS-1** | **ds-0928 = EXPLORATORY_CONDITIONAL** for MI. The certificate (status FAIL; `HISTORICAL_USDT_DOMINANCE_MISSING`; `MATERIAL_SURVIVORSHIP_LIMITATION`; `PARTIALLY_POINT_IN_TIME_CONTROLLED`; `MACRO_DATA_UNAVAILABLE`; `eligible_for_phase2 = false`) is cited unchanged in every MI report. |
+| **DS-2** | **Scope split.** Every result is reported for **S-MAJ** (BTCUSDT, ETHUSDT) and **S-ALT** separately. Pooled results may only appear beside them, never alone. |
+| **DS-3** | **Alt claim ceiling.** S-ALT and pooled verdicts are capped at **EXPLORATORY_ONLY**: no HISTORICAL_LOCKED_SKILL and no broad altcoin-market skill claim. The ceiling holds until all of the following are true: (R1) independent (Tier A) listing and delisting dates cover the universe period; (R2) a PIT universe including delisted symbols is rebuilt, with a selection-bias analysis; (R3) the owner accepts the resolution. |
+| **DS-4** | **p2b (W2)** is decision-selected, so it is used for the **S-MAJ consistency check only**. Its alt rows are excluded until a PIT W2 universe exists (D9 deferred). |
+| **DS-5** | **File level.** Files with failures are excluded. WARN files are allowed, with gap censoring. A symbol needs ≥ 200 closed 1d bars (`t_avail` before the period start) before first use. Stablecoin and leveraged-token bases are excluded. |
+| **DS-6** | **Delisting tail.** Symbols with an inferred delisting are kept up to their last bar. A sensitivity variant without the final 30 days before the inferred delisting is always reported (descriptive). |
+| **DS-7** | **Universe-derived features** (breadth, dispersion, cross-sectional rank) inherit the alt limitation. S-MAJ models that use them must also report a variant without them. If that variant has BSS ≤ 0 while the full model passes, the S-MAJ verdict is capped at **FRAGILE**. |
+| **DS-8** | **Segment coverage.** A segment × scope is evaluated only if ≥ 90 % [P] of scheduled forecasts have valid features and uncensored labels. Otherwise it is INSUFFICIENT_EVIDENCE. Censoring is always reported. |
+| **DS-9** | W3 stays sealed (market candles included, D2). Forward-Collector data is never used historically. p2a strategy outcomes are never MI inputs. |
+

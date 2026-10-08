@@ -1,6 +1,8 @@
 # Market Intelligence ML — governance amendment (PROPOSED, additive)
 
-**Status:** proposal for owner approval (STOP POINT 1), 2026-10-08.
+**Status:** proposal for owner approval (STOP POINT 1), 2026-10-08. **Phase 0.1 (2026-10-08):** D1 / D2 are
+approved *in principle*. That is not authorization to execute any phase. MI-ADR-01…08 text is unchanged; see the
+annex.
 
 **What it does.** It adds decisions and changes no earlier decision. It does not edit any existing file:
 
@@ -56,3 +58,28 @@ does not authorize:
 - Every existing approval boundary.
 
 If a conflict is found later, the safer earlier rule wins and the owner is asked (DECISION_LOG approval model).
+
+## Annex — Phase 0.1 clarifications (2026-10-08; MI-ADR text unchanged)
+
+These clarify how MI-ADR-03 / 04 / 06 are applied. They add no authority.
+
+1. **Evidence classes.**
+   - **E1** development evidence;
+   - **E2** Historical Locked Evaluation (HLE, 2025-01 → 2026-05) and **E2b** W2 consistency (S-MAJ only): locked
+     and pre-registered, but previously explored, so **not pristine and not confirmatory**;
+   - **E3** prospective shadow: the only independent evidence, under a separately approved protocol (MI-ADR-06).
+
+   The strongest historical verdict is HISTORICAL_LOCKED_SKILL (`MI_ML_RESEARCH_SPEC.md` §1.2, §5).
+2. **Dataset eligibility.** ds-0928 is usable for exploratory research only. Its FAIL certificate is preserved. There
+   is a BTC/ETH vs alt split and an alt claim ceiling (`MI_ML_DATA_INVENTORY.md` §6, DS-1…DS-9).
+3. **Point-in-time semantics** for all three tasks: close, availability, issuance, actionable time and label window,
+   with conservative latencies (`MI_ML_RESEARCH_SPEC.md` §1.1).
+4. **Requirement classes.**
+   - mandatory integrity (A) → INVALID on failure;
+   - statistical thresholds (B), whose final values come only from a synthetic calibration (Phase 1S), never from
+     real outcomes;
+   - descriptive diagnostics (C).
+
+   Forecasting skill and trading utility stay separate.
+5. **Decision statuses** are in the spec §11. "Approved in principle" ≠ approval to start Phase 1, Phase 1S, data
+   processing, installation or compute.
