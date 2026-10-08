@@ -34,6 +34,7 @@ research/skill_application/.venv/bin/python -m pytest tests/ -q               # 
 - **العتبات الحيّة في DB (`optimizer_settings`/`indicator_weights`) تغلب `.env`** — راجع DB لا `.env`.
 - **الشمعة المغلقة فقط** — لا look-ahead (الأنلايزر يُسقط الشمعة الجارية).
 - `git add <paths>` محدّدة — **تجنّب `git add -A`** (مخرجات بحث ضخمة غير متعقّبة).
+- **إغلاق أي مرحلة يتطلب نقطة حفظ GitHub متحقَّقة** (push + مطابقة SHA البعيد) — القاعدة الكاملة والحالات الأربع المنفصلة (محفوظ/مدموج/منشور/مُتحقَّق تشغيلياً): [docs/ops/COMPOSE_OPERATIONS.md — Stage closure](docs/ops/COMPOSE_OPERATIONS.md#stage-closure-mandatory-github-checkpoint).
 
 ## التوثيق المفصّل
 - [وضع التعلّم الحي (النظام الحالي)](docs/claude/live-learning.md)

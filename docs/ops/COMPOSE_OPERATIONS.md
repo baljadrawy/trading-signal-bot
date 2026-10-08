@@ -49,6 +49,40 @@ Service to container map: `telegram`=`trading_telegram`, `trade_tracker`=`tradin
 `continuous_learner`=`trading_continuous_learner` (stopped),
 `optimizer` (profile `disabled`, not deployed).
 
+## Stage closure: mandatory GitHub checkpoint
+**Owner rule (2026-10-08), permanent.** It applies to every development, documentation, configuration or
+operational stage (PAPER-R2, G3, G5, G6 and all later stages). A stage is **not fully closed** until it has a verified
+GitHub checkpoint.
+
+Workflow:
+1. Preserve the current repository baseline and identify the correct working branch. Use an isolated worktree, never
+   the production checkout's dirty tree.
+2. Commit only the intended, reviewed, non-sensitive changes for the stage. Use `git add <paths>`, never
+   `git add -A`.
+3. Push the checkpoint to the private repository `baljadrawy/trading-signal-bot`.
+4. Verify that the remote branch SHA equals the intended local HEAD
+   (`git ls-remote origin <branch>` against `git rev-parse HEAD`).
+5. In the stage completion report, record the branch, the SHA, the changed files, test results, evidence directories
+   with their `SHA256SUMS` hash, and any approvals still pending.
+6. Report these four states separately and never conflate them:
+
+   | State | Meaning |
+   |---|---|
+   | **Saved to GitHub** | pushed and remote SHA verified |
+   | **Merged into main** | owner-authorised merge only |
+   | **Deployed to production** | separate owner-authorised, gated step |
+   | **Operationally validated** | the stage's own post-deployment evidence |
+
+Safety and integrity:
+- Never push credentials, secrets, `.env*`, runtime databases, customer data or sensitive operational artifacts.
+  Sealed evidence stays in the backup tree. Reference it by path and `SHA256SUMS` hash; never rewrite it.
+- Never commit unrelated or unreviewed changes from a dirty working tree.
+- Never force-push or rewrite protected history.
+- Never merge into `main` or deploy without the applicable owner authorisation.
+- Never interrupt an active safety-critical procedure just to create a checkpoint. Checkpoint once it is safe.
+- Read-only verification stages use documentation-only commits. Never fabricate code changes.
+- If GitHub is unavailable, keep the local state, report **CHECKPOINT INCOMPLETE**, and do not claim closure.
+
 ## Class A: read-only (always allowed)
 No approval needed. Prefer the helper `ops/compose-safe` (read-only, allowlisted, redacts tokens).
 
