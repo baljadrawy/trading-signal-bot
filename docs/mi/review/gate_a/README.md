@@ -20,6 +20,8 @@
 | `A3_F3_T1_BREAK_ASSESSMENT.md` | Independent F3 assessment; both alternatives; unresolved |
 | `A4_VERSIONING_PROVENANCE_DRAFT.md` | Additive v1.0.1 set; ledger genesis and budget ledger preserved; forking-path disclosure |
 | `A5_ACCEPTANCE_TESTS_DRAFT.md` | Pre-declared acceptance tests AT-1 … AT-15 with tolerances |
+| `A6_SCIENTIFIC_SUPPLEMENT_F3_F9_STOP.md` | Supplement (2026-10-09): F3 K / R / R+ matrix (R rejected; R+ or K), F9 deterministic detection analysis (λ = 0.36 → `LEAK_CANARY_WEAK` near-certain; HOLD + AM-4 redesign), derive-STOP governance policy, AT-16 … AT-19. **Corrects A3** on the B3-size effect |
+| `draft/f9_leak_detection_analytic.py` | Deterministic quadrature behind A6 §2 (no sampling, no seeds) |
 | `draft/*.DRAFT.json`, `draft/*.diff` | Exact machine drafts of protocol v1.0.1 (both F3 variants) and unified diffs against the frozen file |
 
 ## Consolidated decision matrix
@@ -35,7 +37,7 @@
 | AM-2 / IR-7 | F10 B4/B6 | Amendment + interpretation | PROPOSED; pseudo-B4 OPEN | State the L1 scope; power is an upper bound | Signed deviation only | Neutral | AT-11 |
 | IR-8 | F11 T3 | Interpretation | PROPOSED | Temperature scaling; T3 intercept variants N/A | Class-specific shift | ↓ | AT-7 |
 | IR-9 | F14 ladder | Interpretation | PROPOSED | Exit 4 at ladder FAIL; continue only by decision | Run on (current) | Neutral | AT-10 |
-| AM-3 | F3 break | Amendment (variant) | **OPEN** | — (A3 judgement: R only with the extended check) | K: T1 `INSUFFICIENT_ALWAYS` a priori | R: ↑ T1 status, ladder unchanged | A3 |
+| AM-3 | F3 break | Amendment (variant) | **OPEN** | See A6 §1: R rejected; R+ (retained engine gates + estimator) unless break robustness is a requirement (then K) | K: T1 `INSUFFICIENT_ALWAYS` a priori | R: ↑ T1 status, ladder unchanged | A3 |
 | A4 | Provenance | Additive set | PROPOSED | Forward links; no ledger write | — | — | AT-12 |
 
 ## Owner decision checklist
