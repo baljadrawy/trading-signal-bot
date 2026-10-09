@@ -2,6 +2,12 @@
 
 > **DRAFT — NOT APPROVED — NOT FROZEN — NOT EXECUTABLE** — Gate A review material. Nothing here is an owner approval or a frozen artefact, and nothing here may be loaded by any run.
 
+**Revision r2 (2026-10-09).**
+- Corrects the R+ vs K STOP-equivalence claims (§1.3).
+- Updates the F9 status (§2.4).
+- Removes the automatic "MI-C v2.0" rule (§3).
+- The T1 Hybrid statistical review is in **A7** (appendix).
+
 **Scope.** Prepared 2026-10-09 on `docs/mi-phase1s-gate-a-review-20261009` (base `3add796`). It supplements A1–A5 and corrects A3 where noted. Nothing was frozen or implemented; no run, campaign, budget reservation or ledger write took place.
 
 **Labels:** **[F]** verified fact · **[M]** exact mathematics · **[N]** numerical approximation (deterministic) · **[A]** assumption · **[R]** recommendation.
@@ -41,11 +47,11 @@
 |---|---|---|---|
 | Break-cell power at every n | ≈ 0 [M/A]: O/E ≈ 2, \|log 2\| = 0.69 vs a 98.33 % CI half-width ≈ 2.4·√(deff/positives) ≤ 0.6 for positives ≥ 62, if deff ≤ 4 [A] | not required | not required |
 | T1 n\* / status | **INSUFFICIENT_ALWAYS with probability ≈ 1** [M]: every positives level contains break cells | from the 12 no-break cells (unknown until the full run) | same as R |
-| Null-control / ladder pass probability | product over 18 cells; break-cell FPR ≈ 0 [A: B3 rejects every dev-calibrated forecast] | product over 12 | equal to K, except that a break-cell failure STOPs instead of moving the ladder (probability ≈ 0) |
+| Null-control / ladder pass probability | product over 18 cells; break-cell FPR ≈ 0 [A: B3 rejects every dev-calibrated forecast] | product over 12 | **not equal to K**: if a break cell fails at the step selected by the 12 no-break cells (event E), K advances the ladder while R+ STOPs, so P_STOP(R+) = P_STOP(K) + P(E). P(E) is small for π ≥ 0.05 but **not negligible at π = 0.01 under heavy dependence** (A7 §D) |
 | B3-size STOP-free probability [M, exact binomial, independent cells] | true size 6 %: **0.208**; 6.5 %: **0.0076** | **0.351**; **0.0387** (an unjustified relaxation) | **identical to K** |
 | FPR protection | baseline | unchanged (break-cell FPR ≈ 0) | unchanged |
 
-**Dependence [M].** Cells use disjoint seed streams, so gate outcomes are independent across cells and the products are exact. Within a cell, null `fp`, `b3_reject` and skill share the generator but feed different gates. R+ keeps the joint distribution of every STOP gate equal to K's (same gates, same data), so the STOP probability is unchanged up to the null-control nuance above.
+**Dependence [M].** Cells use disjoint seed streams, so gate outcomes are independent across cells and the products are exact. Within a cell, null `fp`, `b3_reject` and skill share the generator but feed different gates. R+ keeps the B3-size and B3-power gate outcomes identical to K's (same gates, same data). It is **not** STOP-equivalent: it is weakly stricter through event E (A7 §D). The earlier wording "STOP probability unchanged" is withdrawn.
 
 **Correction to A3 [F/M].** A3 called R's B3-size effect "slight" with "no information lost". R in fact raises the B3-size STOP-free probability from 0.208 to 0.351 at a true size of 6 %. Break-cell B3 size is measured on the HLE-calibrated twin, which has the same distribution as the break = 0 cell. **R is rejected.**
 
@@ -118,7 +124,7 @@
 | Leak strength | **Pre-register λ = 0.36** (substantive, independent of results) |
 | Canary for the Phase 1S leak gate | Replace the task-wide trip-wire-only "fire" with a pre-registered A7 battery evaluated per cell: (a) a **per-cell** trip-wire (ceiling = the cell's own upper skill quantile at the top level, Bonferroni-adjusted over its reps), and (b) a **label time-shift** canary. The task-wide trip-wire fire rate is reported, not gated |
 | Contract impact | `derive.py` and the derivation map are unchanged (they read only fire_k / n). The **protocol** must define what a fire is → amendment clause AM-4. Phase 2 must use the same battery for consistency, so the A7 battery definition becomes part of the v1.0.1 interpretation record and the Phase 2 specification |
-| Next step | A bounded deterministic analysis of battery power at λ = 0.36, separately authorised, **before** AM-4 is drafted |
+| Status (r2) | Evaluated afterwards, documentation-only. A per-cell trip-wire with a pre-registered α′ = 0.001 gives **P(all 27 T1/T2 cells pass) = 0.000** at λ = 0.36 (iid and deff 3). The label time-shift canary is **confounded with legitimate persistence** (at φ = 0.95 legitimate signals keep more shifted skill than the leak). **The AM-4 battery is not scientifically justified, so F9 is HOLD** |
 | If you reject the redesign | Keep λ = 0.36 with the trip-wire only, and accept that Phase 1S will very likely STOP with `LEAK_CANARY_WEAK` (handled by §3) |
 
 ---
@@ -136,7 +142,15 @@
 | L2_MODEL_FIT_INFLATION, B2_REFERENCE_NOT_CONSERVATIVE | Scientific | **No** | Same | A new version + a new Phase 1S | Same |
 | Ladder FAIL (not a `derive()` STOP; leads to DESCRIPTIVE_ONLY) | Valid scientific outcome | Not applicable | Ladder history | IR-9 checkpoint: your decision before spending CPU on step-2 final classes | A step beyond k2 |
 
-**Governance gap [F].** The contract's versioning allows v1.2+ only *after* v1.1. A scientific STOP means v1.1 never exists. **[R] Pre-register now:** a scientific STOP closes MI-C v1.0 / v1.0.1 Phase 1S as **FAILED_CALIBRATION**. Any continuation requires a new contract major version (MI-C v2.0) with a fresh Phase 1S, separate budget approval, and the failed run recorded in its provenance chain. The MI trial ledger stays untouched, since synthetic runs are not trials. Without such a rule, the only options after a STOP would be ad-hoc ones.
+**Governance gap [F].** The contract's versioning allows v1.2+ only *after* v1.1. A scientific STOP means v1.1 never exists.
+
+**[R] Pre-register now** that a scientific STOP closes this Phase 1S as **FAILED_CALIBRATION**, and that the failed run is preserved and recorded as prior exposure. **Any continuation, and which version it takes (protocol v1.0.x or a new contract), is a separate owner governance decision. It is not automatic.** The MI trial ledger stays untouched, since synthetic runs are not trials.
+
+STOP classes are distinguished as follows:
+- **genuine scientific failure:** B3_SIZE_FAIL, L2_MODEL_FIT_INFLATION, B2_REFERENCE_NOT_CONSERVATIVE;
+- **inadequate or underpowered validation procedure:** LEAK_CANARY_WEAK, B3_POWER_FAIL;
+- **insufficient evidence** (valid outcomes): INSUFFICIENT / DESCRIPTIVE_ONLY;
+- **infrastructure or integrity failure.**
 
 ---
 
@@ -154,12 +168,12 @@
 
 1. **F3:** R+ (with retained engine gates and the §1.5 estimator) or K. Is break robustness a T1 certification requirement?
 2. **F9:** approve λ = 0.36 as pre-registered, **and** choose between the AM-4 canary redesign (then authorise the bounded battery-power analysis) and the trip-wire only with a likely `LEAK_CANARY_WEAK` STOP.
-3. **Derive-STOP:** adopt the §3 policy and the **FAILED_CALIBRATION → MI-C v2.0** rule.
+3. **Derive-STOP:** adopt the §3 policy and the FAILED_CALIBRATION closure rule (any continuation is a separate governance decision).
 4. Earlier open items: τ², F2, F6 (Wald), F7 (real dev span recommended), F8 (AT-5 change), F10 pseudo-B4, F11, F14, the provenance manifest and registration wrapper, committing the audit and plan reports.
 
 ## 6. Blockers to Gate A closure
 
 1. F9 is unresolved; under the current design the derivation is expected to STOP.
-2. The FAILED_CALIBRATION rule is not adopted.
+2. The FAILED_CALIBRATION closure rule is not adopted.
 3. The F3 decision is open.
 4. The provenance manifest design and the audit / plan reports are not in Git.

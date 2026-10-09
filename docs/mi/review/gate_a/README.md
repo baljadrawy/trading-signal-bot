@@ -22,6 +22,7 @@
 | `A5_ACCEPTANCE_TESTS_DRAFT.md` | Pre-declared acceptance tests AT-1 … AT-15 with tolerances |
 | `A6_SCIENTIFIC_SUPPLEMENT_F3_F9_STOP.md` | Supplement (2026-10-09): F3 K / R / R+ matrix (R rejected; R+ or K), F9 deterministic detection analysis (λ = 0.36 → `LEAK_CANARY_WEAK` near-certain; HOLD + AM-4 redesign), derive-STOP governance policy, AT-16 … AT-19. **Corrects A3** on the B3-size effect |
 | `draft/f9_leak_detection_analytic.py` | Deterministic quadrature behind A6 §2 (no sampling, no seeds) |
+| `A7_T1_HYBRID_STATISTICAL_REVIEW.md` | Appendix (2026-10-09): T1 Hybrid statistical review. CI rule corrected (pointwise, conditional on variance validity), E2 persistence estimator HOLD, draft Phase 2 monitoring-state semantics, R+ ≠ K STOP correction, governance status (Gate A OPEN, Gate B not authorised) |
 | `draft/*.DRAFT.json`, `draft/*.diff` | Exact machine drafts of protocol v1.0.1 (both F3 variants) and unified diffs against the frozen file |
 
 ## Consolidated decision matrix
