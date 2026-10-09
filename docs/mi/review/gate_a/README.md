@@ -2,7 +2,7 @@
 
 > **DRAFT — NOT APPROVED — NOT FROZEN — NOT EXECUTABLE** — Gate A review material. Nothing here is an owner approval or a frozen artefact, and nothing here may be loaded by any run.
 
-**Prepared 2026-10-09** under the "Gate A Draft Only" authorization. **Updated 2026-10-09** (A8 added under the "Gate A / F9 A8 Scientific Documentation" authorization; documentation only).
+**Prepared 2026-10-09** under the "Gate A Draft Only" authorization. **Updated 2026-10-09** (A8 added under the "Gate A / F9 A8 Scientific Documentation" authorization; A9 added under the "Gate A / A9 PIT Structural Canary Scientific Specification" authorization; documentation only).
 
 **Untouched:**
 - frozen files (`contracts_v1_0/*`, `contract.py`, `derive.py`, `timeline.py`, `folds.py`; protocol `412cb606…`; contract set `fdf33664…`, re-verified);
@@ -24,6 +24,7 @@
 | `draft/f9_leak_detection_analytic.py` | Deterministic quadrature behind A6 §2 (no sampling, no seeds) |
 | `A7_T1_HYBRID_STATISTICAL_REVIEW.md` | Appendix (2026-10-09): T1 Hybrid statistical review. CI rule corrected (pointwise, conditional on variance validity), E2 persistence estimator HOLD, draft Phase 2 monitoring-state semantics, R+ ≠ K STOP correction, governance status (Gate A OPEN, Gate B not authorised) |
 | `A8_F9_IDENTIFIABILITY_AND_STRUCTURAL_CANARY_REVIEW.md` | Appendix (2026-10-09): independent F9 mathematical audit. Three distinct leak mechanisms (frozen text / implementation w = 2 / IR-6 λ-leak); exact non-identifiability of the calibrated λ-leak at L1 for λ ≤ τ_u² (model-specific); corrections to A6 §2.3 / §2.4 and to the session F9 reports (Neyman–Pearson claim withdrawn, λ_min approximate and detector-specific, "universally impossible" withdrawn, w = 2 passes trivially); exact 95-of-100 binomial analysis with the shared-ceiling structure; literature with access levels; conceptual PIT injection positive control and negative-control conditions; syntactic vs scientific compatibility matrix; open decisions F9-D1 … F9-D4. **F9 stays HOLD** |
+| `A9_PIT_STRUCTURAL_CANARY_ACCEPTANCE_SPEC.md` | Appendix (2026-10-09): scientific specification of a **proposed Phase 2** point-in-time structural leakage acceptance fixture (timestamp and feature-lineage leakage only, not universal detection). Evidence with access levels; threat model; declarative expected-outcome table O1–O24 derived from the frozen contract text; positive controls P1 / P2 / P4 / P5 / P7 (P3, P5-universe, P6 on HOLD); clean controls C1–C5; anti-self-validation design with mutations M1–M4; draft acceptance criteria AC-1 … AC-6 (95-of-100 not reused); frozen-compatibility classes A–D. **Erratum to A8 §6.3 P1** (the decision bar is admissible; the first subsequent bar is not). **Does not resolve Phase 1S F9; F9 stays HOLD** |
 | `draft/*.DRAFT.json`, `draft/*.diff` | Exact machine drafts of protocol v1.0.1 (both F3 variants) and unified diffs against the frozen file |
 
 ## Consolidated decision matrix
@@ -88,3 +89,4 @@
 7. Gate D runner-integration authorisation.
 8. Pilot and full-calibration authorisation.
 9. F9 (A8): definition of a "fire", the mechanism the leak class certifies, and F9-D1 … F9-D4. F9 is HOLD; E2 is HOLD; F3/R+ is PROPOSED, not approved.
+10. A9 PIT fixture: a proposed Phase 2 acceptance-test specification only (preferred research direction, not an approved implementation); P3 / P5-universe / P6 on HOLD pending metadata; the fitted-quantity provenance schema is not a contract object.
