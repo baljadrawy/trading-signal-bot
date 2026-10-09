@@ -1,0 +1,689 @@
+{
+ "amends": {
+  "amendment_record": "tsb.mi.protocol_amendment MI-P1S-AM-1 (docs/mi/review/gate_a/A1)",
+  "basis": "scope_changes: protocol amendment (v1.0.x) approved by the owner and pushed before it runs; no Phase 1S calibration run exists under v1.0",
+  "contract_set_sha256": "fdf3366480976db6ada1ac90b62f6b6db1edc35a59d1f3527cfcd6fcbf28e157",
+  "protocol_sha256": "412cb6062ea5b4f4c9b8bd9fa34cf0d449b4f8abcab4c173858791a9f9464202",
+  "protocol_version": "1.0.0",
+  "record": "tsb.mi.phase1s_protocol"
+ },
+ "applicability_thresholds": {
+  "break_ratio_min": 1.5,
+  "phi_hat_min": 0.9,
+  "use": "Phase 4 downgrade-only check for failing stress cells"
+ },
+ "bootstrap_resamples_synthetic": 999,
+ "bss_min": {
+  "T1": "0.02",
+  "T2": "0.02",
+  "T3": "0.05"
+ },
+ "budget": {
+  "cap_cpu_s": 28800,
+  "pilot": {
+   "budget_job_cpu_s": 3600,
+   "projection": "P = sum_cells(pilot cpu per rep x planned reps) x 1.25 + one full null-grid re-run reserve; if pilot actual + P > cap -> STOP to owner",
+   "reps_per_cell": 10
+  },
+  "principle": "actual cumulative CPU is measured from cgroup cpu.stat usage_usec and bounded independently of wall-clock time; RuntimeMaxSec is an additional safeguard only, never the proof of the cap",
+  "required_enforcement": "cgroup_cpu_budget_guard_v1",
+  "requirements": {
+   "G1_per_job_kill": "an out-of-cgroup guard polls the job cgroup cpu.stat usage_usec every <= 2 s and SIGKILLs the whole job cgroup when usage >= budget_job - margin, margin = quota_cores x poll_s x 2 (16 CPU-s at R1)",
+   "G2_fail_closed_read": "cpu.stat unreadable or non-monotonic for more than one poll -> kill the job and STOP",
+   "G3_guard_liveness": "the job is stopped if the guard dies (job unit bound to the guard), and a job never starts without a live guard",
+   "G4_charging": "after stop the job is charged its final cgroup usage_usec; if unavailable it is charged its full budget_job and Phase 1S STOPs",
+   "G5_cross_job_reservation": "append-only budget ledger under an exclusive lock: a job starts only if charged + open reservations + budget_job <= cap; an unclosed reservation counts as fully consumed",
+   "G6_wall_clock": "RuntimeMaxSec per job as an additional safeguard",
+   "G7_tests": "fault-injection tests (busy loop over budget, unreadable cpu.stat, guard kill, crash between reserve and charge) must pass before Phase 1S GO"
+  },
+  "runner_status_2026_10_08": {
+   "G1": "MISSING (watchdog samples cpu but never kills on CPU)",
+   "G2": "MISSING (an unreadable sample keeps the last value)",
+   "G3": "MISSING (watchdog BindsTo the job, not the reverse)",
+   "G4": "PARTIAL (cpu_s_cgroup = last watchdog sample, may undercount)",
+   "G5": "MISSING",
+   "G6": "PRESENT",
+   "G7": "MISSING",
+   "verdict": "BLOCKER B5 - Phase 1S NO-GO until a reviewed runner extension is implemented, tested and separately approved"
+  },
+  "scope_changes": "any change to cells, reps, bootstrap count, layers or grid is a protocol amendment (v1.0.x) approved by the owner and pushed before it runs; no automatic reductions; null reps never reduced",
+  "stop_conditions": [
+   "cap would be exceeded",
+   "guard kill or RuntimeMaxSec",
+   "actual cpu per rep > 1.5 x pilot after the first full job",
+   "host-gate refusal > 24 h",
+   "any integrity / freeze failure",
+   "budget ledger unreadable"
+  ]
+ },
+ "cells": [
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.01|phi=0|rho=0|brk=0",
+   "phi": 0,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.01|phi=0|rho=0|brk=1",
+   "phi": 0,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.01|phi=0|rho=0.5|brk=0",
+   "phi": 0,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.01|phi=0|rho=0.5|brk=1",
+   "phi": 0,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.01|phi=0.95|rho=0|brk=0",
+   "phi": 0.95,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.01|phi=0.95|rho=0|brk=1",
+   "phi": 0.95,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.01|phi=0.95|rho=0.5|brk=0",
+   "phi": 0.95,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.01|phi=0.95|rho=0.5|brk=1",
+   "phi": 0.95,
+   "pi": 0.01,
+   "positives": 62,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.05|phi=0|rho=0|brk=0",
+   "phi": 0,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.05|phi=0|rho=0|brk=1",
+   "phi": 0,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.05|phi=0|rho=0.5|brk=0",
+   "phi": 0,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.05|phi=0|rho=0.5|brk=1",
+   "phi": 0,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.05|phi=0.95|rho=0|brk=0",
+   "phi": 0.95,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.05|phi=0.95|rho=0|brk=1",
+   "phi": 0.95,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.05|phi=0.95|rho=0.5|brk=0",
+   "phi": 0.95,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.05|phi=0.95|rho=0.5|brk=1",
+   "phi": 0.95,
+   "pi": 0.05,
+   "positives": 310,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.2|phi=0|rho=0|brk=0",
+   "phi": 0,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.2|phi=0|rho=0|brk=1",
+   "phi": 0,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.2|phi=0|rho=0.5|brk=0",
+   "phi": 0,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.2|phi=0|rho=0.5|brk=1",
+   "phi": 0,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.2|phi=0.95|rho=0|brk=0",
+   "phi": 0.95,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.2|phi=0.95|rho=0|brk=1",
+   "phi": 0.95,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 0,
+   "cell_id": "T1|pi=0.2|phi=0.95|rho=0.5|brk=0",
+   "phi": 0.95,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": false,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "break": 1,
+   "cell_id": "T1|pi=0.2|phi=0.95|rho=0.5|brk=1",
+   "phi": 0.95,
+   "pi": 0.2,
+   "positives": 1241,
+   "rho": 0.5,
+   "rows": 6204,
+   "stress": true,
+   "task": "T1",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.2|rho=0",
+   "n_events": 150,
+   "pi": 0.2,
+   "positives": 30,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.2|rho=0.5",
+   "n_events": 150,
+   "pi": 0.2,
+   "positives": 30,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.3|rho=0",
+   "n_events": 150,
+   "pi": 0.3,
+   "positives": 45,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.3|rho=0.5",
+   "n_events": 150,
+   "pi": 0.3,
+   "positives": 45,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.5|rho=0",
+   "n_events": 150,
+   "pi": 0.5,
+   "positives": 75,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=150|pi=0.5|rho=0.5",
+   "n_events": 150,
+   "pi": 0.5,
+   "positives": 75,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.2|rho=0",
+   "n_events": 400,
+   "pi": 0.2,
+   "positives": 80,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.2|rho=0.5",
+   "n_events": 400,
+   "pi": 0.2,
+   "positives": 80,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.3|rho=0",
+   "n_events": 400,
+   "pi": 0.3,
+   "positives": 120,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.3|rho=0.5",
+   "n_events": 400,
+   "pi": 0.3,
+   "positives": 120,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.5|rho=0",
+   "n_events": 400,
+   "pi": 0.5,
+   "positives": 200,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=400|pi=0.5|rho=0.5",
+   "n_events": 400,
+   "pi": 0.5,
+   "positives": 200,
+   "rho": 0.5,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.2|rho=0",
+   "n_events": 1500,
+   "pi": 0.2,
+   "positives": 300,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.2|rho=0.5",
+   "n_events": 1500,
+   "pi": 0.2,
+   "positives": 300,
+   "rho": 0.5,
+   "stress": true,
+   "task": "T2",
+   "verification": true
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.3|rho=0",
+   "n_events": 1500,
+   "pi": 0.3,
+   "positives": 450,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.3|rho=0.5",
+   "n_events": 1500,
+   "pi": 0.3,
+   "positives": 450,
+   "rho": 0.5,
+   "stress": true,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.5|rho=0",
+   "n_events": 1500,
+   "pi": 0.5,
+   "positives": 750,
+   "rho": 0,
+   "stress": false,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T2|n=1500|pi=0.5|rho=0.5",
+   "n_events": 1500,
+   "pi": 0.5,
+   "positives": 750,
+   "rho": 0.5,
+   "stress": true,
+   "task": "T2",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.85|shape=uniform",
+   "days": 517,
+   "persistence": 0.85,
+   "shape": "uniform",
+   "stress": false,
+   "task": "T3",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.85|shape=adjacent",
+   "days": 517,
+   "persistence": 0.85,
+   "shape": "adjacent",
+   "stress": false,
+   "task": "T3",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.95|shape=uniform",
+   "days": 517,
+   "persistence": 0.95,
+   "shape": "uniform",
+   "stress": false,
+   "task": "T3",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.95|shape=adjacent",
+   "days": 517,
+   "persistence": 0.95,
+   "shape": "adjacent",
+   "stress": false,
+   "task": "T3",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.99|shape=uniform",
+   "days": 517,
+   "persistence": 0.99,
+   "shape": "uniform",
+   "stress": true,
+   "task": "T3",
+   "verification": false
+  },
+  {
+   "cell_id": "T3|persistence=0.99|shape=adjacent",
+   "days": 517,
+   "persistence": 0.99,
+   "shape": "adjacent",
+   "stress": true,
+   "task": "T3",
+   "verification": false
+  }
+ ],
+ "concurrency": "never with G5, F0 v3 calibration or any G6 change; R1 admission gates and protected windows apply",
+ "draft_status": "DRAFT — NOT APPROVED — NOT FROZEN — NOT EXECUTABLE - Gate A review copy; this field is removed at freeze; never load for any run",
+ "estimate_cpu_h": "about 4-7 (a priori, unmeasured)",
+ "generators": {
+  "T1": "latent log-odds AR(1) at the 4h step with coefficient phi; 2 series x 6 decisions/day x 517 days; one common factor with loading rho; 24h labels on the 4h grid (6x overlap); optional x2 base-rate structural break at the HLE start",
+  "T2": "n_events breakout events over 517 days, day-clustered with factor loading rho; false-breakout base rate pi (0.2 = B2 verification level below the 0.3 reference)",
+  "T3": "6-state Markov chain at the daily step, diagonal persistence p, off-diagonal mass by shape (uniform / adjacent states); 7-day-ahead target; 517 days"
+ },
+ "l2": {
+  "cells": [
+   "T1|pi=0.05|phi=0|rho=0|brk=0",
+   "T1|pi=0.05|phi=0.95|rho=0.5|brk=0",
+   "T2|n=400|pi=0.3|rho=0",
+   "T3|persistence=0.95|shape=uniform"
+  ],
+  "reps_null_per_cell": 200,
+  "surrogate": "L2 logistic regression"
+ },
+ "ladder": {
+  "beyond_ladder": "STOP to owner",
+  "block_mean_days": {
+   "T1": 5,
+   "T2": 5,
+   "T3": 28
+  },
+  "rerun": "the whole null grid (all cells) is re-run at each step; power / miscal / leak reps run under the final step only",
+  "steps": [
+   {
+    "alpha": 0.05,
+    "block_factor": 1,
+    "k": 0
+   },
+   {
+    "alpha": 0.05,
+    "block_factor": 2,
+    "k": 1
+   },
+   {
+    "alpha": 0.025,
+    "block_factor": 2,
+    "k": 2
+   }
+  ]
+ },
+ "layers": {
+  "L1": "forecast-level simulation: true p_t, baseline forecast, candidate forecasts, outcomes; rules B1-B3 applied exactly as frozen; B4 (dev-fold sign consistency) and B6 (W2 S-MAJ check) are not simulable at L1 (no dev folds and no W2 segment are simulated) and are omitted, so simulated power is an upper bound with respect to them; B5 (n*) is the calibration-dependent parameter produced by the frozen derivation map; no model fitting",
+  "L2": "model-fit check: forecasts from a logistic surrogate fitted on simulated features in the l2.cells; null FPR point <= 7.5 % else STOP"
+ },
+ "meta_acceptance": {
+  "b3_power_min_pct": 80,
+  "b3_power_variants": [
+   "slope_0.7",
+   "slope_1.4"
+  ],
+  "b3_size_max_pct": 7,
+  "l2_null_fpr_point_max_permille": 75,
+  "leak_fire_min_pct": 95,
+  "null_fpr_point_den": 100,
+  "null_fpr_point_num": 5,
+  "null_fpr_wilson_ub_max": 0.07,
+  "power_min_pct": 80,
+  "rule": "frozen before any synthetic run; null control in every non-stress cell (stress cells reported, become exclusions)",
+  "t3_fallback_power_pct": 50
+ },
+ "miscal_reported_variants": [
+  "int_+0.3",
+  "int_-0.3"
+ ],
+ "output_record": "tsb.mi.phase1s_output v1 (schema: mi_derivation_map_v1_0.json input_schema)",
+ "purpose": "Estimate null false-positive rate, power, interval coverage and minimum evidence for rules B1-B6 before any real data; fix the calibration-dependent parameters (CDP) of MI-C v1.1 via the frozen derivation map.",
+ "reads_real_data": false,
+ "record": "tsb.mi.phase1s_protocol",
+ "reps": {
+  "l2_null": 800,
+  "leak": 100,
+  "miscal": 200,
+  "null": 1000,
+  "skill": 200
+ },
+ "skill_levels": [
+  "0.01",
+  "0.02",
+  "0.05"
+ ],
+ "stress_rule": {
+  "T1": "phi=0.95 and break=1",
+  "T2": "rho=0.5 and n_events=1500",
+  "T3": "persistence=0.99"
+ },
+ "synthetic_only": true,
+ "t1_break_disclosure": "AM-3 variant KEEP: stress rule unchanged. In the 6 non-stress T1 break=1 cells the dev-calibrated (locked) forecasts face a x2 base-rate break; B3 is expected to reject every forecast, so null control there is uninformative and power is expected to be near 0; T1 n* is then expected to be infeasible (INSUFFICIENT_ALWAYS) independently of the amount of evidence",
+ "t2_reference_base_rate": {
+  "den": 10,
+  "num": 3,
+  "owner_b2": "0.3 approved subject to synthetic verification: every non-stress T2 cell (incl. pi=0.2 verification cells) with n_events >= ceil(n*/0.3) must have power >= 0.80, else STOP (B2_REFERENCE_NOT_CONSERVATIVE)"
+ },
+ "t3_design_days": 517,
+ "t3_reference_persistence": 0.95,
+ "truth_classes": {
+  "leak": "the label enters one feature with weight w (A7 canaries must fire)",
+  "miscal": "skilful but miscalibrated (slope 0.7 / 1.4 gated; intercept +-0.3 reported)",
+  "null": "equal-skill boundary null (gated): the strongest baseline and both candidates are each calibrated forecasts built on mutually independent, exchangeable information signals of equal variance and identical dependence (T1/T2: equal-variance latent signals with the cell AR(phi) / factor rho / overlap structure; T3: independent state-observation channels of equal accuracy), so every forecast pair has exactly equal expected Brier score (E[d] = 0, the H0 boundary of B1) and the loss differential inherits the cell persistence; no incremental skill",
+  "null_nested_reported": "v1.0 null definition, reported only and never a gate: candidate = strongest baseline + independent noise, evaluated on the same simulated worlds as the gated null",
+  "skill": "incremental Brier skill score at each skill level"
+ },
+ "version": "1.0.1"
+}
