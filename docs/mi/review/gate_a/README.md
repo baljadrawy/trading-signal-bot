@@ -2,7 +2,7 @@
 
 > **DRAFT — NOT APPROVED — NOT FROZEN — NOT EXECUTABLE** — Gate A review material. Nothing here is an owner approval or a frozen artefact, and nothing here may be loaded by any run.
 
-**Prepared 2026-10-09** under the "Gate A Draft Only" authorization.
+**Prepared 2026-10-09** under the "Gate A Draft Only" authorization. **Updated 2026-10-09** (A8 added under the "Gate A / F9 A8 Scientific Documentation" authorization; documentation only).
 
 **Untouched:**
 - frozen files (`contracts_v1_0/*`, `contract.py`, `derive.py`, `timeline.py`, `folds.py`; protocol `412cb606…`; contract set `fdf33664…`, re-verified);
@@ -23,6 +23,7 @@
 | `A6_SCIENTIFIC_SUPPLEMENT_F3_F9_STOP.md` | Supplement (2026-10-09): F3 K / R / R+ matrix (R rejected; R+ or K), F9 deterministic detection analysis (λ = 0.36 → `LEAK_CANARY_WEAK` near-certain; HOLD + AM-4 redesign), derive-STOP governance policy, AT-16 … AT-19. **Corrects A3** on the B3-size effect |
 | `draft/f9_leak_detection_analytic.py` | Deterministic quadrature behind A6 §2 (no sampling, no seeds) |
 | `A7_T1_HYBRID_STATISTICAL_REVIEW.md` | Appendix (2026-10-09): T1 Hybrid statistical review. CI rule corrected (pointwise, conditional on variance validity), E2 persistence estimator HOLD, draft Phase 2 monitoring-state semantics, R+ ≠ K STOP correction, governance status (Gate A OPEN, Gate B not authorised) |
+| `A8_F9_IDENTIFIABILITY_AND_STRUCTURAL_CANARY_REVIEW.md` | Appendix (2026-10-09): independent F9 mathematical audit. Three distinct leak mechanisms (frozen text / implementation w = 2 / IR-6 λ-leak); exact non-identifiability of the calibrated λ-leak at L1 for λ ≤ τ_u² (model-specific); corrections to A6 §2.3 / §2.4 and to the session F9 reports (Neyman–Pearson claim withdrawn, λ_min approximate and detector-specific, "universally impossible" withdrawn, w = 2 passes trivially); exact 95-of-100 binomial analysis with the shared-ceiling structure; literature with access levels; conceptual PIT injection positive control and negative-control conditions; syntactic vs scientific compatibility matrix; open decisions F9-D1 … F9-D4. **F9 stays HOLD** |
 | `draft/*.DRAFT.json`, `draft/*.diff` | Exact machine drafts of protocol v1.0.1 (both F3 variants) and unified diffs against the frozen file |
 
 ## Consolidated decision matrix
@@ -34,7 +35,7 @@
 | IR-3 | F6 B3 | Interpretation | PROPOSED | Three CIs at 98.33%; G = non-empty blocks; t(G−1) | Three at 95% (nominal 10–14% > 7%) | Mixed | AT-4, AT-13 |
 | IR-4 | F7 L2 | Interpretation | PROPOSED; dev length OPEN | Fitted baseline; dev = 517 days | Dev = real span (+≈1 500 CPU-s) | ↓ | AT-8 |
 | IR-5 | F8 DM | Interpretation | COND | EWC as "HAC fixed-b"; pre-declared ν rule with mechanical fallback | Bartlett with Kiefer–Vogelsang critical values | ↓ or neutral | AT-5 |
-| IR-6 | F9 leak | Interpretation | PROPOSED; λ and curve OPEN | λ = 0.36 (expected BSS 0.10–0.18, near the trip-wire) | λ = 0.10 / 0.20 (always below the ceiling) | ↓ | AT-6 |
+| IR-6 | F9 leak | Interpretation | **HOLD** (A6 §2.4, A8); λ not retuned | λ = 0.36 (expected BSS 0.10–0.18, near the trip-wire); A8: the calibrated λ-leak is non-identifiable at L1 for λ ≤ τ_u²; what the class certifies is F9-D1 | λ = 0.10 / 0.20 (always below the ceiling) | ↓ | AT-6 |
 | AM-2 / IR-7 | F10 B4/B6 | Amendment + interpretation | PROPOSED; pseudo-B4 OPEN | State the L1 scope; power is an upper bound | Signed deviation only | Neutral | AT-11 |
 | IR-8 | F11 T3 | Interpretation | PROPOSED | Temperature scaling; T3 intercept variants N/A | Class-specific shift | ↓ | AT-7 |
 | IR-9 | F14 ladder | Interpretation | PROPOSED | Exit 4 at ladder FAIL; continue only by decision | Run on (current) | Neutral | AT-10 |
@@ -58,6 +59,13 @@
 - [ ] **D8** — IR-6: λ = 0.36 (or another value); detection curve yes or no.
 - [ ] **D9** — IR-7: pseudo-B4 diagnostic yes or no. IR-8 T3 treatment. IR-9 ladder checkpoint.
 
+**F9 (A8 §9; numbered separately to avoid collision with D1–D13)**
+
+- [ ] **F9-D1** — What the Phase 1S leak truth class certifies: (a) trip-wire sensitivity beyond the legitimate family, (b) counting path only (declared smoke test), (c) nothing at Phase 1S with structural canaries under Phase 2 acceptance, (d) structural injection inside Phase 1S (layer amendment).
+- [ ] **F9-D2** — PIT injection fixture: Phase 2 acceptance test (no grid change) or Phase 1S scope amendment.
+- [ ] **F9-D3** — Whether `LEAK_CANARY_WEAK` keeps its current meaning (follows from F9-D1).
+- [ ] **F9-D4** — Whether bounded dependence (deff) and T3 / stress / break-cell analysis is needed before an amendment decision (only if F9-D1 = (a)).
+
 **Provenance and tests**
 
 - [ ] **D10** — A4 provenance approach: additive set, `parameter_spec.provenance` for future trials, no ledger writes.
@@ -79,3 +87,4 @@
 6. Gate C statistical-validation authorisation (D11).
 7. Gate D runner-integration authorisation.
 8. Pilot and full-calibration authorisation.
+9. F9 (A8): definition of a "fire", the mechanism the leak class certifies, and F9-D1 … F9-D4. F9 is HOLD; E2 is HOLD; F3/R+ is PROPOSED, not approved.
