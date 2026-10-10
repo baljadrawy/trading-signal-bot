@@ -33,13 +33,24 @@ def leak_feature_multi(rng, y: list, K: int = K_T3) -> list:
     return [[W_F * (1.0 if k == yy else 0.0) + e[i * K + k] for k in range(K)] for i, yy in enumerate(y)]
 
 
+def _finite_prob(p: float) -> float:
+    """Numerical safeguard (H4): a baseline probability is clipped to [EPS, 1 - EPS] before the logit / log so the
+    offset stays finite. The clip is NOT a probabilistic identity at the boundary; it is disclosed as a guard.
+    Non-finite inputs (NaN, +-inf) are rejected, never silently clipped or reinterpreted."""
+    if not isinstance(p, float) and not isinstance(p, int):
+        raise TypeError("baseline probability must be a real number")
+    if not math.isfinite(p):
+        raise ValueError(f"non-finite baseline probability {p!r}")
+    return EPS if p < EPS else (1.0 - EPS if p > 1.0 - EPS else float(p))
+
+
 def logit_clipped(p: float) -> float:
-    p = EPS if p < EPS else (1.0 - EPS if p > 1.0 - EPS else p)
+    p = _finite_prob(p)
     return math.log(p / (1.0 - p))
 
 
 def log_clipped(p: float) -> float:
-    return math.log(EPS if p < EPS else p)
+    return math.log(_finite_prob(p))
 
 
 def binary_design(x: list, noise_sets: list) -> list:

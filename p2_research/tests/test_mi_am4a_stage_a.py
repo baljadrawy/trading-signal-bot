@@ -338,5 +338,183 @@ class ScoresFeaturesIsolation(unittest.TestCase):
         self.assertNotIn("fire_count", src)
 
 
+# ====================================================================== Hardening r2 (owner directive 2026-10-10): H1-H5
+class HardeningR2(unittest.TestCase):
+    def _fixture(self, seed=41, n=1000, p=2):
+        r = random.Random(seed)
+        X = [[r.gauss(0, 1) for _ in range(p)] for _ in range(n)]
+        off = [r.gauss(0, 0.7) for _ in range(n)]
+        y = [1 if r.random() < OR.mu_of(off[i] + 0.8 * X[i][0] - 0.4 * X[i][1]) else 0 for i in range(n)]
+        return X, y, off
+
+    def test_h1_fp_floor_is_reached_disclosed_and_never_counted_as_success(self):
+        # Natural fixture: the strict acceptance rule (ls_tol = 0.0, accept only non-decreasing trial objectives)
+        # with a gradient tolerance below the floating-point floor. No internal state is manipulated.
+        X, y, off = self._fixture()
+        r = FI.firth_fit(X, y, off, tol_grad=1e-14, ls_tol=0.0)
+        self.assertEqual(r.status, "FP_FLOOR")
+        self.assertNotEqual(r.status, "CONVERGED")
+        self.assertTrue(all(math.isfinite(b) for b in r.beta))
+        self.assertTrue(math.isfinite(r.loglik_pen) and math.isfinite(r.grad_norm))
+        self.assertLess(r.grad_norm, FI.FP_FLOOR_GRAD)
+        self.assertGreaterEqual(r.grad_norm, 1e-14)
+        self.assertIn("floating-point floor", r.message)
+        self.assertIn("%.3e" % r.grad_norm, r.message)                      # termination reason discloses the gradient
+        # propagation boundary: the harness never counts it as success and records the status verbatim
+        self.assertFalse(DEV.fit_is_success(r))
+        rec = DEV.fit_record(r)
+        self.assertEqual((rec["status"], rec["success"]), ("FP_FLOOR", False))
+        self.assertEqual(rec["message"], r.message)
+        self.assertEqual(DEV.SUCCESS_STATUSES, ("CONVERGED",))
+        # the same fixture under the scale-aware default rule converges: the floor is a property of the strict rule,
+        # not a defect of the optimum
+        r2 = FI.firth_fit(X, y, off, tol_grad=1e-14)
+        self.assertEqual(r2.status, "CONVERGED")
+        self.assertLess(max(abs(a - b) for a, b in zip(r.beta, r2.beta)), 1e-6)
+
+    def test_h2_inverse_diag_and_standard_errors_vs_independent_inverse(self):
+        A = [[4.0, 1.0, 0.5], [1.0, 3.0, 0.2], [0.5, 0.2, 2.0]]
+        L = FI.cholesky(A)
+        inv = OR.inverse_cofactor(A)
+        for a, b in zip(FI.inverse_diag(L), [inv[i][i] for i in range(3)]):
+            self.assertLess(abs(a - b), 1e-12)
+            self.assertGreater(a, 0.0)
+        # 2x2 closed form: inverse diag of [[a,b],[b,c]] = (c, a) / (ac - b^2)
+        L2 = FI.cholesky([[5.0, 2.0], [2.0, 3.0]])
+        d = FI.inverse_diag(L2)
+        self.assertAlmostEqual(d[0], 3.0 / 11.0, places=14)
+        self.assertAlmostEqual(d[1], 5.0 / 11.0, places=14)
+        # standard errors vs sqrt(diag(I^-1)) with I from the oracle's own information and cofactor inverse
+        X, y, off = _small_binary(seed=33, n=60, p=3)
+        beta = [0.4, -0.2, 0.1]
+        se = FI.standard_errors(X, beta, off)
+        Iinv = OR.inverse_cofactor(OR.fisher_info(X, y, beta, off))
+        for a, j in zip(se, range(3)):
+            self.assertLess(abs(a - math.sqrt(Iinv[j][j])) / a, 1e-10)
+            self.assertTrue(math.isfinite(a) and a > 0)
+        # parameter ordering: permuting the columns permutes the SEs
+        Xp = [[r[2], r[0], r[1]] for r in X]
+        sep = FI.standard_errors(Xp, [beta[2], beta[0], beta[1]], off)
+        self.assertAlmostEqual(sep[0], se[2], places=12)
+        self.assertAlmostEqual(sep[1], se[0], places=12)
+        self.assertAlmostEqual(sep[2], se[1], places=12)
+        # non-positive-definite and near-singular matrices are refused, never silently inverted
+        with self.assertRaises(FI.SingularError):
+            FI.cholesky([[1.0, 2.0], [2.0, 1.0]])
+        with self.assertRaises(FI.SingularError):
+            FI.cholesky([[1.0, 1.0], [1.0, 1.0 + 1e-14]])
+        with self.assertRaises(FI.SingularError):
+            FI.standard_errors([r + [r[0]] for r in X], beta + [0.0], off)
+
+    def test_h3_line_search_singular_branch_rejects_trial_without_corrupting_iterate(self):
+        X, y, off = _small_binary(seed=27, n=40, p=2)
+        calls = {"n": 0}
+
+        def inject_once(Xa, ya, b, o, pen):                      # documented fault-injection seam
+            calls["n"] += 1
+            if calls["n"] == 2:                                   # the first TRIAL point (call 1 is the start point)
+                raise FI.SingularError("injected singular information at trial point")
+            return FI.penalised_loglik(Xa, ya, b, o, pen)
+
+        r = FI.firth_fit(X, y, off, objective=inject_once)
+        ref = FI.firth_fit(X, y, off)
+        self.assertEqual(r.status, "CONVERGED")
+        self.assertGreaterEqual(r.halvings_total, 1)              # the invalid full step was rejected and halved
+        self.assertLess(max(abs(a - b) for a, b in zip(r.beta, ref.beta)), 1e-7)
+        for a, b in zip(r.trace, r.trace[1:]):                   # no invalid trial entered the accepted trace
+            self.assertGreaterEqual(b, a - FI.ls_tolerance(a, len(X)))
+
+        def always_fail_trials(Xa, ya, b, o, pen):
+            calls["m"] = calls.get("m", 0) + 1
+            if calls["m"] > 1:
+                raise FI.SingularError("injected: every trial point singular")
+            return FI.penalised_loglik(Xa, ya, b, o, pen)
+
+        r3 = FI.firth_fit(X, y, off, objective=always_fail_trials)
+        self.assertEqual(r3.status, "NUMERICAL_FAIL")             # large gradient + no valid step: never CONVERGED
+        self.assertEqual(r3.beta, [0.0, 0.0])                     # the last valid iterate (the start) is untouched
+        self.assertEqual(r3.halvings_total, FI.MAX_HALVINGS + 1)
+        self.assertIn("stalled", r3.message)
+        self.assertFalse(DEV.fit_is_success(r3))
+
+    def test_h4_offset_clipping_policy_and_non_finite_rejection(self):
+        e = FI.EPS
+        lo, hi = math.log(e / (1 - e)), math.log((1 - e) / e)
+        cases = [(0.0, lo), (1e-13, lo), (e, lo), (2e-12, math.log(2e-12 / (1 - 2e-12))),
+                 (1 - 2e-12, math.log((1 - 2e-12) / 2e-12)), (1 - e, hi), (1.0, hi), (1.5, hi)]
+        for p, expect in cases:
+            v = LF.logit_clipped(p)
+            self.assertTrue(math.isfinite(v), p)
+            # Disclosed numerical property: near the UPPER boundary the logit inherits the cancellation error of
+            # 1 - p, bounded by u / (1 - p) (u = 1.1e-16), i.e. up to ~5.5e-5 at p = 1 - 2e-12; it is a property of the
+            # double representation of p itself, not of the clipping policy. Near the lower boundary there is no
+            # cancellation (1e-9 tolerance). T1/T2 baselines (pi <= 0.5) never approach the upper boundary.
+            self.assertAlmostEqual(v, expect, delta=1e-4 if p > 0.5 else 1e-9)
+        self.assertAlmostEqual(LF.log_clipped(0.0), math.log(e), places=12)
+        self.assertAlmostEqual(LF.log_clipped(1.5), math.log(1 - e), places=12)
+        self.assertEqual(LF.log_clipped(0.3), math.log(0.3))
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(ValueError):
+                LF.logit_clipped(bad)
+            with self.assertRaises(ValueError):
+                LF.log_clipped(bad)
+            with self.assertRaises(ValueError):
+                LF.binary_offset([0.2, bad])
+        # clipped offsets still enter with coefficient exactly 1 and are never fitted
+        X, y, off0 = _small_binary(seed=29, n=30)
+        off = LF.binary_offset([0.0, 1.0] + [0.3] * 28)                   # both boundaries clipped
+        f = FI.firth_fit(X, y, off)
+        self.assertEqual(len(f.beta), 2)
+        p1 = FI.predict(X, f.beta, off)
+        p2 = FI.predict(X, f.beta, [o + 0.25 for o in off])
+        # rows 0 and 1 carry boundary offsets (+-27.6): their predictions are clipped to [EPS, 1 - EPS], so the
+        # exact-shift identity cannot hold there (disclosed safeguard); every interior row shifts by exactly 0.25
+        for i in (0, 1):
+            self.assertTrue(FI.EPS <= p1[i] <= 1 - FI.EPS and FI.EPS <= p2[i] <= 1 - FI.EPS)
+        for a, b in list(zip(p1, p2))[2:]:
+            self.assertAlmostEqual(math.log(b / (1 - b)) - math.log(a / (1 - a)), 0.25, places=8)
+
+    def test_h5_scale_aware_acceptance_never_accepts_material_decreases(self):
+        # tolerance values: tiny at small n, still tiny relative to the objective at large n
+        self.assertLess(FI.ls_tolerance(-15.0, 24), 1e-13)
+        self.assertLess(FI.ls_tolerance(-2300.0, 4000), 2e-10)
+        self.assertLess(FI.ls_tolerance(-1e4, 20000), 1e-8)
+        self.assertGreater(FI.ls_tolerance(-2300.0, 4000), 1e-12)        # looser than the old absolute rule there
+        X, y, off = _small_binary(seed=35, n=40, p=2)
+        calls = {"n": 0}
+
+        def decreasing_trials(Xa, ya, b, o, pen):
+            # every trial objective is reported 1e-6 BELOW the current (start) objective: a material decrease
+            calls["n"] += 1
+            ll, llp, mu, L = FI.penalised_loglik(Xa, ya, b, o, pen)
+            if calls["n"] == 1:
+                calls["llp0"] = llp
+                return ll, llp, mu, L
+            return ll, calls["llp0"] - 1e-6, mu, L
+
+        r = FI.firth_fit(X, y, off, objective=decreasing_trials)
+        self.assertEqual(r.status, "NUMERICAL_FAIL")             # material decreases are never accepted
+        self.assertNotEqual(r.status, "CONVERGED")
+        self.assertEqual(r.beta, [0.0, 0.0])
+        # large magnitude: a 4000-row fit converges with zero halvings under the scale-aware rule
+        Xb, yb, offb = self._fixture(seed=43, n=4000, p=3)
+        rb = FI.firth_fit(Xb, yb, offb)
+        self.assertEqual(rb.status, "CONVERGED")
+        self.assertEqual(rb.halvings_total, 0)
+        for a, b in zip(rb.trace, rb.trace[1:]):
+            self.assertGreaterEqual(b, a - FI.ls_tolerance(a, 4000))
+        # the strict rule on the same problem does not produce false convergence either
+        rs = FI.firth_fit(Xb, yb, offb, ls_tol=0.0)
+        self.assertIn(rs.status, ("CONVERGED", "FP_FLOOR", "ITER_CAP"))
+        if rs.status == "CONVERGED":
+            self.assertLess(rs.grad_norm, FI.TOL_GRAD)
+        # conditional logit uses the same scale-aware rule
+        C, lb, yy = _small_t3(seed=37, n=30)
+        c = CL.clogit_fit(C, lb, yy)
+        self.assertEqual(c.status, "CONVERGED")
+        for a, b in zip(c.trace, c.trace[1:]):
+            self.assertGreaterEqual(b, a - FI.ls_tolerance(a, 30))
+
+
 if __name__ == "__main__":
     unittest.main()

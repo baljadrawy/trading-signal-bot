@@ -36,6 +36,20 @@ MAX_HALVINGS = 20
 PIVOT_REL = 1e-12            # Cholesky pivot below PIVOT_REL * max diagonal -> singular
 FP_FLOOR_GRAD = 1e-6         # a stalled line search with max|U*| below this is FP_FLOOR, not NUMERICAL_FAIL
 ML_SEPARATION_COEF = 30.0    # unpenalised diagnostic: |beta| beyond this is treated as divergence
+MACHINE_EPS = 2.220446049250313e-16
+LS_TOL_FACTOR = 4.0
+
+
+def ls_tolerance(llp: float, n: int) -> float:
+    """Scale-aware line-search acceptance tolerance (H5, 2026-10-10).
+
+    The objective is a sum of n same-sign terms (log-probabilities) plus a small penalty. The floating-point forward
+    error of such a sum is bounded by (n - 1) u sum|t_i| ~ n u |l| in the worst case and behaves like sqrt(n) u |l|
+    for random rounding (u = MACHINE_EPS / 2). A trial step is accepted when it does not DECREASE the objective by more
+    than 4 eps sqrt(n) (|l| + 1), i.e. by more than the resolvable rounding noise of comparing two evaluations. This
+    is ~1e-13 relative: it conceals no material decrease (material decreases are >= 1e-6 in these problems) while
+    not rejecting valid steps at large |l|, which an absolute 1e-12 did (n = 2e4, |l| = 1e4 gives ~1e-10 noise)."""
+    return LS_TOL_FACTOR * MACHINE_EPS * math.sqrt(max(n, 1)) * (abs(llp) + 1.0)
 
 
 class SingularError(ArithmeticError):
@@ -202,12 +216,17 @@ def predict(X: list, beta: list, offset=None) -> list:
 # ------------------------------------------------------------------ fitting
 def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int = MAX_ITER,
               tol_grad: float = TOL_GRAD, tol_step: float = TOL_STEP, max_halvings: int = MAX_HALVINGS,
-              beta0=None) -> FitResult:
+              beta0=None, ls_tol=None, objective=None) -> FitResult:
     """Fisher scoring with deterministic step-halving on the (penalised) log-likelihood.
 
     X: list of rows (no intercept column is added; the caller decides the design). y: 0/1 ints.
     offset: list of fixed linear-predictor offsets (coefficient 1) or None.
+    ls_tol: None -> scale-aware tolerance ls_tolerance(llp, n) (default); a float -> absolute tolerance (0.0 = strict,
+            accept only non-decreasing trial objectives; used by the FP_FLOOR hardening test).
+    objective: None -> penalised_loglik. A callable with the same signature is a documented FAULT-INJECTION SEAM for
+            the hardening tests of the line-search failure branches; the development harness never sets it.
     """
+    obj = penalised_loglik if objective is None else objective
     if not X or any(len(r) != len(X[0]) for r in X):
         raise ValueError("X must be a non-empty rectangular list of rows")
     if len(y) != len(X) or (offset is not None and len(offset) != len(X)):
@@ -219,8 +238,9 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
     trace = []
     halvings_total = 0
     step_norm = float("nan")
+    n = len(X)
     try:
-        ll, llp, mu, L = penalised_loglik(X, y, beta, offset, penalty)
+        ll, llp, mu, L = obj(X, y, beta, offset, penalty)
     except SingularError as e:
         return FitResult(beta=beta, status="NUMERICAL_FAIL", iterations=0, loglik=None, loglik_pen=None,
                          grad_norm=None, step_norm=None, halvings_total=0, cond_estimate=None, trace=trace,
@@ -247,15 +267,18 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
         delta = chol_solve(L, U)
         t = 1.0
         accepted = False
+        tol_ls = ls_tolerance(llp, n) if ls_tol is None else float(ls_tol)
         for h in range(max_halvings + 1):
             cand = [b + t * d for b, d in zip(beta, delta)]
             try:
-                ll2, llp2, mu2, L2 = penalised_loglik(X, y, cand, offset, penalty)
+                ll2, llp2, mu2, L2 = obj(X, y, cand, offset, penalty)
             except SingularError:
+                # invalid trial point (singular information or non-finite objective): the trial is rejected,
+                # the last valid iterate (beta, ll, llp, mu, L) is untouched, and the step is halved
                 t *= 0.5
                 halvings_total += 1
                 continue
-            if llp2 >= llp - 1e-12:
+            if llp2 >= llp - tol_ls:
                 accepted = True
                 break
             t *= 0.5

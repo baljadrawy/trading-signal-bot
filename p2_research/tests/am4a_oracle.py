@@ -62,6 +62,21 @@ def det(A):
     return tot
 
 
+def inverse_cofactor(A):
+    """Matrix inverse by the adjugate / cofactor formula (small matrices only; independent of any factorisation)."""
+    n = len(A)
+    d = det(A)
+    if d == 0:
+        raise ZeroDivisionError("singular")
+    inv = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            minor = [row[:i] + row[i + 1:] for k, row in enumerate(A) if k != j]
+            cof = ((-1) ** (i + j)) * (det(minor) if n > 1 else 1.0)
+            inv[i][j] = cof / d
+    return inv
+
+
 def firth_objective(X, y, beta, offset=None):
     return logit_loglik(X, y, beta, offset) + 0.5 * math.log(det(fisher_info(X, y, beta, offset)))
 

@@ -24,7 +24,7 @@ from . import gen as G
 from . import leakfeat as LF
 
 NAMESPACE = "am4a-dev"
-HARNESS_VERSION = "am4a-stage-a-1.0.0"
+HARNESS_VERSION = "am4a-stage-a-1.1.0"
 _SEEN = set()
 
 
@@ -43,6 +43,21 @@ def reset_seed_registry():
 
 def rng(hexseed: str):
     return G.rng_from(hexseed)
+
+
+SUCCESS_STATUSES = ("CONVERGED",)
+
+
+def fit_is_success(result) -> bool:
+    """The only status that counts as a successful fit in Stage A reporting. FP_FLOOR, ITER_CAP, DIVERGED and
+    NUMERICAL_FAIL are never success, whatever their coefficients look like."""
+    return getattr(result, "status", None) in SUCCESS_STATUSES
+
+
+def fit_record(result) -> dict:
+    """Verbatim status propagation for evidence output."""
+    return {"status": result.status, "success": fit_is_success(result), "iterations": result.iterations,
+            "grad_norm": result.grad_norm, "message": result.message}
 
 
 # ------------------------------------------------------------------ scores (harness-side; the oracle has its own)
@@ -140,7 +155,12 @@ def run_stage_a(out_dir: str) -> dict:
     t0 = time.process_time()
     results = {"S1_binary_recovery": check_binary_recovery(), "S2_t3_recovery": check_t3_recovery(),
                "S3_t3_uniform_baseline": check_t3_uniform_baseline()}
+    for v in results.values():
+        v["success"] = v["status"] in SUCCESS_STATUSES
     manifest = {"record": "tsb.mi.am4a_stage_a_manifest", "harness_version": HARNESS_VERSION, "namespace": NAMESPACE,
+                "offset_rule": "binary: logit(w.b) fixed, coefficient 1 (owner Option A / form E, 2026-10-10); "
+                               "T3: log(b) fixed, coefficient 1; w.b_cal is never a candidate input",
+                "non_success_checks": [k for k, v in results.items() if not v["success"]],
                 "python": sys.version, "platform": platform.platform(), "w_f": LF.W_F,
                 "tolerances": {"tol_grad": FI.TOL_GRAD, "tol_step": FI.TOL_STEP, "max_iter": FI.MAX_ITER,
                                "max_halvings": FI.MAX_HALVINGS, "pivot_rel": FI.PIVOT_REL, "eps": FI.EPS},

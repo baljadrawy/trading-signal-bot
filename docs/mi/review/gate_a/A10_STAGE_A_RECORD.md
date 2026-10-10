@@ -23,7 +23,7 @@ Note: the Stage A branch is based on `df43073`, which predates the Gate A review
 
 **Binary tasks [M/F].** In `gen.t1_world` / `gen.t2_world`, y = 1[μ_y + s_b + s_x + z > 0] with s_x ~ N(0, τ_x²) and z of unit variance, independent of s_b. The baseline forecast is b = Φ((μ_f + s_b)/√(1 + τ_x²)).
 - When μ_f = μ_y (every T2 cell and every T1 cell with brk = 0): b = P(y = 1 | s_b) exactly, so b is a valid conditional prior. The leak feature x = w_f(2y − 1) + e depends on y only; the noise features are `factor_series` draws independent of (s_b, s_x, z). Bayes: P(y = 1 | b, x, z) has logit = logit b + 2w_f x exactly, with zero coefficients on z. **Exact specification holds in 36 of 48 cells.**
-- **Mismatch [F]:** in the 12 T1 break cells (brk = 1, `t1_break_mode = dev_calibrated`), μ_f = Φ⁻¹(π/2)·tot ≠ μ_y, by frozen design (OD-2): the baseline carries the pre-break rate while outcomes occur at π. Then b ≠ P(y = 1 | s_b); the calibrated quantity is `w.b_cal`. The offset identity with coefficient 1 on logit b is therefore **misspecified by a probit-scale shift** in those cells. This does not affect the solvers (the offset is an arbitrary input vector), and the fire margin is gross, but it must not be described as exact there. **Decision needed before Stage B (§11):** use logit b (misspecified, mirrors what the rule evaluation sees), logit b_cal (exact, but informs the surrogate of the post-break rate), or a documented per-cell exception.
+- **Mismatch [F]:** in the 12 T1 break cells (brk = 1, `t1_break_mode = dev_calibrated`), μ_f = Φ⁻¹(π/2)·tot ≠ μ_y, by frozen design (OD-2): the baseline carries the pre-break rate while outcomes occur at π. Then b ≠ P(y = 1 | s_b); the calibrated quantity is `w.b_cal`. The offset identity with coefficient 1 on logit b is therefore **misspecified by a probit-scale shift** in those cells. This does not affect the solvers (the offset is an arbitrary input vector), but it must not be described as exact there. **Resolved by the owner (r2, §12.1): Option A, form E — logit(w.b) everywhere; w.b_cal is never a candidate input.**
 
 **T3 [M/F].** `gen.t3_world`: y_i = state_{lag+i+7}, b_i = P^{7+lag}[state_{lag+i}], so b_{i,k} = P(y_i = k | state at the baseline lag) exactly (Markov). With lag = None the baseline is the stationary vector, which is the marginal of y under the stationary start. Noise sets are AR(p) series independent of the chain; x depends on y only. Hence P(y = k | b, x, z) ∝ b_k exp(w_f x_k): **exact in all six T3 cells.** All baseline entries are strictly positive (minimum 1.2e-5 at 0.99 adjacent).
 
@@ -148,3 +148,60 @@ The harness manifest records interpreter, platform, tolerances, every seed used 
 **Stage B readiness:** the solvers and feature generator are implementation-ready for the exploratory pilot design (A8–A9 lineage, pre-registration in the Stage A directive). **Stage B is not authorised and should not start** until (1) the break-cell offset decision, (2) the budget amendment (the pilot plus the eventual confirmatory run may exceed the remaining 28,733 CPU-s), and (3) the pre-registration hash are approved.
 
 Governance unchanged: F9 HOLD; F3/R+ PROPOSED; E2 HOLD; Gate A OPEN; Gate B NOT AUTHORISED beyond this Stage A permission; MI-C v1.0, Phase 1S protocol and derivation map FROZEN; no automatic MI-C v2.0.
+
+---
+
+## 12. Revision r2 (2026-10-10): T1 break decision record and targeted hardening
+
+Authorised by the owner directive "Stage A Targeted Hardening and T1 Break Decision Record". Base: Stage A commit `f6a74c4…` (parent `df43073…`). Baseline re-verified before the edits: Gate A HEAD `a9204670…` clean; frozen set `fdf33664…`; trial ledger genesis only; budget ledger 7 events, chain intact, 66.882077 charged, 28,733.117923 remaining, no reservations; no engine wiring; no active research units.
+
+### 12.1 T1 break decision as recorded (owner approval: Option A, form E)
+
+1. **Fixed-offset rule, every binary T1/T2 cell:** offset_i = logit(w.b_i), coefficient exactly 1. No free baseline coefficient, no fitted intercept, no regime correction, no break-specific parameter. The Firth solver's statistical specification is unchanged. w_f = 2 unchanged.
+2. **w.b_cal is rejected as an AM-4-A candidate input.** Its only permitted roles are reference analysis and its existing frozen use in the null B3 size test (`rules.py:138`).
+3. **Exactness scope [M/F]:** in the 36 cells with μ_f = μ_y (all 18 T2 cells, the 12 T1 brk = 0 cells, and the 6 T3 cells under their own identity) the offset posterior identity logit P(y = 1 | b, x, z) = logit b + 2w_f x is exact under the verified generator assumptions. In the **12 T1 break cells** (`T1|…|brk=1`, `t1_break_mode = dev_calibrated`) the offset is point-in-time admissible but the surrogate is **misspecified** relative to the generator's post-break conditional prior.
+4. **Frozen probit-shift relation [M, generator-only analysis quantity]:** Φ⁻¹(w.b_cal) = Φ⁻¹(w.b) + δ with δ = (μ_y − μ_f)·sf, μ_y = Φ⁻¹(π)·tot, μ_f = Φ⁻¹(π/2)·tot, sf = 1/√(1 + τ_x²). δ depends on the post-break rate π and is **not** information available to the candidate; it is recorded for analysis only and no reference posterior built from it is an admissible candidate forecast.
+5. **Not established:** the F9 detection margin in break cells. No claim is made that it is unaffected; the magnitude and consequences of the misspecification remain unverified until a separately authorised exploratory evaluation.
+6. **Scope of the exactness-versus-admissibility conflict:** it follows from the information available and the design choices in this frozen synthetic setup; it is not a universal statement about forecasting systems.
+7. Stage A code already used w.b (`am4a_dev.py` fixtures, `leakfeat.binary_offset`); the harness manifest now records the rule verbatim (`offset_rule`).
+
+### 12.2 Hardening tests H1–H5 (all deterministic; `HardeningR2` in `test_mi_am4a_stage_a.py`)
+
+| Item | Fixture and branch exercised | Result |
+|---|---|---|
+| **H1 FP_FLOOR** | natural fixture: strict acceptance rule `ls_tol = 0.0` with `tol_grad = 1e-14` on a 1,000-row design (seed 41) reaches the FP_FLOOR branch (gradient 2.7e-7, 8 iterations, 49 halvings); no internal manipulation | status FP_FLOOR, never CONVERGED; β, objective and gradient finite; message discloses the gradient; `am4a_dev.fit_is_success` is False and `fit_record` propagates status and message verbatim; `SUCCESS_STATUSES == ("CONVERGED",)`. The same fixture under the default scale-aware rule converges (coefficients within 1e-6), so the floor is a property of the strict rule, not of the optimum |
+| **H2 SEs / inverse diagonal** | `inverse_diag` vs the oracle's cofactor inverse on a 3×3 SPD matrix and a 2×2 closed form; `standard_errors` vs √diag of the cofactor inverse of the oracle's own information matrix; column permutation; non-PD and near-singular matrices; a duplicated-column design | agreement ≤ 1e-12 (3×3), 14 places (2×2), ≤ 1e-10 relative (SEs); ordering follows the columns; SEs finite and positive; `SingularError` raised in all refused cases; no self-comparison |
+| **H3 line-search singular branch** | documented fault-injection seam `firth_fit(objective=…)`: (a) the first trial point raises `SingularError` once; (b) every trial point raises | (a) the trial is rejected, the step halved (`halvings_total ≥ 1`), the fit converges to the reference optimum within 1e-7, and the accepted trace stays monotone; (b) NUMERICAL_FAIL ("stalled"), β remains the untouched start iterate, `halvings_total = MAX_HALVINGS + 1`, never CONVERGED. Limitation: a non-injected fixture could not be constructed because Fisher scoring with step-halving from a positive-definite start is scale-invariant and does not reach a singular trial point on realistic designs |
+| **H4 offset clipping** | `logit_clipped` / `log_clipped` at 0, 1e-13, 1e-12 (lower boundary), 2e-12, 1 − 2e-12, 1 − 1e-12 (upper boundary), 1.0, 1.5; NaN and ±inf; a fit with both boundaries clipped | clipping to [1e-12, 1 − 1e-12] as policy; logits finite (±27.63 at the boundaries); non-finite inputs raise `ValueError` (never clipped or reinterpreted); the offset coefficient stays 1 (exact 0.25 logit shift on every interior row). **Disclosed numerical property:** near the upper boundary the logit inherits the representation error of 1 − p, bounded by u/(1 − p) (≈ 5.5e-5 at p = 1 − 2e-12); T1/T2 baselines (π ≤ 0.5) never approach that boundary; the clip is a safeguard, not a probabilistic identity at the boundary |
+| **H5 acceptance tolerance** | review of `llp2 >= llp − 1e-12` | **Changed** to a scale-aware tolerance (§12.3). Tests: tolerance values (< 1e-13 at n = 24, < 2e-10 at n = 4,000, < 1e-8 at n = 20,000); an injected material decrease of 1e-6 below the current objective is never accepted (NUMERICAL_FAIL, start iterate untouched); a 4,000-row fit converges with 0 halvings and a monotone trace; the strict rule on the same problem produces no false convergence; the conditional logit uses the same rule |
+
+### 12.3 Numerical change and rationale (H5)
+
+Old rule: accept a trial if llp2 ≥ llp − 1e-12 (absolute). The objective is a sum of n same-sign log-probability terms plus a small penalty; the forward error of floating summation is bounded by (n − 1)·u·Σ|t_i| ≈ n·u·|ℓ| in the worst case and behaves like √n·u·|ℓ| for random rounding (u = 1.1e-16). At n = 2·10⁴, |ℓ| = 10⁴ that is ~10⁻¹⁰, so the absolute 1e-12 could reject valid steps at large |ℓ| (and, under strict acceptance, produced the H1 floor), while being needlessly loose at small |ℓ|. New rule (`firth.ls_tolerance`): accept if llp2 ≥ llp − 4·eps·√n·(|llp| + 1). This is ~10⁻¹³ relative: it conceals no material decrease (material decreases in these problems are ≥ 10⁻⁶) and tracks the resolvable rounding noise of comparing two evaluations. The same tolerance is used by the conditional logit with n = number of days. `ls_tol` remains available as an explicit absolute override (0.0 = strict). Effect on the r1 harness fixtures: S1 converged in 11 instead of 12 iterations with max |Δθ| = 2.9e-12; S2 and S3 bit-identical.
+
+Other code changes in r2: `firth_fit(objective=…)` fault-injection seam (default `penalised_loglik`; never set by the harness); `leakfeat._finite_prob` rejects non-finite probabilities; `am4a_dev.fit_is_success` / `fit_record` / `SUCCESS_STATUSES` and the `offset_rule`, `success`, `non_success_checks` manifest fields; harness version `am4a-stage-a-1.1.0`; oracle `inverse_cofactor`. The DIVERGED, ITER_CAP and NUMERICAL_FAIL semantics are unchanged.
+
+### 12.4 Results, CPU and integrity
+
+| Suite / run | Result | CPU-s |
+|---|---|---|
+| Stage A tests (19 original + 5 hardening) | **24/24 pass** (two runs after the final edits) | 2.7, 2.7 |
+| `test_mi_phase1` (frozen) | 38/38 pass | 0.4 |
+| `test_mi_phase1s` (frozen) | 43/43 pass | 24.4 |
+| Harness (S1–S3) | all CONVERGED, `non_success_checks = []`, θ_x 4.0167 / 1.9987 / 2.0145 | 15.5 |
+| Development probe for the H1 fixture | — | 2.5 |
+| Earlier iteration runs of the suite during development | — | 1.1 |
+| **Total r2** | | **≈ 49 CPU-s** of the 150 allowed; peak RSS 140 MB |
+
+Accounting: same rule as r1 (offline development and synthetic unit tests, "tiny CPU, no budget", `MI_PHASE1S_READINESS.md` B1); all runs under `nice -n 19`, outside the hourly :12–:25 and daily protected windows, no other MI campaign; no MI-slice execution, no reservation, no ledger write. Budget and trial ledgers byte-identical before and after (`66f7ca6d…`; genesis only).
+
+Frozen set verified before and after: `fdf33664…`. No pre-existing `phase1s` module, frozen file or existing test changed (`git diff` over those paths is empty). Code tree after r2: `767b637d082a3ab5022344c8f8cb5f708d80d10fbaf525c43321fab642b661bf`. File hashes (first 16 hex): `firth.py` fe7de76ff6d13458, `clogit_offset.py` 9dfeb4b161775587, `leakfeat.py` 1a63c48580059c96, `am4a_dev.py` 3974ba782c5b1035, `am4a_oracle.py` 65a18be92c572105, `test_mi_am4a_stage_a.py` cfab70d5ec48e014.
+
+### 12.5 Remaining assumptions and limitations after r2
+
+- The break-cell misspecification effect on BSS and on θ_x (the leak feature has mean w_f(2π − 1) ≠ 0, so part of the missing shift can be absorbed by θ_x) is **unquantified** [A].
+- Firth uniqueness on these designs remains an assumption [A]; the H1 fixture shows strict and scale-aware rules reach the same optimum, which is consistent with uniqueness but not a proof.
+- The line-search singular branch is covered by fault injection only (§12.2 H3).
+- Passing Stage A establishes implementation properties only; it does **not** establish leakage-detection sensitivity (A8 §2 non-identifiability stands).
+
+Verdicts: T1 break rule (Option A, form E) **recorded** as approved; solver hardening H1–H5 **ACCEPT**; Stage A implementation **implementation-ready for the Stage B design**; Stage B **HOLD** pending the budget amendment, the pre-registration hash and a Stage B GO.

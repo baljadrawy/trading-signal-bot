@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import math
 
-from .firth import FP_FLOOR_GRAD, FitResult, SingularError, cholesky, chol_cond_estimate, chol_solve, inverse_diag
+from .firth import (FP_FLOOR_GRAD, FitResult, SingularError, cholesky, chol_cond_estimate, chol_solve, inverse_diag,
+                    ls_tolerance)
 
 TOL_GRAD = 1e-8
 TOL_STEP = 1e-10
@@ -99,10 +100,12 @@ def predict(C: list, logb: list, theta: list) -> list:
 
 
 def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad: float = TOL_GRAD,
-               tol_step: float = TOL_STEP, max_halvings: int = MAX_HALVINGS, theta0=None) -> FitResult:
+               tol_step: float = TOL_STEP, max_halvings: int = MAX_HALVINGS, theta0=None, ls_tol=None) -> FitResult:
     """C[i][k]: covariate vector of alternative k on day i (no constants, no baseline column);
-    logb[i][k]: fixed offset log b_{i,k}; y[i]: realised class."""
+    logb[i][k]: fixed offset log b_{i,k}; y[i]: realised class.
+    ls_tol: None -> scale-aware acceptance tolerance (firth.ls_tolerance with n = number of days); float -> absolute."""
     K, p = _check(C, logb, y)
+    n = len(C)
     theta = list(theta0) if theta0 is not None else [0.0] * p
     trace = []
     halvings_total = 0
@@ -128,10 +131,11 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
         delta = chol_solve(L, U)
         t = 1.0
         accepted = False
+        tol_ls = ls_tolerance(ll, n) if ls_tol is None else float(ls_tol)
         for h in range(max_halvings + 1):
             cand = [b + t * d for b, d in zip(theta, delta)]
             ll2, U2, I2 = score_info(C, logb, y, cand)
-            if math.isfinite(ll2) and ll2 >= ll - 1e-12:
+            if math.isfinite(ll2) and ll2 >= ll - tol_ls:
                 accepted = True
                 break
             t *= 0.5
