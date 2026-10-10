@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 
-from .firth import (FP_FLOOR_GRAD, FitResult, SingularError, cholesky, chol_cond_estimate, chol_solve, inverse_diag,
+from .firth import (DRIFT_FACTOR, FitResult, SingularError, cholesky, chol_cond_estimate, chol_solve, inverse_diag,
                     ls_tolerance)
 
 TOL_GRAD = 1e-8
@@ -111,24 +111,28 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
     halvings_total = 0
     step_norm = float("nan")
     ll, U, I = score_info(C, logb, y, theta)
+    best = ll
+    pred_gain = None
+    tol_ls = None
     for it in range(max_iter):
         gnorm = max(abs(u) for u in U)
         trace.append(ll)
         if not math.isfinite(ll) or not math.isfinite(gnorm):
             return FitResult(beta=theta, status="NUMERICAL_FAIL", iterations=it, loglik=ll, loglik_pen=None,
                              grad_norm=None, step_norm=step_norm, halvings_total=halvings_total, cond_estimate=None,
-                             trace=trace, message="non-finite log-likelihood or score")
+                             trace=trace, message="non-finite log-likelihood or score", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         try:
             L = cholesky(I)
         except SingularError as e:
             return FitResult(beta=theta, status="NUMERICAL_FAIL", iterations=it, loglik=ll, loglik_pen=None,
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=None, trace=trace, message=str(e))
+                             cond_estimate=None, trace=trace, message=str(e), predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         if gnorm < tol_grad:
             return FitResult(beta=theta, status="CONVERGED", iterations=it, loglik=ll, loglik_pen=None,
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad")
+                             cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         delta = chol_solve(L, U)
+        pred_gain = 0.5 * sum(u * d for u, d in zip(U, delta))          # Newton decrement (> 0, I is PD)
         t = 1.0
         accepted = False
         tol_ls = ls_tolerance(ll, n) if ls_tol is None else float(ls_tol)
@@ -141,14 +145,28 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
             t *= 0.5
             halvings_total += 1
         if not accepted:
-            status = "FP_FLOOR" if gnorm < FP_FLOOR_GRAD else "NUMERICAL_FAIL"
+            noise = ls_tolerance(ll, n)                                   # intrinsic resolution noise
+            floor = pred_gain <= noise                                   # same cause-based rule as firth.py (r3)
+            status = "FP_FLOOR" if floor else "NUMERICAL_FAIL"
             return FitResult(beta=theta, status=status, iterations=it + 1, loglik=ll, loglik_pen=None,
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=chol_cond_estimate(L), trace=trace,
-                             message=("line search at floating-point floor; gradient %.3e above tol_grad" % gnorm)
-                             if status == "FP_FLOOR" else "line search stalled with gradient above tol_grad")
+                             cond_estimate=chol_cond_estimate(L), trace=trace, predicted_gain=pred_gain,
+                             ls_tol_used=tol_ls, best_objective=best,
+                             message=("objective resolution floor: predicted gain %.3e <= resolvable noise %.3e (acceptance tol %.3e); "
+                                      "gradient %.3e above tol_grad" % (pred_gain, noise, tol_ls, gnorm)) if floor else
+                             ("line search stalled: predicted gain %.3e exceeds resolvable noise %.3e but no trial "
+                              "step increased the objective (acceptance tol %.3e); gradient %.3e" % (pred_gain, noise, tol_ls, gnorm)))
         step_norm = max(abs(t * d) for d in delta)
         theta, ll, U, I = cand, ll2, U2, I2
+        if ll > best:
+            best = ll
+        elif best - ll > DRIFT_FACTOR * tol_ls:
+            return FitResult(beta=theta, status="NUMERICAL_FAIL", iterations=it + 1, loglik=ll, loglik_pen=None,
+                             grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
+                             cond_estimate=chol_cond_estimate(L), trace=trace + [ll], predicted_gain=pred_gain,
+                             ls_tol_used=tol_ls, best_objective=best,
+                             message="cumulative objective drift: current %.12g below best %.12g by more than %g x "
+                                     "ls_tol (%.3e)" % (ll, best, DRIFT_FACTOR, tol_ls))
         if step_norm < tol_step:
             gnorm = max(abs(u) for u in U)
             if gnorm < tol_grad:
@@ -160,7 +178,7 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
                 return FitResult(beta=theta, status="CONVERGED", iterations=it + 1, loglik=ll, loglik_pen=None,
                                  grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
                                  cond_estimate=ce, trace=trace,
-                                 message="step below tol_step and gradient below tol_grad")
+                                 message="step below tol_step and gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
     gnorm = max(abs(u) for u in U)
     trace.append(ll)
     try:
@@ -169,7 +187,7 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
         ce = None
     return FitResult(beta=theta, status="ITER_CAP", iterations=max_iter, loglik=ll, loglik_pen=None,
                      grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total, cond_estimate=ce,
-                     trace=trace, message="max_iter reached")
+                     trace=trace, message="max_iter reached", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
 
 
 def standard_errors(C: list, logb: list, y: list, theta: list) -> list:

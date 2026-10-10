@@ -12,12 +12,15 @@ Optimisation: Fisher scoring with step-halving on l* (deterministic), Cholesky f
 
 Convergence (both checks are reported; CONVERGED requires the gradient check):
     CONVERGED      max|U*| < tol_grad at the returned beta
-    FP_FLOOR       no ascent step exists at double precision while max|U*| < FP_FLOOR_GRAD (= 1e-6) but
-                   >= tol_grad: a finite iterate at the objective's floating-point floor, NOT a certified optimum
+    FP_FLOOR       (r3) no acceptable step AND the Newton decrement 0.5 U*^T I^-1 U* (the predicted ascent of the
+                   full step) is <= the resolvable objective noise ls_tol: the objective cannot register the
+                   remaining improvement at double precision. A finite iterate, NOT a certified optimum
+                   (tol_grad not met). The predicted gain and ls_tol are recorded on the result.
     ITER_CAP       max_iter reached without the gradient check
     DIVERGED       unpenalised comparator only: score below tol_grad with |beta| >= ML_SEPARATION_COEF (no MLE)
-    NUMERICAL_FAIL singular / ill-conditioned information matrix, non-finite values, or a stalled line search
-                   with the gradient still above FP_FLOOR_GRAD
+    NUMERICAL_FAIL singular / ill-conditioned information matrix, non-finite values, a stalled line search whose
+                   predicted gain exceeds the resolvable noise, or cumulative objective drift (accepted noise-level
+                   decreases summing to more than DRIFT_FACTOR * ls_tol below the best objective seen)
 A finite iterate is never reported as converged unless the gradient check holds. Nothing here silently returns
 zero coefficients: a NUMERICAL_FAIL result carries the last iterate and the reason, and callers must treat it as a
 failed fit.
@@ -56,9 +59,13 @@ class SingularError(ArithmeticError):
     pass
 
 
+DRIFT_FACTOR = 10.0          # cumulative objective drift beyond DRIFT_FACTOR * ls_tol below the best seen -> stall
+
+
 class FitResult:
     __slots__ = ("beta", "status", "iterations", "loglik", "loglik_pen", "grad_norm", "step_norm",
-                 "halvings_total", "cond_estimate", "trace", "message")
+                 "halvings_total", "cond_estimate", "trace", "message", "predicted_gain", "ls_tol_used",
+                 "best_objective")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -245,6 +252,9 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
         return FitResult(beta=beta, status="NUMERICAL_FAIL", iterations=0, loglik=None, loglik_pen=None,
                          grad_norm=None, step_norm=None, halvings_total=0, cond_estimate=None, trace=trace,
                          message=str(e))
+    best = llp
+    pred_gain = None
+    tol_ls = None
     for it in range(max_iter):
         U = adjusted_score(X, y, mu, L, penalty)
         gnorm = max(abs(u) for u in U)
@@ -252,7 +262,7 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
         if not math.isfinite(gnorm):
             return FitResult(beta=beta, status="NUMERICAL_FAIL", iterations=it, loglik=ll, loglik_pen=llp,
                              grad_norm=None, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=chol_cond_estimate(L), trace=trace, message="non-finite score")
+                             cond_estimate=chol_cond_estimate(L), trace=trace, message="non-finite score", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         if gnorm < tol_grad:
             # Unpenalised comparator only: under (quasi-)complete separation the score vanishes while the
             # coefficients diverge (no MLE exists). A finite iterate with huge coefficients is NOT an optimum.
@@ -260,11 +270,13 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
                 return FitResult(beta=beta, status="DIVERGED", iterations=it, loglik=ll, loglik_pen=llp,
                                  grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
                                  cond_estimate=chol_cond_estimate(L), trace=trace,
-                                 message="score below tol_grad but coefficients diverged (separation; no MLE)")
+                                 message="score below tol_grad but coefficients diverged (separation; no MLE)", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
             return FitResult(beta=beta, status="CONVERGED", iterations=it, loglik=ll, loglik_pen=llp,
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad")
+                             cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         delta = chol_solve(L, U)
+        # Newton decrement: first-order predicted ascent of the full Fisher step, 0.5 * U*^T I^-1 U* (> 0 since I is PD)
+        pred_gain = 0.5 * sum(u * d for u, d in zip(U, delta))
         t = 1.0
         accepted = False
         tol_ls = ls_tolerance(llp, n) if ls_tol is None else float(ls_tol)
@@ -284,17 +296,35 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
             t *= 0.5
             halvings_total += 1
         if not accepted:
-            # No ascent step exists at double precision. If the gradient is already tiny the iterate sits at the
-            # floating-point floor of the objective: reported as FP_FLOOR (a finite iterate, NOT a certified
-            # optimum, because the gradient check tol_grad was not met). Otherwise it is a genuine failure.
-            status = "FP_FLOOR" if gnorm < FP_FLOOR_GRAD else "NUMERICAL_FAIL"
+            # No acceptable step found (r3 classification, cause-based rather than name-based):
+            #  FP_FLOOR      the predicted ascent of the full step, 0.5 U*^T I^-1 U*, is at or below the resolvable
+            #                objective noise ls_tol: the objective cannot register the remaining improvement at
+            #                double precision. A finite iterate, NOT a certified optimum (tol_grad not met).
+            #  NUMERICAL_FAIL the predicted ascent is resolvable yet no trial step increased the objective:
+            #                a deficient direction, a defective objective, or a cumulative-drift state.
+            noise = ls_tolerance(llp, n)                                  # intrinsic resolution noise
+            floor = pred_gain <= noise
+            status = "FP_FLOOR" if floor else "NUMERICAL_FAIL"
             return FitResult(beta=beta, status=status, iterations=it + 1, loglik=ll, loglik_pen=llp,
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
-                             cond_estimate=chol_cond_estimate(L), trace=trace,
-                             message=("line search at floating-point floor; gradient %.3e above tol_grad" % gnorm)
-                             if status == "FP_FLOOR" else "line search stalled with gradient above tol_grad")
+                             cond_estimate=chol_cond_estimate(L), trace=trace, predicted_gain=pred_gain,
+                             ls_tol_used=tol_ls, best_objective=best,
+                             message=("objective resolution floor: predicted gain %.3e <= resolvable noise %.3e (acceptance tol %.3e); "
+                                      "gradient %.3e above tol_grad" % (pred_gain, noise, tol_ls, gnorm)) if floor else
+                             ("line search stalled: predicted gain %.3e exceeds resolvable noise %.3e but no trial "
+                              "step increased the objective (acceptance tol %.3e); gradient %.3e" % (pred_gain, noise, tol_ls, gnorm)))
         step_norm = max(abs(t * d) for d in delta)
         beta, ll, llp, mu, L = cand, ll2, llp2, mu2, L2
+        if llp > best:
+            best = llp
+        elif best - llp > DRIFT_FACTOR * tol_ls:
+            # accepted noise-level decreases must never accumulate into a material deterioration
+            return FitResult(beta=beta, status="NUMERICAL_FAIL", iterations=it + 1, loglik=ll, loglik_pen=llp,
+                             grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
+                             cond_estimate=chol_cond_estimate(L), trace=trace + [llp], predicted_gain=pred_gain,
+                             ls_tol_used=tol_ls, best_objective=best,
+                             message="cumulative objective drift: current %.12g below best %.12g by more than %g x "
+                                     "ls_tol (%.3e)" % (llp, best, DRIFT_FACTOR, tol_ls))
         if step_norm < tol_step:
             # tiny step: re-evaluate the gradient; converged only if it passes the gradient check, otherwise keep
             # iterating (the loop ends by the gradient check, FP_FLOOR, NUMERICAL_FAIL or ITER_CAP)
@@ -305,13 +335,13 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
                 return FitResult(beta=beta, status="CONVERGED", iterations=it + 1, loglik=ll, loglik_pen=llp,
                                  grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
                                  cond_estimate=chol_cond_estimate(L), trace=trace,
-                                 message="step below tol_step and gradient below tol_grad")
+                                 message="step below tol_step and gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
     U = adjusted_score(X, y, mu, L, penalty)
     gnorm = max(abs(u) for u in U)
     trace.append(llp)
     return FitResult(beta=beta, status="ITER_CAP", iterations=max_iter, loglik=ll, loglik_pen=llp, grad_norm=gnorm,
                      step_norm=step_norm, halvings_total=halvings_total, cond_estimate=chol_cond_estimate(L),
-                     trace=trace, message="max_iter reached")
+                     trace=trace, message="max_iter reached", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
 
 
 def standard_errors(X: list, beta: list, offset=None) -> list:

@@ -205,3 +205,68 @@ Frozen set verified before and after: `fdf33664…`. No pre-existing `phase1s` m
 - Passing Stage A establishes implementation properties only; it does **not** establish leakage-detection sensitivity (A8 §2 non-identifiability stands).
 
 Verdicts: T1 break rule (Option A, form E) **recorded** as approved; solver hardening H1–H5 **ACCEPT**; Stage A implementation **implementation-ready for the Stage B design**; Stage B **HOLD** pending the budget amendment, the pre-registration hash and a Stage B GO.
+
+---
+
+## 13. Revision r3 (2026-10-10): final numerical audit of H5 and FP_FLOOR
+
+Authorised by the owner directive "Stage A r3: Final Numerical Audit of H5 and FP_FLOOR". Base: r2 commit `e66f990…`. Baseline re-verified (Gate A `a9204670…` clean; frozen set `fdf33664…`, protocol `412cb606…`, map `9311b86d…`; trial ledger genesis only; budget ledger 7 events, 66.882077 charged, 28,733.117923 remaining, no reservations; no engine wiring; no research units).
+
+### 13.1 H5: what the acceptance rule is and is not
+
+- **Rule under audit (r2):** accept a trial step iff objective(trial) ≥ objective(current) − tol_ls, tol_ls = 4·eps·√n·(|ℓ| + 1).
+- **Worst-case bound [MATHEMATICAL]:** sequential summation of n same-sign terms has forward error ≤ (n − 1)·u·Σ|t_i| ≈ n·u·|ℓ| (u = eps/2). For the H1 fixture (n = 1,000, |ℓ| = 576) that is 6.3e-11; tol_ls is 1.6e-11. **tol_ls is therefore not a rigorous worst-case bound.** It is a root-mean-square heuristic (√n·u·|ℓ| with a factor 4), and the record now says so.
+- **Empirical error [NUMERICAL, decimal oracle]:** at the H1 stall point the float objective differs from the 50-digit value by more than 1e-15 and less than tol_ls; on 40-row designs the error is below 1e-13; on a 400-row slice of the 4,000-row fixture it is within tol_ls. Observed trial-to-trial float noise at the stall point is about 1e-12 (≈ 10 ulp of |ℓ|).
+- **Can the rule accept a meaningful decrease? [VERIFIED CODE BEHAVIOUR]** No: any accepted decrease is bounded by tol_ls (≈ 1e-13 relative), and an injected decrease of 1e-6 below the current objective is rejected through all 20 halvings (test r3_03, h5).
+- **Can small decreases accumulate? [VERIFIED CODE BEHAVIOUR]** Not any more: r3 adds a cumulative-drift guard. The best objective seen is tracked; if an accepted iterate falls more than DRIFT_FACTOR (10) × tol_ls below it, the fit stops with NUMERICAL_FAIL ("cumulative objective drift"). Test r3_04 injects trials each 0.9·tol_ls below the previous one (individually acceptable) and shows the guard fires after ≤ 13 iterations. Convergence itself is gradient-based (max|U*| < tol_grad), so accepted noise-level decreases can never manufacture CONVERGED.
+- **Both solvers** use the same rule and the same guard (n = rows for Firth, days for the conditional logit); the penalised and unpenalised objectives share it; Cholesky log-determinant, log-sum-exp, summation order and the 20-halving cap are unchanged. No mathematical reason for different policies was found.
+
+### 13.2 Independent high-precision oracle (`am4a_oracle.py`, r3 additions)
+
+Decimal arithmetic at 50 digits, ROUND_HALF_EVEN, importing only `decimal` and `math`. It evaluates y·η − ln(1 + e^η) directly (no log-sigmoid tricks), the Fisher information by explicit loops, the determinant by cofactor expansion, the Firth penalty as ½·ln det, and the conditional-logit log-likelihood by direct exponentiation (no log-sum-exp). `dec_selfcheck()` verifies ln(exp(x)) = x at five magnitudes and ln 2 against a 50-digit constant (max error < 1e-45) rather than assuming decimal's transcendental functions are exact. **What it verifies:** float objective error magnitudes; the true sign of near-zero objective changes along and against the search direction. **What it does not verify:** the solver's derivatives (covered by tests 02–04), large n (cost-bounded to ≤ 1,000 rows and 600 days), or any frozen Phase 1S cell.
+
+### 13.3 FP_FLOOR root cause [NUMERICAL, with the decimal oracle]
+
+H1 fixture (strict acceptance, tol_grad = 1e-14, n = 1,000): termination at iteration 8 after 49 halvings with max|U*| = 2.688e-7.
+- Condition estimate 1.14: **not ill-conditioning**.
+- The Fisher step is an ascent direction (U*ᵀI⁻¹U* > 0) and coincides with the exact Newton step of the penalised objective to three digits: **not a deficient direction**.
+- Predicted first-order gain of the full step: 4.4e-16, i.e. **3,000× below** the objective's ulp (1.3e-13) and the observed trial noise (≈ 1e-12). The decimal oracle confirms the true change along the step is **positive** (< 1e-14) and the true change against it is negative, while float reports −1.6e-12 for both: **the objective cannot register the remaining improvement at double precision.**
+- The gradient tolerance 1e-14 asked for a precision the objective cannot resolve; the strict rule (tolerance 0) then rejects every rounding-noise "decrease". Mechanism: line-search exhaustion. Cause: objective resolution. The name FP_FLOOR is therefore justified, and r3 makes the classification **cause-based**: FP_FLOOR iff the Newton decrement ½·U*ᵀI⁻¹U* ≤ the intrinsic resolution noise ls_tolerance(ℓ, n); otherwise the stall is NUMERICAL_FAIL ("line search stalled: predicted gain exceeds resolvable noise"). Both the predicted gain and the tolerance in force are recorded on the result and in the harness record.
+
+### 13.4 Final status taxonomy
+
+| Status | Condition | Success in Stage A reporting |
+|---|---|---|
+| CONVERGED | max|U*| < tol_grad (gradient check; a tiny step alone never suffices) | yes (the only one) |
+| FP_FLOOR | no acceptable step and predicted gain ≤ intrinsic resolution noise; tol_grad not met | no |
+| ITER_CAP | max_iter reached | no |
+| DIVERGED | unpenalised comparator only: vanishing score with |β| ≥ 30 (separation) | no; distinct from the primary Firth result |
+| NUMERICAL_FAIL | singular / ill-conditioned information, non-finite values, stalled search with resolvable predicted gain, or cumulative drift | no |
+
+Every result carries β, status, iterations, objective, gradient norm, step norm, halvings, condition estimate, trace, predicted gain, acceptance tolerance used, best objective and a message; `fit_record` propagates all of them. A finite β is never sufficient for success; nothing is discarded silently; failed fits remain in the evidence with their status; frozen STOP semantics are untouched.
+
+### 13.5 Code changes (r3)
+
+`firth.py`: `DRIFT_FACTOR`; `FitResult` fields `predicted_gain`, `ls_tol_used`, `best_objective` on every return; Newton-decrement computation; cause-based FP_FLOOR / NUMERICAL_FAIL classification against the intrinsic noise; cumulative-drift guard; docstring taxonomy. `clogit_offset.py`: the same. `am4a_dev.py`: `fit_record` carries the three new fields. `am4a_oracle.py`: decimal reference functions and self-check. Tests: `NumericalAuditR3` (7 tests), H1 assertions updated to the cause-based criterion, oracle import whitelist extended to `decimal`. No tolerance was relaxed; tol_grad, tol_step, the halving cap and the acceptance tolerance formula are unchanged from r2.
+
+### 13.6 Results, CPU, integrity
+
+| Suite / run | Result | CPU-s |
+|---|---|---|
+| Stage A tests (19 + 5 + 7 = 31) | **31/31** | 5.1 |
+| `test_mi_phase1` | 38/38 | 0.5 |
+| `test_mi_phase1s` | 43/43 | 24.4 |
+| Harness S1–S3 | all CONVERGED; coefficients **bit-identical to r2** | 14.9 |
+| Root-cause probe and development iterations of the suite | — | 8.0 |
+| **Total r3** | | **≈ 53 CPU-s** of the 150 allowed; peak RSS 140 MB |
+
+Regression anchors recorded in tests: the H1 fixture's gradient 2.6880850551025404e-07, 8 iterations, 49 halvings; byte-identical replay of the fixture. Accounting as r1/r2 (offline development tests, uncharged, `MI_PHASE1S_READINESS.md` B1); `nice -n 19`; outside protected windows; no reservation or ledger write; budget and trial ledgers byte-identical. Frozen set verified before and after. Code tree after r3 is recorded in the commit message.
+
+### 13.7 Remaining numerical limitations
+
+- tol_ls is an RMS heuristic, not a proven worst-case bound; the decimal oracle bounds the float error empirically only for n ≤ 1,000 (Firth) and 600 days (conditional logit).
+- The cumulative-drift guard is exercised by fault injection; a natural drifting fixture was not found.
+- The conditional-logit drift guard has no injection seam and is covered only by the shared logic and the Firth tests.
+- Firth uniqueness remains an assumption.
+
+Verdict: H5 rule **ACCEPT with the drift guard and the documented limitation**; FP_FLOOR classification **ACCEPT (cause-based)**; Stage A engineering **final: implementation-ready for the Stage B design**; Stage B **HOLD**.

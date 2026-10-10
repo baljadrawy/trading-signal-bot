@@ -77,6 +77,89 @@ def inverse_cofactor(A):
     return inv
 
 
+# ------------------------------------------------------------------ high-precision reference (decimal, r3)
+# Python's decimal exp() and ln() are correctly rounded at the context precision (ROUND_HALF_EVEN); this is checked
+# by dec_selfcheck() rather than assumed. Everything below uses straightforward decimal arithmetic in a 50-digit
+# context: no stable log-sigmoid tricks, no Cholesky, no log-sum-exp. Small p only (cofactor determinant).
+import decimal
+
+DEC_PREC = 50
+
+
+def _ctx():
+    c = decimal.Context(prec=DEC_PREC, rounding=decimal.ROUND_HALF_EVEN)
+    return c
+
+
+def D(x):
+    return decimal.Decimal(repr(float(x)))        # exact decimal of the double's shortest repr
+
+
+def dec_selfcheck():
+    """Verify ln/exp round-trips and a known constant at the working precision (returns max abs error)."""
+    c = _ctx()
+    errs = []
+    for v in ("0.5", "-3.25", "12.0", "-40.0", "1e-9"):
+        x = decimal.Decimal(v)
+        errs.append(abs(c.ln(c.exp(x)) - x))
+    errs.append(abs(c.ln(decimal.Decimal(2)) - decimal.Decimal("0.69314718055994530941723212145817656807550013436026")))
+    return max(errs)
+
+
+def dec_logit_loglik(X, y, beta, offset=None):
+    c = _ctx()
+    tot = decimal.Decimal(0)
+    for i, row in enumerate(X):
+        eta = D(offset[i] if offset is not None else 0.0) + sum((D(b) * D(v) for b, v in zip(beta, row)),
+                                                                 decimal.Decimal(0))
+        # y*eta - ln(1 + e^eta), evaluated directly in decimal (no overflow at these magnitudes)
+        tot += D(y[i]) * eta - c.ln(1 + c.exp(eta))
+    return tot
+
+
+def dec_fisher_info(X, beta, offset=None):
+    c = _ctx()
+    p = len(X[0])
+    I = [[decimal.Decimal(0)] * p for _ in range(p)]
+    for i, row in enumerate(X):
+        eta = D(offset[i] if offset is not None else 0.0) + sum((D(b) * D(v) for b, v in zip(beta, row)),
+                                                                 decimal.Decimal(0))
+        ez = c.exp(eta)
+        m = ez / (1 + ez)
+        w = m * (1 - m)
+        for a in range(p):
+            for b_ in range(p):
+                I[a][b_] += w * D(row[a]) * D(row[b_])
+    return I
+
+
+def dec_det(A):
+    n = len(A)
+    if n == 1:
+        return A[0][0]
+    if n == 2:
+        return A[0][0] * A[1][1] - A[0][1] * A[1][0]
+    tot = decimal.Decimal(0)
+    for j in range(n):
+        minor = [row[:j] + row[j + 1:] for row in A[1:]]
+        tot += (decimal.Decimal(-1) ** j) * A[0][j] * dec_det(minor)
+    return tot
+
+
+def dec_firth_objective(X, y, beta, offset=None):
+    c = _ctx()
+    return dec_logit_loglik(X, y, beta, offset) + c.ln(dec_det(dec_fisher_info(X, beta, offset))) / 2
+
+
+def dec_clogit_loglik(C, logb, y, theta):
+    c = _ctx()
+    tot = decimal.Decimal(0)
+    for rows, lb, yy in zip(C, logb, y):
+        s = [D(o) + sum((D(t) * D(v) for t, v in zip(theta, r)), decimal.Decimal(0)) for o, r in zip(lb, rows)]
+        tot += s[yy] - c.ln(sum((c.exp(v) for v in s), decimal.Decimal(0)))
+    return tot
+
+
 def firth_objective(X, y, beta, offset=None):
     return logit_loglik(X, y, beta, offset) + 0.5 * math.log(det(fisher_info(X, y, beta, offset)))
 

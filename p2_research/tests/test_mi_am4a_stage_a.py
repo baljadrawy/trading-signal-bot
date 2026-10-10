@@ -330,7 +330,7 @@ class ScoresFeaturesIsolation(unittest.TestCase):
             tree = ast.parse(fh.read())
         mods = sorted({n.names[0].name if isinstance(n, ast.Import) else n.module
                        for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))})
-        self.assertEqual(mods, ["__future__", "math"])
+        self.assertEqual(mods, ["__future__", "decimal", "math"])
         # the harness never touches the frozen grid or the ceiling
         with open(os.path.join(PKG, "am4a_dev.py"), encoding="utf-8") as fh:
             src = fh.read()
@@ -358,8 +358,10 @@ class HardeningR2(unittest.TestCase):
         self.assertTrue(math.isfinite(r.loglik_pen) and math.isfinite(r.grad_norm))
         self.assertLess(r.grad_norm, FI.FP_FLOOR_GRAD)
         self.assertGreaterEqual(r.grad_norm, 1e-14)
-        self.assertIn("floating-point floor", r.message)
+        self.assertIn("resolution floor", r.message)
         self.assertIn("%.3e" % r.grad_norm, r.message)                      # termination reason discloses the gradient
+        self.assertLessEqual(r.predicted_gain, FI.ls_tolerance(r.loglik_pen, len(X)))   # r3: gain below intrinsic noise
+        self.assertEqual(r.ls_tol_used, 0.0)                                 # strict acceptance override recorded
         # propagation boundary: the harness never counts it as success and records the status verbatim
         self.assertFalse(DEV.fit_is_success(r))
         rec = DEV.fit_record(r)
@@ -514,6 +516,151 @@ class HardeningR2(unittest.TestCase):
         self.assertEqual(c.status, "CONVERGED")
         for a, b in zip(c.trace, c.trace[1:]):
             self.assertGreaterEqual(b, a - FI.ls_tolerance(a, 30))
+
+
+# ====================================================================== Numerical audit r3 (owner directive): H5 and FP_FLOOR
+class NumericalAuditR3(unittest.TestCase):
+    """High-precision (decimal, 50 digits) verification of the acceptance rule and of the FP_FLOOR classification on
+    constructed cases only (no frozen cell)."""
+
+    @classmethod
+    def setUpClass(cls):
+        r = random.Random(41)
+        n = 1000
+        cls.X = [[r.gauss(0, 1) for _ in range(2)] for _ in range(n)]
+        cls.off = [r.gauss(0, 0.7) for _ in range(n)]
+        cls.y = [1 if r.random() < OR.mu_of(cls.off[i] + 0.8 * cls.X[i][0] - 0.4 * cls.X[i][1]) else 0 for i in range(n)]
+        cls.floor = FI.firth_fit(cls.X, cls.y, cls.off, tol_grad=1e-14, ls_tol=0.0)
+
+    def test_r3_01_decimal_oracle_selfcheck_and_float_error_magnitude(self):
+        self.assertLess(float(OR.dec_selfcheck()), 1e-45)
+        X, y, off = _small_binary(seed=3, n=40, p=2)
+        for beta in ([0.2, -0.3], [1.1, 0.4]):
+            f = FI.penalised_loglik(X, y, beta, off)[1]
+            d = OR.dec_firth_objective(X, y, beta, off)
+            self.assertLess(abs(float(OR.D(f) - d)), 1e-13)             # small n: error well below 1e-13
+        f = FI.penalised_loglik(self.X, self.y, self.floor.beta, self.off)[1]
+        d = OR.dec_firth_objective(self.X, self.y, self.floor.beta, self.off)
+        err = abs(float(OR.D(f) - d))
+        self.assertLess(err, FI.ls_tolerance(f, len(self.X)))              # n = 1000: within the scale-aware tolerance
+        self.assertGreater(err, 1e-15)                                    # and genuinely non-zero (float noise exists)
+
+    def test_r3_02_fp_floor_root_cause_true_ascent_below_float_resolution(self):
+        r = self.floor
+        self.assertEqual(r.status, "FP_FLOOR")
+        self.assertLessEqual(r.predicted_gain, FI.ls_tolerance(r.loglik_pen, len(self.X)))
+        self.assertLess(r.cond_estimate, 2.0)                             # not ill-conditioning
+        self.assertAlmostEqual(r.grad_norm, 2.6880850551025404e-07, delta=1e-12)   # r2 regression anchor
+        self.assertEqual((r.iterations, r.halvings_total), (8, 49))
+        ll, llp, mu, L = FI.penalised_loglik(self.X, self.y, r.beta, self.off)
+        U = FI.adjusted_score(self.X, self.y, mu, L)
+        delta = FI.chol_solve(L, U)
+        self.assertGreater(sum(u * d for u, d in zip(U, delta)), 0.0)    # Fisher step is an ascent direction
+        d0 = OR.dec_firth_objective(self.X, self.y, r.beta, self.off)
+        # both signs of a near-zero TRUE change, resolved only by the high-precision oracle:
+        plus = [b + d for b, d in zip(r.beta, delta)]                     # along the ascent direction
+        minus = [b - d for b, d in zip(r.beta, delta)]                    # against it
+        dplus = float(OR.dec_firth_objective(self.X, self.y, plus, self.off) - d0)
+        dminus = float(OR.dec_firth_objective(self.X, self.y, minus, self.off) - d0)
+        self.assertGreater(dplus, 0.0)
+        self.assertLess(dminus, 0.0)
+        self.assertLess(abs(dplus), 1e-14)                                # true gain ~ predicted 4e-16, unresolvable
+        fplus = FI.penalised_loglik(self.X, self.y, plus, self.off)[1] - llp
+        self.assertLess(abs(fplus), FI.ls_tolerance(llp, len(self.X)))                         # float change is within the noise band
+        self.assertLess(fplus, 0.0)                                       # and here float reports a (false) decrease
+        self.assertFalse(DEV.fit_is_success(r))
+        rec = DEV.fit_record(r)
+        self.assertEqual((rec["status"], rec["success"]), ("FP_FLOOR", False))
+        self.assertEqual(rec["predicted_gain"], r.predicted_gain)
+
+    def test_r3_03_stalled_search_with_resolvable_gain_is_numerical_fail(self):
+        X, y, off = _small_binary(seed=35, n=40, p=2)
+        calls = {"n": 0}
+
+        def decreasing_trials(Xa, ya, b, o, pen):
+            calls["n"] += 1
+            ll, llp, mu, L = FI.penalised_loglik(Xa, ya, b, o, pen)
+            if calls["n"] == 1:
+                calls["llp0"] = llp
+                return ll, llp, mu, L
+            return ll, calls["llp0"] - 1e-6, mu, L
+
+        r = FI.firth_fit(X, y, off, objective=decreasing_trials)
+        self.assertEqual(r.status, "NUMERICAL_FAIL")
+        self.assertIn("line search stalled", r.message)
+        self.assertGreater(r.predicted_gain, r.ls_tol_used)               # gain was resolvable: not a floor
+        self.assertEqual(r.beta, [0.0, 0.0])
+
+    def test_r3_04_cumulative_drift_is_detected_not_accumulated(self):
+        X, y, off = _small_binary(seed=36, n=40, p=2)
+        state = {"n": 0}
+
+        def drifting_trials(Xa, ya, b, o, pen):
+            # every trial objective is reported 0.9 * ls_tol BELOW the previous accepted value: each step is
+            # individually within the noise band, so it is accepted; the drift guard must stop the accumulation
+            state["n"] += 1
+            ll, llp, mu, L = FI.penalised_loglik(Xa, ya, b, o, pen)
+            if state["n"] == 1:
+                state["last"] = llp
+                return ll, llp, mu, L
+            fake = state["last"] - 0.9 * FI.ls_tolerance(state["last"], len(Xa))
+            state["last"] = fake
+            return ll, fake, mu, L
+
+        r = FI.firth_fit(X, y, off, objective=drifting_trials, tol_grad=0.0)
+        self.assertEqual(r.status, "NUMERICAL_FAIL")
+        self.assertIn("cumulative objective drift", r.message)
+        self.assertLessEqual(r.iterations, int(FI.DRIFT_FACTOR / 0.9) + 2)
+        self.assertGreater(r.best_objective - r.loglik_pen, FI.DRIFT_FACTOR * r.ls_tol_used)
+        self.assertFalse(DEV.fit_is_success(r))
+
+    def test_r3_05_genuine_improvements_accepted_and_valid(self):
+        X, y, off = self._fixture4000()
+        r = FI.firth_fit(X, y, off)
+        self.assertEqual(r.status, "CONVERGED")
+        self.assertEqual(r.halvings_total, 0)
+        self.assertGreater(r.predicted_gain, 0.0)
+        self.assertEqual(r.best_objective, max(r.trace))
+        for a, b in zip(r.trace, r.trace[1:]):
+            self.assertGreaterEqual(b, a - FI.ls_tolerance(a, len(X)))
+        for v in FI.predict(X, r.beta, off):
+            self.assertTrue(FI.EPS <= v <= 1 - FI.EPS)
+        # large-magnitude objective: float error vs decimal is within the scale-aware tolerance (checked on the
+        # first 400 rows only, to bound oracle cost)
+        Xs, ys, offs = X[:400], y[:400], off[:400]
+        f = FI.penalised_loglik(Xs, ys, r.beta, offs)[1]
+        self.assertLess(abs(float(OR.D(f) - OR.dec_firth_objective(Xs, ys, r.beta, offs))),
+                        FI.ls_tolerance(f, 400))
+
+    def _fixture4000(self):
+        r = random.Random(43)
+        n = 4000
+        X = [[r.gauss(0, 1) for _ in range(3)] for _ in range(n)]
+        off = [r.gauss(0, 0.7) for _ in range(n)]
+        y = [1 if r.random() < OR.mu_of(off[i] + 0.8 * X[i][0] - 0.4 * X[i][1]) else 0 for i in range(n)]
+        return X, y, off
+
+    def test_r3_06_same_policy_in_conditional_logit_with_decimal_check(self):
+        rr = random.Random(45)
+        n, K, p = 600, 6, 2
+        C = [[[rr.gauss(0, 1) for _ in range(p)] for _ in range(K)] for _ in range(n)]
+        lb = [[math.log(1.0 / K)] * K for _ in range(n)]
+        yy = [rr.randrange(K) for _ in range(n)]
+        c = CL.clogit_fit(C, lb, yy)
+        self.assertEqual(c.status, "CONVERGED")
+        self.assertGreater(c.predicted_gain, 0.0)
+        self.assertEqual(c.best_objective, max(c.trace))
+        f = CL.loglik(C, lb, yy, c.beta)
+        self.assertLess(abs(float(OR.D(f) - OR.dec_clogit_loglik(C, lb, yy, c.beta))), FI.ls_tolerance(f, n))
+        s = CL.clogit_fit(C, lb, yy, tol_grad=1e-15, ls_tol=0.0)      # strict rule, sub-floor tolerance
+        self.assertIn(s.status, ("CONVERGED", "FP_FLOOR", "ITER_CAP"))
+        if s.status == "FP_FLOOR":
+            self.assertLessEqual(s.predicted_gain, FI.ls_tolerance(s.loglik, n))
+        self.assertNotEqual(s.status, "NUMERICAL_FAIL")
+
+    def test_r3_07_fp_floor_fixture_replays_byte_identically(self):
+        again = FI.firth_fit(self.X, self.y, self.off, tol_grad=1e-14, ls_tol=0.0)
+        self.assertEqual(json.dumps(again.as_dict(), sort_keys=True), json.dumps(self.floor.as_dict(), sort_keys=True))
 
 
 if __name__ == "__main__":

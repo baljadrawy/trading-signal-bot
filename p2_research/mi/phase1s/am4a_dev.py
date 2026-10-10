@@ -57,7 +57,8 @@ def fit_is_success(result) -> bool:
 def fit_record(result) -> dict:
     """Verbatim status propagation for evidence output."""
     return {"status": result.status, "success": fit_is_success(result), "iterations": result.iterations,
-            "grad_norm": result.grad_norm, "message": result.message}
+            "grad_norm": result.grad_norm, "message": result.message, "predicted_gain": result.predicted_gain,
+            "ls_tol_used": result.ls_tol_used, "best_objective": result.best_objective}
 
 
 # ------------------------------------------------------------------ scores (harness-side; the oracle has its own)
