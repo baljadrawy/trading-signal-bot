@@ -132,7 +132,7 @@ def clogit_fit(C: list, logb: list, y: list, max_iter: int = MAX_ITER, tol_grad:
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
                              cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         delta = chol_solve(L, U)
-        pred_gain = 0.5 * sum(u * d for u, d in zip(U, delta))          # Newton decrement (> 0, I is PD)
+        pred_gain = 0.5 * sum(u * d for u, d in zip(U, delta))          # exact Newton decrement here: the conditional-logit Hessian is -I
         t = 1.0
         accepted = False
         tol_ls = ls_tolerance(ll, n) if ls_tol is None else float(ls_tol)

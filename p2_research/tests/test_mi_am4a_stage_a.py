@@ -663,5 +663,65 @@ class NumericalAuditR3(unittest.TestCase):
         self.assertEqual(json.dumps(again.as_dict(), sort_keys=True), json.dumps(self.floor.as_dict(), sort_keys=True))
 
 
+# ====================================================================== r4: arithmetic reconciliation of the FP_FLOOR evidence
+class ReconciliationR4(unittest.TestCase):
+    """Independent re-derivation of the A10 §13.3 quantities (owner directive r4). Corrects the r3 ratio claim."""
+
+    @classmethod
+    def setUpClass(cls):
+        NumericalAuditR3.setUpClass()
+        cls.X, cls.y, cls.off, cls.floor = NumericalAuditR3.X, NumericalAuditR3.y, NumericalAuditR3.off, NumericalAuditR3.floor
+
+    def test_r4_01_gain_indicator_identity_and_corrected_ratios(self):
+        r = self.floor
+        ll, llp, mu, L = FI.penalised_loglik(self.X, self.y, r.beta, self.off)
+        U = FI.adjusted_score(self.X, self.y, mu, L)
+        delta = FI.chol_solve(L, U)
+        first_order = sum(u * d for u, d in zip(U, delta))               # U*^T I^-1 U* (first-order term)
+        proxy = 0.5 * first_order                                        # the recorded indicator
+        self.assertAlmostEqual(r.predicted_gain, proxy, delta=1e-30)
+        self.assertAlmostEqual(proxy, 2.2206467205789227e-16, delta=1e-28)   # r3 reported the first-order 4.4e-16
+        ulp = math.ulp(llp)
+        self.assertAlmostEqual(ulp, 1.1368683772161603e-13, delta=1e-25)
+        self.assertAlmostEqual(ulp / proxy, 512.0, delta=1.0)             # corrected ratio (r3 claimed ~3000)
+        self.assertAlmostEqual(FI.MACHINE_EPS * abs(llp) / first_order, 288.0, delta=1.0)   # eps|l| vs first-order
+        # Fisher-scoring proxy vs the Newton decrement of the PENALISED objective (finite-difference Hessian of U*)
+        h = 1e-5
+
+        def Us(b):
+            _, _, m, Lb = FI.penalised_loglik(self.X, self.y, b, self.off)
+            return FI.adjusted_score(self.X, self.y, m, Lb)
+
+        H = [[0.0] * 2 for _ in range(2)]
+        for j in range(2):
+            bp, bm = list(r.beta), list(r.beta)
+            bp[j] += h
+            bm[j] -= h
+            Up, Um = Us(bp), Us(bm)
+            for i in range(2):
+                H[i][j] = (Up[i] - Um[i]) / (2 * h)
+        det = H[0][0] * H[1][1] - H[0][1] * H[1][0]
+        dn = [-(H[1][1] * U[0] - H[0][1] * U[1]) / det, -(-H[1][0] * U[0] + H[0][0] * U[1]) / det]
+        newton_dec = 0.5 * sum(u * v for u, v in zip(U, dn))
+        self.assertLess(abs(newton_dec - proxy) / proxy, 0.01)          # equal within 1 % on this fixture only
+        # the true (decimal) change along the Fisher step matches the proxy's order and is positive
+        d0 = OR.dec_firth_objective(self.X, self.y, r.beta, self.off)
+        cand = [b + d for b, d in zip(r.beta, delta)]
+        true_change = float(OR.dec_firth_objective(self.X, self.y, cand, self.off) - d0)
+        self.assertGreater(true_change, 0.0)
+        self.assertLess(abs(true_change - proxy) / proxy, 0.01)
+        # float error of the objective at the stall point: ~8 ulp, below the acceptance tolerance in force
+        err = abs(float(OR.D(llp) - d0))
+        self.assertLess(err, 10 * ulp)
+        self.assertLess(err, FI.ls_tolerance(llp, len(self.X)))
+
+    def test_r4_02_eps_definition_and_tolerance_in_unit_roundoff_terms(self):
+        self.assertEqual(FI.MACHINE_EPS, 2.0 ** -52)                     # machine epsilon; unit roundoff u = eps / 2
+        u = FI.MACHINE_EPS / 2
+        n, l = 1000, -576.345250375706
+        self.assertAlmostEqual(FI.ls_tolerance(l, n) / (8 * u * math.sqrt(n) * (abs(l) + 1)), 1.0, places=12)
+        self.assertLess(FI.ls_tolerance(l, n), (n - 1) * u * abs(l))     # below the deterministic worst-case bound
+
+
 if __name__ == "__main__":
     unittest.main()

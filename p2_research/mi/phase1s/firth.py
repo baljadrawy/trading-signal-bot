@@ -12,8 +12,8 @@ Optimisation: Fisher scoring with step-halving on l* (deterministic), Cholesky f
 
 Convergence (both checks are reported; CONVERGED requires the gradient check):
     CONVERGED      max|U*| < tol_grad at the returned beta
-    FP_FLOOR       (r3) no acceptable step AND the Newton decrement 0.5 U*^T I^-1 U* (the predicted ascent of the
-                   full step) is <= the resolvable objective noise ls_tol: the objective cannot register the
+    FP_FLOOR       (r3/r4) no acceptable step AND the Fisher-scoring quadratic gain proxy 0.5 U*^T I^-1 U* (equal to
+                   the Newton decrement only if the penalised Hessian is -I) is <= the resolvable objective noise: the objective cannot register the
                    remaining improvement at double precision. A finite iterate, NOT a certified optimum
                    (tol_grad not met). The predicted gain and ls_tol are recorded on the result.
     ITER_CAP       max_iter reached without the gradient check
@@ -275,7 +275,10 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
                              grad_norm=gnorm, step_norm=step_norm, halvings_total=halvings_total,
                              cond_estimate=chol_cond_estimate(L), trace=trace, message="gradient below tol_grad", predicted_gain=pred_gain, ls_tol_used=tol_ls, best_objective=best)
         delta = chol_solve(L, U)
-        # Newton decrement: first-order predicted ascent of the full Fisher step, 0.5 * U*^T I^-1 U* (> 0 since I is PD)
+        # Fisher-scoring quadratic gain proxy 0.5 * U*^T I^-1 U* (r4 wording): I is the EXPECTED information of the
+        # unpenalised likelihood, U* the penalised score. It equals the Newton decrement of l* only when the penalised
+        # Hessian equals -I; it is > 0 because I is PD, which makes delta an ascent direction of l* for small t but
+        # does not by itself guarantee that the full step improves l*.
         pred_gain = 0.5 * sum(u * d for u, d in zip(U, delta))
         t = 1.0
         accepted = False
@@ -297,7 +300,7 @@ def firth_fit(X: list, y: list, offset=None, penalty: bool = True, max_iter: int
             halvings_total += 1
         if not accepted:
             # No acceptable step found (r3 classification, cause-based rather than name-based):
-            #  FP_FLOOR      the predicted ascent of the full step, 0.5 U*^T I^-1 U*, is at or below the resolvable
+            #  FP_FLOOR      the quadratic gain proxy 0.5 U*^T I^-1 U* (see above) is at or below the resolvable
             #                objective noise ls_tol: the objective cannot register the remaining improvement at
             #                double precision. A finite iterate, NOT a certified optimum (tol_grad not met).
             #  NUMERICAL_FAIL the predicted ascent is resolvable yet no trial step increased the objective:

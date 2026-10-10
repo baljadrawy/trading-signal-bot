@@ -270,3 +270,59 @@ Regression anchors recorded in tests: the H1 fixture's gradient 2.68808505510254
 - Firth uniqueness remains an assumption.
 
 Verdict: H5 rule **ACCEPT with the drift guard and the documented limitation**; FP_FLOOR classification **ACCEPT (cause-based)**; Stage A engineering **final: implementation-ready for the Stage B design**; Stage B **HOLD**.
+
+---
+
+## 14. Revision r4 (2026-10-10): independent reconciliation and numerical closure
+
+Authorised by the owner directive "Stage A r4". Base: r3 commit `b756cd1…`. Baseline re-verified (Gate A `a9204670…` clean; frozen set `fdf33664…`, protocol `412cb606…`, map `9311b86d…`; trial ledger genesis only; budget ledger 7 events, 66.882077 charged, 28,733.117923 remaining, no reservations; no engine wiring; no research units). The r3 text above is preserved verbatim; corrections are recorded here.
+
+### 14.1 Corrections to r3 (audit trail)
+
+| r3 statement (§13.3) | Status | Corrected statement [NUMERICAL, reproduced in `test_r4_01`] |
+|---|---|---|
+| "Predicted first-order gain of the full step: 4.4e-16" | **imprecise** | 4.44e-16 is the first-order term U*ᵀI⁻¹U*; the **recorded indicator** is ½·U*ᵀI⁻¹U* = **2.22e-16** |
+| "3,000× below the objective's ulp (1.3e-13)" | **wrong arithmetic** | ulp(ℓ*) = 1.137e-13; ulp / indicator = **512**; eps·|ℓ*| / first-order term = **288** (the "≈ 295" figure). The r3 text quoted eps·|ℓ*| (1.28e-13) as the ulp and mis-divided. The conclusion (the attainable improvement is two to three orders of magnitude below the objective's resolution) stands; the factor does not |
+| "Newton decrement ½·U*ᵀI⁻¹U*" (code comments, §13.3–13.4) | **conflated** | the quantity is the **Fisher-scoring quadratic gain proxy**: I is the expected information of the unpenalised likelihood, U* the penalised score. It equals the Newton decrement of ℓ* only if the penalised Hessian equals −I. On the H1 fixture the finite-difference penalised-Hessian decrement is 2.217e-16, within 0.18 % of the proxy, but that is a property of this fixture, not an identity. For the conditional logit the Hessian is exactly −I, so there the proxy **is** the Newton decrement [MATHEMATICAL]. Comments in `firth.py` and `clogit_offset.py` corrected; the field name `predicted_gain` is unchanged |
+| "float trial-to-trial noise ≈ 1e-12; float-decimal error within ls_tol" | confirmed | float − decimal error of ℓ* at the stall point = 8.9e-13 ≈ 8 ulp; ls_tol in force = 1.6e-11 |
+
+### 14.2 H5: what is proven, supported, implemented, observed, assumed
+
+- **Implementation [FACT]:** `MACHINE_EPS = 2⁻⁵² = 2.22e-16` (machine epsilon, the spacing at 1), unit roundoff u = eps/2. The rule 4·eps·√n·(|ℓ| + 1) therefore equals **8·u·√n·(|ℓ| + 1)**. The r2/r3 docstring described it as "4 eps √n"; both are the same number, now stated in u-terms.
+- **Deterministic bound [LITERATURE, Higham 2002, *Accuracy and Stability of Numerical Algorithms*, 2nd ed., SIAM, ISBN 9780898718027, metadata verified, full text not accessed]:** recursive summation of n terms has forward error ≤ γ_{n−1}·Σ|t_i| with γ_n = nu/(1 − nu). For the log-likelihood (all terms ≤ 0) this is ≈ (n − 1)·u·|ℓ|. For the H1 fixture: 6.3e-11 versus ls_tol 1.6e-11: **ls_tol is below the deterministic bound** (`test_r4_02`), so it is not a worst-case guarantee.
+- **Probabilistic bound [LITERATURE, Higham & Mary 2019, *SIAM J. Sci. Comput.* 41(5):A2815–A2835, doi:10.1137/18M1226312, abstract verified]:** γ_n can be replaced by a constant proportional to √(n log n)·u with probability bounded below independently of n. Our √n·u·|ℓ|·8 covers √(n log n) up to n ≈ e⁶⁴, so the rule is consistent with the probabilistic constant up to the unstated proportionality factor; it remains a **heuristic in the probabilistic sense**, not a theorem.
+- **Firth log-determinant term:** I = XᵀWX entries are sums of n products (same error class, relative ≈ n·u), ½·log det contributes O(p·u) absolute error after Cholesky; for p = 2 this is negligible against the ℓ term. The worst-case argument therefore applies to the objective with a small additive term [MATHEMATICAL, order-of-magnitude].
+- **Can accepted steps decrease the true objective? [NUMERICAL / ASSUMPTION]:** yes, by at most ls_tol plus the evaluation error (≈ 2 × 8 ulp here), i.e. ~1e-12 per step at this scale; not observed on the H1 fixture, where the true change along the Fisher step is +2.22e-16 (decimal) while float reports −1.6e-12.
+- **Drift guard [FACT, heuristic]:** `best` is updated on strict improvement; the comparison `best − llp > 10·tol_ls` uses the tolerance of the current iteration (recomputed from the pre-step objective each iteration), so reference and tolerance are consistent. It bounds accumulated accepted deterioration to 10·ls_tol below the best objective, about 1e-12 relative. It is a **guard, not a guarantee** against a single accepted decrease of up to ls_tol; both magnitudes are immaterial relative to any meaningful objective change (≥ 1e-6 in these problems). Convergence is never inferred from the objective.
+- **Conditional logit:** the same reasoning applies; its objective is a sum of n per-day terms each containing a log-sum-exp over K = 6, same error class.
+- **Line-search theory [LITERATURE, Nocedal & Wright 2006, *Numerical Optimization*, Springer, ISBN 9780387400655, metadata verified]:** the acceptance rule is a non-decrease test with tolerance, **not** an Armijo sufficient-ascent condition; the convergence theory of sufficient-ascent line searches does not apply, and is not relied on: CONVERGED is certified by the gradient check alone. **Verdict: ACCEPT as a documented heuristic**, no constant changed.
+
+### 14.3 FP_FLOOR: the indicator and what the evidence shows
+
+| Concept | Definition | Status on the H1 fixture |
+|---|---|---|
+| Fisher-scoring quadratic gain proxy | ½·U*ᵀI⁻¹U*, I expected information, U* penalised score | 2.22e-16 [NUMERICAL]; > 0 because I is PD, which implies δ = I⁻¹U* is an ascent direction of ℓ* for small t [MATHEMATICAL], not that the full step improves ℓ* |
+| Newton decrement of ℓ* | ½·U*ᵀ(−H*)⁻¹U* with H* the penalised Hessian | 2.217e-16 by finite differences, within 0.18 % [NUMERICAL, fixture-specific] |
+| Observed objective improvement | float ℓ*(β + δ) − ℓ*(β) | −1.6e-12 (noise) |
+| True improvement | 50-digit decimal | +2.22e-16 (matches the proxy within 1 %) |
+| Resolution | ulp(ℓ*) = 1.137e-13; evaluation error 8.9e-13 ≈ 8 ulp | the true improvement is 512 ulp-fractions below one ulp and 4,000× below the evaluation error |
+
+Conclusion: comparing the proxy with the resolution noise is a **necessary indicator**, sufficient only under the quadratic-model assumption; the decimal oracle verifies the floor on **this fixture** (true ascent, unresolvable in float). FP_FLOOR is therefore justified here and remains fail-closed (never success). The taxonomy is unchanged; wording corrected.
+
+### 14.4 Decimal-oracle audit
+
+Precision 50 digits, ROUND_HALF_EVEN; exp/ln correctness checked by `dec_selfcheck()` (round trips at five magnitudes, ln 2 to 50 digits; max error < 1e-45) rather than assumed; inputs enter as exact decimals of the doubles' shortest repr; the information matrix and cofactor determinant are computed in decimal; no production routine is reused. Limitations: small p only; cost-bounded to ≤ 1,000 rows; it verifies specific objective values and signs, not derivatives, not the solver, and not any frozen cell. Agreement on these cases is evidence, not a general proof.
+
+### 14.5 Literature verified in r4 (access level)
+
+Higham 2002 (MD); Higham & Mary 2019 (AB); Nocedal & Wright 2006 (MD); Firth 1993 (MD, earlier); Heinze & Schemper 2002 (AB, earlier); Kosmidis & Firth 2009, *Biometrika* 96(4):793–804, doi:10.1093/biomet/asp055 (MD); Kosmidis & Firth 2021 (AB, earlier); Kosmidis, Kenne Pagui & Sartori 2020, *Statistics and Computing* 30:43–59, doi:10.1007/s11222-019-09860-6 (MD). A Crossref lookup of a guessed DOI returned an unrelated paper (Vovk 2009) and is not cited.
+
+### 14.6 Changes, results, CPU, integrity
+
+Code: comment and docstring corrections only in `firth.py` and `clogit_offset.py` (no numerical behaviour change); `ReconciliationR4` tests (2) added. Results: Stage A **33/33** (19 + 5 + 7 + 2), `test_mi_phase1` 38/38, `test_mi_phase1s` 43/43 on the r4 tree. CPU ≈ 45 CPU-s of the 100 allowed (probe 0.7; suites ≈ 38; re-runs ≈ 6), peak RSS 30 MB; accounting unchanged (offline development tests, uncharged, `MI_PHASE1S_READINESS.md` B1; `nice 19`; outside protected windows). Frozen set verified before and after; ledgers byte-identical; no engine wiring.
+
+### 14.7 Remaining limitations and verdict
+
+ls_tol is a probabilistic-style heuristic consistent with Higham & Mary's constant up to an unstated factor; the drift guard is a heuristic bound; FP_FLOOR is verified by the oracle on one fixture and justified elsewhere only under the quadratic-model assumption; Firth uniqueness remains an assumption; the conditional-logit guard has no injection seam.
+
+**Stage A engineering verdict: CLOSED from the engineering perspective** (solvers, feature generator, oracle, tests and evidence are consistent and reproducible). This closure is engineering only; it establishes no leakage-detection sensitivity. Stage B remains HOLD pending the budget amendment, the pre-registration hash and a Stage B GO.
