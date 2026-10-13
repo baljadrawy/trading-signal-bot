@@ -222,6 +222,7 @@ class Collector:
         self.activity = collections.defaultdict(ConnActivity)
         self.conns = []
         self.rotating = set()
+        self.conn_outage = {}                     # P2F 1.6.0: conn name -> {"start", "opened", "failed"}
         self.rotation = {"tests": 0, "events": []}
         self.started_mono = time.monotonic()
         self.started_ms = now_ms()
@@ -326,8 +327,54 @@ class Collector:
                                       symbol=None, payload={"event": event, **payload}, boot_id=self.boot_id,
                                       endpoint="collector", transport="internal", recv_ts_ns=time.time_ns()))
 
+    def _conn_incidents(self, m: int) -> None:
+        """P2F 1.6.0 connection-level incidents (continuous mode). One incident per outage, no per-tick updates:
+        conn_outage:<conn> (DEGRADED, state-like: resolves when the connection is data-live again) after
+        conn_outage_incident_s without data; conn_recovery_failed:<conn> (CRITICAL, latched: needs an operator
+        acknowledgement) when the outage reaches conn_recovery_fail_s. The outage clock starts at the connection's last
+        data message (or WS start), so a socket that is up but silent counts as an outage."""
+        if self.incidents is None or self.ws_start_ms is None:
+            return
+        lim_o, lim_f = 1000 * self.cfg["conn_outage_incident_s"], 1000 * self.cfg["conn_recovery_fail_s"]
+        for c in list(self.conns):
+            a = self.activity.get(c.name)
+            if a is None:
+                continue
+            st = self.conn_outage.get(c.name)
+            if self.data_live_at(c.name, m):
+                if st is not None:
+                    if st["opened"]:
+                        self.incidents.resolve(f"conn_outage:{c.name}")
+                        self.lifecycle("conn_outage_resolved", {"conn": c.name, "start_ms": st["start"],
+                                                                "duration_ms": m - st["start"],
+                                                                "recovery_failed": st["failed"]})
+                    del self.conn_outage[c.name]
+                continue
+            if st is None:
+                st = self.conn_outage[c.name] = {"start": max(a.last_data_ms or 0, self.ws_start_ms),
+                                                 "opened": False, "failed": False}
+            dur = m - st["start"]
+            detail = {"conn": c.name, "start_ms": st["start"], "outage_ms": dur, "last_data_ms": a.last_data_ms,
+                      "connected": bool(getattr(c, "connected", False)), "reconnects": getattr(c, "reconnects", 0),
+                      "recovering": bool(getattr(c, "recovering", False)),
+                      "last_recovery": (list(getattr(c, "recoveries", []) or [])[-1:] or [None])[0]}
+            if not st["opened"] and dur >= lim_o:
+                st["opened"] = True
+                self.incidents.raise_(f"conn_outage:{c.name}", "DEGRADED", detail, latched=False)
+                self.lifecycle("conn_outage_open", detail)
+            if not st["failed"] and dur >= lim_f:
+                st["failed"] = True
+                self.incidents.raise_(f"conn_recovery_failed:{c.name}", "CRITICAL",
+                                      {"cause": "outage_exceeded_limit", **detail}, latched=True)
+
     def gap_record(self, g: dict, recoverability: str, extra: dict | None = None) -> None:
         self.gap_count += 1
+        key = g.get("stream_key", "")
+        if self.incidents is not None and g.get("duration_ms", 0) >= 1000 * self.cfg["tier0_loss_incident_s"] and (
+                key.startswith("market|") or key.split("|")[-1] in self.cfg["tier0"]):
+            self.incidents.raise_("observation_loss:tier0", "WARNING",          # durable, needs acknowledgement
+                                  {k: g.get(k) for k in ("stream", "start_ms", "end_ms", "duration_ms", "cause",
+                                                         "causes", "missing_samples")}, latched=True)
         key = g["stream_key"]
         self.emit("gap", R.make(type="gap", obs_id=R.gap_id(self.boot_id, self._seq(), key, g["first_missing_ms"],
                                                             g["last_missing_ms"], g["cause"]),
@@ -707,7 +754,28 @@ class Collector:
     def _new_conn(self, name: str, streams: list) -> WSConnection:
         return WSConnection(name, streams, self.session, self.on_message, self.on_shutdown_event, self.on_state,
                             backoff=Backoff(), guard=self.rate, on_error=self.on_handler_error,
-                            on_sub_sent=self.on_sub_sent, on_sub_result=self.on_subscribe_result)
+                            on_sub_sent=self.on_sub_sent, on_sub_result=self.on_subscribe_result,
+                            on_recovery=self.on_conn_recovery, close_grace_s=self.cfg["ws_close_grace_s"],
+                            abort_wait_s=self.cfg["ws_abort_wait_s"])
+
+    def on_conn_recovery(self, conn, res: dict) -> None:
+        """P2F 1.6.0: every bounded session end is recorded; a WEDGED session (still alive after graceful close,
+        transport abort and task cancel) is a failed recovery: CRITICAL latched incident, the object is retired (it
+        can never deliver again) and replaced by a fresh connection object with its own task."""
+        self.stats.setdefault("conn_session_ends", {})
+        self.stats["conn_session_ends"][res["outcome"]] = self.stats["conn_session_ends"].get(res["outcome"], 0) + 1
+        self.lifecycle("conn_recovery", {"conn": conn.name, **res})
+        if res["outcome"] != "wedged":
+            return
+        if self.incidents is not None:
+            self.incidents.raise_(f"conn_recovery_failed:{conn.name}", "CRITICAL",
+                                  {"cause": "session_wedged", **res}, latched=True)
+        if conn in self.conns and conn.name not in self.rotating and not self.stop_event.is_set():
+            conn.retire()
+            new = self._new_conn(conn.name, conn.streams)
+            new.task = asyncio.create_task(new.run(), name=conn.name + "-replaced")
+            self.conns[self.conns.index(conn)] = new
+            self.lifecycle("ws_conn_replaced", {"conn": conn.name, "retired_gen": res.get("gen")})
 
     async def start_ws(self) -> None:
         self.ws_start_ms = now_ms()
@@ -1679,6 +1747,7 @@ class Collector:
                 self.stats["data_stall_reconnects"] = self.stats.get("data_stall_reconnects", 0) + 1
                 self.lifecycle("data_stall_reconnect", {"conn": c.name, "last_data_ms": a.last_data_ms})
                 self._spawn(c.force_reconnect("data_stall"))
+        self._conn_incidents(m)
         if self.writer.ident is not None and not self.writer.is_alive() and not self.writer.finished:
             self.fatal("writer_thread_dead", EXIT_WRITER)
             return
@@ -1872,7 +1941,11 @@ class Collector:
             "ws": [{"conn": c.name, "connected": bool(getattr(c, "connected", False)), "streams": len(c.streams),
                     "reconnects": getattr(c, "reconnects", 0),
                     "last_msg_age_ms": (m - c.last_msg_ns // 1_000_000) if getattr(c, "last_msg_ns", None) else None,
-                    "data_live": self.data_live_at(c.name, m), "msgs_per_s": self.activity[c.name].rate(m)}
+                    "data_live": self.data_live_at(c.name, m), "msgs_per_s": self.activity[c.name].rate(m),
+                    "gen": getattr(c, "gen", None), "recovering": bool(getattr(c, "recovering", False)),
+                    "stale_dropped": getattr(c, "stale_dropped", 0), "wedged": bool(getattr(c, "wedged", False)),
+                    "last_recovery": (list(getattr(c, "recoveries", []) or [])[-1:] or [None])[0],
+                    "outage_ms": (m - self.conn_outage[c.name]["start"]) if c.name in self.conn_outage else None}
                    for c in self.conns],
             "streams": {t.name: {"state": t.state(), "sub": t.sub, "ready_ms": t.ready_ms,
                                  "freshness": self.freshness(t, m), "stale_ms": t.stale_ms,

@@ -274,6 +274,19 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
   - lifecycle `ws_superseded_closed`;
   - lifecycle `seq_regression`;
   - the `rotation_handoff_incomplete:<conn>` WARNING incident.
+- **Bounded connection recovery (collector ≥ 1.6.0).** Every session end is bounded and never waits on the peer:
+  - Order: graceful close for at most `ws_close_grace_s` (3 s), then the TCP transport is aborted, then the session task is cancelled. Each later step allows `ws_abort_wait_s` (2 s), so the hard bound is 7 s.
+  - The bound applies to forced reconnects (data stall, subscribe timeout, handler-error burst), the 418 suspend, rotation close and shutdown.
+  - Each end is recorded as lifecycle `conn_recovery`, with `{conn, reason, outcome, gen, ms}`. `outcome` is one of `graceful`, `aborted`, `abort_unavailable`, `cancelled`, `wedged`, `no_session` or `interrupted`.
+  - **Wedged:** a session still alive after all three steps is `wedged`. The connection object is retired (lifecycle `ws_conn_replaced`) and the `conn_recovery_failed:<conn>` CRITICAL latched incident is raised.
+  - **Generation ownership:** a retired object, or a message from an obsolete session generation, is never delivered. Such messages are counted in health `ws[].stale_dropped`.
+  - **Health `ws[]`** also carries `gen`, `recovering`, `wedged`, `last_recovery` and `outage_ms`.
+- **Connection incidents (collector ≥ 1.6.0, continuous mode).** The outage clock starts at the connection's last data message, so a socket that is up but silent counts as an outage.
+  - `conn_outage:<conn>`: DEGRADED, state-like. Opened once when the connection is not data-live for `conn_outage_incident_s` (60 s), with lifecycle `conn_outage_open`. Resolved when it is data-live again, with lifecycle `conn_outage_resolved` carrying `{start_ms, duration_ms, recovery_failed}`. There are no per-tick updates.
+  - `conn_recovery_failed:<conn>`: CRITICAL, **latched** (needs an operator acknowledgement). Raised once per outage at `conn_recovery_fail_s` (600 s), or for a wedged session.
+  - `observation_loss:tier0`: WARNING, **latched**. Raised when a gap of `tier0_loss_incident_s` (60 s) or longer closes on a tier-0 stream or on `!miniTicker@arr`. The gap record itself is unchanged.
+  - Transient per-stream staleness on a data-live connection raises no incident; its gap record and health reason are unchanged.
+  - These are additive control-payload changes (lifecycle events, health fields, incident keys). Record envelopes and sampled-record semantics are unchanged, so `schema_version` stays 2, as for collector 1.1.0–1.5.0.
 
 **Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
 host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as

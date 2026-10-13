@@ -5,6 +5,7 @@ No API key, no signing, no order/account/user-data endpoint exists in this modul
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
 import json
 import time
@@ -95,25 +96,50 @@ class WSConnection:
     G2-Repeat: every SUBSCRIBE id is tracked and its ack/error routed to on_sub_result (F22 / F37); a handler
     exception never kills the connection (counted via on_error, F20); any unexpected exception in the run loop
     leads to reconnect with backoff; suspend() closes the socket on a 418 ban (F23) and run() waits for the ban
-    to end; force_reconnect() is the recovery path for ack timeouts and handler-error bursts."""
+    to end; force_reconnect() is the recovery path for data stalls, ack timeouts and handler-error bursts.
+
+    P2F 1.6.0 (A34 recovery hardening). Each WebSocket session runs in its own task (`_session`) owned by run(); a
+    session is ended ONLY through `_end_session()`, which is BOUNDED and never relies on the peer:
+      1. graceful close (aiohttp close(): CLOSE frame, wait for the peer's CLOSE) for at most `close_grace_s`;
+      2. then the TCP transport is aborted, and the session task gets `abort_wait_s` to finish;
+      3. then the session task is cancelled, with another `abort_wait_s`;
+      4. if it still has not finished the connection is reported WEDGED (on_recovery outcome "wedged"): the owner
+         (Collector) retires this object and starts a new one; a retired object never delivers another message.
+    aiohttp 3.14.3 bounds its close wait per received frame, so a peer that keeps sending frames but never answers
+    CLOSE kept close() - and with it every earlier recovery path - waiting indefinitely (A33 D1, 2026-10-10).
+    Concurrent end requests share one termination (no double abort, no duplicate sessions). Sessions carry a
+    generation number; a message from any other generation, or from a retired object, is dropped and counted
+    (`stale_dropped`), never delivered. Reconnects keep the existing Backoff (exponential, rate-limited)."""
 
     SUB_CHUNK = 100
 
     def __init__(self, name: str, streams: list, session, on_message, on_shutdown, on_state,
                  base: str = C.WS_BASE, backoff: Backoff | None = None, guard: RateGuard | None = None,
-                 on_error=None, on_sub_sent=None, on_sub_result=None):
+                 on_error=None, on_sub_sent=None, on_sub_result=None, on_recovery=None,
+                 close_grace_s: float = 3.0, abort_wait_s: float = 2.0):
         self.name, self.streams, self.session = name, list(streams), session
         self.on_message, self.on_shutdown, self.on_state = on_message, on_shutdown, on_state
         self.on_error, self.on_sub_sent, self.on_sub_result = on_error, on_sub_sent, on_sub_result
+        self.on_recovery = on_recovery
         self.base, self.backoff, self.guard = base, backoff or Backoff(), guard
+        self.close_grace_s, self.abort_wait_s = float(close_grace_s), float(abort_wait_s)
         self.connected = False
         self.first_msg = asyncio.Event()
         self.reconnects = 0
         self.last_msg_ns = None
         self.sub_requests = {}                 # id -> {"streams", "sent_ms", "resolved"} (current session)
         self.handler_errors = 0
+        self.gen = 0                           # session generation (incremented on every successful connect)
+        self.stale_dropped = 0                 # messages of an obsolete generation / retired object, never delivered
+        self.recovering = False
+        self.wedged = False
+        self.retired = False
+        self.recoveries = collections.deque(maxlen=20)
         self._closing = False
         self._ws = None
+        self._session = None                   # current session task
+        self._ending = None                    # (session task, future) of the termination in progress
+        self._was_connected = False
 
     def url(self) -> str:
         u = f"{self.base}?streams={self.streams[0]}"
@@ -121,45 +147,145 @@ class WSConnection:
         return u
 
     async def run(self) -> None:
-        while not self._closing:
+        while not self._closing and not self.retired:
             if self.guard is not None and self.guard.banned():
                 await asyncio.sleep(1); continue
             self.backoff.attempt()
-            err = None
+            self._was_connected = False
+            st = self._session = asyncio.create_task(self._session_once(), name=f"{self.name}-session")
             try:
-                async with self.session.ws_connect(self.url(), autoping=True, heartbeat=30.0, max_msg_size=8 * 2**20,
-                                                   timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
-                    self._ws = ws
-                    if self.guard is not None and self.guard.banned():
-                        await ws.close(); continue
-                    self.connected = True; self.on_state(self, "connected")
-                    await self._subscribe(ws)
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            self._handle_text(msg.data)
-                        elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
-                            break
-            except asyncio.CancelledError:
+                await asyncio.wait({st})
+            except asyncio.CancelledError:              # run() itself cancelled (stop / replacement): bounded cleanup
+                if self._ws is not None:
+                    self._abort(self._ws)               # else aiohttp's __aexit__ close() could wait on the peer again
+                st.cancel()
+                await asyncio.wait({st}, timeout=self.abort_wait_s)
                 self.connected = False; self._ws = None
                 raise
-            except aiohttp.WSServerHandshakeError as e:          # 418 / 429 at the handshake reach the guard (F23)
-                if self.guard is not None and e.status == 418:
-                    self.guard.on_418(e.headers.get("Retry-After") if e.headers else None)
-                elif self.guard is not None and e.status == 429:
-                    self.guard.on_429(e.headers.get("Retry-After") if e.headers else None)
-            except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
-                pass
-            except Exception as e:                                   # noqa: BLE001 - never die silently (F20)
-                err = e
-            was = self.connected
+            err = None
+            if not st.cancelled():
+                kind, err = st.result()
+                if kind == "banned":
+                    continue
+            was = self._was_connected
             self.connected = False; self._ws = None
-            if self._closing:
+            if self._closing or self.retired:
                 break
             if err is not None:
                 self._report(err)
             self.on_state(self, "disconnected" if was else "connect_failed")
             self.backoff.failed(); self.reconnects += 1
             await asyncio.sleep(self.backoff.next_delay())
+
+    async def _session_once(self):
+        """One WebSocket session. Returns ("ended" | "banned", unexpected exception or None)."""
+        err = None
+        try:
+            async with self.session.ws_connect(self.url(), autoping=True, heartbeat=30.0, max_msg_size=8 * 2**20,
+                                               timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
+                self._ws = ws
+                if self.guard is not None and self.guard.banned():
+                    await self._close_bounded(ws)
+                    return "banned", None
+                self.gen += 1
+                gen = self.gen
+                self.connected = self._was_connected = True
+                self.on_state(self, "connected")
+                await self._subscribe(ws)
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        self._handle_text(msg.data, gen)
+                    elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
+                        break
+        except asyncio.CancelledError:
+            raise
+        except aiohttp.WSServerHandshakeError as e:          # 418 / 429 at the handshake reach the guard (F23)
+            if self.guard is not None and e.status == 418:
+                self.guard.on_418(e.headers.get("Retry-After") if e.headers else None)
+            elif self.guard is not None and e.status == 429:
+                self.guard.on_429(e.headers.get("Retry-After") if e.headers else None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            pass
+        except Exception as e:                                   # noqa: BLE001 - never die silently (F20)
+            err = e
+        finally:
+            self.connected = False
+        return "ended", err
+
+    async def _close_bounded(self, ws) -> None:
+        try:
+            await asyncio.wait_for(asyncio.shield(ws.close()), timeout=self.close_grace_s)
+        except Exception:                                        # noqa: BLE001 - timeout or close error: abort
+            self._abort(ws)
+
+    @staticmethod
+    def _abort(ws) -> bool:
+        """Hard-close the TCP transport under a WebSocket (aiohttp 3.14.3 attribute paths; best effort)."""
+        for holder in (getattr(ws, "_writer", None), getattr(getattr(ws, "_response", None), "connection", None)):
+            tr = getattr(holder, "transport", None)
+            if tr is not None:
+                try:
+                    tr.abort()
+                    return True
+                except Exception:                                # noqa: BLE001
+                    continue
+        return False
+
+    async def _end_session(self, reason: str) -> dict:
+        """Bounded termination of the current session (see class doc). Never waits longer than
+        close_grace_s + 2 * abort_wait_s. Concurrent callers for the same session share one termination."""
+        st = self._session
+        if st is None or st.done():
+            return {"reason": reason, "outcome": "no_session", "gen": self.gen, "ms": 0}
+        if self._ending is not None and self._ending[0] is st:
+            res = dict(await asyncio.shield(self._ending[1]))
+            res["deduplicated"] = True
+            return res
+        fut = asyncio.get_running_loop().create_future()
+        self._ending = (st, fut)
+        t0, ws, gen = time.monotonic(), self._ws, self.gen
+        self.recovering = True
+        closer = None
+        res = {"reason": reason, "outcome": "interrupted", "gen": gen, "ms": None}
+        try:
+            if ws is not None and not ws.closed:
+                closer = asyncio.create_task(ws.close(), name=f"{self.name}-close")
+            if ws is None:                                   # still connecting: nothing to close gracefully
+                outcome, done = "cancelled", set()
+            else:
+                outcome = "graceful"
+                done, _ = await asyncio.wait({st}, timeout=self.close_grace_s)
+                if not done:
+                    outcome = "aborted" if self._abort(ws) else "abort_unavailable"
+                    done, _ = await asyncio.wait({st}, timeout=self.abort_wait_s)
+            if not done:
+                outcome = "cancelled"
+                st.cancel()
+                done, _ = await asyncio.wait({st}, timeout=self.abort_wait_s)
+            if not done:
+                outcome = "wedged"
+                self.wedged = True
+            res = {"reason": reason, "outcome": outcome, "gen": gen, "ms": round((time.monotonic() - t0) * 1000)}
+        finally:
+            if closer is not None and not closer.done():
+                closer.cancel()
+            self.recovering = False
+            self.recoveries.append(res)
+            if not fut.done():
+                fut.set_result(res)                          # deduplicated waiters never hang, even if interrupted
+            if self._ending is not None and self._ending[1] is fut:
+                self._ending = None
+        if self.on_recovery is not None:
+            try:
+                self.on_recovery(self, res)
+            except Exception:                                    # noqa: BLE001 - reporting never breaks recovery
+                pass
+        return res
+
+    def retire(self) -> None:
+        """Owner gave up on this object (wedged): it must never deliver another message or reconnect."""
+        self.retired = True
+        self._closing = True
 
     def _report(self, err: BaseException) -> None:
         self.handler_errors += 1
@@ -169,7 +295,10 @@ class WSConnection:
             except Exception:                                        # noqa: BLE001
                 pass
 
-    def _handle_text(self, raw) -> None:
+    def _handle_text(self, raw, gen: int | None = None) -> None:
+        if self.retired or (gen is not None and gen != self.gen):
+            self.stale_dropped += 1                                  # obsolete session: never delivered
+            return
         recv_ns = time.time_ns()
         self.last_msg_ns = recv_ns
         try:
@@ -204,18 +333,16 @@ class WSConnection:
                 self.on_sub_sent(self, rid, chunk, sent_ms)
             await asyncio.sleep(0.5)
 
-    async def suspend(self) -> None:
-        """Close the current socket (418 ban); run() stays alive and waits until the ban ends."""
-        ws = self._ws
-        if ws is not None and not ws.closed:
-            await ws.close()
+    async def suspend(self) -> dict:
+        """End the current session (418 ban), bounded; run() stays alive and waits until the ban ends."""
+        return await self._end_session("ban_418")
 
-    async def force_reconnect(self, reason: str = "") -> None:
-        ws = self._ws
-        if ws is not None and not ws.closed and not self._closing:
-            await ws.close()
+    async def force_reconnect(self, reason: str = "") -> dict:
+        """Bounded recovery: end the current session (graceful -> abort -> cancel); run() reconnects with backoff."""
+        if self._closing:
+            return {"reason": reason, "outcome": "closing", "gen": self.gen, "ms": 0}
+        return await self._end_session(reason or "forced")
 
-    async def close(self) -> None:
+    async def close(self) -> dict:
         self._closing = True
-        if self._ws is not None and not self._ws.closed:
-            await self._ws.close()
+        return await self._end_session("close")
