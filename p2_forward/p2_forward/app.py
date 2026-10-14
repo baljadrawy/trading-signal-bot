@@ -2001,8 +2001,57 @@ class Collector:
             "disk": {"state": self.disk_state, "free_gb": self.disk_free_gb, "collector_dir_gb": self.dir_gb,
                      "marker": self.disk_marker},
             "rotation": self.rotation,
+            **self.health_split(m, state, hard, startup),
             **(self._continuous_health(m) if self.continuous else {}),
         }
+
+    def _historical_incident_reasons(self, m: int) -> set:
+        """P2F 1.6.1 (A39): the `incident:<key>` hard reasons that describe a PAST event whose live condition is
+        verified to have cleared NOW. Deliberately an allow-list, so every other incident still counts as a current
+        condition (fail closed):
+          conn_recovery_failed:<conn>, only while that connection is data-live, has no outage being timed and no
+          active conn_outage incident.
+        Latched integrity incidents (failclosed:*, external:* seal or backup failures, seq_reset, startup_failed,
+        clock_critical, previous_run_*) are NOT historical here: their condition is not independently re-verified.
+        observation_loss:* is WARNING and never a hard reason."""
+        out = set()
+        if self.incidents is None or not self.continuous:
+            return out
+        names = {c.name for c in self.conns}
+        for inc in self.incidents.active():
+            key = inc["key"]
+            if not inc.get("latched") or not key.startswith("conn_recovery_failed:"):
+                continue
+            conn = key.split(":", 1)[1]
+            if (conn in names and self.data_live_at(conn, m) and conn not in self.conn_outage
+                    and self.incidents._open_for(f"conn_outage:{conn}") is None):
+                out.add(f"incident:{key}")
+        return out
+
+    def health_split(self, m: int, state: str, hard: list, startup: list) -> dict:
+        """P2F 1.6.1 (A39): `state` is unchanged (every consumer stays fail closed). This separates three facts that
+        `state` conflates:
+          operational_state  the current operating condition: `state` re-evaluated without hard reasons that are
+                             verified-historical (_historical_incident_reasons);
+          pending_ack        latched incidents still awaiting an operator acknowledgement (durable history in
+                             incidents/; an acknowledgement never deletes anything);
+          attention          ACK_REQUIRED (an unacknowledged DEGRADED/CRITICAL latch), ACK_ADVISED (WARNING only)
+                             or NONE.
+        operational_state can only be MORE healthy than `state` when the ONLY hard reasons are verified-historical
+        incidents. A DEGRADED_DISK, BANNED_418 or any current reason keeps it equal to `state`."""
+        hist = self._historical_incident_reasons(m)
+        current = [r for r in hard if r not in hist]
+        op = state
+        if state == "DEGRADED" and hard and not current:
+            op = "STARTING" if startup else "HEALTHY"
+        pending = []
+        if self.incidents is not None and self.continuous:
+            pending = [{"id": i["id"], "key": i["key"], "severity": i["severity"], "first_ms": i["first_ms"]}
+                       for i in self.incidents.active() if i.get("latched")]
+        attention = ("ACK_REQUIRED" if any(p["severity"] in ("DEGRADED", "CRITICAL") for p in pending)
+                     else "ACK_ADVISED" if pending else "NONE")
+        return {"operational_state": op, "operational_reasons": current, "historical_reasons": sorted(hist),
+                "pending_ack": pending, "attention": attention}
 
     def _continuous_health(self, m: int) -> dict:
         ages = {}

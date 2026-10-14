@@ -11,7 +11,8 @@ import re
 
 from . import cal
 
-VERSION = "p2cr-collector-1.6.0"                  # 1.6.0: bounded connection recovery + outage incidents (A34)
+VERSION = "p2cr-collector-1.6.1"                  # 1.6.1: health splits current condition from pending acks (A39)
+                                                  # 1.6.0: bounded connection recovery + outage incidents (A34)
                                                   # 1.5.0: rotation hand-off / sequence continuity
 SCHEMA = "tsb.p2.forward"
 SCHEMA_VERSION = 2                                          # v2: G2-Repeat revision (see SCHEMA.md)

@@ -287,6 +287,13 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
   - `observation_loss:tier0`: WARNING, **latched**. Raised when a gap of `tier0_loss_incident_s` (60 s) or longer closes on a tier-0 bookTicker or depth stream, or on `!miniTicker@arr`, during running operation (irreplaceable gaps only; candle gaps are recoverable). It is not raised for gaps already explained by a stop or writer incident (`open_at_stop`, `never_ready`, `backpressure_or_rejected`, `disk_hard_stop`). The gap record itself is unchanged.
   - Transient per-stream staleness on a data-live connection raises no incident; its gap record and health reason are unchanged.
   - These are additive control-payload changes (lifecycle events, health fields, incident keys). Record envelopes and sampled-record semantics are unchanged, so `schema_version` stays 2, as for collector 1.1.0–1.5.0.
+- **Current condition vs. pending acknowledgement (collector ≥ 1.6.1, A39).** `state` is unchanged and still counts every unacknowledged DEGRADED or CRITICAL incident, so the research watchdog, the container healthcheck, the monitor and the start gate stay fail closed. Health additionally reports:
+  - `operational_state`: `state` re-evaluated without hard reasons that are *verified-historical*. Today that is only `incident:conn_recovery_failed:<conn>` while that connection is data-live, with no outage being timed and no active `conn_outage:<conn>`. It is never healthier than `state` for any other reason, and every other latched incident (failclosed, external seal/backup, seq_reset, startup, clock, previous_run) still counts.
+  - `operational_reasons` / `historical_reasons`: the split of `reasons`.
+  - `pending_ack`: the latched incidents still awaiting acknowledgement (`id`, `key`, `severity`, `first_ms`).
+  - `attention`: `ACK_REQUIRED` (an unacknowledged DEGRADED/CRITICAL latch), `ACK_ADVISED` (WARNING only) or `NONE`.
+
+  An acknowledgement only sets `ack` on the incident and appends an `ack` event; the incident and its history are never deleted. Additive health fields; `schema_version` stays 2.
 
 **Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
 host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as
