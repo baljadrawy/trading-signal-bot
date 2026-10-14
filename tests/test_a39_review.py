@@ -190,3 +190,54 @@ def test_dead_letter_died_before_a_crash_is_alerted_after_restart(monkeypatch):
     w2 = outbox_watch.DeadLetterWatch('t', ['x'], resume_from=ancient,
                                       clock=lambda: boot.replace(tzinfo=dt.timezone.utc))
     assert asyncio.run(w2.poll(force=True)) == [] and w2.snapshot()['resumed_from_previous_run'] is False
+
+
+# ================================================================ partial deployment ==============
+_BEFORE = pytest.mark.skipif(not e2e.BEFORE, reason='P1_BEFORE_TREE (pre-A38 tree) not set')
+
+
+def _mixed(monkeypatch, tmp_path, tg_arm, tr_arm):
+    """Migrated (v10) schema, one service on pre-A38 code and the other on A38: the deployment window."""
+    async def go():
+        monkeypatch.setattr(config, 'PAPER_ENTRY_FILL_MODEL', 'observed_price_v0')
+        async with Env('after', 'off', monkeypatch, tmp_path / f'mix_{tg_arm}_{tr_arm}') as env:
+            env.tg = e2e.modules(tg_arm)[1]
+            env.tr = e2e.modules(tr_arm)[2]
+
+            async def price(symbol):
+                return env.prices.get(symbol, 99.5)
+
+            async def notional(symbol):
+                return 5.0
+            monkeypatch.setattr(env.tr, 'get_current_price', price)
+            monkeypatch.setattr(env.tr, 'get_min_notional', notional)
+            if hasattr(env.tg, 'DELIVERY_PACING_SECONDS'):
+                monkeypatch.setattr(env.tg, 'DELIVERY_PACING_SECONDS', 0)
+            await env.resume()
+            a = await env.save(symbol='MIXAUSDT')                      # fills immediately
+            b = await env.save(symbol='MIXBUSDT')
+            env.prices['MIXBUSDT'] = 100.5                              # waits
+            assert await env.telegram_pass() == 2
+            await passes(env, 3)
+            env.prices['MIXBUSDT'] = 99.9
+            await passes(env, 2)
+            rows = {r['aggregate_id']: (r['status'], r['outcome']) for r in await env.pool.fetch(
+                "SELECT aggregate_id, status, outcome FROM outbox_events WHERE event_type='signal.delivered'")}
+            trades = await env.val("SELECT count(*) FROM active_trades")
+            dead = await env.val("SELECT count(*) FROM outbox_events WHERE status='dead'")
+            return rows[a], rows[b], trades, dead
+    return asyncio.run(go())
+
+
+@_BEFORE
+def test_new_tracker_with_old_telegram(monkeypatch, tmp_path):
+    a, b, trades, dead = _mixed(monkeypatch, tmp_path, 'before', 'after')
+    assert trades == 2 and dead == 0
+    assert a == ('completed', 'opened') and b == ('completed', 'opened')
+
+
+@_BEFORE
+def test_old_tracker_with_new_telegram(monkeypatch, tmp_path):
+    a, b, trades, dead = _mixed(monkeypatch, tmp_path, 'after', 'before')
+    assert trades == 2 and dead == 0                    # pre-A38 tracker: same trades, legacy outbox semantics
+    assert a == ('completed', None) and b[0] == 'completed'
