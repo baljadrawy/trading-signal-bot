@@ -11,11 +11,26 @@ visible exactly once:
     can itself fail during a Telegram outage; the log and the heartbeat remain.
 
 Only letters that died after the process started are alerted, so a restart never re-alerts
-history. Read-only on the database.
+history. A39: a letter that died just before a crash or restart is not lost. The previous run's watermark is read
+back from its own heartbeat (service_heartbeats.metadata.dead_letters.watermark), so alerting resumes exactly
+where it stopped, at most 24 h back. Read-only on the database.
 """
 from datetime import datetime, timedelta, timezone
 
+from shared.database import Database
 from shared.outbox import dead_letters_since
+
+
+async def previous_watermark(service: str):
+    """(processed_at, id) the previous run of `service` had alerted up to, from its heartbeat; None if absent."""
+    meta = await Database.fetchval(
+        "SELECT metadata->'dead_letters'->'watermark' FROM service_heartbeats WHERE service_name=$1", service)
+    if isinstance(meta, str):
+        import json
+        meta = json.loads(meta)
+    if not meta or not isinstance(meta, (list, tuple)) or len(meta) != 2:
+        return None
+    return datetime.fromisoformat(meta[0]), int(meta[1])
 
 
 def _utc_naive(now=None) -> datetime:
@@ -26,7 +41,7 @@ def _utc_naive(now=None) -> datetime:
 
 class DeadLetterWatch:
     def __init__(self, service: str, event_types, *, interval_s: float = 60.0,
-                 alert=None, logger=None, clock=None):
+                 alert=None, logger=None, clock=None, resume_from=None):
         self.service = service
         self.event_types = tuple(event_types)
         self.interval_s = interval_s
@@ -40,6 +55,8 @@ class DeadLetterWatch:
         self.before_boot_24h = None
         self.errors = 0
         self._next_poll = None
+        self.resume_from = resume_from          # async callable -> (processed_at, id) | None
+        self.resumed = None
 
     async def poll(self, force: bool = False) -> list:
         """Return the dead letters that are new since the last poll (at most one query per
@@ -49,6 +66,13 @@ class DeadLetterWatch:
             return []
         self._next_poll = now + timedelta(seconds=self.interval_s)
         try:
+            if self.resume_from is not None and self.resumed is None:
+                self.resumed = False
+                prev = await self.resume_from()
+                floor = (self.started - timedelta(hours=24), 0)
+                if prev is not None and floor < tuple(prev) < self.watermark:
+                    self.watermark = (prev[0], int(prev[1]))
+                    self.resumed = True
             if self.before_boot_24h is None:
                 prior = await dead_letters_since(
                     self.event_types, (self.started - timedelta(hours=24), 0), limit=1000)
@@ -88,5 +112,7 @@ class DeadLetterWatch:
 
     def snapshot(self) -> dict:
         return {'event_types': list(self.event_types), 'new_since_boot': self.new_since_boot,
+                'watermark': [self.watermark[0].isoformat(), int(self.watermark[1])],
+                'resumed_from_previous_run': self.resumed,
                 'last': self.last, 'before_boot_24h': self.before_boot_24h,
                 'watch_errors': self.errors}

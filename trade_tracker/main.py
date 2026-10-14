@@ -21,7 +21,7 @@ from shared.retry_utils import format_error, is_network_error, compute_backoff, 
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared.outbox import worker_id, claim, ack, fail, enqueue, defer
-from shared.outbox_watch import DeadLetterWatch
+from shared.outbox_watch import DeadLetterWatch, previous_watermark
 from shared.delivery_policy import bounded_delay
 from shared.fees import economic_close
 from shared.candle import candle_interval_case_sql
@@ -73,7 +73,8 @@ async def main():
     await mark_started('trade_tracker')
     dead_watch = DeadLetterWatch(
         'trade_tracker', ('signal.delivered',), logger=logger,
-        alert=lambda text: send_alert(text, level='critical', component='TradeTracker'))
+        alert=lambda text: send_alert(text, level='critical', component='TradeTracker'),
+        resume_from=lambda: previous_watermark('trade_tracker'))
 
     consecutive_errors = 0
     owner = worker_id('trade_tracker')

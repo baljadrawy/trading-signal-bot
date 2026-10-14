@@ -20,7 +20,7 @@ from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared import evidence_v2
 from shared.outbox import worker_id, claim, ack, fail, enqueue, defer
-from shared.outbox_watch import DeadLetterWatch
+from shared.outbox_watch import DeadLetterWatch, previous_watermark
 from shared.delivery_policy import (
     classify_failure, backoff_seconds, bounded_delay, PERMANENT, RATE_LIMITED,
 )
@@ -190,7 +190,8 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
     owner = worker_id('telegram')
     dead_watch = DeadLetterWatch(
         'telegram', CANDIDATE_EVENT_TYPES + LIFECYCLE_EVENT_TYPES, logger=logger,
-        alert=lambda text: send_alert(text, level='critical', component='Telegram'))
+        alert=lambda text: send_alert(text, level='critical', component='Telegram'),
+        resume_from=lambda: previous_watermark('telegram'))
     while True:
         try:
             # تنظيف الطلبات المنتهية
@@ -309,6 +310,9 @@ CANDIDATE_WINDOW_SQL = f"""
     FROM signals s WHERE s.id=$1
     """
 DELIVERY_STATS = {'deferred': 0, 'expired_undelivered': 0, 'failed': 0}
+# A39: a deferral is also bounded by the EVENT's age (admission window + 30 min grace), so a corrupt signal_time
+# can never turn a failure into an endless deferral.
+CANDIDATE_MAX_AGE_S = 2 * 3600 + 1800
 
 
 async def _candidate_failure(owner: str, event, error: BaseException) -> str:
@@ -319,6 +323,10 @@ async def _candidate_failure(owner: str, event, error: BaseException) -> str:
         return 'permanent:fail'
     row = await Database.fetchrow(CANDIDATE_WINDOW_SQL, event['aggregate_id'])
     remaining = None if row is None or row['remaining_s'] is None else float(row['remaining_s'])
+    created = event.get('created_at')
+    if (remaining is not None and created is not None
+            and (_utcnow() - created).total_seconds() > CANDIDATE_MAX_AGE_S):
+        remaining = None                          # A39: implausible window (e.g. future signal_time) -> counted
     if remaining is None:                         # no signal / no time: cannot bound -> counted
         await fail(event['id'], owner, error)
         DELIVERY_STATS['failed'] += 1
@@ -921,6 +929,8 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             SUM(CASE WHEN {label} = 'WIN' THEN 1 ELSE 0 END) as wins,
             SUM(CASE WHEN {label} = 'LOSS' THEN 1 ELSE 0 END) as losses,
             SUM(CASE WHEN {label} = 'BREAKEVEN' THEN 1 ELSE 0 END) as breakeven,
+            SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as gross_wins,
+            SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as gross_losses,
             ROUND(AVG(profit_percent)::numeric, 2) as avg_profit,
             COALESCE(SUM(profit_usdt), 0) as sum_usdt
         FROM trade_results
@@ -936,6 +946,8 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  أرباح: {stats['wins']}\n"
         f"  خسائر: {stats['losses']}\n"
         f"  تعادل: {stats['breakeven'] or 0}\n"
+        f"  (التصنيف الإجمالي القديم قبل الرسوم: {stats['gross_wins'] or 0} ربح / "
+        f"{stats['gross_losses'] or 0} خسارة)\n"
         f"  متوسط الربح الصافي: {avg_net:.2f}%\n"
         f"  إجمالي PnL صافٍ: {total_net:+.2f} USDT"
     )

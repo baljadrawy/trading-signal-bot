@@ -4,6 +4,11 @@
 -- * code from before A38 keeps working against this schema (it neither reads nor writes these
 --   columns), so application code can be rolled back without a schema rollback.
 
+-- A39: never queue behind a long transaction while holding ACCESS EXCLUSIVE locks on live tables. Fail fast
+-- instead; migrate.py runs the file in one transaction, so a timeout rolls everything back (no partial schema).
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
 -- Outbox: a deferral (waiting for a known future state, e.g. the end of an admission window, or
 -- a transient channel outage) is not a failed attempt. `deferrals` counts it separately, and
 -- `outcome` names the terminal state an event was acked or dead-lettered with.
