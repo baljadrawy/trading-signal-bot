@@ -25,3 +25,40 @@ def fee_usdt(notional: float = None, fee_roundtrip: float = None) -> float:
 def net_usdt(gross_usdt: float, notional: float = None, fee_roundtrip: float = None) -> float:
     """دولار صافٍ لصفقة واحدة = الإجمالي − رسوم صفقة واحدة. للمجاميع اطرح count×fee_usdt() صراحةً."""
     return gross_usdt - fee_usdt(notional, fee_roundtrip)
+
+
+# ── A38: economic classification (net of the modeled cost) ──────────────────────────────────
+# `trade_results.result` keeps its legacy meaning, WIN when GROSS P&L > 0, because strategy code
+# (the signal_engine loss cooldown) and all history depend on it. The economic label below is
+# the one reports, and every new trade_results row, use:
+#   net = round(gross_usdt, 4) − cost_usdt; WIN if net > 0, LOSS if net < 0, BREAKEVEN if net == 0.
+# A risk-control loss is net < 0. shared.risk_epoch.tail_loss_streak breaks the streak at
+# net >= 0, so economic LOSS and risk loss are the same set, and BREAKEVEN is never a risk loss.
+# The gross is rounded to the stored 4 decimals first, so the label equals what the risk guard
+# computes from the stored row.
+LABEL_POLICY = 'net_after_modeled_cost_v1'
+
+
+def economic_result(net: float) -> str:
+    if net > 0:
+        return 'WIN'
+    if net < 0:
+        return 'LOSS'
+    return 'BREAKEVEN'
+
+
+def economic_close(gross_usdt: float, notional: float = None, fee_roundtrip: float = None) -> dict:
+    """The economic fields stored with a trade result."""
+    cost = fee_usdt(notional, fee_roundtrip)
+    net = round(round(float(gross_usdt), 4) - cost, 6)
+    return {'cost_usdt': round(cost, 6), 'net_profit_usdt': net,
+            'economic_result': economic_result(net), 'label_policy': LABEL_POLICY}
+
+
+def economic_result_sql(cost_param: str = '$1') -> str:
+    """SQL for the economic label of a trade_results row: the stored A38 label when present,
+    otherwise derived at read time from the stored gross and the current modeled cost (the
+    derivation closed_message has always used). Read-only: history is never rewritten."""
+    net = f"(profit_usdt - {cost_param})"
+    return (f"COALESCE(economic_result, CASE WHEN {net} > 0 THEN 'WIN' "
+            f"WHEN {net} < 0 THEN 'LOSS' ELSE 'BREAKEVEN' END)")

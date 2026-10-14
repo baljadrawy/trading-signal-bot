@@ -4,7 +4,7 @@ Telegram - إرسال الإشارات مع نظام الموافقة والـ W
 import asyncio
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 sys.path.append('/app')
 
@@ -12,14 +12,18 @@ from telegram import Bot, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from shared.config import config
 from shared.database import Database
-from shared.fees import net_pct, net_usdt, fee_usdt
+from shared.fees import net_pct, net_usdt, fee_usdt, economic_result_sql
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared import evidence_v2
-from shared.outbox import worker_id, claim, ack, fail, enqueue
+from shared.outbox import worker_id, claim, ack, fail, enqueue, defer
+from shared.outbox_watch import DeadLetterWatch
+from shared.delivery_policy import (
+    classify_failure, backoff_seconds, bounded_delay, PERMANENT, RATE_LIMITED,
+)
 from shared.telegram_messages import (
     opened_message, target_message, closed_message, risk_halted_message,
     runtime_status_message,
@@ -184,6 +188,9 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
     """حلقة مستمرة تراقب الإشارات الجديدة"""
     consecutive_errors = 0
     owner = worker_id('telegram')
+    dead_watch = DeadLetterWatch(
+        'telegram', CANDIDATE_EVENT_TYPES + LIFECYCLE_EVENT_TYPES, logger=logger,
+        alert=lambda text: send_alert(text, level='critical', component='Telegram'))
     while True:
         try:
             # تنظيف الطلبات المنتهية
@@ -205,11 +212,14 @@ async def signal_loop(bot: Bot, whitelist_mgr: WhitelistManager,
                             bot, approval_mgr, owner, event_type, event):
                         delivered += 1
 
+            await dead_watch.poll()
             consecutive_errors = 0
             await mark_success('telegram', _with_ev2({
                 'events_claimed': events_claimed, 'delivered': delivered,
                 'lifecycle_delivered': lifecycle_delivered,
-                'expired_requests': len(expired)}))
+                'expired_requests': len(expired),
+                'delivery_health': delivery_health(),
+                'dead_letters': dead_watch.snapshot()}))
             await asyncio.sleep(15)
 
         except Exception as e:
@@ -274,12 +284,62 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
         await asyncio.sleep(DELIVERY_PACING_SECONDS)
         return True
     except Exception as event_error:
-        await fail(event['id'], owner, event_error)
+        disposition = await _candidate_failure(owner, event, event_error)
         _v2_delivery('delivery.failed', signal, 'failed', type(event_error).__name__, event['id'],
                      event_type, 'DELIVERY_FAILED')
-        logger.error("outbox %s %s failed: %s",
-                     event_type, event['id'], format_error(event_error))
+        logger.error("outbox %s %s failed (%s): %s",
+                     event_type, event['id'], disposition, format_error(event_error))
         return False
+
+
+# ── A38: candidate delivery failure semantics ───────────────────────────────────────────────────
+# The active path (process_signal -> 'sent_direct') never calls the Telegram API: delivery is
+# mark_delivered(), a DB transaction (telegram_sent=true + 'signal.delivered'). Only the disabled
+# approval path sends a Telegram message. A candidate is therefore lost only to repeated failures
+# of this service's own processing, mostly the database. Before A38 any failure consumed one of
+# 8 attempts 60 s apart, so an 8-minute database outage dead-lettered a candidate that the tracker
+# would still have admitted for 2 hours.
+#   * PERMANENT failure (a defect)            -> fail(): counted; dead letter, alerted;
+#   * TRANSIENT / RATE_LIMITED, window open   -> defer with backoff, never past the window end;
+#   * TRANSIENT / RATE_LIMITED, window closed -> ack 'expired_undelivered': an explicit terminal
+#                                                state, logged and alerted, never silent.
+CANDIDATE_ADMISSION_WINDOW_SQL = "INTERVAL '2 hours'"     # == trade_tracker V2_ADMISSION_WINDOW_SQL
+CANDIDATE_WINDOW_SQL = f"""
+    SELECT EXTRACT(EPOCH FROM (s.signal_time + {CANDIDATE_ADMISSION_WINDOW_SQL}) - NOW()) AS remaining_s
+    FROM signals s WHERE s.id=$1
+    """
+DELIVERY_STATS = {'deferred': 0, 'expired_undelivered': 0, 'failed': 0}
+
+
+async def _candidate_failure(owner: str, event, error: BaseException) -> str:
+    kind, retry_after = classify_failure(error)
+    if kind == PERMANENT:
+        await fail(event['id'], owner, error)
+        DELIVERY_STATS['failed'] += 1
+        return 'permanent:fail'
+    row = await Database.fetchrow(CANDIDATE_WINDOW_SQL, event['aggregate_id'])
+    remaining = None if row is None or row['remaining_s'] is None else float(row['remaining_s'])
+    if remaining is None:                         # no signal / no time: cannot bound -> counted
+        await fail(event['id'], owner, error)
+        DELIVERY_STATS['failed'] += 1
+        return f'{kind}:unbounded:fail'
+    if remaining <= 0:
+        await ack(event['id'], owner, 'expired_undelivered')
+        DELIVERY_STATS['expired_undelivered'] += 1
+        logger.error("candidate %s for signal %s expired undelivered after %s deferral(s): %s",
+                     event['id'], event['aggregate_id'], event.get('deferrals', 0),
+                     format_error(error))
+        await send_alert(
+            f"Candidate for signal {event['aggregate_id']} expired undelivered "
+            f"(admission window closed): {format_error(error)[:150]}",
+            level='critical', component='Telegram')
+        return f'{kind}:expired_undelivered'
+    delay = (retry_after + 1 if kind == RATE_LIMITED and retry_after
+             else backoff_seconds(event.get('deferrals', 0)))
+    await defer(event['id'], owner, bounded_delay(delay, remaining),
+                f'{kind}: {format_error(error)}')
+    DELIVERY_STATS['deferred'] += 1
+    return f'{kind}:deferred'
 
 
 async def send_signal_direct(bot: Bot, signal: dict):
@@ -313,15 +373,82 @@ async def can_deliver_candidate() -> tuple[bool, str]:
     return True, 'eligible'
 
 
+LIFECYCLE_EVENT_TYPES = (
+    'risk.halted', 'price_stream.down', 'price_stream.restored',
+    'tracker.recovered', 'trade.opened', 'trade.target_hit', 'trade.closed',
+)
+# ── A38: notification failure semantics ─────────────────────────────────────────────────────────
+# Lifecycle messages are NOTIFICATIONS. The trade is already recorded when they are enqueued, so a
+# Telegram outage can never lose or block an order. It used to lose the notification silently:
+# 8 attempts 60 s apart, then a dead letter nobody saw. Now:
+#   * Telegram transient error / rate limit -> defer (not an attempt) with backoff, or the server's
+#     retry_after. The rest of this cycle's claimed batch is released, deferred unsent, so later
+#     messages do not overtake earlier ones and a dead API is not hammered;
+#   * older than NOTIFICATION_TTL_HOURS     -> ack 'notification_expired' (explicit, counted);
+#   * permanent error (e.g. BadRequest)     -> fail(): counted; dead letter, alerted.
+# When sending works again after an outage, one summary message reports the outage window and
+# the delayed and expired counts. Delivery is at-least-once: if Telegram accepted a message and
+# the ack then failed, the message is sent again (Telegram has no idempotency key).
+NOTIFY_STATE = {'unavailable_since': None, 'deferred': 0, 'expired': 0, 'failed': 0,
+                'outage_deferred': 0, 'outage_expired': 0, 'last_error': None}
+
+
+def _utcnow() -> datetime:
+    """Naive UTC, like the outbox timestamps (TIMESTAMP DEFAULT NOW() on a UTC server)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def delivery_health() -> dict:
+    """Heartbeat metadata: undelivered candidates and notifications are visible here even
+    when Telegram itself (the alert channel) is down."""
+    since = NOTIFY_STATE['unavailable_since']
+    return {'candidates': dict(DELIVERY_STATS),
+            'notifications': {**{k: v for k, v in NOTIFY_STATE.items()
+                                 if k != 'unavailable_since'},
+                              'unavailable_since': since.isoformat() if since else None}}
+
+
+def _notification_expired(event) -> bool:
+    created = event.get('created_at')
+    if created is None:
+        return False
+    age = _utcnow() - created
+    return age.total_seconds() > config.NOTIFICATION_TTL_HOURS * 3600
+
+
+async def _release_unsent(owner: str, events, delay: float, reason: str) -> None:
+    for event in events:
+        await defer(event['id'], owner, delay, f'released unsent: {reason}')
+
+
+async def _notify_recovered(bot: Bot) -> None:
+    since = NOTIFY_STATE['unavailable_since']
+    if since is None:
+        return
+    text = (f"ℹ️ [Telegram] تعذّر إرسال الإشعارات منذ {since:%Y-%m-%d %H:%M:%S}Z حتى الآن؛ "
+            f"أُجِّل {NOTIFY_STATE['outage_deferred']} وانتهت صلاحية "
+            f"{NOTIFY_STATE['outage_expired']}. الصفقات نفسها لم تتأثر.")
+    NOTIFY_STATE.update(unavailable_since=None, outage_deferred=0, outage_expired=0)
+    try:
+        await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=text)
+    except Exception as exc:                  # the summary is best-effort
+        logger.warning(f"notification outage summary failed: {format_error(exc)}")
+
+
 async def deliver_trade_lifecycle_events(bot: Bot, owner: str) -> int:
     """Deliver idempotent opened/target/closed events from the transactional outbox."""
     delivered = 0
-    for event_type in (
-        'risk.halted', 'price_stream.down', 'price_stream.restored',
-        'tracker.recovered', 'trade.opened', 'trade.target_hit', 'trade.closed',
-    ):
+    for event_type in LIFECYCLE_EVENT_TYPES:
         events = await claim(event_type, owner, limit=20)
-        for event in events:
+        for index, event in enumerate(events):
+            if _notification_expired(event):
+                await ack(event['id'], owner, 'notification_expired')
+                NOTIFY_STATE['expired'] += 1
+                if NOTIFY_STATE['unavailable_since'] is not None:
+                    NOTIFY_STATE['outage_expired'] += 1
+                logger.error("notification %s %s expired undelivered (TTL %sh)",
+                             event_type, event['id'], config.NOTIFICATION_TTL_HOURS)
+                continue
             try:
                 payload = event['payload']
                 if isinstance(payload, str):
@@ -372,12 +499,30 @@ async def deliver_trade_lifecycle_events(bot: Bot, owner: str) -> int:
                         result, config.FEE_ROUNDTRIP_PCT,
                         config.TRADE_AMOUNT_USDT)
                 await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message)
-                await ack(event['id'], owner)
+                await ack(event['id'], owner, 'delivered')
                 delivered += 1
+                if NOTIFY_STATE['unavailable_since'] is not None:
+                    await _notify_recovered(bot)
             except Exception as event_error:
-                await fail(event['id'], owner, event_error)
-                logger.error("outbox %s %s failed: %s", event_type, event['id'],
-                             format_error(event_error))
+                kind, retry_after = classify_failure(event_error)
+                if kind == PERMANENT:
+                    await fail(event['id'], owner, event_error)
+                    NOTIFY_STATE['failed'] += 1
+                    logger.error("outbox %s %s failed: %s", event_type, event['id'],
+                                 format_error(event_error))
+                    continue
+                delay = (retry_after + 1 if kind == RATE_LIMITED and retry_after
+                         else backoff_seconds(event.get('deferrals', 0)))
+                await defer(event['id'], owner, delay, f'{kind}: {format_error(event_error)}')
+                await _release_unsent(owner, events[index + 1:], delay, kind)
+                NOTIFY_STATE['deferred'] += 1
+                NOTIFY_STATE['last_error'] = format_error(event_error)[:200]
+                if NOTIFY_STATE['unavailable_since'] is None:
+                    NOTIFY_STATE['unavailable_since'] = _utcnow()
+                NOTIFY_STATE['outage_deferred'] += 1
+                logger.warning("notification %s %s deferred %.0fs (%s): %s", event_type,
+                               event['id'], delay, kind, format_error(event_error))
+                return delivered                      # circuit breaker for this cycle
     return delivered
 
 
@@ -767,16 +912,20 @@ async def cmd_recover_risk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = await Database.fetchrow("""
+    # A38: wins/losses are economic (net of the modeled cost), matching the caption and the risk
+    # guard. `result` is the legacy gross label and is not used for reporting.
+    label = economic_result_sql('$1::numeric')
+    stats = await Database.fetchrow(f"""
         SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN result = 'WIN' THEN 1 ELSE 0 END) as wins,
-            SUM(CASE WHEN result = 'LOSS' THEN 1 ELSE 0 END) as losses,
+            SUM(CASE WHEN {label} = 'WIN' THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN {label} = 'LOSS' THEN 1 ELSE 0 END) as losses,
+            SUM(CASE WHEN {label} = 'BREAKEVEN' THEN 1 ELSE 0 END) as breakeven,
             ROUND(AVG(profit_percent)::numeric, 2) as avg_profit,
             COALESCE(SUM(profit_usdt), 0) as sum_usdt
         FROM trade_results
         WHERE exit_time > NOW() - INTERVAL '7 days'
-    """)
+    """, fee_usdt())
     # القيم المخزَّنة إجمالية؛ نعرض الصافي بعد الرسوم (shared.fees، نفس FEE_ROUNDTRIP_PCT للمُتعلّم)
     total = int(stats['total'] or 0)
     avg_net = net_pct(float(stats['avg_profit'] or 0))
@@ -786,6 +935,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  إجمالي الصفقات: {total}\n"
         f"  أرباح: {stats['wins']}\n"
         f"  خسائر: {stats['losses']}\n"
+        f"  تعادل: {stats['breakeven'] or 0}\n"
         f"  متوسط الربح الصافي: {avg_net:.2f}%\n"
         f"  إجمالي PnL صافٍ: {total_net:+.2f} USDT"
     )
@@ -825,10 +975,11 @@ async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if closed:
         lines.append(f"\n📊 آخر النتائج (صافٍ بعد الرسوم):")
         for t in closed:
-            icon = "✅" if t['result'] == 'WIN' else "❌"
             # المخزَّن إجمالي؛ نعرض الصافي بعد الرسوم (shared.fees)
             np_ = net_pct(float(t['profit_percent'] or 0))
             nu_ = net_usdt(float(t['profit_usdt'] or 0))
+            # A38: the icon follows the net figure shown next to it, not the gross `result`.
+            icon = "✅" if nu_ > 0 else "❌" if nu_ < 0 else "➖"
             pct  = f"+{np_:.2f}%" if np_ > 0 else f"{np_:.2f}%"
             usdt = f"{nu_:.2f}"
             lines.append(f"  {icon} {t['symbol']} | {pct} ({usdt} USDT) | T{t['target_reached']}")
@@ -934,11 +1085,15 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sent = await Database.fetchval("SELECT COUNT(*) FROM signals WHERE telegram_sent = true") or 0
 
     # أداء آخر 7 أيام
+    # A38: economic (net) labels, consistent with /stats, closed_message and the risk guard.
+    label = economic_result_sql('$1::numeric')
     wins = await Database.fetchval(
-        "SELECT COUNT(*) FROM trade_results WHERE result='WIN' AND exit_time > NOW() - INTERVAL '7 days'"
+        f"SELECT COUNT(*) FROM trade_results WHERE {label}='WIN' "
+        f"AND exit_time > NOW() - INTERVAL '7 days'", fee_usdt()
     ) or 0
     losses = await Database.fetchval(
-        "SELECT COUNT(*) FROM trade_results WHERE result='LOSS' AND exit_time > NOW() - INTERVAL '7 days'"
+        f"SELECT COUNT(*) FROM trade_results WHERE {label}='LOSS' "
+        f"AND exit_time > NOW() - INTERVAL '7 days'", fee_usdt()
     ) or 0
     total_trades = wins + losses
     win_rate = f"{(wins/total_trades*100):.1f}%" if total_trades > 0 else "لا توجد بيانات بعد"
