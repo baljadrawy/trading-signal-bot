@@ -107,14 +107,17 @@ class Peer:
             self.sent.append(sent)
         return ws
 
+    ssl_ctx = None
+
     async def __aenter__(self):
         app = web.Application()
         app.router.add_get("/stream", self.handler)
         self.runner = web.AppRunner(app, shutdown_timeout=0.5)
         await self.runner.setup()
-        self.site = web.TCPSite(self.runner, "127.0.0.1", 0)
+        self.site = web.TCPSite(self.runner, "127.0.0.1", 0, ssl_context=self.ssl_ctx)
         await self.site.start()
-        self.base = f"ws://127.0.0.1:{self.site._server.sockets[0].getsockname()[1]}/stream"
+        scheme = "wss" if self.ssl_ctx is not None else "ws"
+        self.base = f"{scheme}://127.0.0.1:{self.site._server.sockets[0].getsockname()[1]}/stream"
         return self
 
     async def __aexit__(self, *a):
@@ -413,6 +416,87 @@ class BoundedRecovery(unittest.TestCase):
         self.assertEqual(recov[-1]["outcome"], "wedged")
 
 
+class TLSRecovery(unittest.TestCase):
+    """Production uses wss: the abort must also end a TLS session whose peer ignores CLOSE."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ssl
+        cls.tmp = tempfile.TemporaryDirectory()
+        k, c = os.path.join(cls.tmp.name, "k.pem"), os.path.join(cls.tmp.name, "c.pem")
+        r = subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", k, "-out", c,
+                            "-days", "1", "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"],
+                           capture_output=True)
+        if r.returncode != 0:
+            raise unittest.SkipTest("openssl unavailable")
+        cls.srv = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH); cls.srv.load_cert_chain(c, k)
+        cls.cli = ssl.create_default_context(cafile=c)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_tls_ignore_close_peer_is_aborted_reconnected_and_shutdown_bounded(self):
+        async def go():
+            probe = Probe()
+            peer = Peer(["ignore_close", "ignore_close"]); peer.ssl_ctx = self.srv
+            async with peer, aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=self.cli)) as s:
+                c = conn(T, s, peer, probe)
+                run = asyncio.create_task(c.run())
+                await wait_for(lambda: len(probe.msgs) > 3, 5)
+                res = await c.force_reconnect("data_stall")
+                ok = await wait_for(lambda: any(g == 2 for g, _ in probe.msgs), 8)
+                t0 = time.monotonic()
+                res2 = await c.close()
+                await asyncio.wait_for(asyncio.gather(run, return_exceptions=True), 3)
+                return res, ok, res2, time.monotonic() - t0, run.done()
+        res, ok, res2, secs, done = asyncio.run(go())
+        self.assertEqual(res["outcome"], "aborted"); self.assertLess(res["ms"], 2300)
+        self.assertTrue(ok)
+        self.assertEqual(res2["outcome"], "aborted"); self.assertLess(secs, 3.0); self.assertTrue(done)
+
+
+class CancelConsumedOnce(unittest.TestCase):
+    def test_a_cancel_consumed_at_one_await_is_repeated_within_the_bound(self):
+        class Twice:                                   # swallows the FIRST cancel (as __aexit__ close() would re-await)
+            closed = False
+            seen = 0
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def send_str(self, s): pass
+            async def close(self): self.closed = True
+            def __aiter__(self): return self
+            async def __anext__(self):
+                while True:
+                    try:
+                        await asyncio.sleep(3600)
+                    except asyncio.CancelledError:
+                        Twice.seen += 1
+                        if Twice.seen >= 2:
+                            raise
+
+        class Sess:
+            def ws_connect(self, url, **kw): return Twice()
+
+        async def go():
+            probe = Probe()
+            T._check_url = lambda u: None
+            c = T.WSConnection("conn0-book", ["btcusdt@bookTicker"], Sess(), *(probe.kw()[k] for k in
+                               ("on_message", "on_shutdown", "on_state")), base="ws://x/stream",
+                               close_grace_s=0.3, abort_wait_s=0.6)
+            run = asyncio.create_task(c.run())
+            await wait_for(lambda: c.connected, 2)
+            t0 = time.monotonic()
+            res = await c.close()
+            secs = time.monotonic() - t0
+            await asyncio.wait_for(asyncio.gather(run, return_exceptions=True), 2)
+            return res, secs, c._session.done(), Twice.seen
+        res, secs, done, seen = asyncio.run(go())
+        self.assertEqual(res["outcome"], "cancelled")          # not wedged: the second cancel ended it
+        self.assertTrue(done); self.assertGreaterEqual(seen, 2)
+        self.assertLess(secs, 0.3 + 0.6 + 0.6 + 0.2)              # within grace + 2 x abort_wait
+
+
 class AppIncidents(unittest.TestCase):
     def _mk(self, d):
         c = mk(d)
@@ -437,6 +521,25 @@ class AppIncidents(unittest.TestCase):
             ev = [json.loads(l) for l in open(os.path.join(d, "incidents", "events.jsonl"))]
             self.assertEqual([e["event"] for e in ev if e["key"] == "conn_outage:conn0-book"], ["open", "resolve"])
             self.assertEqual(len(lifes(drain(c), "conn_outage_resolved")), 1)
+
+    def test_stale_outage_of_an_earlier_boot_and_clean_stop_resolution(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = self._mk(d); m = A.now_ms()
+            c.incidents.raise_("conn_outage:conn0-book", "DEGRADED", {"boot": "previous"}, latched=False)
+            c.incidents.raise_("conn_recovery_failed:conn1-depth", "CRITICAL", {"boot": "previous"}, latched=True)
+            for n in ("conn0-book", "conn1-depth"):
+                c.activity[n].transitions.append((m - 100_000, True)); c.activity[n].data(m - 100)
+            c._conn_incidents(m)                                  # first live observation after the restart
+            keys = {i["key"] for i in c.incidents.active()}
+            self.assertNotIn("conn_outage:conn0-book", keys)      # state-like: resolved
+            self.assertIn("conn_recovery_failed:conn1-depth", keys)   # latched: kept until acknowledged
+            c.incidents.raise_("conn_outage:conn1-depth", "DEGRADED", {}, latched=False)
+            c._resolve_outages_at_stop()                          # clean stop: a later 1.5.0 never inherits it
+            keys = {i["key"] for i in c.incidents.active()}
+            self.assertNotIn("conn_outage:conn1-depth", keys)
+            self.assertIn("conn_recovery_failed:conn1-depth", keys)
+            evs = [r["payload"]["event"] for r in drain(c) if r.get("type") == "lifecycle"]
+            self.assertIn("conn_outage_closed_at_stop", evs); self.assertIn("conn_outage_resolved", evs)
 
     def test_failed_recovery_latches_critical_once(self):
         with tempfile.TemporaryDirectory() as d:

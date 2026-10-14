@@ -158,8 +158,7 @@ class WSConnection:
             except asyncio.CancelledError:              # run() itself cancelled (stop / replacement): bounded cleanup
                 if self._ws is not None:
                     self._abort(self._ws)               # else aiohttp's __aexit__ close() could wait on the peer again
-                st.cancel()
-                await asyncio.wait({st}, timeout=self.abort_wait_s)
+                await self._cancel_bounded(st)
                 self.connected = False; self._ws = None
                 raise
             err = None
@@ -260,8 +259,7 @@ class WSConnection:
                     done, _ = await asyncio.wait({st}, timeout=self.abort_wait_s)
             if not done:
                 outcome = "cancelled"
-                st.cancel()
-                done, _ = await asyncio.wait({st}, timeout=self.abort_wait_s)
+                done = await self._cancel_bounded(st)
             if not done:
                 outcome = "wedged"
                 self.wedged = True
@@ -281,6 +279,20 @@ class WSConnection:
             except Exception:                                    # noqa: BLE001 - reporting never breaks recovery
                 pass
         return res
+
+    async def _cancel_bounded(self, st) -> bool:
+        """Cancel REPEATEDLY until the task ends or abort_wait_s elapses. One cancel can be consumed at an await that
+        the task then leaves for another (e.g. aiohttp's __aexit__ close() after a cancelled receive()); repeating it
+        interrupts the next await too. Returns True if the task ended."""
+        loop = asyncio.get_running_loop()
+        end = loop.time() + self.abort_wait_s
+        while not st.done():
+            left = end - loop.time()
+            if left <= 0:
+                break
+            st.cancel()
+            await asyncio.wait({st}, timeout=min(0.25, left))
+        return st.done()
 
     def retire(self) -> None:
         """Owner gave up on this object (wedged): it must never deliver another message or reconnect."""

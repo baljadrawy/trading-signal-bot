@@ -342,13 +342,17 @@ class Collector:
                 continue
             st = self.conn_outage.get(c.name)
             if self.data_live_at(c.name, m):
-                if st is not None:
-                    if st["opened"]:
-                        self.incidents.resolve(f"conn_outage:{c.name}")
-                        self.lifecycle("conn_outage_resolved", {"conn": c.name, "start_ms": st["start"],
-                                                                "duration_ms": m - st["start"],
-                                                                "recovery_failed": st["failed"]})
-                    del self.conn_outage[c.name]
+                key = f"conn_outage:{c.name}"
+                if st is not None and st["opened"]:
+                    self.incidents.resolve(key)
+                    self.lifecycle("conn_outage_resolved", {"conn": c.name, "start_ms": st["start"],
+                                                            "duration_ms": m - st["start"],
+                                                            "recovery_failed": st["failed"]})
+                elif st is None and self.incidents._open_for(key) is not None:
+                    self.incidents.resolve(key)          # stale state-like incident of an earlier boot (restart)
+                    self.lifecycle("conn_outage_resolved", {"conn": c.name, "start_ms": None, "duration_ms": None,
+                                                            "recovery_failed": None, "previous_boot": True})
+                self.conn_outage.pop(c.name, None)
                 continue
             if st is None:
                 st = self.conn_outage[c.name] = {"start": max(a.last_data_ms or 0, self.ws_start_ms),
@@ -366,6 +370,21 @@ class Collector:
                 st["failed"] = True
                 self.incidents.raise_(f"conn_recovery_failed:{c.name}", "CRITICAL",
                                       {"cause": "outage_exceeded_limit", **detail}, latched=True)
+
+    def _resolve_outages_at_stop(self) -> None:
+        """P2F 1.6.0 rollback compatibility: conn_outage incidents are state-like and only a running 1.6.0 resolves
+        them. At a clean stop the outage observation ends, so open ones are resolved here (the gap records and the
+        lifecycle keep the evidence); a later 1.5.0 never inherits an incident it cannot resolve. Latched incidents
+        (conn_recovery_failed, observation_loss:tier0) are never touched."""
+        if self.incidents is None:
+            return
+        for c in list(self.conns):
+            key = f"conn_outage:{c.name}"
+            if self.incidents._open_for(key) is not None:
+                st = self.conn_outage.get(c.name) or {}
+                self.incidents.resolve(key)
+                self.lifecycle("conn_outage_closed_at_stop", {"conn": c.name, "start_ms": st.get("start")})
+        self.conn_outage.clear()
 
     def gap_record(self, g: dict, recoverability: str, extra: dict | None = None) -> None:
         self.gap_count += 1
@@ -2222,9 +2241,9 @@ class Collector:
             final = ((stop_requested_ms - 1) // 1000) * 1000          # every boundary strictly before the stop
             if self.last_sampled_ms is not None and final > self.last_sampled_ms:
                 self.sample_until(final, live=True)
-            for c in self.conns:
-                await c.close()
+            await asyncio.gather(*[c.close() for c in self.conns], return_exceptions=True)   # bounded, concurrent
             await asyncio.gather(*[c.task for c in self.conns if getattr(c, "task", None)], return_exceptions=True)
+            self._resolve_outages_at_stop()
         for tr in self.all_tracks():
             g = tr.close_gap(open_at_stop=True)
             if g is not None:
