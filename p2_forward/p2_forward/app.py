@@ -370,8 +370,12 @@ class Collector:
     def gap_record(self, g: dict, recoverability: str, extra: dict | None = None) -> None:
         self.gap_count += 1
         key = g.get("stream_key", "")
-        if self.incidents is not None and g.get("duration_ms", 0) >= 1000 * self.cfg["tier0_loss_incident_s"] and (
-                key.startswith("market|") or key.split("|")[-1] in self.cfg["tier0"]):
+        covered = g.get("open_at_stop") or set(g.get("causes") or [g.get("cause")]) & {
+            "backpressure_or_rejected", "disk_hard_stop", "never_ready"}      # explained by a stop / writer incident
+        if self.incidents is not None and not covered and recoverability == IRREPLACEABLE and \
+                g.get("duration_ms", 0) >= 1000 * self.cfg["tier0_loss_incident_s"] and (
+                key.startswith("market|") or (key.split("|")[0] in ("book", "depth")
+                                              and key.split("|")[-1] in self.cfg["tier0"])):
             self.incidents.raise_("observation_loss:tier0", "WARNING",          # durable, needs acknowledgement
                                   {k: g.get(k) for k in ("stream", "start_ms", "end_ms", "duration_ms", "cause",
                                                          "causes", "missing_samples")}, latched=True)

@@ -284,7 +284,7 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
 - **Connection incidents (collector ≥ 1.6.0, continuous mode).** The outage clock starts at the connection's last data message, so a socket that is up but silent counts as an outage.
   - `conn_outage:<conn>`: DEGRADED, state-like. Opened once when the connection is not data-live for `conn_outage_incident_s` (60 s), with lifecycle `conn_outage_open`. Resolved when it is data-live again, with lifecycle `conn_outage_resolved` carrying `{start_ms, duration_ms, recovery_failed}`. There are no per-tick updates.
   - `conn_recovery_failed:<conn>`: CRITICAL, **latched** (needs an operator acknowledgement). Raised once per outage at `conn_recovery_fail_s` (600 s), or for a wedged session.
-  - `observation_loss:tier0`: WARNING, **latched**. Raised when a gap of `tier0_loss_incident_s` (60 s) or longer closes on a tier-0 stream or on `!miniTicker@arr`. The gap record itself is unchanged.
+  - `observation_loss:tier0`: WARNING, **latched**. Raised when a gap of `tier0_loss_incident_s` (60 s) or longer closes on a tier-0 bookTicker or depth stream, or on `!miniTicker@arr`, during running operation (irreplaceable gaps only; candle gaps are recoverable). It is not raised for gaps already explained by a stop or writer incident (`open_at_stop`, `never_ready`, `backpressure_or_rejected`, `disk_hard_stop`). The gap record itself is unchanged.
   - Transient per-stream staleness on a data-live connection raises no incident; its gap record and health reason are unchanged.
   - These are additive control-payload changes (lifecycle events, health fields, incident keys). Record envelopes and sampled-record semantics are unchanged, so `schema_version` stays 2, as for collector 1.1.0–1.5.0.
 

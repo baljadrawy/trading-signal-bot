@@ -471,10 +471,16 @@ class AppIncidents(unittest.TestCase):
                          A.IRREPLACEABLE)
             c.gap_record({**base, "stream_key": "depth|ETHUSDT", "stream": "ethusdt@depth20", "duration_ms": 3_000},
                          A.IRREPLACEABLE)
+            for extra in ({"open_at_stop": True}, {"cause": "backpressure_or_rejected", "causes": ["backpressure_or_rejected"]}):
+                c.gap_record({**base, "stream_key": "book|ETHUSDT", "stream": "ethusdt@bookTicker",
+                              "duration_ms": 120_000, **extra}, A.IRREPLACEABLE)  # covered by a stop / writer incident
+            c.gap_record({**base, "stream_key": "candle|15m|BTCUSDT", "stream": "candle|15m|BTCUSDT",
+                          "cause": "candle_not_fetched_at_stop", "causes": ["candle_not_fetched_at_stop"],
+                          "duration_ms": 900_000}, "RECOVERABLE_WHERE_ARCHIVE_AVAILABLE")   # recoverable: no incident
             loss = [i for i in c.incidents.active() if i["key"] == "observation_loss:tier0"]
             self.assertEqual(len(loss), 1); self.assertEqual(loss[0]["count"], 1)
             self.assertTrue(loss[0]["latched"]); self.assertEqual(loss[0]["severity"], "WARNING")
-            self.assertEqual(c.gap_count, 3)                    # every gap record is still emitted
+            self.assertEqual(c.gap_count, 6)                    # every gap record is still emitted
 
     def test_wedged_recovery_retires_and_replaces_the_connection(self):
         async def go(d):
