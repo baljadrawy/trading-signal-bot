@@ -473,8 +473,13 @@ def test_no_production_module_imports_a43_components():
     import pathlib
     import re
     root = pathlib.Path(__file__).resolve().parents[1]
-    EXPERIMENTAL = ("candidate_selection", "candidate_diagnostics", "signal_quality",
-                    "counterfactual_barrier")
+    # Registered experimental modules may import each other (tests/experimental_modules.py
+    # contract, A46); every production file is still checked.
+    sys.path.insert(0, str(root / "tests"))
+    from experimental_modules import EXPERIMENTAL_SHARED
+    EXPERIMENTAL = tuple(dict.fromkeys(("candidate_selection", "candidate_diagnostics",
+                                        "signal_quality", "counterfactual_barrier")
+                                       + tuple(EXPERIMENTAL_SHARED)))
 
     def importers(names):
         pattern = re.compile(r"(from\s+shared(\.|\s+import\s+[^\n]*\b)|import\s+shared\.)("
