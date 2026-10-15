@@ -1,6 +1,7 @@
 """Resilient Binance aggregate-trade stream with dynamic subscriptions."""
 import asyncio
 import json
+import math
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
@@ -129,7 +130,7 @@ class BinancePriceStream:
         if aggregate_id <= self.last_aggregate_id.get(symbol, -1):
             return
         price = float(data['p'])
-        if price <= 0:
+        if not math.isfinite(price) or price <= 0:       # never advance the watermark on it
             return
         self.last_aggregate_id[symbol] = aggregate_id
         now = datetime.now(timezone.utc)

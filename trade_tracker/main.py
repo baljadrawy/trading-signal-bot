@@ -4,6 +4,7 @@ Trade Tracker - يراقب الإشارات المرسلة ويسجل نتائج
 يستخدم shared.triple_barrier كمصدر حقيقة واحد لمنطق الخروج.
 """
 import asyncio
+import math
 import sys
 import json
 import dataclasses
@@ -1029,6 +1030,9 @@ async def evaluate_trade_safely(trade: dict, current_price: float,
                                 source: str):
     """Serialize lifecycle changes per trade across WebSocket and REST paths."""
     trade_id = int(trade['id'])
+    if usable_price(current_price) is None:
+        logger.error(f"تجاهل سعر غير صالح لـ {trade.get('symbol')} عبر {source}: {current_price!r}")
+        return
     lock = _trade_locks.setdefault(trade_id, asyncio.Lock())
     async with lock:
         fresh = await Database.fetchrow(
@@ -1268,6 +1272,17 @@ async def close_trade(trade: dict, result: str, profit_pct: float,
     )
 
 
+def usable_price(value) -> float | None:
+    """A price observation the tracker may act on: finite and > 0. Anything else (NaN, +/-inf,
+    zero, negative, unparsable) is treated exactly like a failed fetch, so no decision, fill or
+    economic label is ever computed from it (A49)."""
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price > 0 else None
+
+
 async def get_current_price(symbol: str) -> float:
     """جلب السعر الحالي من Binance"""
     try:
@@ -1282,7 +1297,10 @@ async def get_current_price(symbol: str) -> float:
                 data = await resp.json()
                 if 'price' not in data:
                     raise ValueError(f"Binance response missing price: {str(data)[:200]}")
-                return float(data['price'])
+                price = usable_price(data['price'])
+                if price is None:
+                    raise ValueError(f"Binance price is not a usable price: {str(data['price'])[:40]}")
+                return price
     except Exception as e:
         logger.error(f"خطأ في جلب سعر {symbol}: {format_error(e)}")
         return None
