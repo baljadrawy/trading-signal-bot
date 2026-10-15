@@ -10,5 +10,6 @@ EXPERIMENTAL_SHARED = (
     "setup_diagnostics",         # A45
     "trade_geometry",            # A46
     "exchange_rules",            # A47
-    "execution_calibration",     # A47
+    "execution_calibration",     # A47 (A48: tracker_event_v1 + cost ledger)
+    "replay_execution",          # A48
 )

@@ -128,9 +128,14 @@ def test_14_15_delayed_and_out_of_order_events_follow_arrival_order():
     p = CANONICAL["04_stop_before_t1"]
     late = p[:2] + [Poll(T0 + 30 * 3_600_000, p[2].price)]          # same price, processed 30 h later
     assert model(late).exit_reason == "no_T1_expired_24h"             # tracker uses processing time
-    swapped = [p[0], p[3], p[1], p[2]]                                # arrival order ≠ event time
+    # A48: t_ms is processing time (monotone); event time is observed_ms. The A47 form of this
+    # input (processing time running backwards) is impossible and is now reported as invalid.
+    assert model([p[0], p[3], p[1], p[2]]).reason == "processing_time_not_monotone"
+    order = [0, 3, 1, 2]                                              # arrival order ≠ event time
+    swapped = [Poll(p[-1].t_ms + k * M, p[i].price, observed_ms=p[i].t_ms) for k, i in enumerate(order)]
     row = cal("out_of_order", swapped, expected_difference="tracker_processes_arrival_order")
     assert row.tracker.status == "closed"
+    assert row.tracker.diagnostics["out_of_order_observations"] == 2
     assert row.classification in ("MATCH", "MODEL_ASSUMPTION_DIFFERENCE")
 
 
