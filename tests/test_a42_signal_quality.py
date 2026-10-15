@@ -5,7 +5,7 @@ edge, and nothing here reads market data, the database or protected outcomes.
 """
 import math
 import pathlib
-import sys; sys.path.insert(0, '.')
+import sys; sys.path.insert(0, '.'); sys.path.insert(0, 'tests')
 
 import pytest
 
@@ -65,13 +65,12 @@ def test_policies_disabled_by_default_and_never_block_when_disabled():
 
 
 def test_no_production_module_imports_signal_quality():
+    """Production code never imports the A42 modules; declared experimental modules may."""
+    from experimental_modules import EXPERIMENTAL_SHARED
     offenders = [str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py")
                  if "tests" not in p.parts
-                 and p.name not in ("signal_quality.py", "counterfactual_barrier.py",
-                                    # A43 modules (checked by test_a43_*)
-                                    "candidate_diagnostics.py", "candidate_selection.py",
-                                    "signal_identity.py", "dependency_safety.py",
-                                    "setup_diagnostics.py")   # A45 experimental
+                 and not (p.parent.name == "shared" and p.stem in EXPERIMENTAL_SHARED)
+                 and p.stem not in ("signal_identity", "dependency_safety")   # wired; checked by A43
                  and ("signal_quality" in (txt := p.read_text(errors="ignore"))
                       or "counterfactual_barrier" in txt)]
     assert offenders == []
