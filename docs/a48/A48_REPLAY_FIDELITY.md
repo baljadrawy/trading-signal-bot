@@ -82,7 +82,7 @@ Each entry has a minimal reproduction in `tests/test_a48_replay_fidelity.py`, ci
 - **How NaN gets in:** `get_current_price` only checks for a falsy value. The stream checks `price <= 0`, which NaN passes.
 - **Practical reach:** Binance does not send NaN, so this is unreachable under valid exchange data.
 - **Model behaviour:** Mode 2 refuses non-finite input (fails closed).
-- **Next step:** a one-line production guard is recommended for owner review. It is **not** applied here.
+- **Resolved in A49:** `fix/a38-paper-execution-integrity` `f3104c2`, merged down the stack. The guard is `usable_price()` (finite and > 0), applied in `get_current_price`, in the stream and in `evaluate_trade_safely`; `economic_close` now refuses a non-finite gross. The fixed tracker skips such a price like a failed fetch and persists nothing. That is tested for NaN, +inf, −inf, 0 and negative prices in `tests/test_a49_nonfinite_price.py`, and here in `test_nan_price_is_skipped_by_the_tracker_and_refused_by_mode2`. **It reaches production only with an owner-approved deployment.**
 
 ## A48-B — Versioned replay execution layer (`shared/replay_execution.py`, `a48-rx-v1`)
 
@@ -211,7 +211,7 @@ It counts, without changing any decision:
 | exchange partial fills | `UNSUPPORTED_BY_TRACKER` | full-size fills only |
 | quantity step rounding | `UNSUPPORTED_BY_TRACKER` | notional positions; covered by `exchange_rules` |
 | session or trading-hour limits | `NOT_APPLICABLE` | none exist; the only `weekday` use is weekly risk |
-| NaN price | `TRACKER_UNSAFE_INPUT` | see A48-A |
+| NaN price | `TRACKER_UNSAFE_INPUT` in A48; fixed in A49 (`f3104c2`), so the tracker now skips it | see A48-A |
 
 **Transparency on the run history:**
 - **First run:** exactly one mismatch, defect A-5 (`price_rounding_exact_levels`, fill reported raw rather than at 8 dp). It was fixed in Mode 2's implementation, not in the comparison.
@@ -326,7 +326,7 @@ Detailed rows at 2 % stop distance:
 **Not recommended:** no new admission, no activation, and no change to production accounting. The FWER budget, α = 1/240 and the 365-day horizon are unchanged.
 
 **Owner items surfaced:**
-- the NaN guard (latent production defect);
+- the NaN guard (latent production defect), fixed on the development stack in A49 and awaiting deployment approval;
 - the forward observation capture needed for level 3.
 
 ## Appendix — final regression and diff

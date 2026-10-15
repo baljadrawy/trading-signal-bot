@@ -284,9 +284,11 @@ def test_scenario_coverage_and_expected_semantics():
     assert set(UNSUPPORTED) == {'exchange_partial_fills', 'quantity_step_rounding', 'session_trading_hours'}
 
 
-def test_nan_price_is_unsafe_input_for_the_tracker(monkeypatch, tmp_path):
-    """TRACKER_UNSAFE_INPUT probe: Mode 2 refuses a non-finite price (fail closed). This records
-    what the REAL tracker does with one at an expiry poll; production is not changed."""
+def test_nan_price_is_skipped_by_the_tracker_and_refused_by_mode2(monkeypatch, tmp_path):
+    """A48 found that the tracker booked a NaN price at an expiry poll as a NaN-P&L BREAKEVEN
+    row (TRACKER_UNSAFE_INPUT). A49 (fix/a38 f3104c2) makes the tracker treat it like a failed
+    fetch: nothing is persisted and the trade stays open. Mode 2 still refuses such input
+    (fails closed) rather than modelling it."""
     steps = [('rest', .1, 99.5), ('rest', 25.2, float('nan'))]
     SCENARIOS['_nan_probe'] = ({}, None, 5.0, steps)
     try:
@@ -299,7 +301,6 @@ def test_nan_price_is_unsafe_input_for_the_tracker(monkeypatch, tmp_path):
                 return await observed(env, sid)
         trade, fills, res, sent = asyncio.run(go())
         assert model('_nan_probe').reason == 'non_finite_or_non_positive_price'
-        assert res is not None and res['notes'] == 'no_T1_expired_24h'
-        assert math.isnan(float(res['profit_usdt'])) and res['economic_result'] == 'BREAKEVEN'
+        assert res is None and trade is not None and trade['status'] == 'open'
     finally:
         SCENARIOS.pop('_nan_probe', None)

@@ -216,7 +216,7 @@ S3 depends on the enforce window and S5 prerequisites
 
 Synthetic bias rows show the legacy replay is optimistic by speed × ½ poll + gap whenever the exit reason agrees. It can be **pessimistic** when a target and the stop share a bar. Neither is a market-frequency estimate.
 
-**Finding for the owner:** the tracker books a NaN price at expiry as a NaN-P&L BREAKEVEN row. This is latent (Binance never sends NaN). A guard is recommended; it is not applied.
+**Finding for the owner:** the tracker books a NaN price at expiry as a NaN-P&L BREAKEVEN row. This is latent (Binance never sends NaN). A guard is recommended; it is not applied. **A49:** fixed on the development stack (`fix/a38` `f3104c2`, merged into A44–A48). Not deployed.
 
 **Implications:**
 - **G1 / G2 / G3 and A45 H2:** counterfactual evaluation must use Mode 2 (needs recorded observation streams, which needs owner approval of a forward capture) or Mode 3 (conditional intervals). Legacy-replay numbers from A42–A46 that involve stop exits are optimistic and must not be reused as evidence.
