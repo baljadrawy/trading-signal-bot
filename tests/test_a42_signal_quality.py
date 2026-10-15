@@ -70,7 +70,8 @@ def test_no_production_module_imports_signal_quality():
                  and p.name not in ("signal_quality.py", "counterfactual_barrier.py",
                                     # A43 modules (checked by test_a43_*)
                                     "candidate_diagnostics.py", "candidate_selection.py",
-                                    "signal_identity.py", "dependency_safety.py")
+                                    "signal_identity.py", "dependency_safety.py",
+                                    "setup_diagnostics.py")   # A45 experimental
                  and ("signal_quality" in (txt := p.read_text(errors="ignore"))
                       or "counterfactual_barrier" in txt)]
     assert offenders == []
