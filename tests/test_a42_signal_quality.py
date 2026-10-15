@@ -67,7 +67,11 @@ def test_policies_disabled_by_default_and_never_block_when_disabled():
 def test_no_production_module_imports_signal_quality():
     offenders = [str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py")
                  if "tests" not in p.parts
-                 and p.name not in ("signal_quality.py", "counterfactual_barrier.py")
+                 and p.name not in ("signal_quality.py", "counterfactual_barrier.py",
+                                    # A43 experimental modules (unwired; checked by test_a43_*)
+                                    "candidate_diagnostics.py", "candidate_selection.py",
+                                    "signal_identity.py", "dependency_safety.py",
+                                    "idempotent_emission.py")
                  and ("signal_quality" in (txt := p.read_text(errors="ignore"))
                       or "counterfactual_barrier" in txt)]
     assert offenders == []
