@@ -109,7 +109,7 @@
 | Objective | Governed, prospective confirmation of at most a few pre-registered changes |
 | Evidence / completed | Evidence Ladder and FWER design (A29–A33); protocols drafted: A42 C1–C3, A44 ranking, A45 H2, A46 geometry candidate |
 | Open questions | power: every drafted refinement has an expected effect at or below its MDE (A42/A44/A45/A46) |
-| Deliverables | **prerequisites first**: (1) counterfactual replay calibrated against tracker polls (paired-difference bias ≈ 0); (2) measured signal rates and day-clustering design effect; (3) **one** pre-registered admission |
+| Deliverables | **prerequisites first**: (1) counterfactual replay calibrated against tracker polls (paired-difference bias ≈ 0) — **A48: met for `tracker_event_v1` given observations (27/27 exact); bar-only counterfactuals use `ohlc_uncertainty_v1` conditional intervals, whose use is a design-review decision**; (2) measured signal rates and day-clustering design effect; (3) **one** pre-registered admission |
 | Dependencies | S6 (A44 enforce window); counterfactual calibration |
 | Entry | prerequisites met **and** owner authorises an admission |
 | Exit | final-look decision per protocol |
@@ -185,3 +185,52 @@ S3 depends on the enforce window and S5 prerequisites
 - **Replay ready for scientific design: NO.**
 
 **Decision:** REVISE EXECUTION MODEL.
+
+### A48 — Replay fidelity & cost accounting (`feature/a48-replay-fidelity`; criteria `a7b21da`, code `92c0553`; report `docs/a48/A48_REPLAY_FIDELITY.md`)
+
+**Replay versioning** (`shared/replay_execution.py`, `a48-rx-v1`):
+
+| Mode | Version | Role |
+|---|---|---|
+| `legacy_bar_v1` | `a42-cf-bar-v1`, unchanged | regression only; its stop fills are optimistic |
+| `tracker_event_v1` | `a48-tev-v1` | the Paper tracker's decisions on ordered observations; engineering reference, not exchange truth |
+| `ohlc_uncertainty_v1` | `a48-ohlc-v1` | research default for bars: feasible path branches plus conditional fill intervals, never a point value; `INSUFFICIENT_INFORMATION` when bounds are not defensible |
+
+**Now calibrated (levels 1–2):**
+- Mode 2 equals the **real** tracker on 27/27 deterministic scenarios across entry, stops, partials, expiry, stream deduplication, restarts, candle invalidation, rounding and min-notional.
+- Five A47 tracker-model gaps were fixed, including the candle-invalidation exit, stream id deduplication and the admission boundary.
+- Mode 3 contains the full-information tracker outcome in 100 % of seeded cases where its assumptions hold, and it widens monotonically as bars coarsen.
+
+**Cost convention** (`a48-cost-v1`):
+- fees at 0.10 %/side on executed notional;
+- spread separate;
+- slippage realized once, inside the execution price;
+- the 0.1 % allowance is a **stress** adjustment;
+- the legacy A38 flat-0.3 % label is reproduced exactly and reconciled term by term.
+
+**Still uncertain (level 3 not established):**
+- the real poll cadence and latency, which A_OBS_IN_BAR depends on;
+- queueing and partial fills;
+- spread;
+- live filters.
+
+Synthetic bias rows show the legacy replay is optimistic by speed × ½ poll + gap whenever the exit reason agrees. It can be **pessimistic** when a target and the stop share a bar. Neither is a market-frequency estimate.
+
+**Finding for the owner:** the tracker books a NaN price at expiry as a NaN-P&L BREAKEVEN row. This is latent (Binance never sends NaN). A guard is recommended; it is not applied.
+
+**Implications:**
+- **G1 / G2 / G3 and A45 H2:** counterfactual evaluation must use Mode 2 (needs recorded observation streams, which needs owner approval of a forward capture) or Mode 3 (conditional intervals). Legacy-replay numbers from A42–A46 that involve stop exits are optimistic and must not be reused as evidence.
+- **G1 as a correction version is unaffected:** it is a geometry fix, not an evaluation.
+- **Before any scientific evaluation**, a design review must decide three things:
+  1. the input route (observation capture vs bars);
+  2. whether A_OBS_IN_BAR is acceptable without a measured cadence;
+  3. how conditional intervals enter a protocol — stress end as a sensitivity bound, never an expectation.
+
+  The FWER budget, α = 1/240 per admission and the 365-day horizon are unchanged. No admission is recommended.
+- **Shortest path back to strategy quality:**
+  1. a design-review decision on (1)–(3);
+  2. return to S2 / S3 signal and geometry work, using `ohlc_uncertainty_v1` for engineering diagnostics and the A46 ledger with `a48-cost-v1` for costs.
+
+  No further replay infrastructure is planned unless the review asks for it.
+
+**Decision:** READY FOR SCIENTIFIC DESIGN REVIEW.

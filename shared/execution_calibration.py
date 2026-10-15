@@ -181,7 +181,9 @@ def tracker_poll_model(*, trade_type, planned_entry, stop_loss, target_1, target
         return PollOutcome("rejected", f"bracket_invalid:{exc}", action, diagnostics=diag)
     expiry_h, t1_h, no_t1_h = expiry_policy_for_timeframe(timeframe)
     entry = br["entry_price"]
-    stop_inv = (float(invalidation_price) * fill_price / float(planned_entry)
+    diag["observed_fill_price"] = fill_price
+    fill_price = entry                                        # stored round(fill, 8): the P&L basis
+    stop_inv = (float(invalidation_price) * diag["observed_fill_price"] / float(planned_entry)
                 if invalidation_price else br["stop_loss"])
     cfg = TripleBarrierConfig(symbol="CAL", entry=entry, target_1=br["target_1"],
                               target_2=br["target_2"], target_3=br["target_3"],

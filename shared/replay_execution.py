@@ -475,8 +475,8 @@ def synthetic_stop_path(*, stop_distance_pct: float, poll_s: float, gap_pct: flo
         while True:                                      # walk to the waypoint, polling on the way
             step = v * poll_s * (1 if target > px else -1)
             nxt = px + step
-            if (step > 0 and nxt >= target) or (step < 0 and nxt <= target):
-                break
+            if (step > 0 and round(nxt, 8) >= target) or (step < 0 and round(nxt, 8) <= target):
+                break                                    # polls on the way stay strictly short
             t += ms
             px = nxt
             polls.append(Poll(t, round(px, 8)))
