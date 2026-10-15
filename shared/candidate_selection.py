@@ -219,3 +219,105 @@ def bounded_universe(rows: Iterable[Mapping], *, max_rows: int = 2000) -> Univer
         f"{SELECTION_VERSION}|{r['symbol']}|{r.get('timeframe', '')}".encode()).hexdigest())
     kept, dropped = order[:max_rows], order[max_rows:]
     return Universe(tuple(kept), len(rows), tuple((r["symbol"], r.get("timeframe")) for r in dropped), True)
+
+
+# ── A44: staged selection pipeline (experimental; the live path uses _fixed_candidate_key) ──────
+#
+# Stages, each with an explicit, recorded outcome per candidate:
+#   1 eligibility       production filters (+ A43 integrity when enabled)
+#   2 risk constraints  portfolio rules that depend on open positions (A42 C2 beta cap; shadow)
+#   3 execution         can the order be executed and priced at all (finite spread, valid bracket)
+#   4 ranking           one named, lexicographic ranker — no weights, so nothing to tune
+#   5 selection         top-1 per cycle (the production capacity rule)
+# Rankers only ORDER the candidates that passed 1–3. With identical stages 1–3, every ranker
+# selects a candidate in exactly the same cycles, so a ranking comparison is frequency-neutral by
+# construction; any change in signal count comes from stages 1–3, never from the ranker.
+
+ACTIVE_RANKER = "production_parity"           # the only ranker the live engine may use
+
+
+def cost_per_risk_v1_key(c: Candidate) -> tuple:
+    """Lowest round-trip cost (20 bps + observed spread) per unit of stop distance first.
+
+    One criterion from A42-B (cost burden in R); invalid geometry sorts last; hash tie-break."""
+    from shared.signal_quality import CostModel, assess_candidate
+    ratio = float("inf")
+    if c.spread_pct is not None:
+        report = assess_candidate({**c.data, "order_book": {"spread_pct": c.spread_pct}},
+                                  CostModel(include_spread=True))
+        ratio = report.metrics.get("cost_over_risk", float("inf")) if report.metrics else float("inf")
+    return (ratio, _tie_hash(c))
+
+
+EXPERIMENTAL_RANKERS = ("execution_quality_v2", "cost_per_risk_v1")
+RANKERS = {**RANKERS, "cost_per_risk_v1": cost_per_risk_v1_key}
+
+
+@dataclass(frozen=True)
+class StageRecord:
+    candidate: Candidate
+    stage: str                 # eligibility | risk | execution | ranked
+    reasons: tuple
+    rank: int | None = None
+
+
+@dataclass(frozen=True)
+class PipelineResult:
+    version: str
+    ranker: str
+    selected: Candidate | None
+    records: tuple             # one StageRecord per input candidate, input order
+
+    def explain(self) -> list:
+        return [{"symbol": r.candidate.symbol, "timeframe": r.candidate.timeframe,
+                 "stage": r.stage, "reasons": list(r.reasons), "rank": r.rank,
+                 "selected": r.candidate is self.selected} for r in self.records]
+
+
+def execution_reasons(c: Candidate) -> tuple:
+    """Feasibility, not preference: the order must be priceable."""
+    reasons = []
+    if c.spread_pct is None:
+        reasons.append("spread_not_finite")
+    d = c.data
+    try:
+        entry, stop, t1 = float(d["entry_price"]), float(d["stop_loss"]), float(d["target_1"])
+        if not (0 < stop < entry < t1):
+            reasons.append("bracket_invalid")
+    except (KeyError, TypeError, ValueError):
+        reasons.append("bracket_missing")
+    return tuple(reasons)
+
+
+def run_pipeline(candidates: Sequence[Candidate], *, ranker: str = ACTIVE_RANKER,
+                 policy: EligibilityPolicy = EligibilityPolicy(), risk_policy=None,
+                 open_exposures: Sequence = (), betas: Mapping | None = None,
+                 notional_usdt: float = 50.0, **state) -> PipelineResult:
+    """Run stages 1–5. ``risk_policy`` (e.g. A42 CorrelatedExposurePolicy) is applied only
+    when given *and* enabled; a disabled policy is recorded as a shadow verdict."""
+    if ranker not in RANKERS:
+        raise ValueError(f"unknown_ranker:{ranker}")
+    records, survivors = {}, []
+    for c in candidates:
+        reasons = eligibility_reasons(c, policy, **state)
+        if reasons:
+            records[id(c)] = StageRecord(c, "eligibility", reasons)
+            continue
+        if risk_policy is not None:
+            from shared.signal_quality import Exposure
+            decision = risk_policy.evaluate(list(open_exposures), Exposure(
+                c.symbol, notional_usdt, (betas or {}).get(c.symbol)))
+            if not decision.allow:
+                records[id(c)] = StageRecord(c, "risk", decision.reasons)
+                continue
+        exec_reasons = execution_reasons(c)
+        if exec_reasons:
+            records[id(c)] = StageRecord(c, "execution", exec_reasons)
+            continue
+        survivors.append(c)
+    key = RANKERS[ranker]
+    ordered = sorted(survivors, key=lambda c: _nan_safe(key(c)))
+    for i, c in enumerate(ordered):
+        records[id(c)] = StageRecord(c, "ranked", (), i + 1)
+    return PipelineResult(SELECTION_VERSION, ranker, ordered[0] if ordered else None,
+                          tuple(records[id(c)] for c in candidates))

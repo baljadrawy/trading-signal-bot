@@ -22,6 +22,15 @@ from dataclasses import dataclass, field
 from typing import Iterable, Mapping
 
 IDENTITY_VERSION = "a43-sid-v1"
+INTEGRITY_MODES = ("off", "enforce")
+
+
+def integrity_mode(cfg) -> str:
+    """The configured SIGNAL_INTEGRITY_MODE; an unknown value refuses to start (fail closed)."""
+    mode = str(getattr(cfg, "SIGNAL_INTEGRITY_MODE", "off")).strip().lower()
+    if mode not in INTEGRITY_MODES:
+        raise RuntimeError(f"unknown SIGNAL_INTEGRITY_MODE {mode!r}; expected one of {INTEGRITY_MODES}")
+    return mode
 
 TIMEFRAME_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 DIRECTIONS = ("long",)                     # the strategy is long-only today
@@ -80,7 +89,7 @@ class SetupIdentity:
 
 
 def identity_from_candidate(candidate: Mapping, *, strategy_version: str,
-                            direction: str = "long") -> SetupIdentity:
+                            direction: str = "long", allow_pit_fallback: bool = True) -> SetupIdentity:
     """Build the identity from an analyzer candidate (``pit`` block). Fails closed."""
     symbol = candidate.get("symbol")
     timeframe = candidate.get("timeframe")
@@ -95,18 +104,57 @@ def identity_from_candidate(candidate: Mapping, *, strategy_version: str,
         raise IdentityError("direction_unsupported")
     if not strategy_version:
         raise IdentityError("strategy_version_missing")
-    pit = candidate.get("pit") or {}
-    open_ms = _int_ms(pit.get("candle_open_time_ms"), "candle_open_time")
-    close_ms = _int_ms(pit.get("candle_close_time_ms"), "candle_close_time")
+    # Correctness-critical block written by the analyzer (A44); the evidence ``pit`` block is
+    # accepted only as a fallback for A43 fixtures — both come from candle_bounds().
+    block = candidate.get("candle_identity")
+    if block is None:
+        if candidate.get("candle_identity_error"):
+            raise IdentityError(str(candidate["candle_identity_error"]))
+        if not allow_pit_fallback:                 # production: never rely on instrumentation
+            raise IdentityError("candle_identity_missing")
+        block = candidate.get("pit") or {}
+    if not isinstance(block, Mapping):
+        raise IdentityError("candle_identity_malformed")
+    open_ms, close_ms = _validated_bounds(block, timeframe)
+    return SetupIdentity(symbol=symbol, timeframe=timeframe, candle_open_ms=open_ms,
+                         candle_close_ms=close_ms, trade_type=str(trade_type), direction=direction,
+                         strategy_version=str(strategy_version),
+                         setup_policy=str(candidate.get("selection_policy") or "unspecified"))
+
+
+CANDLE_BLOCK_VERSION = 1
+
+
+def candle_bounds(df, timeframe: str) -> dict:
+    """Exchange bounds of the last CLOSED candle of a prepared OHLCV frame, validated.
+
+    The derivation itself is ``evidence_v2.candle_pit`` (the existing, single implementation of
+    "index = Binance open time, ``close_time`` column = Binance close ms"); this layer makes it
+    correctness-critical: anything it cannot derive, or that is misaligned / inconsistent,
+    raises ``IdentityError`` instead of degrading to an empty block."""
+    from shared import evidence_v2
+    if timeframe not in TIMEFRAME_MS:
+        raise IdentityError("timeframe_unknown")
+    if df is None or len(df) == 0:
+        raise IdentityError("candle_frame_empty")
+    pit = evidence_v2.candle_pit(df, timeframe, None)
+    if not pit:
+        raise IdentityError("candle_bounds_unavailable")
+    block = {"version": CANDLE_BLOCK_VERSION, "candle_open_time_ms": pit["candle_open_time_ms"],
+             "candle_close_time_ms": pit["candle_close_time_ms"]}
+    _validated_bounds(block, timeframe)
+    return block
+
+
+def _validated_bounds(block: Mapping, timeframe: str) -> tuple:
+    open_ms = _int_ms(block.get("candle_open_time_ms"), "candle_open_time")
+    close_ms = _int_ms(block.get("candle_close_time_ms"), "candle_close_time")
     step = TIMEFRAME_MS[timeframe]
     if open_ms % step:
         raise IdentityError("candle_open_not_aligned")
     if close_ms != open_ms + step - 1:
         raise IdentityError("candle_close_inconsistent")
-    return SetupIdentity(symbol=symbol, timeframe=timeframe, candle_open_ms=open_ms,
-                         candle_close_ms=close_ms, trade_type=str(trade_type), direction=direction,
-                         strategy_version=str(strategy_version),
-                         setup_policy=str(candidate.get("selection_policy") or "unspecified"))
+    return open_ms, close_ms
 
 
 def bracket_hash(candidate: Mapping) -> str:
@@ -131,10 +179,19 @@ def freshness(identity: SetupIdentity, decision_ms: int, *, max_age_bars: float 
     Once a newer candle has closed, the setup is *superseded*: re-emitting it
     acts on stale data (A43 found 4h signals emitted 244 min after close).
     """
+    return freshness_at(identity.timeframe, identity.candle_close_ms, decision_ms,
+                        max_age_bars=max_age_bars)
+
+
+def freshness_at(timeframe: str, candle_close_ms: int, decision_ms: int, *,
+                 max_age_bars: float = 1.0) -> Freshness:
+    """The freshness rule on raw candle bounds (used by the tracker on stored identities)."""
     if not 0 < max_age_bars <= 1.0:
         raise ValueError("max_age_bars must be in (0, 1]")
-    step = TIMEFRAME_MS[identity.timeframe]
-    age = int(decision_ms) - identity.candle_end_ms
+    if timeframe not in TIMEFRAME_MS:
+        return Freshness(False, "timeframe_unknown", 0, float("nan"))
+    step = TIMEFRAME_MS[timeframe]
+    age = int(decision_ms) - (int(candle_close_ms) + 1)
     bars = age / step
     if age < 0:
         return Freshness(False, "decision_before_candle_close", age, bars)
@@ -194,10 +251,12 @@ class IntegrityVerdict:
 
 
 def integrity_check(candidate: Mapping, *, decision_ms: int, strategy_version: str,
-                    emitted_keys: Iterable[str] = (), max_age_bars: float = 1.0) -> IntegrityVerdict:
+                    emitted_keys: Iterable[str] = (), max_age_bars: float = 1.0,
+                    allow_pit_fallback: bool = True) -> IntegrityVerdict:
     """Pure pre-emission check: identifiable, fresh, not already emitted."""
     try:
-        ident = identity_from_candidate(candidate, strategy_version=strategy_version)
+        ident = identity_from_candidate(candidate, strategy_version=strategy_version,
+                                        allow_pit_fallback=allow_pit_fallback)
     except IdentityError as exc:
         return IntegrityVerdict(False, (f"identity:{exc}",), None, None)
     fresh = freshness(ident, decision_ms, max_age_bars=max_age_bars)

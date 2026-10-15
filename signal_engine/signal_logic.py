@@ -13,8 +13,19 @@ from shared.signal_readiness import (
     READY_DECISION_SOURCE, SIGNAL_READY_EVENT, assert_signal_complete, ready_payload)
 from shared.learning_governance import exploration_selected
 from shared import evidence_v2
+from shared.dependency_safety import cycle_gate, guarded_read
+from shared.signal_identity import (IDENTITY_VERSION, IdentityError, bracket_hash,
+                                    identity_from_candidate, integrity_check, integrity_mode)
 
 logger = setup_logger('signal_logic')
+
+# A44 (SIGNAL_INTEGRITY_MODE=enforce): reads whose failure must not turn into eligibility.
+OPEN_SYMBOLS_SQL = "SELECT DISTINCT symbol FROM active_trades WHERE status='open'"
+COOLDOWN_SQL = """SELECT DISTINCT symbol FROM signals
+                   WHERE signal_time > NOW() - INTERVAL '2 hours'"""
+LEARNED_GATES_SQL = ("SELECT trade_type, timeframe FROM learned_gates "
+                     "WHERE macro_state=$1 AND n>=$2 AND weight<=0")
+EMITTED_SETUPS_SQL = "SELECT setup_key FROM signals WHERE setup_key = ANY($1::text[])"
 
 # ── Evidence flight-recorder (PR #3c) — shadow, default-off, fully isolated ──────────
 # ALL imports are lazy and guarded: with the flag off, signal_logic loads and behaves
@@ -240,6 +251,23 @@ def _v2_signal_ready(signal_id, signal: dict, context=None) -> None:
         evidence_v2.hook_error('signal_engine', exc)
 
 
+_INSERT_ONCE_SQL = """
+    INSERT INTO signals (
+        symbol, timeframe, market_condition,
+        entry_price, target_1, target_2, target_3,
+        stop_loss, score, score_details, is_paper_trade,
+        volume_usdt, features_snapshot, trade_type, macro_snapshot,
+        decision_source, strategy_version, setup_key
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+    ON CONFLICT (setup_key) WHERE setup_key IS NOT NULL DO NOTHING
+    RETURNING id
+"""
+_EXISTING_SETUP_SQL = """
+    SELECT id, features_snapshot->'setup_identity'->>'bracket_hash' AS bracket_hash
+    FROM signals WHERE setup_key = $1
+"""
+
+
 class SignalEngine:
 
     @staticmethod
@@ -320,6 +348,59 @@ class SignalEngine:
             logger.warning(f"فشل فحص global loss cooldown: {e}")
             return False
 
+    @staticmethod
+    def _now_ms() -> int:
+        """Decision time for the freshness rule (injectable in tests)."""
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+    async def _cooldown_symbols(self) -> set:
+        """Symbols that emitted a signal in the last 2 h. Raises on a DB error (A44)."""
+        return {r['symbol'] for r in await Database.fetch(COOLDOWN_SQL)}
+
+    async def _integrity_state(self, results, macro_state):
+        """A44 enforce mode: the selector's safety-critical state, read with bounded retries.
+
+        Returns (throttled, open_symbols, cooldown, emitted_setup_keys), or None when any of
+        them could not be verified — then nothing is emitted this cycle (no new exposure on
+        unverified state). Never raises for a dependency failure."""
+        keys = set()
+        for row in results:
+            data = row['analysis_data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            try:
+                keys.add(identity_from_candidate(data, strategy_version=config.APP_VERSION,
+                                                 allow_pit_fallback=False).key)
+            except IdentityError:
+                pass                                   # rejected per candidate later
+
+        async def gates():
+            if not config.LEARNING_GATES_ENABLED:
+                return set()
+            return {(r['trade_type'], r['timeframe']) for r in await Database.fetch(
+                LEARNED_GATES_SQL, macro_state, config.MIN_CELL_N)}
+
+        async def open_symbols():
+            return {r['symbol'] for r in await Database.fetch(OPEN_SYMBOLS_SQL)}
+
+        async def emitted():
+            if not keys:
+                return set()
+            return {r['setup_key'] for r in await Database.fetch(EMITTED_SETUPS_SQL, sorted(keys))}
+
+        outcomes = {'learned_gates': await guarded_read('learned_gates', gates),
+                    'open_positions': await guarded_read('open_positions', open_symbols),
+                    'symbol_cooldown': await guarded_read('symbol_cooldown', self._cooldown_symbols),
+                    'emitted_setups': await guarded_read('emitted_setups', emitted)}
+        gate = cycle_gate(outcomes)
+        self.last_safety_gate = gate
+        if not gate.allow_new_exposure:
+            self.last_decisions.update({r['symbol']: gate.reason for r in results})
+            logger.warning(f"⛔ no signal this cycle: {gate.reason} {list(gate.events)}")
+            return None
+        return tuple(outcomes[k].value for k in
+                     ('learned_gates', 'open_positions', 'symbol_cooldown', 'emitted_setups'))
+
     async def _get_symbol_cooldown_set(self) -> set:
         """
         Cooldown 2 ساعات لكل عملة:
@@ -328,11 +409,7 @@ class SignalEngine:
         ملاحظة: نستخدم NOW() - INTERVAL في SQL مباشرة لتجنب مشكلة timezone مع PostgreSQL.
         """
         try:
-            rows = await Database.fetch(
-                """SELECT DISTINCT symbol FROM signals
-                   WHERE signal_time > NOW() - INTERVAL '2 hours'"""
-            )
-            symbols = {r['symbol'] for r in rows}
+            symbols = await self._cooldown_symbols()
             if symbols:
                 logger.info(f"⏳ عملات في cooldown (2h): {len(symbols)} — {', '.join(sorted(symbols))}")
             return symbols
@@ -637,17 +714,23 @@ class SignalEngine:
             return None
         macro_state = macro.macro_state_key()
         self.last_v2_context = _v2_ctx = _v2_macro_context(macro, macro_state)
-        # خلايا متعلَّمة مخنوقة
-        throttled = set()
-        if config.LEARNING_GATES_ENABLED:
-            for r in await Database.fetch(
-                    "SELECT trade_type, timeframe FROM learned_gates "
-                    "WHERE macro_state=$1 AND n>=$2 AND weight<=0", macro_state, config.MIN_CELL_N):
-                throttled.add((r['trade_type'], r['timeframe']))
+        enforce = integrity_mode(config) == 'enforce'
+        emitted = frozenset()
+        if enforce:                                    # A44: fail-closed safety reads
+            state = await self._integrity_state(results, macro_state)
+            if state is None:
+                return None
+            throttled, open_symbols, cooldown, emitted = state
+            decision_ms = self._now_ms()
+        else:
+            # خلايا متعلَّمة مخنوقة
+            throttled = set()
+            if config.LEARNING_GATES_ENABLED:
+                for r in await Database.fetch(LEARNED_GATES_SQL, macro_state, config.MIN_CELL_N):
+                    throttled.add((r['trade_type'], r['timeframe']))
 
-        open_symbols = set(x['symbol'] for x in await Database.fetch(
-            "SELECT DISTINCT symbol FROM active_trades WHERE status='open'"))
-        cooldown = await self._get_symbol_cooldown_set()
+            open_symbols = set(x['symbol'] for x in await Database.fetch(OPEN_SYMBOLS_SQL))
+            cooldown = await self._get_symbol_cooldown_set()
         blocked = open_symbols | cooldown
 
         eligible = []
@@ -695,6 +778,23 @@ class SignalEngine:
                 _record_evidence(data, source='live', decision='rejected_symbol_cooldown')
                 _v2_candidate(data, 'rejected', 'symbol_cooldown', _v2_ctx)
                 continue
+            setup_identity = None
+            if enforce:                                # A44: identity, freshness, duplicate
+                verdict = integrity_check(data, decision_ms=decision_ms,
+                                          strategy_version=config.APP_VERSION, emitted_keys=emitted,
+                                          allow_pit_fallback=False)
+                if not verdict.eligible:
+                    reason = verdict.reasons[0]
+                    self.last_decisions[symbol] = reason
+                    _record_evidence(data, source='live', decision=f'rejected_{reason}')
+                    _v2_candidate(data, 'rejected', reason, _v2_ctx)
+                    continue
+                ident = identity_from_candidate(data, strategy_version=config.APP_VERSION,
+                                                allow_pit_fallback=False)
+                setup_identity = {'version': IDENTITY_VERSION, 'key': ident.key,
+                                  'bracket_hash': bracket_hash(data),
+                                  'candle_open_time_ms': ident.candle_open_ms,
+                                  'candle_close_time_ms': ident.candle_close_ms}
             if (tt, data.get('timeframe')) in throttled:
                 bucket = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H')
                 explore_key = f"{symbol}|{tt}|{macro_state}|{data.get('timeframe')}"
@@ -720,6 +820,7 @@ class SignalEngine:
                 'macro_snapshot': {**macro.snapshot(), **macro.state()},
                 'macro_state': macro_state,
                 '_selection_volume_usdt': selection_volume,
+                **({'setup_identity': setup_identity} if setup_identity else {}),
             }
             eligible.append(candidate)
 
@@ -843,26 +944,53 @@ class SignalEngine:
         _identity = signal_identity(signal) if evidence_v2.enabled() else None
         if _identity is not None:
             features_snapshot['identity'] = _identity
+        # A44: in enforce mode the setup identity is mandatory and the insert is idempotent.
+        setup = signal.get('setup_identity') if integrity_mode(config) == 'enforce' else None
+        if integrity_mode(config) == 'enforce' and not (setup and setup.get('key')):
+            raise ValueError('setup_identity_required')     # fail closed: never an unkeyed signal
+        if setup:
+            features_snapshot['setup_identity'] = dict(setup)
+        self.last_emission = None
 
         async with Database.acquire() as conn:
             async with conn.transaction():
-                signal_id = await conn.fetchval("""
-                    INSERT INTO signals (
-                        symbol, timeframe, market_condition,
-                        entry_price, target_1, target_2, target_3,
-                        stop_loss, score, score_details, is_paper_trade,
-                        volume_usdt, features_snapshot, trade_type, macro_snapshot,
-                        decision_source, strategy_version
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-                    RETURNING id
-                """,
-                    signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
-                    signal.get('market_condition', 'unknown'),
-                    signal['entry_price'], signal['target_1'], signal['target_2'], signal['target_3'],
-                    signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
-                    config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
-                    signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}),
-                    READY_DECISION_SOURCE, config.APP_VERSION)
+                if setup:
+                    signal_id = await conn.fetchval(
+                        _INSERT_ONCE_SQL,
+                        signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
+                        signal.get('market_condition', 'unknown'),
+                        signal['entry_price'], signal['target_1'], signal['target_2'],
+                        signal['target_3'], signal['stop_loss'], int(signal['total_score']),
+                        json.dumps(score_details), config.PAPER_TRADING, volume_usdt,
+                        json.dumps(features_snapshot), signal.get('trade_type'),
+                        json.dumps(signal.get('macro_snapshot') or {}),
+                        READY_DECISION_SOURCE, config.APP_VERSION, setup['key'])
+                    if signal_id is None:              # this setup was already emitted
+                        row = await conn.fetchrow(_EXISTING_SETUP_SQL, setup['key'])
+                        same = row is not None and row['bracket_hash'] == setup.get('bracket_hash')
+                        self.last_emission = {'status': 'duplicate' if same else 'conflict',
+                                              'existing_signal_id': row['id'] if row else None,
+                                              'setup_key': setup['key']}
+                        logger.warning(f"🔁 setup already emitted, not re-published: {self.last_emission}")
+                        return None
+                else:
+                    signal_id = await conn.fetchval("""
+                        INSERT INTO signals (
+                            symbol, timeframe, market_condition,
+                            entry_price, target_1, target_2, target_3,
+                            stop_loss, score, score_details, is_paper_trade,
+                            volume_usdt, features_snapshot, trade_type, macro_snapshot,
+                            decision_source, strategy_version
+                        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                        RETURNING id
+                    """,
+                        signal['symbol'], signal.get('timeframe', config.TIMEFRAME),
+                        signal.get('market_condition', 'unknown'),
+                        signal['entry_price'], signal['target_1'], signal['target_2'], signal['target_3'],
+                        signal['stop_loss'], int(signal['total_score']), json.dumps(score_details),
+                        config.PAPER_TRADING, volume_usdt, json.dumps(features_snapshot),
+                        signal.get('trade_type'), json.dumps(signal.get('macro_snapshot') or {}),
+                        READY_DECISION_SOURCE, config.APP_VERSION)
                 await conn.execute("""
                     INSERT INTO risk_management (date, signals_sent)
                     VALUES (CURRENT_DATE, 1)
