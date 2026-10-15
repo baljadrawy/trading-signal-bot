@@ -65,5 +65,10 @@ def economic_result_sql(cost_param: str = '$1') -> str:
     otherwise derived at read time from the stored gross and the current modeled cost (the
     derivation closed_message has always used). Read-only: history is never rewritten."""
     net = f"(profit_usdt - {cost_param})"
-    return (f"COALESCE(economic_result, CASE WHEN {net} > 0 THEN 'WIN' "
+    # PostgreSQL NUMERIC accepts NaN and Infinity. Neither is a valid economic outcome.
+    # Preserve NULL for invalid historical values rather than reporting BREAKEVEN.
+    # Finite values and existing stored economic_result labels retain their prior behavior.
+    return (f"COALESCE(economic_result, CASE "
+            f"WHEN {net} IS NULL OR ({net})::text IN ('NaN', 'Infinity', '-Infinity') THEN NULL "
+            f"WHEN {net} > 0 THEN 'WIN' "
             f"WHEN {net} < 0 THEN 'LOSS' ELSE 'BREAKEVEN' END)")
