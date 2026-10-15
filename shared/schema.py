@@ -1,7 +1,7 @@
 """Runtime guard against starting application code on an old database schema."""
 from shared.database import Database
 
-REQUIRED_SCHEMA_VERSION = 10
+REQUIRED_SCHEMA_VERSION = 11
 
 
 async def require_schema(service_name: str) -> None:

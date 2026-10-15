@@ -15,6 +15,7 @@ from shared.ohlcv import prepare_ohlcv
 from shared.signal_stop import plan_signal_stop
 from shared.regime import classify_regime
 from shared import evidence_v2
+from shared.signal_identity import IdentityError, candle_bounds, integrity_mode
 from simple_entry import detect_trade_setup
 
 logger = setup_logger('technical_analyzer')
@@ -46,6 +47,15 @@ class TechnicalAnalyzer:
             if df is None or len(df) < indicator_warmup_bars():
                 return None
             pit = evidence_v2.candle_pit(df, tf, klines_fetched_at_ms) if ev2_on else None   # reads index/close_time only
+            # A44: correctness-critical closed-candle identity, independent of instrumentation.
+            # Only in SIGNAL_INTEGRITY_MODE=enforce, so 'off' keeps the result byte-identical.
+            candle_identity_fields = {}
+            if integrity_mode(config) == 'enforce':
+                try:
+                    candle_identity_fields = {'candle_identity': candle_bounds(df, tf)}
+                except IdentityError as exc:
+                    candle_identity_fields = {'candle_identity': None,
+                                              'candle_identity_error': str(exc)}
 
             df = self._calculate_indicators(df)
             regime = dict(classify_regime(df))
@@ -101,6 +111,7 @@ class TechnicalAnalyzer:
                 'volume_ratio': float(df['volume_ratio'].iloc[-1]),
                 'trend_ok': trend_ok,
                 'trade_type': trade_type,
+                **candle_identity_fields,
                 # P1 point-in-time identity (instrumentation only; no decision reads it;
                 # written to analysis_data.pit only while EVIDENCE_V2_ENABLED)
                 **({'pit': evidence_v2.candidate_pit(pit, symbol, tf, trade_type, config, weights)}
