@@ -315,6 +315,12 @@ def test_27_fees_are_applied_per_leg_and_compared_with_the_tracker_flat_model():
     assert led.cost_usdt == pytest.approx(0.001 * (50 + exits))
     assert led.tracker_flat_net_pct == pytest.approx(led.tracker_gross_pct - 0.3)
     assert led.net_pct - led.tracker_flat_net_pct == pytest.approx(0.3 - led.cost_usdt / 50 * 100)
+    from shared.fees import economic_close                             # A38 accounting parity
+    for path in PATHS:
+        lg = exit_ledger(b, path)
+        econ = economic_close(lg.gross_usdt)
+        assert econ["net_profit_usdt"] == pytest.approx(lg.tracker_flat_net_pct / 100 * 50, abs=1e-4)
+        assert econ["economic_result"] == ("WIN" if econ["net_profit_usdt"] > 0 else "LOSS")
 
 
 def test_28_restart_replay_determinism():
