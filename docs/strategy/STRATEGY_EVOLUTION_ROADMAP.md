@@ -152,3 +152,36 @@ S3 depends on the enforce window and S5 prerequisites
 ```
 
 **Critical path to any scientific claim:** A44 image validation → enforce window → counterfactual calibration → power analysis → one admission.
+
+---
+
+## Progress log
+
+### A47 — Execution realism & replay calibration (`feature/a47-execution-realism`, `b94c59f`; report `docs/a47/A47_EXECUTION_REALISM.md`)
+
+**Delivered:**
+- `shared/execution_calibration.py`: tracker poll model, held equal to the **real** tracker on 6/6 paths;
+- `shared/exchange_rules.py`: Binance Spot filters, conservative rounding, dust;
+- the cost-overlap analysis.
+
+**Calibration status:**
+- 0 unexplained discrepancies;
+- **the replay prices stops at the level while the tracker prices them at the first observed poll beyond it, so the replay is optimistic by the overshoot**;
+- entry-on-touch, expiry timing, intrabar gaps and arrival-order processing are classified model differences.
+
+**Execution assumptions in force:**
+- `observed_price_v0` only;
+- no tick or lot rounding in Paper;
+- flat 0.3 % accounting (it double-counts slippage on stop exits, which is conservative and unchanged).
+
+**Remaining realism gaps:**
+- the replay's stop-fill policy (next step);
+- poll cadence;
+- real order-book and queue data;
+- live filter values.
+
+**Dependencies:**
+- **G1/G2/G3, A45 H2 and candidate ranking all depend on a corrected replay stop-fill policy plus re-calibration.** Real-data calibration additionally needs an owner-approved forward capture.
+- **Replay ready for scientific design: NO.**
+
+**Decision:** REVISE EXECUTION MODEL.
