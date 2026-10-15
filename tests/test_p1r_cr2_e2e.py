@@ -43,7 +43,9 @@ SCHEMA = [AFTER / 'database' / 'init.sql',
 VOLATILE = {'id', 'signal_id', 'active_trade_id', 'aggregate_id', 'signal_time', 'opened_at',
             'closed_at', 'created_at', 'updated_at', 'available_at', 'locked_at', 'locked_by',
             'processed_at', 'date', 'payload', 'last_error', 'decision_at', 'requested_at',
-            'expires_at', 'responded_at', 'exit_time', 'last_price_check', 'risk_epoch_start'}
+            'expires_at', 'responded_at', 'exit_time', 'last_price_check', 'risk_epoch_start',
+            # A38 metadata (NULL in trees before A38; asserted in tests/test_a38_*):
+            'entry_fill_model', 'deferrals', 'outcome'}
 
 
 # ---------------------------------------------------------------- module sets per code tree --------
@@ -209,6 +211,10 @@ class Env:
         hooks = hasattr(tr, '_v2_delivery_consumed')
         delivery_events = await tr.claim('signal.delivered', owner, limit=50)
         await tr.register_new_signals()
+        if hasattr(tr, 'reconcile_delivery_events'):        # A38: the loop is a function
+            await tr.reconcile_delivery_events(delivery_events, owner)
+            await tr._v2_expiry_sweep()
+            return
         for event in delivery_events:
             active = await Database.fetchval("SELECT 1 FROM active_trades WHERE signal_id=$1",
                                              event['aggregate_id'])
@@ -369,11 +375,21 @@ async def s_no_fill(env):
     await env.sql("UPDATE outbox_events SET max_attempts=2 WHERE event_type='signal.delivered'")
     await env.tracker_pass()                             # attempt 1: deferred
     await env.due_now()
-    await env.tracker_pass()                             # attempt 2: final -> runtime dead letter
-    assert await env.val("SELECT status FROM outbox_events WHERE event_type='signal.delivered'") == 'dead'
+    await env.tracker_pass()                             # attempt 2
+    status = await env.val("SELECT status FROM outbox_events WHERE event_type='signal.delivered'")
+    a38 = hasattr(env.tr, 'reconcile_delivery_events')
+    # before A38: the open admission window exhausted the budget -> a misleading dead letter.
+    # A38: a deferral is not an attempt -> still pending, budget untouched.
+    assert status == ('pending' if a38 else 'dead')
     await env.sql("UPDATE signals SET signal_time = NOW() - INTERVAL '2 hours 5 minutes' WHERE id=$1", sid)
+    await env.due_now()
     await env.tracker_pass()                             # admission window closed: NO_FILL
     assert await env.val("SELECT count(*) FROM active_trades") == 0
+    if a38:
+        row = await env.pool.fetchrow("SELECT status, attempts, deferrals, outcome FROM outbox_events "
+                                      "WHERE event_type='signal.delivered'")
+        assert (row['status'], row['attempts'], row['outcome']) == ('completed', 1, 'terminal:STALE')
+        assert row['deferrals'] == 2
 
 
 async def s_entry_rejected(env):
@@ -429,6 +445,18 @@ SCENARIOS = {
 }
 
 
+def _decision_view(snapshot):
+    """Decision state for before/after-A38 parity: everything, except the reconciliation status
+    of `signal.delivered` outbox rows, which A38 changes on purpose (an open admission window is
+    a deferral, not a failed attempt). Asserted directly in s_no_fill and tests/test_a38_*."""
+    view = json.loads(json.dumps(snapshot))
+    for row in view.get('outbox', []):
+        if row.get('event_type') == 'signal.delivered':
+            row.pop('status', None)
+            row.pop('attempts', None)
+    return view
+
+
 def _arm(name, arm, mode, monkeypatch, tmp_path):
     fn = SCENARIOS[name][0]
 
@@ -448,7 +476,7 @@ def test_scenario_decision_parity_and_outcomes(name, monkeypatch, tmp_path):
     assert not (tmp_path / 'after_off' / 'evidence_v2').exists(), 'evidence files written while OFF'
     if BEFORE:
         before, before_ids, _ = _arm(name, 'before', 'off', monkeypatch, tmp_path)
-        assert before == off, f'{name}: P1-R differs from develop'
+        assert _decision_view(before) == _decision_view(off), f'{name}: P1-R differs from develop'
         assert before_ids == 0
     got = {(e['event_type'], (e.get('payload') or {}).get('outcome_code')) for e in events}
     missing = SCENARIOS[name][1] - got
@@ -460,12 +488,16 @@ def test_scenario_decision_parity_and_outcomes(name, monkeypatch, tmp_path):
 
 
 def test_no_fill_dead_letter_is_explained(monkeypatch, tmp_path):
-    """The runtime still dead-letters the exhausted delivery event (semantics unchanged); the
-    evidence marks it final and explains it, and the expiry is recorded as NO_FILL."""
+    """A38: an unfilled limit order no longer dead-letters its delivery event. Deferrals are not
+    attempts, so no consumption is final, and the event completes as terminal STALE when the window
+    closes. The evidence explains each wait (AWAITING_FILL) and records the expiry as NO_FILL."""
     _, _, events = _arm('no_fill', 'after', 'on', monkeypatch, tmp_path)
     consumed = [e for e in events if e['event_type'] == 'delivery.consumed']
-    final = [e for e in consumed if e['payload'].get('final_attempt')]
-    assert final and all(e['payload']['outcome_code'] == 'AWAITING_FILL' for e in final)
+    assert not [e for e in consumed if e['payload'].get('final_attempt')]
+    waits = [e for e in consumed if e['payload']['outcome_code'] == 'AWAITING_FILL']
+    assert len(waits) >= 1                       # identical repeats are suppressed by the recorder
+    [terminal] = [e for e in consumed if e['payload']['outcome_code'] == 'STALE']
+    assert terminal['payload'].get('resolved_code') == 'NO_FILL'
     [expired] = [e for e in events if e['event_type'] == 'entry.expired']
     assert expired['payload']['outcome_code'] == 'NO_FILL'
     assert expired['payload']['last_outcome_code'] == 'AWAITING_FILL'
@@ -506,6 +538,21 @@ def test_tracker_pass_transcribes_main_loop():
     import inspect
     _, _, tr = modules('after')
     src = ' '.join(inspect.getsource(tr.main).split())
+    if hasattr(tr, 'reconcile_delivery_events'):       # A38: delivery loop extracted
+        order = ["claim('signal.delivered', owner, limit=50)", 'register_new_signals()',
+                 'await reconcile_delivery_events(delivery_events, owner)',
+                 'await _v2_expiry_sweep()']
+        pos = [src.find(o) for o in order]
+        assert all(p >= 0 for p in pos) and pos == sorted(pos), pos
+        body = ' '.join(inspect.getsource(tr.reconcile_delivery_events).split())
+        hooks = ["await ack(event['id'], owner, 'opened')",
+                 "await _v2_delivery_consumed(event, 'opened')",
+                 "await ack(event['id'], owner, f\"terminal:{code or 'UNKNOWN'}\")",
+                 "await _v2_delivery_consumed(event, 'terminal')",
+                 "await defer(", "await _v2_delivery_consumed(event, 'deferred')"]
+        pos = [body.find(h) for h in hooks]
+        assert all(p >= 0 for p in pos) and pos == sorted(pos), pos
+        return
     order = ["claim('signal.delivered', owner, limit=50)", 'register_new_signals()',
              "await ack(event['id'], owner) await _v2_delivery_consumed(event, 'opened') continue",
              "await ack(event['id'], owner) await _v2_delivery_consumed(event, 'terminal')",

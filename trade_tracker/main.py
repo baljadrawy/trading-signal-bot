@@ -4,6 +4,7 @@ Trade Tracker - يراقب الإشارات المرسلة ويسجل نتائج
 يستخدم shared.triple_barrier كمصدر حقيقة واحد لمنطق الخروج.
 """
 import asyncio
+import math
 import sys
 import json
 import dataclasses
@@ -20,10 +21,13 @@ from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
 from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
-from shared.outbox import worker_id, claim, ack, fail, enqueue
+from shared.outbox import worker_id, claim, ack, fail, enqueue, defer
+from shared.outbox_watch import DeadLetterWatch, previous_watermark
+from shared.delivery_policy import bounded_delay
+from shared.fees import economic_close
 from shared.candle import candle_interval_case_sql
 from shared.execution import rebase_long_bracket
-from shared.entry_execution import decide_long_entry
+from shared.entry_execution import decide_long_entry, resolve_entry_fill, FILL_MODELS
 from shared.partial_exits import aggregate_close, fills_between
 from shared.signal_stop import candle_invalidated
 from shared.risk_management import RiskLimits, RiskSnapshot, evaluate_new_trade
@@ -65,7 +69,13 @@ async def main():
     logger.info("🚀 بدء تشغيل Trade Tracker...")
     await Database.connect()
     await require_schema('trade_tracker')
+    if config.PAPER_ENTRY_FILL_MODEL not in FILL_MODELS:           # A38: fail closed
+        raise RuntimeError(f'unknown PAPER_ENTRY_FILL_MODEL {config.PAPER_ENTRY_FILL_MODEL!r}')
     await mark_started('trade_tracker')
+    dead_watch = DeadLetterWatch(
+        'trade_tracker', ('signal.delivered',), logger=logger,
+        alert=lambda text: send_alert(text, level='critical', component='TradeTracker'),
+        resume_from=lambda: previous_watermark('trade_tracker'))
 
     consecutive_errors = 0
     owner = worker_id('trade_tracker')
@@ -92,27 +102,14 @@ async def main():
                 await track_open_trades()
                 delivery_events = await claim('signal.delivered', owner, limit=50)
                 await register_new_signals()
-                for event in delivery_events:
-                    active = await Database.fetchval(
-                        "SELECT 1 FROM active_trades WHERE signal_id=$1",
-                        event['aggregate_id'])
-                    if active:
-                        await ack(event['id'], owner)
-                        await _v2_delivery_consumed(event, 'opened')
-                        continue
-                    terminal = await Database.fetchval(
-                        DELIVERY_TERMINAL_SQL, event['aggregate_id'])
-                    if terminal:
-                        await ack(event['id'], owner)
-                        await _v2_delivery_consumed(event, 'terminal')
-                    else:
-                        await fail(event['id'], owner,
-                                   RuntimeError('trade registration deferred'), 300)
-                        await _v2_delivery_consumed(event, 'deferred')
+                delivery = await reconcile_delivery_events(delivery_events, owner)
                 await _v2_expiry_sweep()
+                await dead_watch.poll()
                 consecutive_errors = 0
                 await mark_success('trade_tracker', _with_ev2({
-                    'delivery_events': len(delivery_events),
+                    'delivery_events': len(delivery_events), 'delivery': delivery,
+                    'dead_letters': dead_watch.snapshot(),
+                    'entry_fill_model': config.PAPER_ENTRY_FILL_MODEL,
                     'price_stream': price_stream.snapshot() if price_stream else None}))
                 # REST backup checker: catches missed WebSocket events and fills
                 # waiting limit candidates without making REST the primary feed.
@@ -555,6 +552,115 @@ DELIVERY_TERMINAL_SQL = f"""
     """
 
 
+# ── A38: durable paper entry orders ────────────────────────────────────────────────────────────
+async def _load_entry_order(signal_id: int):
+    return await Database.fetchrow(
+        "SELECT order_kind, status FROM paper_entry_orders WHERE signal_id=$1", signal_id)
+
+
+async def _record_entry_order(sig, order, fill, observed_price: float) -> None:
+    """Create the order on its first evaluation; afterwards record kind changes (marketable ->
+    resting) and rejection. The legacy fill model does not depend on this record, so a write
+    failure there is logged and tolerated (admission is unchanged). resting_limit_v1 prices fills
+    from the record, so it fails closed (the loop retries)."""
+    try:
+        if order is None:
+            await Database.execute(
+                """INSERT INTO paper_entry_orders
+                   (signal_id, order_kind, limit_price, first_observed_price, status,
+                    terminal_reason, fill_model)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (signal_id) DO NOTHING""",
+                sig['id'], fill.order_kind, float(sig['entry_price']), float(observed_price),
+                'rejected' if fill.action == 'reject' else 'working',
+                fill.basis if fill.action == 'reject' else None, config.PAPER_ENTRY_FILL_MODEL)
+        elif order['status'] == 'working':
+            await Database.execute(
+                """UPDATE paper_entry_orders
+                   SET order_kind=$2,
+                       status=CASE WHEN $3 THEN 'rejected' ELSE status END,
+                       terminal_reason=CASE WHEN $3 THEN $4 ELSE terminal_reason END,
+                       updated_at=NOW()
+                   WHERE signal_id=$1 AND status='working'
+                     AND (order_kind<>$2 OR $3)""",
+                sig['id'], fill.order_kind, fill.action == 'reject', fill.basis)
+    except Exception as exc:
+        if config.PAPER_ENTRY_FILL_MODEL != 'observed_price_v0':
+            raise
+        logger.error(f"paper_entry_orders write failed for signal {sig['id']} "
+                     f"(legacy fill model, admission unaffected): {format_error(exc)}")
+
+
+def _entry_order_type(entry_decision, fill) -> str:
+    """active_trades.entry_order_type: unchanged under the legacy model (the policy action);
+    under resting_limit_v1 'limit' for a resting fill and 'market' for a marketable one."""
+    if config.PAPER_ENTRY_FILL_MODEL == 'observed_price_v0':
+        return entry_decision.action
+    return 'limit' if fill.basis == 'resting_trade_through' else 'market'
+
+
+# ── A38: delivery-event reconciliation ─────────────────────────────────────────────────────────
+# `signal.delivered` is a reconciliation event: admission itself is poll-based
+# (register_new_signals), and the event is completed when the signal's admission outcome is
+# known. Before A38, an open admission window was handled with fail(): every 5-minute re-check
+# consumed one of 8 attempts, so the event dead-lettered after about 37 minutes while the signal
+# could still be admitted for 2 hours. 312 dead letters were mostly correct business outcomes,
+# 9 trades opened after their event had died, and a genuine failure looked like any of them.
+# Now:
+#   * trade exists                 -> ack 'opened';
+#   * terminal (DELIVERY_TERMINAL_SQL, unchanged) -> ack 'terminal:<DELIVERY_OUTCOME_SQL code>';
+#   * window still open            -> defer (not an attempt), re-check every 5 min, never past
+#                                     the window end;
+#   * signal missing, or still unresolved DELIVERY_RESOLUTION_GRACE after the window closed
+#     -> fail(): counted, and a dead letter is now a genuine, alerted failure.
+DELIVERY_RECHECK_SECONDS = 300
+DELIVERY_RESOLUTION_GRACE = timedelta(minutes=30)
+DELIVERY_WINDOW_SQL = f"""
+    SELECT EXTRACT(EPOCH FROM (s.signal_time + {V2_ADMISSION_WINDOW_SQL}) - NOW()) AS remaining_s
+    FROM signals s WHERE s.id=$1
+    """
+
+
+def _naive_utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+async def reconcile_delivery_events(delivery_events, owner: str) -> dict:
+    counts = {'opened': 0, 'terminal': 0, 'deferred': 0, 'failed': 0}
+    for event in delivery_events:
+        sid = event['aggregate_id']
+        if await Database.fetchval("SELECT 1 FROM active_trades WHERE signal_id=$1", sid):
+            await ack(event['id'], owner, 'opened')
+            counts['opened'] += 1
+            await _v2_delivery_consumed(event, 'opened')
+            continue
+        if await Database.fetchval(DELIVERY_TERMINAL_SQL, sid):
+            code = await Database.fetchval(DELIVERY_OUTCOME_SQL, sid)
+            await ack(event['id'], owner, f"terminal:{code or 'UNKNOWN'}")
+            counts['terminal'] += 1
+            await _v2_delivery_consumed(event, 'terminal')
+            continue
+        window = await Database.fetchrow(DELIVERY_WINDOW_SQL, sid)
+        created = event.get('created_at')
+        overdue = (created is not None and _naive_utc_now() - created
+                   > _V2_ADMISSION_WINDOW + DELIVERY_RESOLUTION_GRACE)
+        if window is None:
+            await fail(event['id'], owner, RuntimeError('signal_missing'), DELIVERY_RECHECK_SECONDS)
+            counts['failed'] += 1
+        elif window['remaining_s'] is None or overdue:
+            await fail(event['id'], owner,
+                       RuntimeError('admission_state_unresolved_after_window'),
+                       DELIVERY_RECHECK_SECONDS)
+            counts['failed'] += 1
+        else:
+            await defer(event['id'], owner,
+                        bounded_delay(DELIVERY_RECHECK_SECONDS, float(window['remaining_s'])),
+                        'admission window open; awaiting admission outcome')
+            counts['deferred'] += 1
+        await _v2_delivery_consumed(event, 'deferred')
+    return counts
+
+
 async def register_new_signals():
     """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل (عملة، إطار) لكل شمعة"""
     # تحقق من حد الصفقات المفتوحة
@@ -627,8 +733,18 @@ async def register_new_signals():
             stop_loss=float(sig['stop_loss']),
             invalidation_price=features.get('stop_invalidation'),
         )
+        # A38: the fill model turns the (unchanged) entry policy decision into a simulated fill.
+        # With the default legacy model, fill.action mirrors entry_decision.action exactly.
+        order = await _load_entry_order(sig['id'])
+        fill = resolve_entry_fill(
+            model=config.PAPER_ENTRY_FILL_MODEL, decision=entry_decision,
+            previous_kind=order['order_kind'] if order else None,
+            planned_entry=float(sig['entry_price']), current_price=fill_entry,
+            stop_loss=float(sig['stop_loss']),
+            invalidation_price=features.get('stop_invalidation'))
+        await _record_entry_order(sig, order, fill, fill_entry)
         _v2_entry(sig, entry_decision, fill_entry, features)
-        if entry_decision.action == 'reject':
+        if fill.action == 'reject':
             logger.warning(
                 f"⛔ رفض تعبئة {sig['symbol']}: {entry_decision.reason} "
                 f"(الآن={fill_entry}, stop={sig['stop_loss']})")
@@ -636,11 +752,12 @@ async def register_new_signals():
             await Database.execute(
                 "UPDATE signals SET telegram_sent=false WHERE id=$1", sig['id'])
             continue
-        if entry_decision.action == 'limit_wait':
+        if fill.action == 'wait':
             logger.info(
-                f"⏳ Limit paper order {sig['symbol']} @ {entry_decision.order_price}; "
-                f"السعر الحالي {fill_entry} — لا نطارد السعر")
+                f"⏳ Limit paper order {sig['symbol']} @ {sig['entry_price']}; "
+                f"السعر الحالي {fill_entry} — لا نطارد السعر ({fill.basis})")
             continue
+        observed_price, fill_entry = fill_entry, float(fill.price)
         min_notional = await get_min_notional(sig['symbol'])
 
         macro_state = await Database.fetchval(
@@ -652,7 +769,7 @@ async def register_new_signals():
             sig['symbol'], trade_type=trade_type, regime=macro_state)
         await record_risk_decision(risk_decision)
         if not risk_decision.allowed:
-            _v2_admission(sig, 'risk_rejected', None, risk_decision, observed_price=fill_entry)
+            _v2_admission(sig, 'risk_rejected', None, risk_decision, observed_price=observed_price)
             logger.warning(
                 f"⛔ رفض صفقة {sig['symbol']} بواسطة حارس المخاطر: "
                 f"{risk_decision.reason} (daily={risk_decision.daily_pnl_pct:.2f}%, "
@@ -693,22 +810,26 @@ async def register_new_signals():
                      stop_loss, timeframe, is_paper_trade, entry_order_type,
                      stop_policy, stop_invalidation, exit_policy_version,
                      min_order_notional_usdt, expiry_policy_version,
-                     expiry_h, t1_expiry_h, no_t1_expiry_h)
+                     expiry_h, t1_expiry_h, no_t1_expiry_h, entry_fill_model)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                            $15, $16, $17, $18)
+                            $15, $16, $17, $18, $19)
                     ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
                     RETURNING id
                 """,
                     sig['id'], sig['symbol'],
                     bracket['entry_price'], bracket['target_1'], bracket['target_2'], bracket['target_3'],
                     bracket['stop_loss'], sig['timeframe'], sig['is_paper_trade'],
-                    entry_decision.action, features.get('stop_policy'),
+                    _entry_order_type(entry_decision, fill), features.get('stop_policy'),
                     (float(features['stop_invalidation'])
                      * fill_entry / float(sig['entry_price'])
                      if features.get('stop_invalidation') else bracket['stop_loss']),
                     'partial_25_50_25_v1', min_notional, 'timeframe_v1',
-                    expiry_h, t1_expiry_h, no_t1_expiry_h)
+                    expiry_h, t1_expiry_h, no_t1_expiry_h, config.PAPER_ENTRY_FILL_MODEL)
                 if trade_id:
+                    await conn.execute(
+                        "UPDATE paper_entry_orders SET status='filled', fill_price=$2, "
+                        "fill_basis=$3, updated_at=NOW() WHERE signal_id=$1 AND status='working'",
+                        sig['id'], fill_entry, fill.basis)
                     await enqueue(conn, 'trade.opened', 'active_trade', trade_id,
                                   {'active_trade_id': trade_id})
         if trade_id:
@@ -909,6 +1030,9 @@ async def evaluate_trade_safely(trade: dict, current_price: float,
                                 source: str):
     """Serialize lifecycle changes per trade across WebSocket and REST paths."""
     trade_id = int(trade['id'])
+    if usable_price(current_price) is None:
+        logger.error(f"تجاهل سعر غير صالح لـ {trade.get('symbol')} عبر {source}: {current_price!r}")
+        return
     lock = _trade_locks.setdefault(trade_id, asyncio.Lock())
     async with lock:
         fresh = await Database.fetchrow(
@@ -1077,19 +1201,26 @@ async def close_trade_barrier(
 
         async with Database.acquire() as conn:
             async with conn.transaction():
+                # `result` keeps its legacy gross meaning; the economic (net) label is stored
+                # beside it with its cost and policy (A38, shared.fees.economic_close).
+                econ = economic_close(profit_usdt)
                 inserted = await conn.fetchval("""
                 INSERT INTO trade_results
                 (signal_id, symbol, entry_price, exit_price, profit_percent,
                  profit_usdt, result, exit_time, notes, duration_hours,
-                 target_reached, stop_hit)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
+                 target_reached, stop_hit,
+                 cost_usdt, net_profit_usdt, economic_result, label_policy)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11,
+                        $12, $13, $14, $15)
                 ON CONFLICT (signal_id) WHERE signal_id IS NOT NULL DO NOTHING
                 RETURNING id
                 """,
                     trade['signal_id'], symbol, entry, weighted_exit,
                     round(profit_pct, 4), round(profit_usdt, 4),
                     'WIN' if profit_usdt > 0 else 'LOSS', reason,
-                    round(hours_open, 2), target_reached, stop_hit)
+                    round(hours_open, 2), target_reached, stop_hit,
+                    econ['cost_usdt'], econ['net_profit_usdt'], econ['economic_result'],
+                    econ['label_policy'])
                 await conn.execute(
                     "UPDATE active_trades SET status='closed',remaining_fraction=0 WHERE id=$1",
                     trade_id)
@@ -1141,6 +1272,17 @@ async def close_trade(trade: dict, result: str, profit_pct: float,
     )
 
 
+def usable_price(value) -> float | None:
+    """A price observation the tracker may act on: finite and > 0. Anything else (NaN, +/-inf,
+    zero, negative, unparsable) is treated exactly like a failed fetch, so no decision, fill or
+    economic label is ever computed from it (A49)."""
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if math.isfinite(price) and price > 0 else None
+
+
 async def get_current_price(symbol: str) -> float:
     """جلب السعر الحالي من Binance"""
     try:
@@ -1155,7 +1297,10 @@ async def get_current_price(symbol: str) -> float:
                 data = await resp.json()
                 if 'price' not in data:
                     raise ValueError(f"Binance response missing price: {str(data)[:200]}")
-                return float(data['price'])
+                price = usable_price(data['price'])
+                if price is None:
+                    raise ValueError(f"Binance price is not a usable price: {str(data['price'])[:40]}")
+                return price
     except Exception as e:
         logger.error(f"خطأ في جلب سعر {symbol}: {format_error(e)}")
         return None
