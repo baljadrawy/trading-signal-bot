@@ -111,3 +111,61 @@ def test_pipeline_is_input_order_invariant():
                 s = run_pipeline(shuffled, ranker=r, **state).selected
                 picks.add((s.symbol, s.timeframe) if s else None)
             assert len(picks) == 1
+
+
+def test_enforce_mode_never_reorders_fresh_unique_candidates(monkeypatch):
+    """Real find_best_signal_live, fake DB: with every candidate fresh and never emitted,
+    enforce selects exactly what off selects (integrity removes, it never re-ranks)."""
+    import asyncio
+    import json
+    import time
+    sys.path.insert(0, 'signal_engine')
+    import signal_logic
+    from shared.config import config
+    from shared.database import Database
+
+    class Macro:
+        async def should_block_now(self): return False
+        def macro_state_key(self): return 'usdtd_flat'
+        def snapshot(self): return {}
+        def state(self): return {}
+
+    async def fetch(sql, *a):
+        return []
+    monkeypatch.setattr(Database, 'fetch', fetch)
+    monkeypatch.setattr(config, 'ENABLE_EVIDENCE_RECORDER', False)
+    monkeypatch.setattr(config, 'LEARNING_GATES_ENABLED', False)
+    step = {'15m': 900_000, '4h': 14_400_000, '1d': 86_400_000}
+    now = int(time.time() * 1000)
+    rng = random.Random(44)
+    selected = 0
+    for _ in range(200):
+        rows, vols = [], {}
+        for j in range(rng.randint(1, 6)):
+            sym, tf = f"E{rng.randint(0, 4)}USDT", rng.choice(['15m', '4h', '1d'])
+            if any(r['symbol'] == sym and r['timeframe'] == tf for r in rows):
+                continue
+            o = (now // step[tf]) * step[tf] - step[tf]
+            c = cand(sym, tf=tf, spread=rng.choice([0.01, 0.02, 0.2]), tt=rng.choice(['momentum', None]),
+                     selection_policy='fixed_execution_quality_v1',
+                     candle_identity={'version': 1, 'candle_open_time_ms': o,
+                                      'candle_close_time_ms': o + step[tf] - 1})
+            rows.append({'symbol': sym, 'timeframe': tf, 'analysis_data': json.dumps(c)})
+            vols[sym] = rng.choice([1e6, 2e6, None])
+        picks = {}
+        for mode in ('off', 'enforce'):
+            monkeypatch.setattr(config, 'SIGNAL_INTEGRITY_MODE', mode)
+            eng = signal_logic.SignalEngine()
+
+            async def vol(s):
+                return vols.get(s)
+            monkeypatch.setattr(eng, '_get_volume_usdt', vol)
+
+            async def no_cd():
+                return set()
+            monkeypatch.setattr(eng, '_get_symbol_cooldown_set', no_cd)
+            best = asyncio.run(eng.find_best_signal_live(rows, Macro()))
+            picks[mode] = (best['symbol'], best['timeframe']) if best else None
+        assert picks['off'] == picks['enforce']
+        selected += picks['off'] is not None
+    assert selected > 100                                     # non-vacuous
