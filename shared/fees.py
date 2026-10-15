@@ -6,6 +6,8 @@
 (تقارير تيليجرام) هنا بطرح `config.FEE_ROUNDTRIP_PCT` — نفس نموذج الرسوم المستخدم في
 المُتعلّم (0.1%/جهة + انزلاق، افتراضي 0.3% ذهاباً وإياباً، قابل للتعديل عبر .env).
 """
+import math
+
 from shared.config import config
 
 
@@ -48,7 +50,10 @@ def economic_result(net: float) -> str:
 
 
 def economic_close(gross_usdt: float, notional: float = None, fee_roundtrip: float = None) -> dict:
-    """The economic fields stored with a trade result."""
+    """The economic fields stored with a trade result. A non-finite gross is refused rather than
+    labelled (NaN compares neither > 0 nor < 0 and would otherwise become BREAKEVEN)."""
+    if not math.isfinite(float(gross_usdt)):
+        raise ValueError(f"economic_close: non-finite gross {gross_usdt!r}")
     cost = fee_usdt(notional, fee_roundtrip)
     net = round(round(float(gross_usdt), 4) - cost, 6)
     return {'cost_usdt': round(cost, 6), 'net_profit_usdt': net,
