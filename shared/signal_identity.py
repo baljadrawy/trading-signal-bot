@@ -89,7 +89,7 @@ class SetupIdentity:
 
 
 def identity_from_candidate(candidate: Mapping, *, strategy_version: str,
-                            direction: str = "long") -> SetupIdentity:
+                            direction: str = "long", allow_pit_fallback: bool = True) -> SetupIdentity:
     """Build the identity from an analyzer candidate (``pit`` block). Fails closed."""
     symbol = candidate.get("symbol")
     timeframe = candidate.get("timeframe")
@@ -110,6 +110,8 @@ def identity_from_candidate(candidate: Mapping, *, strategy_version: str,
     if block is None:
         if candidate.get("candle_identity_error"):
             raise IdentityError(str(candidate["candle_identity_error"]))
+        if not allow_pit_fallback:                 # production: never rely on instrumentation
+            raise IdentityError("candle_identity_missing")
         block = candidate.get("pit") or {}
     if not isinstance(block, Mapping):
         raise IdentityError("candle_identity_malformed")
@@ -249,10 +251,12 @@ class IntegrityVerdict:
 
 
 def integrity_check(candidate: Mapping, *, decision_ms: int, strategy_version: str,
-                    emitted_keys: Iterable[str] = (), max_age_bars: float = 1.0) -> IntegrityVerdict:
+                    emitted_keys: Iterable[str] = (), max_age_bars: float = 1.0,
+                    allow_pit_fallback: bool = True) -> IntegrityVerdict:
     """Pure pre-emission check: identifiable, fresh, not already emitted."""
     try:
-        ident = identity_from_candidate(candidate, strategy_version=strategy_version)
+        ident = identity_from_candidate(candidate, strategy_version=strategy_version,
+                                        allow_pit_fallback=allow_pit_fallback)
     except IdentityError as exc:
         return IntegrityVerdict(False, (f"identity:{exc}",), None, None)
     fresh = freshness(ident, decision_ms, max_age_bars=max_age_bars)

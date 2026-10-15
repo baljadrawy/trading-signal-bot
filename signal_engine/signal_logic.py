@@ -369,7 +369,8 @@ class SignalEngine:
             if isinstance(data, str):
                 data = json.loads(data)
             try:
-                keys.add(identity_from_candidate(data, strategy_version=config.APP_VERSION).key)
+                keys.add(identity_from_candidate(data, strategy_version=config.APP_VERSION,
+                                                 allow_pit_fallback=False).key)
             except IdentityError:
                 pass                                   # rejected per candidate later
 
@@ -780,14 +781,16 @@ class SignalEngine:
             setup_identity = None
             if enforce:                                # A44: identity, freshness, duplicate
                 verdict = integrity_check(data, decision_ms=decision_ms,
-                                          strategy_version=config.APP_VERSION, emitted_keys=emitted)
+                                          strategy_version=config.APP_VERSION, emitted_keys=emitted,
+                                          allow_pit_fallback=False)
                 if not verdict.eligible:
                     reason = verdict.reasons[0]
                     self.last_decisions[symbol] = reason
                     _record_evidence(data, source='live', decision=f'rejected_{reason}')
                     _v2_candidate(data, 'rejected', reason, _v2_ctx)
                     continue
-                ident = identity_from_candidate(data, strategy_version=config.APP_VERSION)
+                ident = identity_from_candidate(data, strategy_version=config.APP_VERSION,
+                                                allow_pit_fallback=False)
                 setup_identity = {'version': IDENTITY_VERSION, 'key': ident.key,
                                   'bracket_hash': bracket_hash(data),
                                   'candle_open_time_ms': ident.candle_open_ms,

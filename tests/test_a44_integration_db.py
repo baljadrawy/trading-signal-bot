@@ -159,19 +159,25 @@ def test_stale_and_unidentified_candidates_are_rejected(monkeypatch, tmp_path):
         step = TF_MS['4h']
         stale, _, e1 = await cycle(env, candidate(), at_ms=now_ms() + step)      # newer candle closed
         missing, _, e2 = await cycle(env, candidate(symbol='MISUSDT', candle_identity=None))
+        pit = candidate()['candle_identity']                         # evidence pit only: not enough
+        pit_only, _, e5 = await cycle(env, candidate(symbol='PITUSDT', candle_identity=None,
+                                                     pit={'candle_open_time_ms': pit['candle_open_time_ms'],
+                                                          'candle_close_time_ms': pit['candle_close_time_ms']}))
         broken, _, e3 = await cycle(env, candidate(symbol='BRKUSDT', candle_identity=None,
                                                    candle_identity_error='candle_close_inconsistent'))
         early, _, e4 = await cycle(env, candidate(symbol='ERLUSDT'),
                                    at_ms=last_closed_open('4h') + step - 10)   # before candle end
         with pytest.raises(ValueError, match='setup_identity_required'):
             await env.se.SignalEngine().save_signal({k: v for k, v in candidate().items()})
-        return ([x is None for x in (stale, missing, broken, early)],
+        return ([x is None for x in (stale, missing, broken, early, pit_only)],
                 [e1.last_decisions['INTUSDT'], e2.last_decisions['MISUSDT'],
-                 e3.last_decisions['BRKUSDT'], e4.last_decisions['ERLUSDT']], await counts(env))
+                 e3.last_decisions['BRKUSDT'], e4.last_decisions['ERLUSDT'],
+                 e5.last_decisions['PITUSDT']], await counts(env))
     nones, reasons, c = run(go, monkeypatch, tmp_path)
     assert all(nones) and c == (0, 0, 0)
-    assert reasons == ['freshness:superseded_by_newer_candle', 'identity:candle_open_time_missing',
-                       'identity:candle_close_inconsistent', 'freshness:decision_before_candle_close']
+    assert reasons == ['freshness:superseded_by_newer_candle', 'identity:candle_identity_missing',
+                       'identity:candle_close_inconsistent', 'freshness:decision_before_candle_close',
+                       'identity:candle_identity_missing']
 
 
 # ================================================================ failure safety ==================
