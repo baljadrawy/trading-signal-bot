@@ -662,6 +662,11 @@ async def reconcile_delivery_events(delivery_events, owner: str) -> dict:
     return counts
 
 
+def _now_ms() -> int:
+    """Admission time for the A44 freshness rule (injectable in tests)."""
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
 def integrity_admission_refusal(sig, now_ms: int | None = None) -> str | None:
     """A44: why a delivered signal must not open a trade, or None.
 
@@ -675,7 +680,7 @@ def integrity_admission_refusal(sig, now_ms: int | None = None) -> str | None:
     close_ms = setup.get('candle_close_time_ms')
     if not setup.get('key') or not isinstance(close_ms, int) or isinstance(close_ms, bool):
         return 'integrity:setup_identity_missing'
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000) if now_ms is None else now_ms
+    now_ms = _now_ms() if now_ms is None else now_ms
     fresh = freshness_at(sig['timeframe'], close_ms, now_ms)
     return None if fresh.admissible else f'integrity:{fresh.reason}'
 

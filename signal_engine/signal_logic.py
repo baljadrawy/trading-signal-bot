@@ -348,6 +348,11 @@ class SignalEngine:
             logger.warning(f"فشل فحص global loss cooldown: {e}")
             return False
 
+    @staticmethod
+    def _now_ms() -> int:
+        """Decision time for the freshness rule (injectable in tests)."""
+        return int(datetime.now(timezone.utc).timestamp() * 1000)
+
     async def _cooldown_symbols(self) -> set:
         """Symbols that emitted a signal in the last 2 h. Raises on a DB error (A44)."""
         return {r['symbol'] for r in await Database.fetch(COOLDOWN_SQL)}
@@ -715,7 +720,7 @@ class SignalEngine:
             if state is None:
                 return None
             throttled, open_symbols, cooldown, emitted = state
-            decision_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            decision_ms = self._now_ms()
         else:
             # خلايا متعلَّمة مخنوقة
             throttled = set()
