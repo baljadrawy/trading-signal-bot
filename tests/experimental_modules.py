@@ -9,4 +9,6 @@ EXPERIMENTAL_SHARED = (
     "candidate_diagnostics",     # A43
     "setup_diagnostics",         # A45
     "trade_geometry",            # A46
+    "exchange_rules",            # A47
+    "execution_calibration",     # A47
 )
