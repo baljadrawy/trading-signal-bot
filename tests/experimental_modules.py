@@ -12,4 +12,5 @@ EXPERIMENTAL_SHARED = (
     "exchange_rules",            # A47
     "execution_calibration",     # A47 (A48: tracker_event_v1 + cost ledger)
     "replay_execution",          # A48
+    "signal_selection",          # S3 (disabled; no production caller)
 )
