@@ -67,7 +67,7 @@ services:
   # ==================== Analyzer ====================
   analyzer:
     <<: *hardened-runtime
-    image: tsb-aiohttp-test-analyzer:3.14.3-20260929T124120Z   # approved aiohttp 3.14.3 thin overlay (D3B-1); base ce305ecd, /app unchanged
+    image: tsb-p1d-analyzer:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:b9b13d957bf4 (parent 47877db4cfe8); see deploy/p1d-forward-instrumentation/IMAGES.md
     pull_policy: never
     container_name: trading_analyzer
     restart: unless-stopped
@@ -76,12 +76,15 @@ services:
       - .env
       - .env.binance   # مفاتيح Binance — scanner و analyzer فقط
     environment:
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: analyzer
       HEALTH_MAX_AGE_SECONDS: "300"
       # D3B-1: analyzer code never reads these; blank overrides keep the shared .env values out of this container
       CMC_PRO_API_KEY: ""
       COINGECKO_API_KEY: ""
     volumes:
+      # P1-D evidence v2: one shared host dir; each service writes only its own <service>/ subdir
+      - ./data/evidence_v2:/app/data/evidence_v2
       - logs_data:/app/logs
       - models_data:/app/models
     networks:
@@ -102,7 +105,7 @@ services:
   # ==================== Signal Engine ====================
   signal_engine:
     <<: *hardened-runtime
-    image: tsb-cr2-signal_engine:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on D3B-2 image 4b7f4a58 (+signal_logic.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
+    image: tsb-p1d-signal_engine:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:80096a981b2e (parent 04df5dd8267f); see deploy/p1d-forward-instrumentation/IMAGES.md
     pull_policy: never
     container_name: trading_signal_engine
     restart: unless-stopped
@@ -110,6 +113,7 @@ services:
     env_file:
       - .env
     environment:
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: signal_engine
       HEALTH_MAX_AGE_SECONDS: "180"
       LEARNING_CLEAN_START: ${LEARNING_CLEAN_START:-2026-07-20T00:00:00}
@@ -118,6 +122,8 @@ services:
       CMC_PRO_API_KEY: ""
       COINGECKO_API_KEY: ""
     volumes:
+      # P1-D evidence v2: one shared host dir; each service writes only its own <service>/ subdir
+      - ./data/evidence_v2:/app/data/evidence_v2
       - logs_data:/app/logs
       - models_data:/app/models
       # Evidence output is the only writable host path used by Signal Engine.
@@ -140,16 +146,19 @@ services:
   # ==================== Trade Tracker ====================
   trade_tracker:
     <<: *hardened-runtime
-    image: tsb-cr2-trade_tracker:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on aiohttp 3.14.3 image af063314 (+main.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
+    image: tsb-p1d-trade_tracker:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:698d31730ec3 (parent f9d0b3980032); see deploy/p1d-forward-instrumentation/IMAGES.md
     pull_policy: never
     container_name: trading_tracker
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
     environment:
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: trade_tracker
       HEALTH_MAX_AGE_SECONDS: "600"
     volumes:
+      # P1-D evidence v2: one shared host dir; each service writes only its own <service>/ subdir
+      - ./data/evidence_v2:/app/data/evidence_v2
       - logs_data:/app/logs
     networks:
       - trading_network
@@ -236,16 +245,19 @@ services:
   # ==================== Telegram ====================
   telegram:
     <<: *hardened-runtime
-    image: tsb-cr2-telegram:cr1-d2530888-20261001T1415Z   # CR-2 signal.ready overlay on aiohttp 3.14.3 image ef80d11c (+main.py, shared/signal_readiness.py); see deploy/cr2-signal-ready/IMAGES.md
+    image: tsb-p1d-telegram:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:e5f3096b7a71 (parent e87f00f243e8); see deploy/p1d-forward-instrumentation/IMAGES.md
     pull_policy: never
     container_name: trading_telegram
     restart: unless-stopped
     logging: *default-logging
     env_file: .env
     environment:
+      EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: telegram
       HEALTH_MAX_AGE_SECONDS: "120"
     volumes:
+      # P1-D evidence v2: one shared host dir; each service writes only its own <service>/ subdir
+      - ./data/evidence_v2:/app/data/evidence_v2
       - logs_data:/app/logs
     networks:
       - trading_network
