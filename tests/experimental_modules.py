@@ -13,5 +13,4 @@ EXPERIMENTAL_SHARED = (
     "execution_calibration",     # A47 (A48: tracker_event_v1 + cost ledger)
     "replay_execution",          # A48
     "signal_selection",          # S3 (disabled; no production caller)
-    "s3_shadow",                 # S3 shadow evaluation (disabled; no production caller)
 )
