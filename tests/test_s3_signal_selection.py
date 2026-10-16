@@ -261,12 +261,13 @@ def test_selection_is_input_order_invariant():
 def test_production_paths_do_not_reference_s3():
     src = (ROOT / "signal_engine" / "signal_logic.py").read_text()
     assert "best = min(eligible, key=self._fixed_candidate_key)" in src
-    for path in ROOT.glob("*/*.py"):
-        if path.parts[-2] in ("tests", "research", "docs", "colab") or path.name == "signal_selection.py":
-            continue
-        assert not re.search(r"\bsignal_selection\b", path.read_text(encoding="utf-8", errors="ignore")), path
     from experimental_modules import EXPERIMENTAL_SHARED
     assert "signal_selection" in EXPERIMENTAL_SHARED
+    for path in ROOT.glob("*/*.py"):       # registered experimental modules may import each other
+        if path.parts[-2] in ("tests", "research", "docs", "colab") or (
+                path.parent.name == "shared" and path.stem in EXPERIMENTAL_SHARED):
+            continue
+        assert not re.search(r"\bsignal_selection\b", path.read_text(encoding="utf-8", errors="ignore")), path
 
 
 def test_pure_module_has_no_io_clock_or_learning():
