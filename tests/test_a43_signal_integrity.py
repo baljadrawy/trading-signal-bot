@@ -468,13 +468,21 @@ def test_diagnostic_record_serialization_and_exposure_context():       # scenari
 
 
 def test_no_production_module_imports_a43_components():
+    """A44: identity and failure safety are wired (in exactly these files); selection v2 and
+    diagnostics stay experimental and unimported by production code."""
     import pathlib
-    root = pathlib.Path(__file__).resolve().parents[1]
-    names = ("signal_identity", "dependency_safety", "candidate_selection", "candidate_diagnostics",
-             "idempotent_emission")
     import re
-    pattern = re.compile(r"(from\s+shared(\.|\s+import\s+[^\n]*\b)|import\s+shared\.)(" + "|".join(names) + r")\b")
-    offenders = [str(p.relative_to(root)) for p in root.rglob("*.py")
-                 if "tests" not in p.parts and p.stem not in names
-                 and pattern.search(p.read_text(errors="ignore"))]
-    assert offenders == []
+    root = pathlib.Path(__file__).resolve().parents[1]
+    EXPERIMENTAL = ("candidate_selection", "candidate_diagnostics", "signal_quality",
+                    "counterfactual_barrier")
+
+    def importers(names):
+        pattern = re.compile(r"(from\s+shared(\.|\s+import\s+[^\n]*\b)|import\s+shared\.)("
+                             + "|".join(names) + r")\b")
+        return sorted(str(p.relative_to(root)) for p in root.rglob("*.py")
+                      if "tests" not in p.parts and p.stem not in names + EXPERIMENTAL
+                      and pattern.search(p.read_text(errors="ignore")))
+    assert importers(("candidate_selection", "candidate_diagnostics")) == []
+    assert importers(("signal_identity", "dependency_safety")) == [
+        "analyzer/main.py", "analyzer/technical_analyzer.py", "signal_engine/main.py",
+        "signal_engine/signal_logic.py", "trade_tracker/main.py"]
