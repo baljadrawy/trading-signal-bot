@@ -2,6 +2,7 @@
 منطق اختيار أفضل إشارة مع تأكيد متعدد الـ Timeframes
 """
 import json
+import math
 from typing import Dict, List, Optional
 from datetime import datetime, timezone, timedelta
 from shared.config import config
@@ -266,6 +267,18 @@ _EXISTING_SETUP_SQL = """
     SELECT id, features_snapshot->'setup_identity'->>'bracket_hash' AS bracket_hash
     FROM signals WHERE setup_key = $1
 """
+
+
+def finite_spread_pct(value) -> float | None:
+    """A usable order-book spread %: a finite, non-negative number. NaN, +/-inf, negative, bool and
+    non-numeric values return None (the candidate is rejected as 'spread_invalid')."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 class SignalEngine:
@@ -751,7 +764,15 @@ class SignalEngine:
                 _record_evidence(data, source='live', decision='rejected_order_book_unavailable')
                 _v2_candidate(data, 'rejected', 'order_book_unavailable', _v2_ctx)
                 continue
-            if float(spread) > config.MAX_SPREAD_PCT:
+            spread_value = finite_spread_pct(spread)
+            if spread_value is None:
+                # NaN/inf/negative/malformed: `float(nan) > limit` is False, so such a value used to
+                # pass this gate and rank by input order. Reject before ranking (fail closed).
+                self.last_decisions[symbol] = 'spread_invalid'
+                _record_evidence(data, source='live', decision='rejected_spread_invalid')
+                _v2_candidate(data, 'rejected', 'spread_invalid', _v2_ctx)
+                continue
+            if spread_value > config.MAX_SPREAD_PCT:
                 self.last_decisions[symbol] = 'spread_exceeds_limit'
                 _record_evidence(data, source='live', decision='rejected_spread_exceeds_limit')
                 _v2_candidate(data, 'rejected', 'spread_exceeds_limit', _v2_ctx,
@@ -809,7 +830,7 @@ class SignalEngine:
                                   self.last_decisions.get(symbol, 'learned_gate'), _v2_ctx)
                     continue
             selection_volume = await self._get_volume_usdt(symbol)
-            selection_spread = float(spread)
+            selection_spread = spread_value
             candidate = {
                 **data,
                 'execution_features': {

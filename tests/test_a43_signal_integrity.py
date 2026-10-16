@@ -380,16 +380,17 @@ def test_invalid_or_missing_liquidity():                               # scenari
     assert min([x, y], key=k)["symbol"] != min([y, x], key=k)["symbol"]
 
 
-def test_nan_spread_passes_production_filter(monkeypatch):
+def test_nan_spread_is_rejected_by_production_filter(monkeypatch):
+    """A43-D, fixed (fix/live-spread-finite): a NaN spread used to pass `nan > 0.15`."""
     async def fetch(sql, *a): return []
     engine = _engine(monkeypatch, fetch)
     async def no_cd(): return set()
     monkeypatch.setattr(engine, "_get_symbol_cooldown_set", no_cd)
     out = asyncio.run(engine.find_best_signal_live([_row(cand(spread=float("nan")))], FakeMacro()))
-    assert out is not None                                             # NaN > 0.15 is False
+    assert out is None and set(engine.last_decisions.values()) == {"spread_invalid"}
     c = normalize(cand(spread=float("nan")))
-    assert eligibility_reasons(c, EligibilityPolicy()) == ()           # parity
-    assert eligibility_reasons(c, EligibilityPolicy(reject_non_finite_spread=True)) == ("spread_invalid",)
+    assert eligibility_reasons(c, EligibilityPolicy()) == ("spread_invalid",)               # parity
+    assert eligibility_reasons(c, EligibilityPolicy(reject_non_finite_spread=False)) == ()  # pre-fix
 
 
 def test_live_decision_path_parity(monkeypatch):                       # scenario 20

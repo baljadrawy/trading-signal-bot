@@ -30,6 +30,8 @@ OBJECTIVE = "minimise execution cost proxy (spread), then maximise liquidity (24
 
 
 def _finite_nonneg(value) -> float | None:
+    if isinstance(value, bool):                  # = signal_logic.finite_spread_pct
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -79,7 +81,7 @@ class EligibilityPolicy:
     enforce_integrity: bool = False              # A43-B rules; OFF = production-equivalent
     strategy_version: str | None = None
     max_age_bars: float = 1.0
-    reject_non_finite_spread: bool = False       # production lets NaN through (see A43-D)
+    reject_non_finite_spread: bool = True        # = live selector since fix/live-spread-finite (A43-D)
 
 
 def eligibility_reasons(c: Candidate, policy: EligibilityPolicy, *, open_symbols=frozenset(),
@@ -98,7 +100,7 @@ def eligibility_reasons(c: Candidate, policy: EligibilityPolicy, *, open_symbols
     if c.spread_pct is None:
         if policy.reject_non_finite_spread:
             return ("spread_invalid",)
-        # production: float(nan) > limit is False → passes; negative spreads pass too
+        # pre-fix production: float(nan) > limit is False → passed; kept only for comparison
     elif c.spread_pct > policy.max_spread_pct:
         reasons.append("spread_exceeds_limit")
     if c.stop_valid is False:
