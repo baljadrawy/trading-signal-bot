@@ -87,11 +87,16 @@ class _Box:
     async def fail(self, event_id, owner, err):
         self.calls.append(('fail', event_id, type(err).__name__))
 
+    async def defer(self, event_id, owner, delay, reason):     # A38: transient -> deferred
+        self.calls.append(('defer', event_id, reason.split(':', 1)[0]))
+
 
 def _handle(monkeypatch, tg, event_type, sig, allowed=(True, 'eligible'), ack_raises=False):
     box, sent = _Box(ack_raises), []
 
     async def fetchrow(sql, *a):
+        if 'remaining_s' in sql:                              # A38 admission-window probe
+            return {'remaining_s': 3600.0}
         return sig
 
     async def can_deliver():
@@ -106,6 +111,7 @@ def _handle(monkeypatch, tg, event_type, sig, allowed=(True, 'eligible'), ack_ra
     monkeypatch.setattr(Database, 'fetchrow', fetchrow)
     monkeypatch.setattr(tg, 'ack', box.ack)
     monkeypatch.setattr(tg, 'fail', box.fail)
+    monkeypatch.setattr(tg, 'defer', box.defer)
     monkeypatch.setattr(tg, 'can_deliver_candidate', can_deliver)
     monkeypatch.setattr(tg, 'send_signal_direct', direct)
     monkeypatch.setattr(tg, 'DELIVERY_PACING_SECONDS', 0)
@@ -145,7 +151,9 @@ def test_ack_failure_leaves_no_success_evidence_and_runtime_is_unchanged(case, m
     on, ev = _records(monkeypatch, lambda: _handle(monkeypatch, tg, 'signal.ready', sig, allowed,
                                                    ack_raises=True))
     assert on == off                                    # same return, same ack/fail calls, same sends
-    assert on[1] == [('ack', 91), ('fail', 91, 'ConnectionError')]     # ack failure NOT swallowed
+    # ack failure NOT swallowed. A38: a lost ack (ConnectionError, transient) inside the
+    # admission window is retried by deferral instead of consuming a counted attempt.
+    assert on[1] == [('ack', 91), ('defer', 91, 'transient')]
     assert on[2] == ([5] if case == 'sent' else [])     # no extra send caused by instrumentation
     assert ev == [('delivery.failed', 'DELIVERY_FAILED')]   # attempt record only, no false success
 

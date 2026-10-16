@@ -26,7 +26,10 @@ pytestmark = pytest.mark.skipif(not DSN, reason='P1_DB_DSN not set (disposable P
 VOLATILE = {'id', 'opened_at', 'closed_at', 'created_at', 'updated_at', 'exit_time', 'signal_time',
             'decision_at', 'analyzed_at', 'available_at', 'claimed_at', 'processed_at',
             'lease_until', 'last_error', 'payload', 'owner', 'attempts', 'date', 'signal_id',
-            'active_trade_id', 'aggregate_id'}
+            'active_trade_id', 'aggregate_id',
+            # A38 metadata, NULL in trees before A38 (values asserted in tests/test_a38_*):
+            'entry_fill_model', 'cost_usdt', 'net_profit_usdt', 'economic_result',
+            'label_policy', 'deferrals', 'outcome'}
 
 
 def load(name, path):
