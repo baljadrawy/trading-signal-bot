@@ -97,10 +97,14 @@ def test_nan_spread_makes_the_production_pick_order_dependent_but_not_s3():
     """Documented production quirk (A43): min() over a NaN key depends on input order, so a
     NaN-spread candidate can even be SELECTED. The shadow records it; S3 rejects NaN."""
     specs = [cand("AUSDT"), cand("BUSDT", risk=3.0), cand("CUSDT", spread=float("nan"))]
+    from shared.candidate_selection import EligibilityPolicy
     a, b = evaluate_shadow(snap(specs)), evaluate_shadow(snap(list(reversed(specs))))
     assert a["snapshot_id"] == b["snapshot_id"]
-    assert a["replica"]["pick"] != b["replica"]["pick"] and ["CUSDT", "4h"] in (a["replica"]["pick"],
-                                                                               b["replica"]["pick"])
+    if EligibilityPolicy().reject_non_finite_spread:        # live selector fixed (#34): replica follows
+        assert a["replica"]["pick"] == b["replica"]["pick"] != ["CUSDT", "4h"]
+    else:                                                   # pre-fix production quirk
+        assert a["replica"]["pick"] != b["replica"]["pick"] and ["CUSDT", "4h"] in (a["replica"]["pick"],
+                                                                                   b["replica"]["pick"])
     assert a["s3"] == b["s3"] and a["s3"]["pick"] == ["BUSDT", "4h"]
 
 
