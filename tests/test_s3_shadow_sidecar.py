@@ -14,7 +14,7 @@ import pytest
 
 from shared.s3_shadow import ShadowConfig
 from shared.s3_shadow_store import ShadowStore, StoreConfig
-from research.s3_shadow_sidecar import cycle_record, main
+from shared.s3_shadow_sidecar import cycle_record, main
 from test_s3_signal_selection import cand
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -121,7 +121,7 @@ def test_sidecar_and_store_are_not_imported_by_production_and_sql_is_read_only()
             continue
         assert not re.search(r"\b(s3_shadow_store|s3_shadow_sidecar)\b",
                              path.read_text(encoding="utf-8", errors="ignore")), path
-    import research.s3_shadow_sidecar as sc
+    import shared.s3_shadow_sidecar as sc
     for q in (sc.FRESH_SQL, sc.SELECTED_SQL, sc.VOLUME_SQL):
         assert re.match(r"\s*SELECT\b", q) and not re.search(
             r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|signals|trade_results|evidence)\b", q, re.I)
@@ -132,7 +132,7 @@ def test_sidecar_against_a_disposable_database(tmp_path, monkeypatch):
     if not e2e.DSN:
         pytest.skip("P1R_TEST_DSN not set (disposable PostgreSQL required)")
     import asyncio
-    from research.s3_shadow_sidecar import run
+    from shared.s3_shadow_sidecar import run
 
     async def go():
         async with e2e.Env("after", "off", monkeypatch, tmp_path / "db") as env:
