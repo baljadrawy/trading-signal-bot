@@ -14,4 +14,5 @@ EXPERIMENTAL_SHARED = (
     "replay_execution",          # A48
     "signal_selection",          # S3 (disabled; no production caller)
     "s3_shadow",                 # S3 shadow evaluation (disabled; no production caller)
+    "s3_shadow_store",           # S3 shadow bounded JSONL store (disabled)
 )
