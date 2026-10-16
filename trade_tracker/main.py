@@ -37,6 +37,7 @@ from shared.risk_epoch import (
 )
 from shared.trading_state import get_pause_state
 from shared.signal_readiness import READY_SQL_PREDICATE
+from shared.signal_identity import freshness_at, integrity_mode
 from shared.triple_barrier import (
     create_config_from_trade,
     create_state_from_trade,
@@ -69,6 +70,7 @@ async def main():
     logger.info("🚀 بدء تشغيل Trade Tracker...")
     await Database.connect()
     await require_schema('trade_tracker')
+    integrity_mode(config)                       # A44: unknown SIGNAL_INTEGRITY_MODE refuses to start
     if config.PAPER_ENTRY_FILL_MODEL not in FILL_MODELS:           # A38: fail closed
         raise RuntimeError(f'unknown PAPER_ENTRY_FILL_MODEL {config.PAPER_ENTRY_FILL_MODEL!r}')
     await mark_started('trade_tracker')
@@ -661,6 +663,29 @@ async def reconcile_delivery_events(delivery_events, owner: str) -> dict:
     return counts
 
 
+def _now_ms() -> int:
+    """Admission time for the A44 freshness rule (injectable in tests)."""
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def integrity_admission_refusal(sig, now_ms: int | None = None) -> str | None:
+    """A44: why a delivered signal must not open a trade, or None.
+
+    The 2 h admission window is wall-clock; a setup is only actionable until a newer candle of
+    its timeframe has closed (A43: ADA/NEAR/ORCA/POL were re-opened 4 h later on a superseded
+    candle). A signal without a stored setup identity is refused (fail closed)."""
+    features = sig['features_snapshot'] or {}
+    if isinstance(features, str):
+        features = json.loads(features)
+    setup = features.get('setup_identity') or {}
+    close_ms = setup.get('candle_close_time_ms')
+    if not setup.get('key') or not isinstance(close_ms, int) or isinstance(close_ms, bool):
+        return 'integrity:setup_identity_missing'
+    now_ms = _now_ms() if now_ms is None else now_ms
+    fresh = freshness_at(sig['timeframe'], close_ms, now_ms)
+    return None if fresh.admissible else f'integrity:{fresh.reason}'
+
+
 async def register_new_signals():
     """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل (عملة، إطار) لكل شمعة"""
     # تحقق من حد الصفقات المفتوحة
@@ -716,6 +741,16 @@ async def register_new_signals():
                 _v2_capacity(True, open_count, config.MAX_OPEN_TRADES)
                 logger.info(f"⏸️ توقف تسجيل إشارات جديدة — وصلنا الحد: {open_count}/{config.MAX_OPEN_TRADES}")
                 break
+
+        if integrity_mode(config) == 'enforce':                    # A44: admit fresh setups only
+            refusal = integrity_admission_refusal(sig)
+            if refusal:
+                _v2_admission(sig, 'integrity_rejected', refusal)
+                logger.warning(f"⛔ {sig['symbol']} (signal {sig['id']}) not admitted: {refusal}")
+                # Terminal exactly like an entry rejection (A38 reconciliation acks it).
+                await Database.execute(
+                    "UPDATE signals SET telegram_sent=false WHERE id=$1", sig['id'])
+                continue
 
         fill_entry = await get_current_price(sig['symbol'])
         if not fill_entry:
