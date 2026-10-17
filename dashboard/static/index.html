@@ -12,7 +12,7 @@
 </head>
 <body>
 <header class="bar">
-  <div class="title"><span id="overall" class="dot unknown" aria-hidden="true"></span><h1>لوحة المتابعة التشغيلية</h1></div>
+  <div class="title"><span id="overall" class="dot unknown" aria-hidden="true"></span><span id="overall-label" class="tag">جارٍ التحميل…</span><h1>لوحة المتابعة التشغيلية</h1><span id="synthetic" class="badge" hidden>بيانات تجريبية</span></div>
   <div class="session">
     <span class="muted">تنتهي الجلسة خلال</span> <strong id="countdown">--:--</strong>
     <button id="close" type="button">إغلاق اللوحة</button>
@@ -20,11 +20,11 @@
 </header>
 <p id="banner" class="banner" role="status" hidden></p>
 <main class="grid">
-  <section class="card" aria-labelledby="h-services"><h2 id="h-services">صحة الخدمات</h2><ul id="services" class="list"></ul></section>
+  <section class="card" aria-labelledby="h-services"><h2 id="h-services">صحة الخدمات</h2><ul id="services" class="list"><li class="tag">جارٍ التحميل…</li></ul></section>
   <section class="card" aria-labelledby="h-risk"><h2 id="h-risk">حالة الإيقاف</h2><p id="risk" class="kv"></p><p class="muted">إصدار المخطط: <span id="schema">—</span></p></section>
-  <section class="card" aria-labelledby="h-positions"><h2 id="h-positions">المراكز المفتوحة (ورقية)</h2><ul id="positions" class="list"></ul></section>
-  <section class="card" aria-labelledby="h-outbox"><h2 id="h-outbox">صندوق الإشعارات</h2><ul id="outbox" class="list"></ul></section>
-  <section class="card wide" aria-labelledby="h-signals"><h2 id="h-signals">الإشارات لكل ساعة (آخر 12 ساعة)</h2><div id="signals" class="bars"></div></section>
+  <section class="card" aria-labelledby="h-positions"><h2 id="h-positions">المراكز المفتوحة (ورقية)</h2><ul id="positions" class="list"><li class="tag">جارٍ التحميل…</li></ul></section>
+  <section class="card" aria-labelledby="h-outbox"><h2 id="h-outbox">صندوق الإشعارات</h2><ul id="outbox" class="list"><li class="tag">جارٍ التحميل…</li></ul></section>
+  <section class="card wide" aria-labelledby="h-signals"><h2 id="h-signals">الإشارات لكل ساعة (آخر 12 ساعة) · المجموع <span id="signals-total">—</span></h2><div id="signals" class="bars"></div><p class="axis muted"><span>الأقدم</span><span>الأحدث</span></p></section>
 </main>
 <footer class="muted">آخر تحديث ناجح: <span id="fetched">—</span> · بيانات تشغيلية فقط، بلا أرباح أو نتائج صفقات</footer>
 </body>

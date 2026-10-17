@@ -1,0 +1,97 @@
+[
+ {
+  "device": "iphone13",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 12,
+   "y": 87,
+   "width": 366,
+   "height": 44
+  },
+  "overall_class": "dot error",
+  "banner": "توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).",
+  "synthetic_badge": true,
+  "scroll_width": 390,
+  "viewport_width": 390,
+  "dir": "rtl"
+ },
+ {
+  "device": "iphoneSE",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 12,
+   "y": 116,
+   "width": 296,
+   "height": 44
+  },
+  "overall_class": "dot error",
+  "banner": "توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).",
+  "synthetic_badge": true,
+  "scroll_width": 320,
+  "viewport_width": 320,
+  "dir": "rtl"
+ },
+ {
+  "device": "iphone14ProMax",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 150.109375,
+   "y": 55,
+   "width": 101.375,
+   "height": 44
+  },
+  "overall_class": "dot error",
+  "banner": "توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).",
+  "synthetic_badge": true,
+  "scroll_width": 430,
+  "viewport_width": 430,
+  "dir": "rtl"
+ },
+ {
+  "device": "iphone13-dark",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 12,
+   "y": 87,
+   "width": 366,
+   "height": 44
+  },
+  "overall_class": "dot error",
+  "banner": "توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).",
+  "synthetic_badge": true,
+  "scroll_width": 390,
+  "viewport_width": 390,
+  "dir": "rtl"
+ },
+ {
+  "device": "desktop",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 16,
+   "y": 14,
+   "width": 101.453125,
+   "height": 44
+  },
+  "overall_class": "dot error",
+  "banner": "توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).",
+  "synthetic_badge": true,
+  "scroll_width": 1366,
+  "viewport_width": 1366,
+  "dir": "rtl"
+ }
+]

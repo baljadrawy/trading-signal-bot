@@ -4,6 +4,9 @@
   const csrf = meta('a59-csrf'), expires = Number(meta('a59-expires'));
   const $ = (id) => document.getElementById(id);
   const LABEL = { ok: 'سليمة', warn: 'تحذير', error: 'خطأ', unknown: 'غير معروفة' };
+  const SVC = { scanner: 'الماسح', analyzer: 'المحلّل', signal_engine: 'محرّك الإشارات', telegram: 'تيليجرام', trade_tracker: 'متتبّع الصفقات' };
+  const OBX = { completed: 'مكتمل', pending: 'معلّق', processing: 'قيد المعالجة', dead: 'فشل نهائي' };
+  const NUM = 'ar-u-nu-latn';
   let skew = 0, timer = null, ended = false;
 
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
@@ -11,7 +14,7 @@
   function fill(id, items) { const box = $(id); box.replaceChildren(...(items.length ? items : [el('li', 'tag', 'لا توجد بيانات')])); }
   function age(s) { if (s === null || s === undefined) return '—'; if (s < 90) return s + ' ث'; if (s < 5400) return Math.round(s / 60) + ' د'; return Math.round(s / 3600) + ' س'; }
   function banner(level, text) { const b = $('banner'); if (!text) { b.hidden = true; return; } b.hidden = false; b.className = 'banner ' + level; b.textContent = text; }
-  function setOverall(level) { $('overall').className = 'dot ' + level; }
+  function setOverall(level) { $('overall').className = 'dot ' + level; $('overall-label').textContent = LABEL[level] || LABEL.unknown; }
 
   function end(text) {
     ended = true; clearInterval(timer); setOverall('unknown'); banner('error', text);
@@ -23,17 +26,19 @@
     skew = s.server_time - Date.now() / 1000;
     if (!s.ok) { setOverall('error'); banner('error', 'تعذّر قراءة البيانات. المعروض فارغ عمداً؛ لا تعتمد على أي حالة خضراء.'); return; }
     const d = s.data;
+    $('synthetic').hidden = !d.synthetic;
     const stale = (s.server_time - s.fetched_at) > s.stale_after_s;
     setOverall(stale ? 'warn' : d.overall);
-    banner(d.overall === 'ok' && !stale ? '' : 'warn', d.overall === 'ok' && !stale ? '' : 'توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).');
-    fill('services', d.services.map((x) => row(x.level, x.name, LABEL[x.level] + ' · آخر نجاح قبل ' + age(x.age_s))));
-    fill('positions', d.positions.map((p) => row('unknown', p.symbol + ' · ' + p.timeframe, 'مفتوحة منذ ' + age(p.opened_age_s))));
-    fill('outbox', d.outbox.map((o) => row(o.level, o.event_type, o.status + ' · ' + o.events)));
+    banner(d.overall === 'error' ? 'error' : 'warn', d.overall === 'ok' && !stale ? '' : 'توجد عناصر تحتاج انتباهاً (حالة غير سليمة أو بيانات قديمة).');
+    fill('services', d.services.map((x) => row(x.level, SVC[x.name] || x.name, LABEL[x.level] + ' · آخر نجاح قبل ' + age(x.age_s) + (x.consecutive_errors ? ' · أخطاء متتالية ' + x.consecutive_errors : ''))));
+    fill('positions', d.positions.map((p) => row('none', p.symbol + ' · ' + p.timeframe, 'مفتوحة منذ ' + age(p.opened_age_s))));
+    fill('outbox', d.outbox.map((o) => row(o.level, o.event_type, (OBX[o.status] || o.status) + ' · ' + o.events + ' · ' + LABEL[o.level])));
     const r = d.risk; $('risk').replaceChildren(el('span', 'dot ' + r.level), document.createTextNode(' ' + (r.paused === null ? 'غير معروفة' : r.paused ? 'التداول الورقي موقوف: ' + (r.reason || '') : 'يعمل')));
     $('schema').textContent = d.schema_version ?? '—';
     const max = Math.max(1, ...d.signals_hourly.map((h) => h.signals || 0));
+    $('signals-total').textContent = d.signals_hourly.reduce((a, h) => a + (h.signals || 0), 0);
     $('signals').replaceChildren(...d.signals_hourly.slice().reverse().map((h) => { const b = el('span'); b.style.height = (100 * (h.signals || 0) / max) + '%'; b.title = String(h.signals); return b; }));
-    $('fetched').textContent = new Date(s.fetched_at * 1000).toLocaleTimeString('ar');
+    $('fetched').textContent = new Date(s.fetched_at * 1000).toLocaleTimeString(NUM);
   }
 
   async function poll() {

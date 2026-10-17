@@ -62,12 +62,12 @@ def derive(raw: dict, now: float) -> dict:
     worst = [c['level'] for c in services + outbox] + [risk['level']]
     overall = ('error' if 'error' in worst else 'warn' if 'warn' in worst else
                'unknown' if (not services or 'unknown' in worst) else 'ok')
-    return {'overall': overall, 'services': services, 'positions': positions, 'outbox': outbox,
+    return {'synthetic': bool(raw.get('synthetic')), 'overall': overall, 'services': services, 'positions': positions, 'outbox': outbox,
             'signals_hourly': hourly, 'risk': risk, 'schema_version': sv}
 
 
 class MockAdapter:
-    """Synthetic operational data. `mode` = 'ok' | 'stale' | 'error' | 'empty' for tests and UI review."""
+    """Synthetic operational data. `mode` = 'ok' | 'degraded' | 'stale' | 'error' | 'empty' (tests and UI review)."""
     def __init__(self, mode='ok', clock=time.time):
         self.mode, self.clock = mode, clock
 
@@ -76,12 +76,14 @@ class MockAdapter:
         if self.mode == 'error':
             raise DataUnavailable('mock source unavailable')
         if self.mode == 'empty':
-            return {v: [] for v in VIEWS}
+            return {**{v: [] for v in VIEWS}, 'synthetic': True}
         age = 4000 if self.mode == 'stale' else 20
+        errs = {'analyzer': 3} if self.mode == 'degraded' else {}
         svc = ['scanner', 'analyzer', 'signal_engine', 'telegram', 'trade_tracker']
         return {
-            'service_health': [{'service_name': s, 'last_success_at': now - age - i * 5, 'consecutive_errors': 0}
-                               for i, s in enumerate(svc)],
+            'synthetic': True,
+            'service_health': [{'service_name': s, 'last_success_at': now - age - i * 5,
+                                'consecutive_errors': errs.get(s, 0)} for i, s in enumerate(svc)],
             'open_positions': [{'symbol': 'SYNAUSDT', 'timeframe': '15m', 'opened_at': now - 1800,
                                 'entry_order_type': 'market', 'stop_policy': 'reversion_structure'}],
             'outbox_health': [{'event_type': 'trade.opened', 'status': 'completed', 'events': 12,

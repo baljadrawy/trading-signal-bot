@@ -1,0 +1,21 @@
+[
+ {
+  "device": "iphone13",
+  "final_url_has_token": false,
+  "final_path": "/",
+  "document_cookie": "",
+  "token_in_html": false,
+  "close_button_box": {
+   "x": 12,
+   "y": 87,
+   "width": 366,
+   "height": 44
+  },
+  "overall_class": "dot unknown",
+  "banner": "انتهت مدة الجلسة (15 دقيقة كحد أقصى).",
+  "synthetic_badge": true,
+  "scroll_width": 390,
+  "viewport_width": 390,
+  "dir": "rtl"
+ }
+]
