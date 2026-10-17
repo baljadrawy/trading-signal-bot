@@ -1,0 +1,13 @@
+# G4: slice for TSB operational monitors in the tradmin user manager. No dash in the name on purpose: a dash makes
+# systemd nest it under an implicit parent slice (tsb.slice, weight 100), which would cancel the CPU priority.
+# Owner: tradmin (P2 forward operations). Installed to ~/.config/systemd/user/.
+# CPUWeight is relative to the other children of user@1000.service (research.slice = idle, tmux/agent scopes = 100):
+# the monitor is never starved by research or agents. Hard ceilings keep the slice tiny.
+[Unit]
+Description=TSB operational monitors (owner tradmin; G4) - CPU priority above research and agent scopes
+Documentation=https://github.com/baljadrawy/trading-signal-bot/blob/feature/g4-monitor-supervision-20261007/docs/p2/CONTINUOUS_OPERATIONS.md
+
+[Slice]
+CPUWeight=1000
+MemoryMax=512M
+TasksMax=64

@@ -1,0 +1,548 @@
+{
+ "files": [
+  {
+   "git_blob": "f0b6cd3d09b693248661bbfeb197e3ec85234cbc",
+   "path": "p2_forward/Dockerfile",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "f63eb6b77ba8edd013522adc6c6596a7363d92db206ff3331e506d9791451ed2",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "120529002e615036d26793b95a0e0aeec1b9ffef",
+   "path": "p2_forward/compose.yml",
+   "running_counterpart": "~/ops/tsb-p2-forward/compose.yml",
+   "running_identical": true,
+   "sha256": "06f32bc51974cdfcd7d84f2c184ef100bba7c9ecdb3889252841b6cfb67602c5",
+   "source": "deployed host file ~/ops/tsb-p2-forward/compose.yml = 1bfb5f6:p2_forward/compose.yml + reviewed G3 diff (ops/g3-stage-g-20261008:p2_forward/ops/g3/compose-g3-resize.diff)",
+   "source_commit": null
+  },
+  {
+   "git_blob": "5f9b356723bf2127c0ee40abf4d79f7992f2ee52",
+   "path": "p2_forward/ops/p2f_ack_binding.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_ack_binding.py",
+   "running_identical": true,
+   "sha256": "3ac71935832606716fa41e19c35791939b100ea6f67235115564d9426b54bc5c",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "1f6e113ed300c3de7f2043909335ed81408e19c6",
+   "path": "p2_forward/ops/p2f_backup.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_backup.py",
+   "running_identical": true,
+   "sha256": "f804770ca3d3299f2d8db37847364c9a22e85740f199fed5adb6ae03022507eb",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "dc3b97948dd87f1563fa3def92555175947730c2",
+   "path": "p2_forward/ops/p2f_backup.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_backup.sh",
+   "running_identical": true,
+   "sha256": "a9049b0a6e371b9ce0d0678938f51ae0e5157e5acbdb5635017de58db3614345",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "211e027ffad6333bdad4cf95b18067ed11c86b4d",
+   "path": "p2_forward/ops/p2f_cont_monitor.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_cont_monitor.py",
+   "running_identical": true,
+   "sha256": "de83e506602cc7b2672d7c56e4ffbc2ab32e7f748ee23368aff36dcbf0eb16ed",
+   "source_commit": "d556fd34eaeca1cb0efe64c368534090c68ff25a"
+  },
+  {
+   "git_blob": "ff811094c8a8d6429033674ee368f1c3d24071f8",
+   "path": "p2_forward/ops/p2f_continuous_stop.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_continuous_stop.sh",
+   "running_identical": true,
+   "sha256": "456ed24a15db66e9cfca12ab6660e0f0d0cba3fbcf9d93a81f0bb33dad322b27",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0ad75e936fc663c72144768fe5ccafb8f66fddac",
+   "path": "p2_forward/ops/p2f_continuous_up.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_continuous_up.sh",
+   "running_identical": true,
+   "sha256": "7b2b9b9baf294f268425c7f038b00290e2389fe9d5dca423ca2fc36cecbeee26",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "54d05ffbf01e0d9e28206d0e4b16d8e5589bb959",
+   "path": "p2_forward/ops/p2f_gate_monitor.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_gate_monitor.sh",
+   "running_identical": true,
+   "sha256": "738b8eda7ba6a72903d6137680e32a16fe00961300453003e95ea97cb2ed74dd",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "65fdca87544779bdffebc440dfa81b5acc22cebd",
+   "path": "p2_forward/ops/p2f_gate_up.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_gate_up.sh",
+   "running_identical": true,
+   "sha256": "963b019d32416a3fca36c3d379e6ca13b95debf4d4b15488a58fdb0657fb4a99",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "120b41c255575fdc22c7df8228168140e5ad67f2",
+   "path": "p2_forward/ops/p2f_incident_ack.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_incident_ack.sh",
+   "running_identical": true,
+   "sha256": "099e34b9633adf892d1fcaac99fceb33461fa4d569b6f8f94d72aee4db2fae07",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0833279273f3bf45c9b36041981ddbf019b86f59",
+   "path": "p2_forward/ops/p2f_isolation_check.sh",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_isolation_check.sh",
+   "running_identical": true,
+   "sha256": "c0a14c7f622b95ce21e920ed3a4f2424b226977ed6bd3e9b5616c2409956e10a",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "89d54e5ea8f9f125ad74e5ac71288a3bafd298ba",
+   "path": "p2_forward/ops/p2f_monitor_bind.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_monitor_bind.py",
+   "running_identical": true,
+   "sha256": "55f59381856fc75c28262af9ccfdbfa66a325199b77368e0452e5ef434973d09",
+   "source_commit": "d556fd34eaeca1cb0efe64c368534090c68ff25a"
+  },
+  {
+   "git_blob": "6efc31b85cebcdfbab32bd526d0590f2194970d9",
+   "path": "p2_forward/ops/p2f_proc_sample.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_proc_sample.py",
+   "running_identical": true,
+   "sha256": "1ea3292f5d3344095f2a56e30dbfd5c28e92d28ddccc995e34f4077de375d356",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0a99ad7270c32c3478c5b8925bf84728b93f86fa",
+   "path": "p2_forward/ops/p2f_seal_day.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/p2f_seal_day.py",
+   "running_identical": true,
+   "sha256": "f70d1d43e072c07ccb3edd4011e23a4d207427fb7c4d823ceab4681c3d2cdec1",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "8b9bee64a81614fd2dbfc252c66c0143a966c31b",
+   "path": "p2_forward/ops/systemd/tsb-p2f-monitor.service",
+   "running_counterpart": "~/.config/systemd/user/tsb-p2f-monitor.service",
+   "running_identical": true,
+   "sha256": "8861897a7f9e2cb6e973f1b89a5b8c4f6972ef13692f9064d91507f7a2bb785f",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "5fe268fa5c3a122fabe282f4d4c125e518fa3228",
+   "path": "p2_forward/ops/systemd/tsbops.slice",
+   "running_counterpart": "~/.config/systemd/user/tsbops.slice",
+   "running_identical": true,
+   "sha256": "9cebd793c61f635bad0f6d788788a80fb3acc21973e154cee09820a1c3ecdd6b",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "793062ff1c369270c50a6f1d47823ea6aa832cb5",
+   "path": "p2_forward/p2_forward/SCHEMA.md",
+   "running_counterpart": "image:/app/p2_forward/SCHEMA.md",
+   "running_identical": true,
+   "sha256": "e7a641c3b47e42a7b0949a4af2a6536dd68ff945029b63086e9973183a619e72",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "400df151dee88d62fb7cdd5c8894dfd53dff3a98",
+   "path": "p2_forward/p2_forward/__init__.py",
+   "running_counterpart": "image:/app/p2_forward/__init__.py",
+   "running_identical": true,
+   "sha256": "d72df3db832a81f1d66b88edbe1cc75e86b8851166911d9f1d5c8a147fbf1857",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "ac99fd17e580ed45b154d8d5f304e6846d69a167",
+   "path": "p2_forward/p2_forward/__main__.py",
+   "running_counterpart": "image:/app/p2_forward/__main__.py",
+   "running_identical": true,
+   "sha256": "2480b1f5730b2007015f3d88373b6def965086ddcdec13656da0fbece65cacce",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "38971456adba19efc692265922e0ddbc456efab7",
+   "path": "p2_forward/p2_forward/app.py",
+   "running_counterpart": "image:/app/p2_forward/app.py",
+   "running_identical": true,
+   "sha256": "a761ca08f3758c3ee35f812d3ae114428b2d25287af02fc81a4a284d3f429e10",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "96c63f090cce717bf98fa7b8ab5a6426a5a628aa",
+   "path": "p2_forward/p2_forward/cal.py",
+   "running_counterpart": "image:/app/p2_forward/cal.py",
+   "running_identical": true,
+   "sha256": "aa458be01cec38497b9ba0e07859b27bf44107cfbf0b3525a9e5cc40e58ee469",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "389391032fb5f6fffb2e027328af1b1d9b55466f",
+   "path": "p2_forward/p2_forward/certproc.py",
+   "running_counterpart": "image:/app/p2_forward/certproc.py",
+   "running_identical": true,
+   "sha256": "e7cbb3a4483a930168d507c0ba6555e7d0e94d85eeb6b1f5457e653ca3453a90",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "3db51715833b49a05804af6b49f460a27b5f617d",
+   "path": "p2_forward/p2_forward/config.py",
+   "running_counterpart": "image:/app/p2_forward/config.py",
+   "running_identical": true,
+   "sha256": "b7aca9e066251df2c7ab39101657ac83bbcc67209f473f10b8d66fb09259403a",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "68870f987358f8ed410e00d91624a2ef297557b9",
+   "path": "p2_forward/p2_forward/derivs.py",
+   "running_counterpart": "image:/app/p2_forward/derivs.py",
+   "running_identical": true,
+   "sha256": "5fbcbb1964f462a9f610b4ed5575f2993d3225b05d56039c4fad5a8cc52661ae",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "2cd7b95c310b82a2a3747e59231ebca7a6d87fb6",
+   "path": "p2_forward/p2_forward/guards.py",
+   "running_counterpart": "image:/app/p2_forward/guards.py",
+   "running_identical": true,
+   "sha256": "39a56d4dace53622a090058fef5fc6b11c2be2e040f1b2e5ad2a1a1528f679d5",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "f2b36e9c8728b8b1bafaf583c87b550ff2386f4a",
+   "path": "p2_forward/p2_forward/incidents.py",
+   "running_counterpart": "image:/app/p2_forward/incidents.py",
+   "running_identical": true,
+   "sha256": "ba917d6a64863326710a7c86ed2dc0e4fc07249bc907f11f60e749bc5a9d1bc1",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "7541a48f2094a99b6d05b814900f2f223324a10c",
+   "path": "p2_forward/p2_forward/procwatch.py",
+   "running_counterpart": "image:/app/p2_forward/procwatch.py",
+   "running_identical": true,
+   "sha256": "225603c3f030a648b4c67d20004cfa1edeac47a72bdf28944c7389dba3f2b881",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "03ee0b0b184d27ebb9d5ea23111ec5d2c5abc06f",
+   "path": "p2_forward/p2_forward/provenance.py",
+   "running_counterpart": "image:/app/p2_forward/provenance.py",
+   "running_identical": true,
+   "sha256": "6cdd546b918529dbd9f5e8588378dcafbd9e3d352be7e3267f8ade547385aa8e",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "8f96ed2654c0a3fed18ebb412aee8042546e30bd",
+   "path": "p2_forward/p2_forward/record.py",
+   "running_counterpart": "image:/app/p2_forward/record.py",
+   "running_identical": true,
+   "sha256": "70eece4fb8e6720207a606f31debc9abf3c04fb7fb5cef7d376693acef7a2a9f",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "e1d78acc4240498ee3245b16fa7b02cd05c424ba",
+   "path": "p2_forward/p2_forward/tracks.py",
+   "running_counterpart": "image:/app/p2_forward/tracks.py",
+   "running_identical": true,
+   "sha256": "243166d3b7de7308963b65d81183cc928af7081991f922093c53eb312296be9c",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "2115d3ad72ee394a697e46e562ad6009826799c0",
+   "path": "p2_forward/p2_forward/transport.py",
+   "running_counterpart": "image:/app/p2_forward/transport.py",
+   "running_identical": true,
+   "sha256": "36a1ccd0bb803d0095364f02c5aac3c4662cd0f6e187730c9772be7439711140",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "589467485bd2bfddef7a01db67c34c8dcb4443a0",
+   "path": "p2_forward/p2_forward/universe.py",
+   "running_counterpart": "image:/app/p2_forward/universe.py",
+   "running_identical": true,
+   "sha256": "9e9163ea9f055938374404fc40f7ec50755b3e749b3410df2382040a564e685d",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "24c0d506963947a510c5e134a6b063ebf36d9600",
+   "path": "p2_forward/p2_forward/verify.py",
+   "running_counterpart": "image:/app/p2_forward/verify.py",
+   "running_identical": true,
+   "sha256": "252846c4d67ddd6c4776143e099dea0eb407f80abc5f2269b65cc122f60c644b",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0ee7f46bad4831ba0e00f5070079a2ddfd480f5f",
+   "path": "p2_forward/p2_forward/writer.py",
+   "running_counterpart": "image:/app/p2_forward/writer.py",
+   "running_identical": true,
+   "sha256": "513dcea061e0d391039a90f469d8ec4e46ee87f88b108efc386f384b69cead1d",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "b4ae21c3d87e3ec29b36dbd6b8535850affce049",
+   "path": "p2_forward/requirements.txt",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "656bc13c0667a6b3fd22e7d965e9c7f2067bb26743df5b1b732ca96d7e77ac6d",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "8ddc57cecffc180786001b6cf69f2104a8d51150",
+   "path": "p2_forward/tests/a34_recovery_latency.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "bef08a03f9928ae25cf026e3564b9afdd65c67b3f01e06db672f7315feb94a2b",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "78dbe84e439877fbd836ff15f07d07ef4589dbe5",
+   "path": "p2_forward/tests/cont_driver.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "d31a0cd1d70afc13bd637eac34d233fe2da1f9d8cfaaf453ceb6a589dd5c4c33",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "621189159f436fd7cb477d717f3c4562243d21ee",
+   "path": "p2_forward/tests/dev_certproc_harness.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "9ca4834319136e42902ab23bc3f8a0f6100811fa3b8653a183ae2cc221b021f2",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "343fa5cb12df109aa1de78243c7be901f8efd09a",
+   "path": "p2_forward/tests/dev_parent_death.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "111867455b75abf31a888425f755384caa278c70b84a17f46d3d27c01e0506d0",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "adb34cbfe2ec2dd878b81b309052a8fe2ac9df41",
+   "path": "p2_forward/tests/fixtures/rotation_incident_20261007.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "7b639c911512c94127d9f14a6c44d3ab3b8cdd6556407d6e7b01eb0c52db8e58",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "7e4222ef606e810e0796dd5a53627163a540f8c8",
+   "path": "p2_forward/tests/test_collector.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "1fdd37bb2062c50eba0eede20fa1ed21c2cec31540dd7af2c853c34123ec3b54",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "eed20fd637a45d7744c0eb7d393145c2b5d8f0fb",
+   "path": "p2_forward/tests/test_g3_f1.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "2db2beb353b8757df0aa4b726e85b49bde9f34c20806541cf4c123b235422d15",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "5ee3ae237d0426bc9c356949551884f609fbb7c9",
+   "path": "p2_forward/tests/test_g3_f3.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "f19cbbfe38606d616ef1691f2513a574fd744b7848f69b81bfecd92f6dc5c2d0",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "b4af471000a813003e2aa93545ecb4686f210935",
+   "path": "p2_forward/tests/test_g3_f4.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "42c1d9a4abb9cf5e47b13338b9506ae9f05dead97794de0e7ccda6fc5346f27c",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "b856ea88f213f2584bb1a00f0181afff291c3af1",
+   "path": "p2_forward/tests/test_g3_f4_ipc.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "741e7d5dd43d2d7c362d88b715cb6ba526855bdbd8940f3a7afb8db16ce80972",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "ba4dcd8b867a338f276760afcd998ed0811047de",
+   "path": "p2_forward/tests/test_g3_f4_proc.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "1e57917a29f28c97b9960e92b07e1b760c94e8411d535e125ab28d51c30f3b68",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0e59fbffd222226ad1fbf049978cf1e675a6702e",
+   "path": "p2_forward/tests/test_g3_f4_review.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "04a8f874a7819db9bc558d003a4aed10b57d76981b48b1486033fbb1ad08f9f5",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "eb8569c2fa0da45bff84203a78c8702f23c03702",
+   "path": "p2_forward/tests/test_g3_f4_spec_v7.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "ac20ee43a8d3fd23cd065e247bcc9e286d939b1629cb021617343311a981c18a",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "9907cefdd48738ccf335b44966423db5b63e8047",
+   "path": "p2_forward/tests/test_g3_prereqs.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "90306a8f9946a7ea20b0021df6cd301a6530fabb7d284a8a8bd0f434d373806d",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "6b3bd2b563e6b9e3f7b954a8ca6e39b82ad28cae",
+   "path": "p2_forward/tests/test_g3v7_f1_process_roles.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "0e07fa3cdf16b2461dd0e6ffe2e41b00240d4279b52bbd88b48d140eb4d2e9a9",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "c752a3fa65fed70d8ee618b098ceb02c5be29ffe",
+   "path": "p2_forward/tests/test_g4_monitor_supervision.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "a06c0fbef262755d734191a18936f917f21e1d7f3098ded6c8e21d6e2cd7cc73",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "b9b979993a5fd6119dd891c1993dc5e45b362f65",
+   "path": "p2_forward/tests/test_p2cr_continuous.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "2d9b16cb6dadf704841fd557b7784b00d6eafbcbb7386a046987a8ddc0c6f42d",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "bdf59e002cb80390a785c7b8b3293efa0d8cd82c",
+   "path": "p2_forward/tests/test_p2cr_controls.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "9eb1c2dd5e7dd06b9cfaf32e15d781f9755b0a9084549bd9bb6d6e4d6699f8d1",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "9da705da1508f4cf76846324616b45218bc216a8",
+   "path": "p2_forward/tests/test_p2cr_crash.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "8ebf6a86946bcea428ae5ce29c4e4c4b53ffe36518107c31009c7d37c1b08979",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "bbd2232ddc5e5bf5d2c8a318c12ee1381a0ccb51",
+   "path": "p2_forward/tests/test_p2f_ack_recovery.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "790a156376fef9f1fa48e89ebf5b350c27e9a0f4cfa939d309dd56afb0b8a898",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "9a6db051038ca389920eb314ea0d63ac47399286",
+   "path": "p2_forward/tests/test_p2f_recovery_a34.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "20b5b9167981a130b82b6d05c9b6308a095aecc529286217602a4155af47c488",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "eb516bea463d5ef6333d05d61b53f5a20af26b48",
+   "path": "p2_forward/tests/test_p2f_rotation_continuity.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "1d2c456fa895c5ff86cb48c097d9f4fbad5d434add433c92f0bb52c8081645c6",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "7606ec515099eed1db44d7b6901b217be4b04c9b",
+   "path": "p2_forward/tests/test_p2f_rotation_e2e.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "69e7c74970a63aa2d95589528073a8de3c39c1338fae5a6a4e45184d6f1fa04e",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "b3860d938f7d72c7aacd0431fba3640da6e94204",
+   "path": "p2_forward/tests/test_pending_fixes.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "6c2e1282c62d3187a2ec991c1db88978e179c74340665f58636636bba095f4cf",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "7ff6e5dce4b68cb693b2c0a30c047b3501ac9e8e",
+   "path": "p2_forward/tests/test_regression_g2r.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "83bfec26d91975d9a5b7a85b879f9b90c0ec0e8a0d3705883ab5ca496d3184f7",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "0e92ac016b6598205e6b961d9d626e8da57a1609",
+   "path": "p2_forward/tests/test_review_fixes.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "937413144a5e5fa068ea368ff2562256fc9ea77acce549b60fa4a6faf6cc6766",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "738ed3d22f211a5bc546409589b69296cb77062e",
+   "path": "p2_forward/tests/test_verify_independent.py",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "6c84b9c5bd93db5fd50c092bd63a4b96ef43bf60a8126ca1f6fd4e50abe2e6ab",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "26687b29318d8e9908f926dafdd4c4f8bc128491",
+   "path": "p2_forward/verifier/specs/g2r-tier0-2h-v1.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "2f4372ae1b5c56cbbfa786b6515e21c17436926374ceb08d4280abd87e89c1d1",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "e7144ad2e089d250be3d541d92def8109048a4d4",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v3.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "666f9fc2fb3ee27b41829aade465896fdf5404e6bfc5def87b43bcac4aafbad1",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "3d5da37bbaf3c419c0904e476e7d51c02a84092e",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v4.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "fc4682f17955b8eae3a82acdb69c44270dc0e8dded056d82df3ad6bef1fae289",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "746b2b18255162ab592defc0d84b5369d58a3c46",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v5.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "c91d8b314071c4e71d050a584fbda0536a763ca57a159c9831dbb4f040eef72c",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "e25e58fc16ec4cbcd74fc2e963c8aeeb3c0cae71",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v6.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "20c95733e83e3eb23192ffb3d7f757e13d633b5c75b77c947591f2befcc06793",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "380a77a191fa5bdd9c12cde6831c9ea2559d8a6b",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v7.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "9dfe911d1997dc77d84cb48fd53482b863f3b60f66836ffc4866b39451271ed5",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "e96495ab1a44d7dbdaaad3344aa7a9baa7a0b836",
+   "path": "p2_forward/verifier/specs/g3-recommended-6h-v8.json",
+   "role": "test or test fixture (not deployed)",
+   "sha256": "3a1e487c84050efc1f94e20ee098c0a8713e4e738b13210bc23d76e1c6896480",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "23798752f849dd955c09a001c650792c6f180885",
+   "path": "p2_forward/verifier/verify_continuous.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/verifier/verify_continuous.py",
+   "running_identical": true,
+   "sha256": "824b002d41dc63347ec50cfa25c2724149c7dfa1280845996064098075772ba5",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  },
+  {
+   "git_blob": "d65c4b91eca502e65335092aeb56d5abd60b6fd4",
+   "path": "p2_forward/verifier/verify_independent.py",
+   "running_counterpart": "~/ops/tsb-p2-forward/verifier/verify_independent.py",
+   "running_identical": true,
+   "sha256": "4bb78731089b48671c6628e9e2e3d0993c84d8c77706707feb046f0088b947d8",
+   "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b"
+  }
+ ],
+ "imported": "2026-10-18",
+ "note": "Narrow import of the RUNNING collector 1.6.0 (image tsb-p2-forward:p2f-160-1bfb5f6-20261014T0652Z, sha256:324d52c9...) and its host scripts. Not a merge of the historical branches; full history stays on origin/fix/p2f-recovery-hardening-a34 (1bfb5f6) and origin/ops/g3-stage-m-20261008 (c11f906).",
+ "schema": "tsb-import-provenance/1"
+}
