@@ -6,7 +6,8 @@ error (no silent gaps). Shell syntax such as `$D`, `$(...)` or `$o` is left unto
 
   render.py render  VALUES OUTDIR     write rendered files under OUTDIR (never into the installed locations)
   render.py compare VALUES            byte-compare each rendered template with its installed counterpart;
-                                      crontab fragments must appear verbatim, in order, in `crontab -l`
+                                      crontab fragments must appear verbatim, in order, in `crontab -l`;
+                                      a template with a verbatim repo copy must also render to that copy (drift guard)
 Exit status 0 = everything identical, 1 = a difference, 2 = usage or template error. It never installs anything.
 """
 import hashlib
@@ -39,8 +40,8 @@ def render_text(text, vals, where):
 def entries(vals):
     for line in open(os.path.join(ROOT, 'ops/host/INSTALL_MAP.tsv'), encoding='utf-8'):
         if line.strip() and not line.startswith('#'):
-            tpl, dst, kind = line.rstrip('\n').split('\t')
-            yield tpl, render_text(dst, vals, 'INSTALL_MAP'), kind
+            tpl, dst, kind, copy = (line.rstrip('\n').split('\t') + ['-'])[:4]
+            yield tpl, render_text(dst, vals, 'INSTALL_MAP'), kind, copy
 
 
 def sha(b):
@@ -53,8 +54,13 @@ def main(argv):
         return 2
     vals = load_values(argv[2])
     bad = 0
-    for tpl, dst, kind in entries(vals):
-        out = render_text(open(os.path.join(ROOT, tpl), encoding='utf-8').read(), vals, tpl).encode()
+    for tpl, dst, kind, copy in entries(vals):
+        src = os.path.join(ROOT, tpl)
+        if not os.path.exists(src):
+            print(f'SOURCE-MISSING {tpl} (provided by the collector runtime-import PR)')
+            bad += 1
+            continue
+        out = render_text(open(src, encoding='utf-8').read(), vals, tpl).encode()
         if argv[1] == 'render':
             target = os.path.join(argv[3], os.path.basename(tpl).removesuffix('.tmpl'))
             with open(target, 'wb') as f:
@@ -71,6 +77,10 @@ def main(argv):
             same = inst == out
             print(f'{"IDENTICAL" if same else "DIFFERENT"} {tpl} vs {dst} sha256={sha(out)[:16]}/{sha(inst)[:16]}')
             bad += not same
+            if copy != '-' and os.path.exists(os.path.join(ROOT, copy)):
+                rc = open(os.path.join(ROOT, copy), 'rb').read() == out
+                print(f'{"IDENTICAL" if rc else "DIFFERENT"} {tpl} vs repo copy {copy}')
+                bad += not rc
         elif kind == 'crontab-fragment':
             live = subprocess.run(['crontab', '-l'], capture_output=True, text=True).stdout.splitlines()
             want = [l for l in out.decode().splitlines() if l and not l.startswith('#')]

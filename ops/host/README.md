@@ -12,7 +12,7 @@ This directory versions the **non-secret** host-level definitions the running sy
 
 | Template | Installed as | Class |
 |---|---|---|
-| `p2-forward/compose.yml` | `${TSB_HOME}/ops/tsb-p2-forward/compose.yml` | Versioned as is. It is already parameterized by environment (`P2F_IMAGE`, `P2F_IMAGE_ID`, `P2F_DATA_DIR`, `P2F_CONFIG_FILE`, supplied by `p2f_continuous_up.sh`). It includes the deployed G3 limits (1.5 CPU / 768 MB, see `docs/p2/P2F_G3_RESIZE_READINESS.md` on `ops/g3-stage-g-20261008`). |
+| `p2_forward/compose.yml` (provided by the collector runtime-import PR) | `${TSB_HOME}/ops/tsb-p2-forward/compose.yml` | Versioned as is, single source. It is already parameterized by environment (`P2F_IMAGE`, `P2F_IMAGE_ID`, `P2F_DATA_DIR`, `P2F_CONFIG_FILE`, supplied by `p2f_continuous_up.sh`). It includes the deployed G3 limits (1.5 CPU / 768 MB). |
 | `p2-forward/configs/continuous-v1.json.tmpl` | `${TSB_HOME}/ops/tsb-p2-forward/configs/continuous-v1.json` | Template: `host_label` is host-specific. |
 | `systemd/tsb-p2f-monitor.service.tmpl` | `${TSB_HOME}/.config/systemd/user/tsb-p2f-monitor.service` | Template: absolute host paths. |
 | `systemd/tsbops.slice` | `${TSB_HOME}/.config/systemd/user/tsbops.slice` | Versioned as is (no host values). |
@@ -29,19 +29,25 @@ This directory versions the **non-secret** host-level definitions the running sy
 - other projects' cron lines (xsch, wishlist, shared-postgres, hermes);
 - transient research units (`rj-*`).
 
+**Dependency:** merge this PR **after** the collector runtime-import PR. Until then, `compare` reports `SOURCE-MISSING p2_forward/compose.yml` and exits 1.
+
+**Drift guard:** the systemd templates must also render byte-identically to the verbatim copies in `p2_forward/ops/systemd/`. Those copies come from the import PR, because the collector tests read them.
+
 ## Verify (read-only)
 
 ```
 python3 ops/host/render.py compare ops/host/values/netcup-vps-arm64.values
 ```
 
-Result on 2026-10-18 (exit 0):
+Result on 2026-10-18 on the combined tree (this PR plus the collector import), exit 0:
 
 ```
-IDENTICAL ops/host/p2-forward/compose.yml ... sha256=06f32bc51974cdfc
+IDENTICAL p2_forward/compose.yml ... sha256=06f32bc51974cdfc
 IDENTICAL ops/host/p2-forward/configs/continuous-v1.json.tmpl ... sha256=ebe6be133c51a01e
 IDENTICAL ops/host/systemd/tsb-p2f-monitor.service.tmpl ... sha256=8861897a7f9e2cb6
+IDENTICAL ops/host/systemd/tsb-p2f-monitor.service.tmpl vs repo copy p2_forward/ops/systemd/tsb-p2f-monitor.service
 IDENTICAL ops/host/systemd/tsbops.slice ... sha256=9cebd793c61f635b
+IDENTICAL ops/host/systemd/tsbops.slice vs repo copy p2_forward/ops/systemd/tsbops.slice
 PRESENT   ops/host/cron/tsb.crontab.tmpl: 3 job lines verbatim in crontab -l
 ```
 
