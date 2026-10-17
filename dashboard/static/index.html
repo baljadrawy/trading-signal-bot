@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="a59-csrf" content="__CSRF__">
+<meta name="a59-expires" content="__EXPIRES__">
+<title>لوحة المتابعة</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="title"><span id="overall" class="dot unknown" aria-hidden="true"></span><h1>لوحة المتابعة التشغيلية</h1></div>
+  <div class="session">
+    <span class="muted">تنتهي الجلسة خلال</span> <strong id="countdown">--:--</strong>
+    <button id="close" type="button">إغلاق اللوحة</button>
+  </div>
+</header>
+<p id="banner" class="banner" role="status" hidden></p>
+<main class="grid">
+  <section class="card" aria-labelledby="h-services"><h2 id="h-services">صحة الخدمات</h2><ul id="services" class="list"></ul></section>
+  <section class="card" aria-labelledby="h-risk"><h2 id="h-risk">حالة الإيقاف</h2><p id="risk" class="kv"></p><p class="muted">إصدار المخطط: <span id="schema">—</span></p></section>
+  <section class="card" aria-labelledby="h-positions"><h2 id="h-positions">المراكز المفتوحة (ورقية)</h2><ul id="positions" class="list"></ul></section>
+  <section class="card" aria-labelledby="h-outbox"><h2 id="h-outbox">صندوق الإشعارات</h2><ul id="outbox" class="list"></ul></section>
+  <section class="card wide" aria-labelledby="h-signals"><h2 id="h-signals">الإشارات لكل ساعة (آخر 12 ساعة)</h2><div id="signals" class="bars"></div></section>
+</main>
+<footer class="muted">آخر تحديث ناجح: <span id="fetched">—</span> · بيانات تشغيلية فقط، بلا أرباح أو نتائج صفقات</footer>
+</body>
+</html>

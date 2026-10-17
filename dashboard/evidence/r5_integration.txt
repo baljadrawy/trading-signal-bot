@@ -1,0 +1,6 @@
+INT-01 adapter as tsb_dashboard_ro: views read = ['open_positions', 'outbox_health', 'risk_state', 'schema_version', 'service_health', 'signal_flow_hourly'] | overall = warn | services = [('trade_tracker', 'ok'), ('scanner', 'warn')] | positions = 1 | schema = 11
+INT-02 role is superuser: False
+INT-03 denied as expected: SELECT count(*) FROM public.trade_results
+INT-03 denied as expected: SELECT count(*) FROM public.signals
+INT-03 denied as expected: SELECT count(*) FROM public.active_trades
+INT-04 write through view denied
