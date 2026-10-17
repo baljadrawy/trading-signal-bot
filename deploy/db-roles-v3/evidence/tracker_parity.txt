@@ -1,0 +1,11 @@
+NOTICE:  database "par_admin" does not exist, skipping
+NOTICE:  database "par_role" does not exist, skipping
+admin rc=0: user=trading_signal_bot steps=7 privilege_errors=0 rows={'paper_entry_orders': 3, 'active_trades': 2, 'trade_target_fills': 3, 'trade_results': 2, 'outbox_events': 6, 'risk_management': 2, 'signals': 
+role rc=0: user=tsb_tracker steps=7 privilege_errors=0 rows={'paper_entry_orders': 3, 'active_trades': 2, 'trade_target_fills': 3, 'trade_results': 2, 'outbox_events': 6, 'risk_management': 2, 'signals': 3}
+users: trading_signal_bot tsb_tracker | privilege errors: 0 0
+PARITY (identical non-time state): True
+entry orders: [('5', 'marketable', 'filled', 'marketable_observed'), ('6', 'resting', 'filled', 'legacy_observed'), ('7', 'marketable', 'rejected', 'signal_invalidated_before_fill')]
+trades: [('R5AUSDT', 'closed', '3', '0.000000', 'observed_price_v0'), ('R5BUSDT', 'closed', '0', '0.000000', 'observed_price_v0')]
+fills: [('5', '1', '0.250000'), ('5', '2', '0.500000'), ('5', '3', '0.250000')]
+results: [('R5AUSDT', 'T3', '3', 'False', '0.150000', True, 'net_after_modeled_cost_v1'), ('R5BUSDT', 'stop_loss', '0', 'True', '0.150000', True, 'net_after_modeled_cost_v1')]
+outbox: [('trade.opened', 'pending'), ('trade.target_hit', 'pending'), ('trade.target_hit', 'pending'), ('trade.closed', 'pending'), ('trade.opened', 'pending'), ('trade.closed', 'pending')]

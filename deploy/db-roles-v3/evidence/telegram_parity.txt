@@ -1,0 +1,9 @@
+NOTICE:  database "tg_admin" does not exist, skipping
+NOTICE:  database "tg_role" does not exist, skipping
+admin rc=0: user=trading_signal_bot delivered=6 messages=6 commands_ok=11/11 privilege_errors=0
+role rc=0: user=tsb_telegram delivered=6 messages=6 commands_ok=11/11 privilege_errors=0
+users: trading_signal_bot tsb_telegram | privilege errors: 0 0
+PARITY: {'delivered': True, 'gate': True, 'messages': True, 'commands': True, 'state': True}
+delivered: 6 | gate: [True, 'eligible'] | commands: {'cmd_blacklist': True, 'cmd_daily': True, 'cmd_pause': True, 'cmd_performance': True, 'cmd_recover_risk': True, 'cmd_resume': True, 'cmd_signals': True, 'cmd_stats': True, 'cmd_status': True, 'cmd_trades': True, 'cmd_whitelist': True}
+failed commands (both): {}
+outbox after delivery: [('trade.opened', 'completed', 'delivered'), ('trade.target_hit', 'completed', 'delivered'), ('trade.target_hit', 'completed', 'delivered'), ('trade.closed', 'completed', 'delivered'), ('trade.opened', 'completed', 'delivered'), ('trade.closed', 'completed', 'delivered'), ('signal.delivered', 'pending', None)]

@@ -1,0 +1,5 @@
+B-01 pg_dump as tsb_backup (local socket) rc=0 bytes=96087 stderr_lines=0
+B-02 TABLE DATA entries for public = 26 (expect 26)
+B-05 pg_dump as tsb_scanner (must fail) rc=1: pg_dump: error: query failed: ERROR:  permission denied for table active_trades
+SET
+M-05 migrator (local socket, SET ROLE tsb_owner): schema_migrations rows=11 max=11

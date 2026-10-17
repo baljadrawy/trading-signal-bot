@@ -1,0 +1,10 @@
+scanner: exited exit=1 privilege_errors=0 last_error=aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host api.binance.com:443 ssl:default [Tem
+analyzer: exited exit=1 privilege_errors=0 last_error=aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host api.binance.com:443 ssl:default [Tem
+signal_engine: exited exit=1 privilege_errors=0 last_error=aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host api.binance.com:443 ssl:default [Tem
+telegram: exited exit=1 privilege_errors=0 last_error=telegram.error.NetworkError: httpx.ConnectError: [Errno -3] Temporary failure in name resolution
+tracker: running exit=0 privilege_errors=0 last_error=
+heartbeat analyzer | true | false | 0
+heartbeat scanner | true | false | 0
+heartbeat signal_engine | true | false | 0
+heartbeat telegram | true | false | 0
+heartbeat trade_tracker | true | true | 0

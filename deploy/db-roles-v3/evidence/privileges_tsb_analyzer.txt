@@ -1,0 +1,10 @@
+SELECT ON analysis_results
+INSERT ON analysis_results
+UPDATE ON analysis_results
+SELECT ON indicator_weights
+SELECT ON scan_candidates
+UPDATE ON scan_candidates
+SELECT ON schema_migrations
+SELECT ON service_heartbeats
+INSERT ON service_heartbeats
+UPDATE ON service_heartbeats

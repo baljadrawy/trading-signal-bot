@@ -1,0 +1,191 @@
+{
+ "commands": {
+  "cmd_blacklist": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_daily": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_pause": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_performance": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_recover_risk": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_resume": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_signals": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_stats": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_status": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_trades": {
+   "ok": true,
+   "replies": 1
+  },
+  "cmd_whitelist": {
+   "ok": true,
+   "replies": 1
+  }
+ },
+ "delivered": 6,
+ "gate": [
+  true,
+  "eligible"
+ ],
+ "messages": [
+  "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83d\udfe2 R5AUSDT \u2022 reversion \u2022 15m\n\ud83e\uddea \u0648\u0631\u0642\u064a\u0629 \u2022 \u0635\u0641\u0642\u0629 #5\n\n\ud83d\udcbc \u0627\u0644\u062d\u062c\u0645: 50.00 USDT\n\ud83e\uddfe \u0627\u0644\u062f\u062e\u0648\u0644: Market \u2022 \u0627\u0644\u0648\u0642\u0641: \u0625\u0628\u0637\u0627\u0644 \u0627\u0631\u062a\u062f\u0627\u062f\n\ud83d\udcc8 \u0627\u0644\u062f\u062e\u0648\u0644: 1.0000\n\ud83d\uded1 \u0627\u0644\u0633\u062a\u0648\u0628: 0.990000\n\nT1\u2705 1.0100 \u2192 T2\u2705 1.0200 \u2192 T3\u2705 1.0300\n\ud83d\udce4 \u0627\u0644\u062a\u0648\u0632\u064a\u0639: 25% / 50% / 25%\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\u2705 \u0641\u064f\u062a\u062d\u062a \u0635\u0641\u0642\u0629 \u0641\u0639\u0644\u064a\u0627\u064b \u0648\u0644\u064a\u0633\u062a \u0645\u062c\u0631\u062f \u0625\u0634\u0627\u0631\u0629",
+  "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83d\udfe2 R5BUSDT \u2022 reversion \u2022 15m\n\ud83e\uddea \u0648\u0631\u0642\u064a\u0629 \u2022 \u0635\u0641\u0642\u0629 #6\n\n\ud83d\udcbc \u0627\u0644\u062d\u062c\u0645: 50.00 USDT\n\ud83e\uddfe \u0627\u0644\u062f\u062e\u0648\u0644: Market \u2022 \u0627\u0644\u0648\u0642\u0641: \u0625\u0628\u0637\u0627\u0644 \u0627\u0631\u062a\u062f\u0627\u062f\n\ud83d\udcc8 \u0627\u0644\u062f\u062e\u0648\u0644: 0.999500\n\ud83d\uded1 \u0627\u0644\u0633\u062a\u0648\u0628: 0.989505\n\nT1\ud83c\udfaf 1.0095 \u2192 T2\u23f3 1.0195 \u2192 T3\u23f3 1.0295\n\ud83d\udce4 \u0627\u0644\u062a\u0648\u0632\u064a\u0639: 25% / 50% / 25%\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\u2705 \u0641\u064f\u062a\u062d\u062a \u0635\u0641\u0642\u0629 \u0641\u0639\u0644\u064a\u0627\u064b \u0648\u0644\u064a\u0633\u062a \u0645\u062c\u0631\u062f \u0625\u0634\u0627\u0631\u0629",
+  "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83c\udfaf R5AUSDT \u062d\u0642\u0642\u062a T1 \u2705\n\u23f1\ufe0f 0\u062f \u2022 \u0635\u0641\u0642\u0629 #5\n\n\ud83d\udcbc \u0627\u0644\u062d\u062c\u0645: 50.00 USDT\n\ud83d\udcc8 \u0625\u062c\u0645\u0627\u0644\u064a: +1.05% | +0.52 USDT\n\ud83d\udcb0 \u0627\u0644\u0635\u0627\u0641\u064a: +0.75% | +0.37 USDT\n\n\u0627\u0644\u062f\u062e\u0648\u0644: 1.0000\n\u0627\u0644\u0622\u0646: 1.0105\n\ud83d\uded1 \u0627\u0644\u0633\u062a\u0648\u0628 \u0627\u0644\u0641\u0639\u0651\u0627\u0644: 1.0040 (-0.64% \u0645\u0646 \u0627\u0644\u0622\u0646)\n\ud83d\udce4 \u0628\u064a\u0639 \u0627\u0644\u0647\u062f\u0641: 25% \u2022 \u0627\u0644\u0645\u062a\u0628\u0642\u064a: 75%\n\nT1\u2705 1.0100 \u2192 T2\ud83c\udfaf 1.0200 \u2192 T3\u23f3 1.0300\n\ud83d\udee1\ufe0f \u0631\u064f\u0641\u0639 \u0627\u0644\u0648\u0642\u0641 \u0625\u0644\u0649 \u0627\u0644\u062a\u0639\u0627\u062f\u0644 \u0627\u0644\u0635\u0627\u0641\u064a \u0642\u062f\u0631 \u0627\u0644\u0625\u0645\u0643\u0627\u0646\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+  "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\ud83c\udfaf R5AUSDT \u062d\u0642\u0642\u062a T2 \u2705\n\u23f1\ufe0f 0\u062f \u2022 \u0635\u0641\u0642\u0629 #5\n\n\ud83d\udcbc \u0627\u0644\u062d\u062c\u0645: 50.00 USDT\n\ud83d\udcc8 \u0625\u062c\u0645\u0627\u0644\u064a: +2.05% | +1.02 USDT\n\ud83d\udcb0 \u0627\u0644\u0635\u0627\u0641\u064a: +1.75% | +0.87 USDT\n\n\u0627\u0644\u062f\u062e\u0648\u0644: 1.0000\n\u0627\u0644\u0622\u0646: 1.0205\n\ud83d\uded1 \u0627\u0644\u0633\u062a\u0648\u0628 \u0627\u0644\u0641\u0639\u0651\u0627\u0644: 1.0100 (-1.03% \u0645\u0646 \u0627\u0644\u0622\u0646)\n\ud83d\udce4 \u0628\u064a\u0639 \u0627\u0644\u0647\u062f\u0641: 50% \u2022 \u0627\u0644\u0645\u062a\u0628\u0642\u064a: 25%\n\nT1\u2705 1.0100 \u2192 T2\u2705 1.0200 \u2192 T3\ud83c\udfaf 1.0300\n\ud83d\udee1\ufe0f \u0641\u064f\u0639\u0651\u0644 \u0627\u0644\u0648\u0642\u0641 \u0627\u0644\u0645\u062a\u062d\u0631\u0643 \u0645\u0639 \u062d\u0645\u0627\u064a\u0629 T1\n\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+  "\u2705 \u0623\u064f\u063a\u0644\u0642\u062a \u0627\u0644\u0635\u0641\u0642\u0629 #5 \u2014 R5AUSDT\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\ud83d\udcc8 \u0627\u0644\u062f\u062e\u0648\u0644: 1.0000\n\ud83d\udcc9 \u0627\u0644\u062e\u0631\u0648\u062c: 1.0200\n\ud83c\udfc1 \u0627\u0644\u0633\u0628\u0628: T3\n\ud83c\udfaf \u0623\u0639\u0644\u0649 \u0647\u062f\u0641: T3\n\ud83d\udce4 \u0634\u0631\u0627\u0626\u062d \u0645\u0646\u0641\u0630\u0629: T1 25% \u2022 T2 50% \u2022 T3 25%\n\u23f1\ufe0f \u0627\u0644\u0645\u062f\u0629: 0.0 \u0633\u0627\u0639\u0629\n\n\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a: +2.00% (+1.00 USDT)\n\u0627\u0644\u062a\u0643\u0644\u0641\u0629 \u0627\u0644\u0645\u0642\u062f\u0631\u0629: -0.30% (-0.15 USDT)\n\u0631\u0628\u062d \u0635\u0627\u0641\u064d: +1.70% (+0.85 USDT)",
+  "\u274c \u0623\u064f\u063a\u0644\u0642\u062a \u0627\u0644\u0635\u0641\u0642\u0629 #6 \u2014 R5BUSDT\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\ud83d\udcc8 \u0627\u0644\u062f\u062e\u0648\u0644: 0.999500\n\ud83d\udcc9 \u0627\u0644\u062e\u0631\u0648\u062c: 0.984015\n\ud83c\udfc1 \u0627\u0644\u0633\u0628\u0628: stop_loss\n\ud83c\udfaf \u0623\u0639\u0644\u0649 \u0647\u062f\u0641: T0\n\u23f1\ufe0f \u0627\u0644\u0645\u062f\u0629: 0.0 \u0633\u0627\u0639\u0629\n\n\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a: -1.55% (-0.77 USDT)\n\u0627\u0644\u062a\u0643\u0644\u0641\u0629 \u0627\u0644\u0645\u0642\u062f\u0631\u0629: -0.30% (-0.15 USDT)\n\u062e\u0633\u0627\u0631\u0629 \u0635\u0627\u0641\u064a\u0629: -1.85% (-0.92 USDT)"
+ ],
+ "privilege_errors": [],
+ "state": {
+  "outbox_events": [
+   {
+    "aggregate_id": "5",
+    "aggregate_type": "active_trade",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.opened",
+    "id": "1",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "51",
+    "aggregate_type": "active_trade_target",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.target_hit",
+    "id": "2",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "52",
+    "aggregate_type": "active_trade_target",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.target_hit",
+    "id": "3",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "12",
+    "aggregate_type": "trade_result",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.closed",
+    "id": "4",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "6",
+    "aggregate_type": "active_trade",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.opened",
+    "id": "5",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "13",
+    "aggregate_type": "trade_result",
+    "attempts": "1",
+    "deferrals": "0",
+    "event_type": "trade.closed",
+    "id": "6",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": "delivered",
+    "status": "completed"
+   },
+   {
+    "aggregate_id": "5",
+    "aggregate_type": "signal",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "signal.delivered",
+    "id": "7",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "status": "pending"
+   }
+  ],
+  "risk_management": [
+   {
+    "consecutive_losses": "0",
+    "daily_pnl_percent": "0.0000",
+    "id": "1",
+    "is_trading_paused": "True",
+    "losses": "0",
+    "pause_reason": "risk:loss_streak_halt",
+    "signals_sent": "0",
+    "wins": "0"
+   },
+   {
+    "consecutive_losses": "1",
+    "daily_pnl_percent": "-0.0149",
+    "id": "2",
+    "is_trading_paused": "False",
+    "losses": "1",
+    "pause_reason": "manual_resume",
+    "signals_sent": "0",
+    "wins": "1"
+   }
+  ],
+  "risk_recovery_events": [],
+  "signals": [
+   {
+    "id": "5",
+    "symbol": "R5AUSDT",
+    "telegram_sent": "True"
+   },
+   {
+    "id": "6",
+    "symbol": "R5BUSDT",
+    "telegram_sent": "True"
+   },
+   {
+    "id": "7",
+    "symbol": "R5CUSDT",
+    "telegram_sent": "False"
+   }
+  ]
+ },
+ "user": "tsb_telegram"
+}

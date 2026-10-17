@@ -1,0 +1,305 @@
+{
+ "privilege_errors": [],
+ "state": {
+  "active_trades": [
+   {
+    "entry_fill_model": "observed_price_v0",
+    "entry_order_type": "market",
+    "entry_price": "1.00000000",
+    "exit_policy_version": "partial_25_50_25_v1",
+    "expiry_h": "48.00",
+    "expiry_policy_version": "timeframe_v1",
+    "highest_target_hit": "3",
+    "id": "9",
+    "is_paper_trade": "True",
+    "min_order_notional_usdt": "5.0000",
+    "no_t1_expiry_h": "12.00",
+    "peak_price": "1.03050000",
+    "realized_profit_percent": "2.000000",
+    "realized_profit_usdt": "1.000000",
+    "remaining_fraction": "0.000000",
+    "signal_id": "11",
+    "status": "closed",
+    "stop_invalidation": "0.99000000",
+    "stop_loss": "0.99000000",
+    "stop_policy": "reversion_structure",
+    "symbol": "R5AUSDT",
+    "t1_expiry_h": "24.00",
+    "target_1": "1.01000000",
+    "target_2": "1.02000000",
+    "target_3": "1.03000000",
+    "timeframe": "15m"
+   },
+   {
+    "entry_fill_model": "observed_price_v0",
+    "entry_order_type": "market",
+    "entry_price": "0.99950000",
+    "exit_policy_version": "partial_25_50_25_v1",
+    "expiry_h": "48.00",
+    "expiry_policy_version": "timeframe_v1",
+    "highest_target_hit": "0",
+    "id": "10",
+    "is_paper_trade": "True",
+    "min_order_notional_usdt": "5.0000",
+    "no_t1_expiry_h": "12.00",
+    "peak_price": null,
+    "realized_profit_percent": "0.000000",
+    "realized_profit_usdt": "0.000000",
+    "remaining_fraction": "0.000000",
+    "signal_id": "12",
+    "status": "closed",
+    "stop_invalidation": "0.98950500",
+    "stop_loss": "0.98950500",
+    "stop_policy": "reversion_structure",
+    "symbol": "R5BUSDT",
+    "t1_expiry_h": "24.00",
+    "target_1": "1.00949500",
+    "target_2": "1.01949000",
+    "target_3": "1.02948500",
+    "timeframe": "15m"
+   }
+  ],
+  "outbox_events": [
+   {
+    "aggregate_id": "9",
+    "aggregate_type": "active_trade",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.opened",
+    "id": "27",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"active_trade_id\": 9}",
+    "status": "pending"
+   },
+   {
+    "aggregate_id": "91",
+    "aggregate_type": "active_trade_target",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.target_hit",
+    "id": "28",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"target\": 1, \"current_price\": 1.0105, \"sold_fraction\": 0.25, \"effective_stop\": 1.004004004004004, \"active_trade_id\": 9, \"remaining_fraction\": 0.75}",
+    "status": "pending"
+   },
+   {
+    "aggregate_id": "92",
+    "aggregate_type": "active_trade_target",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.target_hit",
+    "id": "29",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"target\": 2, \"current_price\": 1.0205, \"sold_fraction\": 0.5, \"effective_stop\": 1.01, \"active_trade_id\": 9, \"remaining_fraction\": 0.25}",
+    "status": "pending"
+   },
+   {
+    "aggregate_id": "14",
+    "aggregate_type": "trade_result",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.closed",
+    "id": "30",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"active_trade_id\": 9, \"trade_result_id\": 14}",
+    "status": "pending"
+   },
+   {
+    "aggregate_id": "10",
+    "aggregate_type": "active_trade",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.opened",
+    "id": "31",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"active_trade_id\": 10}",
+    "status": "pending"
+   },
+   {
+    "aggregate_id": "15",
+    "aggregate_type": "trade_result",
+    "attempts": "0",
+    "deferrals": "0",
+    "event_type": "trade.closed",
+    "id": "32",
+    "last_error": null,
+    "max_attempts": "8",
+    "outcome": null,
+    "payload": "{\"active_trade_id\": 10, \"trade_result_id\": 15}",
+    "status": "pending"
+   }
+  ],
+  "paper_entry_orders": [
+   {
+    "fill_basis": "marketable_observed",
+    "fill_model": "observed_price_v0",
+    "fill_price": "1.00000000",
+    "first_observed_price": "1.00000000",
+    "limit_price": "1.00000000",
+    "order_kind": "marketable",
+    "signal_id": "11",
+    "status": "filled",
+    "terminal_reason": null
+   },
+   {
+    "fill_basis": "legacy_observed",
+    "fill_model": "observed_price_v0",
+    "fill_price": "0.99950000",
+    "first_observed_price": "1.00200000",
+    "limit_price": "1.00000000",
+    "order_kind": "resting",
+    "signal_id": "12",
+    "status": "filled",
+    "terminal_reason": null
+   },
+   {
+    "fill_basis": null,
+    "fill_model": "observed_price_v0",
+    "fill_price": null,
+    "first_observed_price": "0.98500000",
+    "limit_price": "1.00000000",
+    "order_kind": "marketable",
+    "signal_id": "13",
+    "status": "rejected",
+    "terminal_reason": "signal_invalidated_before_fill"
+   }
+  ],
+  "risk_management": [
+   {
+    "consecutive_losses": "0",
+    "daily_pnl_percent": "0.0000",
+    "id": "34",
+    "is_trading_paused": "True",
+    "losses": "0",
+    "pause_reason": "risk:loss_streak_halt",
+    "signals_sent": "0",
+    "wins": "0"
+   },
+   {
+    "consecutive_losses": "1",
+    "daily_pnl_percent": "-0.0149",
+    "id": "38",
+    "is_trading_paused": "False",
+    "losses": "1",
+    "pause_reason": "manual_resume",
+    "signals_sent": "0",
+    "wins": "1"
+   }
+  ],
+  "signals": [
+   {
+    "id": "11",
+    "symbol": "R5AUSDT",
+    "telegram_sent": "True"
+   },
+   {
+    "id": "12",
+    "symbol": "R5BUSDT",
+    "telegram_sent": "True"
+   },
+   {
+    "id": "13",
+    "symbol": "R5CUSDT",
+    "telegram_sent": "False"
+   }
+  ],
+  "trade_results": [
+   {
+    "cost_usdt": "0.150000",
+    "duration_hours": "0.00",
+    "economic_result": "WIN",
+    "entry_price": "1.00000000",
+    "exit_price": "1.02000000",
+    "failure_reason": null,
+    "id": "14",
+    "label_policy": "net_after_modeled_cost_v1",
+    "net_profit_usdt": "0.850000",
+    "notes": "T3",
+    "profit_percent": "2.0000",
+    "profit_usdt": "1.0000",
+    "result": "WIN",
+    "signal_id": "11",
+    "stop_hit": "False",
+    "symbol": "R5AUSDT",
+    "target_reached": "3"
+   },
+   {
+    "cost_usdt": "0.150000",
+    "duration_hours": "0.00",
+    "economic_result": "LOSS",
+    "entry_price": "0.99950000",
+    "exit_price": "0.98401500",
+    "failure_reason": null,
+    "id": "15",
+    "label_policy": "net_after_modeled_cost_v1",
+    "net_profit_usdt": "-0.924600",
+    "notes": "stop_loss",
+    "profit_percent": "-1.5493",
+    "profit_usdt": "-0.7746",
+    "result": "LOSS",
+    "signal_id": "12",
+    "stop_hit": "True",
+    "symbol": "R5BUSDT",
+    "target_reached": "0"
+   }
+  ],
+  "trade_target_fills": [
+   {
+    "active_trade_id": "9",
+    "fill_price": "1.01000000",
+    "gross_profit_percent_contribution": "0.250000",
+    "gross_profit_usdt": "0.125000",
+    "id": "7",
+    "notional_usdt": "12.5000",
+    "quantity_fraction": "0.250000",
+    "signal_id": "11",
+    "symbol": "R5AUSDT",
+    "target_number": "1"
+   },
+   {
+    "active_trade_id": "9",
+    "fill_price": "1.02000000",
+    "gross_profit_percent_contribution": "1.000000",
+    "gross_profit_usdt": "0.500000",
+    "id": "8",
+    "notional_usdt": "25.0000",
+    "quantity_fraction": "0.500000",
+    "signal_id": "11",
+    "symbol": "R5AUSDT",
+    "target_number": "2"
+   },
+   {
+    "active_trade_id": "9",
+    "fill_price": "1.03000000",
+    "gross_profit_percent_contribution": "0.750000",
+    "gross_profit_usdt": "0.375000",
+    "id": "9",
+    "notional_usdt": "12.5000",
+    "quantity_fraction": "0.250000",
+    "signal_id": "11",
+    "symbol": "R5AUSDT",
+    "target_number": "3"
+   }
+  ]
+ },
+ "steps": [
+  "admit",
+  "admit",
+  "track",
+  "track",
+  "track",
+  "admit",
+  "track"
+ ],
+ "user": "tsb_tracker"
+}

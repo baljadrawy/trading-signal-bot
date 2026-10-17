@@ -1,0 +1,6 @@
+2026-10-17T17:05:59Z [r5] M-01 PASS: v9 + 010 + 011 == production v11 structure (425 catalog lines)
+2026-10-17T17:06:00Z [r5] M-03 roles_v3.sql applied twice (idempotent)
+2026-10-17T17:06:04Z [r5] M-04 roles_v3.sql applied on tsb_owner-owned objects
+2026-10-17T17:06:04Z [r5] M-02 PASS: migrations 010/011 applied by non-superuser tsb_migrator; structure == production v11
+2026-10-17T17:06:05Z [r5] up: tsb-r5-pg on tsb-r5-net (internal), roles v3 applied, test credentials in <scratch> (600)
+M-05 migrator (local socket, SET ROLE tsb_owner): schema_migrations rows=11 max=11

@@ -1,0 +1,425 @@
+col active_trades.entry_fill_model character varying(32)
+col active_trades.entry_order_type character varying(16) DEFAULT 'market'::character varying
+col active_trades.entry_price numeric(20,8) NOT NULL
+col active_trades.exit_policy_version character varying(32) NOT NULL DEFAULT 'legacy_full'::character varying
+col active_trades.expiry_h numeric(10,2)
+col active_trades.expiry_policy_version character varying(32)
+col active_trades.highest_target_hit integer DEFAULT 0
+col active_trades.id integer NOT NULL DEFAULT nextval('active_trades_id_seq'::regclass)
+col active_trades.is_paper_trade boolean DEFAULT true
+col active_trades.min_order_notional_usdt numeric(12,4) NOT NULL DEFAULT 5
+col active_trades.no_t1_expiry_h numeric(10,2)
+col active_trades.opened_at timestamp without time zone DEFAULT now()
+col active_trades.peak_price numeric(20,8)
+col active_trades.realized_profit_percent numeric(12,6) NOT NULL DEFAULT 0
+col active_trades.realized_profit_usdt numeric(12,6) NOT NULL DEFAULT 0
+col active_trades.remaining_fraction numeric(8,6) NOT NULL DEFAULT 1.0
+col active_trades.signal_id integer
+col active_trades.status character varying(20) DEFAULT 'open'::character varying
+col active_trades.stop_invalidation numeric(20,8)
+col active_trades.stop_loss numeric(20,8) NOT NULL
+col active_trades.stop_policy character varying(64)
+col active_trades.symbol character varying(20) NOT NULL
+col active_trades.t1_expiry_h numeric(10,2)
+col active_trades.target_1 numeric(20,8) NOT NULL
+col active_trades.target_2 numeric(20,8) NOT NULL
+col active_trades.target_3 numeric(20,8) NOT NULL
+col active_trades.timeframe character varying(10)
+col analysis_results.analysis_data jsonb NOT NULL
+col analysis_results.analyzed_at timestamp without time zone DEFAULT now()
+col analysis_results.decision_at timestamp without time zone
+col analysis_results.decision_reason text
+col analysis_results.processing_status character varying(24) NOT NULL DEFAULT 'pending'::character varying
+col analysis_results.signal_generated boolean DEFAULT false
+col analysis_results.symbol character varying(20) NOT NULL
+col analysis_results.timeframe character varying(10) DEFAULT '4h'::character varying
+col approval_requests.current_price_at_approval numeric(20,8)
+col approval_requests.entry_price_at_request numeric(20,8) NOT NULL
+col approval_requests.expires_at timestamp without time zone NOT NULL
+col approval_requests.id integer NOT NULL DEFAULT nextval('approval_requests_id_seq'::regclass)
+col approval_requests.price_change_pct numeric(10,4)
+col approval_requests.requested_at timestamp without time zone DEFAULT now()
+col approval_requests.responded_at timestamp without time zone
+col approval_requests.signal_id integer
+col approval_requests.status character varying(20) DEFAULT 'pending'::character varying
+col approval_requests.symbol character varying(20) NOT NULL
+col candles.close numeric(20,8) NOT NULL
+col candles.close_time timestamp without time zone NOT NULL
+col candles.high numeric(20,8) NOT NULL
+col candles.id integer NOT NULL DEFAULT nextval('candles_id_seq'::regclass)
+col candles.low numeric(20,8) NOT NULL
+col candles.open numeric(20,8) NOT NULL
+col candles.open_time timestamp without time zone NOT NULL
+col candles.symbol character varying(20) NOT NULL
+col candles.timeframe character varying(5) NOT NULL
+col candles.volume numeric(30,8) NOT NULL
+col indicator_weights.id integer NOT NULL DEFAULT nextval('indicator_weights_id_seq'::regclass)
+col indicator_weights.indicator_name character varying(50) NOT NULL
+col indicator_weights.last_updated timestamp without time zone DEFAULT now()
+col indicator_weights.market_condition character varying(20) NOT NULL
+col indicator_weights.success_rate numeric(5,4) DEFAULT 0.0
+col indicator_weights.successful_signals integer DEFAULT 0
+col indicator_weights.total_signals integer DEFAULT 0
+col indicator_weights.weight numeric(5,4) DEFAULT 1.0
+col learned_gate_history.action character varying(16) NOT NULL
+col learned_gate_history.changed_at timestamp without time zone NOT NULL DEFAULT now()
+col learned_gate_history.id bigint NOT NULL DEFAULT nextval('learned_gate_history_id_seq'::regclass)
+col learned_gate_history.learning_run_id bigint
+col learned_gate_history.macro_state character varying NOT NULL
+col learned_gate_history.new_value jsonb
+col learned_gate_history.old_value jsonb
+col learned_gate_history.strategy_version character varying(64) NOT NULL
+col learned_gate_history.timeframe character varying NOT NULL
+col learned_gate_history.trade_type character varying NOT NULL
+col learned_gates.ci_high numeric
+col learned_gates.ci_low numeric
+col learned_gates.expectancy numeric
+col learned_gates.learning_run_id bigint
+col learned_gates.macro_state character varying NOT NULL
+col learned_gates.n integer DEFAULT 0
+col learned_gates.sample_end timestamp without time zone
+col learned_gates.sample_start timestamp without time zone
+col learned_gates.strategy_version character varying(64) NOT NULL DEFAULT 'legacy'::character varying
+col learned_gates.timeframe character varying NOT NULL
+col learned_gates.trade_type character varying NOT NULL
+col learned_gates.updated_at timestamp without time zone DEFAULT now()
+col learned_gates.weight numeric DEFAULT 1.0
+col learned_gates.wr numeric
+col learning_log.avg_profit numeric(10,4)
+col learning_log.changes_made jsonb
+col learning_log.claude_analysis text
+col learning_log.id integer NOT NULL DEFAULT nextval('learning_log_id_seq'::regclass)
+col learning_log.model_version character varying(20)
+col learning_log.total_trades_analyzed integer
+col learning_log.training_date timestamp without time zone DEFAULT now()
+col learning_log.win_rate numeric(5,4)
+col learning_runs.cell_count integer NOT NULL DEFAULT 0
+col learning_runs.completed_at timestamp without time zone
+col learning_runs.id bigint NOT NULL DEFAULT nextval('learning_runs_id_seq'::regclass)
+col learning_runs.parameters jsonb NOT NULL DEFAULT '{}'::jsonb
+col learning_runs.started_at timestamp without time zone NOT NULL DEFAULT now()
+col learning_runs.status character varying(16) NOT NULL
+col learning_runs.strategy_version character varying(64) NOT NULL
+col learning_runs.trade_count integer NOT NULL DEFAULT 0
+col learning_runs.validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb
+col macro_history.btc_d numeric
+col macro_history.btc_trend character varying
+col macro_history.date date NOT NULL
+col macro_history.eth_trend character varying
+col macro_history.updated_at timestamp without time zone DEFAULT now()
+col macro_history.usdt_d numeric
+col optimizer_settings.id integer NOT NULL DEFAULT nextval('optimizer_settings_id_seq'::regclass)
+col optimizer_settings.key character varying(100) NOT NULL
+col optimizer_settings.updated_at timestamp without time zone DEFAULT now()
+col optimizer_settings.value text NOT NULL
+col outbox_events.aggregate_id bigint NOT NULL
+col outbox_events.aggregate_type character varying(32) NOT NULL
+col outbox_events.attempts integer NOT NULL DEFAULT 0
+col outbox_events.available_at timestamp without time zone NOT NULL DEFAULT now()
+col outbox_events.created_at timestamp without time zone NOT NULL DEFAULT now()
+col outbox_events.deferrals integer NOT NULL DEFAULT 0
+col outbox_events.event_type character varying(64) NOT NULL
+col outbox_events.id bigint NOT NULL DEFAULT nextval('outbox_events_id_seq'::regclass)
+col outbox_events.last_error text
+col outbox_events.locked_at timestamp without time zone
+col outbox_events.locked_by character varying(128)
+col outbox_events.max_attempts integer NOT NULL DEFAULT 8
+col outbox_events.outcome character varying(64)
+col outbox_events.payload jsonb NOT NULL DEFAULT '{}'::jsonb
+col outbox_events.processed_at timestamp without time zone
+col outbox_events.status character varying(16) NOT NULL DEFAULT 'pending'::character varying
+col paper_entry_orders.fill_basis character varying(32)
+col paper_entry_orders.fill_model character varying(32) NOT NULL
+col paper_entry_orders.fill_price numeric(20,8)
+col paper_entry_orders.first_observed_price numeric(20,8) NOT NULL
+col paper_entry_orders.limit_price numeric(20,8) NOT NULL
+col paper_entry_orders.order_kind character varying(16) NOT NULL
+col paper_entry_orders.placed_at timestamp without time zone NOT NULL DEFAULT now()
+col paper_entry_orders.signal_id integer NOT NULL
+col paper_entry_orders.status character varying(16) NOT NULL DEFAULT 'working'::character varying
+col paper_entry_orders.terminal_reason character varying(64)
+col paper_entry_orders.updated_at timestamp without time zone NOT NULL DEFAULT now()
+col risk_management.consecutive_losses integer DEFAULT 0
+col risk_management.daily_pnl_percent numeric(10,4) DEFAULT 0
+col risk_management.date date DEFAULT CURRENT_DATE
+col risk_management.id integer NOT NULL DEFAULT nextval('risk_management_id_seq'::regclass)
+col risk_management.is_trading_paused boolean DEFAULT false
+col risk_management.losses integer DEFAULT 0
+col risk_management.pause_reason text
+col risk_management.signals_sent integer DEFAULT 0
+col risk_management.wins integer DEFAULT 0
+col risk_recovery_events.acknowledged_at timestamp with time zone NOT NULL DEFAULT now()
+col risk_recovery_events.acknowledged_by text NOT NULL
+col risk_recovery_events.consecutive_losses_before integer NOT NULL
+col risk_recovery_events.epoch_started_at timestamp with time zone NOT NULL
+col risk_recovery_events.halt_reason text NOT NULL
+col risk_recovery_events.id integer NOT NULL DEFAULT nextval('risk_recovery_events_id_seq'::regclass)
+col risk_recovery_events.open_positions_at_recovery integer NOT NULL
+col risk_recovery_events.reason text NOT NULL
+col scan_candidates.analyzed boolean DEFAULT false
+col scan_candidates.data jsonb NOT NULL
+col scan_candidates.failure_reason text
+col scan_candidates.id integer NOT NULL DEFAULT nextval('scan_candidates_id_seq'::regclass)
+col scan_candidates.processed_at timestamp without time zone
+col scan_candidates.processing_status character varying(24) NOT NULL DEFAULT 'pending'::character varying
+col scan_candidates.scan_time timestamp without time zone DEFAULT now()
+col scan_candidates.symbol character varying(20) NOT NULL
+col schema_migrations.applied_at timestamp without time zone NOT NULL DEFAULT now()
+col schema_migrations.checksum character(64) NOT NULL
+col schema_migrations.name text NOT NULL
+col schema_migrations.version integer NOT NULL
+col service_heartbeats.consecutive_errors integer NOT NULL DEFAULT 0
+col service_heartbeats.last_error text
+col service_heartbeats.last_error_at timestamp without time zone
+col service_heartbeats.last_started_at timestamp without time zone NOT NULL DEFAULT now()
+col service_heartbeats.last_success_at timestamp without time zone
+col service_heartbeats.metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+col service_heartbeats.service_name character varying(64) NOT NULL
+col service_heartbeats.updated_at timestamp without time zone NOT NULL DEFAULT now()
+col signals.claude_approved boolean DEFAULT false
+col signals.claude_comment text
+col signals.decision_source character varying(32)
+col signals.entry_price numeric(20,8) NOT NULL
+col signals.features_snapshot jsonb
+col signals.id integer NOT NULL DEFAULT nextval('signals_id_seq'::regclass)
+col signals.is_paper_trade boolean DEFAULT true
+col signals.macro_snapshot jsonb
+col signals.market_condition character varying(20) NOT NULL
+col signals.score integer NOT NULL
+col signals.score_details jsonb
+col signals.setup_key text
+col signals.signal_time timestamp without time zone DEFAULT now()
+col signals.stop_loss numeric(20,8) NOT NULL
+col signals.strategy_version character varying(64)
+col signals.symbol character varying(20) NOT NULL
+col signals.target_1 numeric(20,8) NOT NULL
+col signals.target_2 numeric(20,8) NOT NULL
+col signals.target_3 numeric(20,8) NOT NULL
+col signals.telegram_sent boolean DEFAULT false
+col signals.timeframe character varying(5) NOT NULL
+col signals.trade_type character varying
+col signals.volume_usdt numeric(20,2)
+col symbol_blacklist.id integer NOT NULL DEFAULT nextval('symbol_blacklist_id_seq'::regclass)
+col symbol_blacklist.reason text DEFAULT 'رفض يدوي من Telegram'::text
+col symbol_blacklist.rejected_at timestamp without time zone DEFAULT now()
+col symbol_blacklist.symbol character varying(20) NOT NULL
+col symbol_blacklist_disabled_20260517.id integer
+col symbol_blacklist_disabled_20260517.reason text
+col symbol_blacklist_disabled_20260517.rejected_at timestamp without time zone
+col symbol_blacklist_disabled_20260517.symbol character varying(20)
+col symbol_whitelist.approved_at timestamp without time zone DEFAULT now()
+col symbol_whitelist.approved_by character varying(50) DEFAULT 'user'::character varying
+col symbol_whitelist.id integer NOT NULL DEFAULT nextval('symbol_whitelist_id_seq'::regclass)
+col symbol_whitelist.notes text
+col symbol_whitelist.symbol character varying(20) NOT NULL
+col symbol_whitelist_disabled_20260517.approved_at timestamp without time zone
+col symbol_whitelist_disabled_20260517.approved_by character varying(50)
+col symbol_whitelist_disabled_20260517.id integer
+col symbol_whitelist_disabled_20260517.notes text
+col symbol_whitelist_disabled_20260517.symbol character varying(20)
+col symbols.added_at timestamp without time zone DEFAULT now()
+col symbols.base_asset character varying(10) NOT NULL
+col symbols.id integer NOT NULL DEFAULT nextval('symbols_id_seq'::regclass)
+col symbols.is_active boolean DEFAULT true
+col symbols.quote_asset character varying(10) NOT NULL
+col symbols.symbol character varying(20) NOT NULL
+col trade_results.cost_usdt numeric(12,6)
+col trade_results.duration_hours numeric(10,2)
+col trade_results.economic_result character varying(10)
+col trade_results.entry_price numeric(20,8) NOT NULL
+col trade_results.exit_price numeric(20,8)
+col trade_results.exit_time timestamp without time zone
+col trade_results.failure_reason text
+col trade_results.id integer NOT NULL DEFAULT nextval('trade_results_id_seq'::regclass)
+col trade_results.label_policy character varying(40)
+col trade_results.net_profit_usdt numeric(12,6)
+col trade_results.notes text
+col trade_results.profit_percent numeric(10,4)
+col trade_results.profit_usdt numeric(10,4) DEFAULT 0
+col trade_results.result character varying(10)
+col trade_results.signal_id integer
+col trade_results.stop_hit boolean DEFAULT false
+col trade_results.symbol character varying(20) NOT NULL
+col trade_results.target_reached integer DEFAULT 0
+col trade_target_fills.active_trade_id integer NOT NULL
+col trade_target_fills.fill_price numeric(20,8) NOT NULL
+col trade_target_fills.filled_at timestamp without time zone NOT NULL DEFAULT now()
+col trade_target_fills.gross_profit_percent_contribution numeric(12,6) NOT NULL
+col trade_target_fills.gross_profit_usdt numeric(12,6) NOT NULL
+col trade_target_fills.id bigint NOT NULL DEFAULT nextval('trade_target_fills_id_seq'::regclass)
+col trade_target_fills.notional_usdt numeric(12,4) NOT NULL
+col trade_target_fills.quantity_fraction numeric(8,6) NOT NULL
+col trade_target_fills.signal_id integer
+col trade_target_fills.symbol character varying(20) NOT NULL
+col trade_target_fills.target_number integer NOT NULL
+con active_trades active_trades_pkey PRIMARY KEY (id)
+con active_trades active_trades_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id)
+con analysis_results analysis_results_symbol_timeframe_key UNIQUE (symbol, timeframe)
+con approval_requests approval_requests_pkey PRIMARY KEY (id)
+con approval_requests approval_requests_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id) ON DELETE CASCADE
+con candles candles_pkey PRIMARY KEY (id)
+con candles candles_symbol_timeframe_open_time_key UNIQUE (symbol, timeframe, open_time)
+con indicator_weights indicator_weights_indicator_name_market_condition_key UNIQUE (indicator_name, market_condition)
+con indicator_weights indicator_weights_pkey PRIMARY KEY (id)
+con learned_gate_history learned_gate_history_action_check CHECK (((action)::text = ANY (ARRAY[('insert'::character varying)::text, ('update'::character varying)::text, ('expire'::character varying)::text, ('rollback'::character varying)::text])))
+con learned_gate_history learned_gate_history_learning_run_id_fkey FOREIGN KEY (learning_run_id) REFERENCES learning_runs(id)
+con learned_gate_history learned_gate_history_pkey PRIMARY KEY (id)
+con learned_gates learned_gates_learning_run_fk FOREIGN KEY (learning_run_id) REFERENCES learning_runs(id) NOT VALID
+con learned_gates learned_gates_pkey PRIMARY KEY (trade_type, macro_state, timeframe)
+con learning_log learning_log_pkey PRIMARY KEY (id)
+con learning_runs learning_runs_pkey PRIMARY KEY (id)
+con learning_runs learning_runs_status_check CHECK (((status)::text = ANY (ARRAY[('validating'::character varying)::text, ('applied'::character varying)::text, ('rejected'::character varying)::text, ('rolled_back'::character varying)::text])))
+con macro_history macro_history_pkey PRIMARY KEY (date)
+con optimizer_settings optimizer_settings_key_key UNIQUE (key)
+con optimizer_settings optimizer_settings_pkey PRIMARY KEY (id)
+con outbox_events outbox_events_event_type_aggregate_type_aggregate_id_key UNIQUE (event_type, aggregate_type, aggregate_id)
+con outbox_events outbox_events_pkey PRIMARY KEY (id)
+con paper_entry_orders paper_entry_orders_first_observed_price_check CHECK ((first_observed_price > (0)::numeric))
+con paper_entry_orders paper_entry_orders_limit_price_check CHECK ((limit_price > (0)::numeric))
+con paper_entry_orders paper_entry_orders_order_kind_check CHECK (((order_kind)::text = ANY (ARRAY[('marketable'::character varying)::text, ('resting'::character varying)::text])))
+con paper_entry_orders paper_entry_orders_pkey PRIMARY KEY (signal_id)
+con paper_entry_orders paper_entry_orders_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id)
+con paper_entry_orders paper_entry_orders_status_check CHECK (((status)::text = ANY (ARRAY[('working'::character varying)::text, ('filled'::character varying)::text, ('rejected'::character varying)::text])))
+con risk_management risk_management_date_key UNIQUE (date)
+con risk_management risk_management_pkey PRIMARY KEY (id)
+con risk_recovery_events risk_recovery_actor_not_blank CHECK ((btrim(acknowledged_by) <> ''::text))
+con risk_recovery_events risk_recovery_events_pkey PRIMARY KEY (id)
+con risk_recovery_events risk_recovery_reason_not_blank CHECK ((btrim(reason) <> ''::text))
+con risk_recovery_events risk_recovery_requires_flat_book CHECK ((open_positions_at_recovery = 0))
+con scan_candidates scan_candidates_pkey PRIMARY KEY (id)
+con schema_migrations schema_migrations_pkey PRIMARY KEY (version)
+con service_heartbeats service_heartbeats_pkey PRIMARY KEY (service_name)
+con signals signals_pkey PRIMARY KEY (id)
+con symbol_blacklist symbol_blacklist_pkey PRIMARY KEY (id)
+con symbol_blacklist symbol_blacklist_symbol_key UNIQUE (symbol)
+con symbol_whitelist symbol_whitelist_pkey PRIMARY KEY (id)
+con symbol_whitelist symbol_whitelist_symbol_key UNIQUE (symbol)
+con symbols symbols_pkey PRIMARY KEY (id)
+con symbols symbols_symbol_key UNIQUE (symbol)
+con trade_results trade_results_economic_result_check CHECK (((economic_result)::text = ANY (ARRAY[('WIN'::character varying)::text, ('LOSS'::character varying)::text, ('BREAKEVEN'::character varying)::text])))
+con trade_results trade_results_pkey PRIMARY KEY (id)
+con trade_results trade_results_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id)
+con trade_target_fills trade_target_fills_active_trade_id_fkey FOREIGN KEY (active_trade_id) REFERENCES active_trades(id)
+con trade_target_fills trade_target_fills_active_trade_id_target_number_key UNIQUE (active_trade_id, target_number)
+con trade_target_fills trade_target_fills_pkey PRIMARY KEY (id)
+con trade_target_fills trade_target_fills_quantity_fraction_check CHECK ((quantity_fraction > (0)::numeric))
+con trade_target_fills trade_target_fills_signal_id_fkey FOREIGN KEY (signal_id) REFERENCES signals(id)
+con trade_target_fills trade_target_fills_target_number_check CHECK (((target_number >= 1) AND (target_number <= 3)))
+idx CREATE INDEX idx_active_trades_open ON public.active_trades USING btree (symbol, opened_at DESC) WHERE ((status)::text = 'open'::text)
+idx CREATE INDEX idx_analysis_results_pipeline_fresh ON public.analysis_results USING btree (analyzed_at DESC, symbol) WHERE (signal_generated = false)
+idx CREATE INDEX idx_analysis_results_status ON public.analysis_results USING btree (processing_status, analyzed_at DESC)
+idx CREATE INDEX idx_approval_signal ON public.approval_requests USING btree (signal_id, status)
+idx CREATE INDEX idx_blacklist_symbol ON public.symbol_blacklist USING btree (symbol)
+idx CREATE INDEX idx_candles_symbol_time ON public.candles USING btree (symbol, timeframe, open_time DESC)
+idx CREATE INDEX idx_gate_history_cell ON public.learned_gate_history USING btree (trade_type, macro_state, timeframe, changed_at DESC)
+idx CREATE INDEX idx_gate_history_run ON public.learned_gate_history USING btree (learning_run_id, id)
+idx CREATE INDEX idx_outbox_claim ON public.outbox_events USING btree (event_type, available_at, id) WHERE ((status)::text = 'pending'::text)
+idx CREATE INDEX idx_outbox_dead ON public.outbox_events USING btree (created_at DESC) WHERE ((status)::text = 'dead'::text)
+idx CREATE INDEX idx_outbox_dead_processed ON public.outbox_events USING btree (processed_at, id) WHERE ((status)::text = 'dead'::text)
+idx CREATE INDEX idx_outbox_processing_lease ON public.outbox_events USING btree (locked_at) WHERE ((status)::text = 'processing'::text)
+idx CREATE INDEX idx_risk_recovery_epoch ON public.risk_recovery_events USING btree (epoch_started_at DESC)
+idx CREATE INDEX idx_scan_candidates_analyzed ON public.scan_candidates USING btree (analyzed, scan_time DESC)
+idx CREATE INDEX idx_scan_candidates_pipeline_pending ON public.scan_candidates USING btree (scan_time DESC) WHERE (analyzed = false)
+idx CREATE INDEX idx_service_heartbeats_updated_at ON public.service_heartbeats USING btree (updated_at DESC)
+idx CREATE INDEX idx_signals_review_queue ON public.signals USING btree (signal_time DESC) WHERE ((claude_approved IS NULL) OR (claude_approved = false))
+idx CREATE INDEX idx_signals_symbol ON public.signals USING btree (symbol, signal_time DESC)
+idx CREATE INDEX idx_signals_telegram_queue ON public.signals USING btree (signal_time DESC) WHERE ((claude_approved = true) AND (telegram_sent = false))
+idx CREATE INDEX idx_trade_target_fills_trade ON public.trade_target_fills USING btree (active_trade_id, target_number)
+idx CREATE UNIQUE INDEX active_trades_pkey ON public.active_trades USING btree (id)
+idx CREATE UNIQUE INDEX analysis_results_symbol_timeframe_key ON public.analysis_results USING btree (symbol, timeframe)
+idx CREATE UNIQUE INDEX approval_requests_pkey ON public.approval_requests USING btree (id)
+idx CREATE UNIQUE INDEX candles_pkey ON public.candles USING btree (id)
+idx CREATE UNIQUE INDEX candles_symbol_timeframe_open_time_key ON public.candles USING btree (symbol, timeframe, open_time)
+idx CREATE UNIQUE INDEX indicator_weights_indicator_name_market_condition_key ON public.indicator_weights USING btree (indicator_name, market_condition)
+idx CREATE UNIQUE INDEX indicator_weights_pkey ON public.indicator_weights USING btree (id)
+idx CREATE UNIQUE INDEX learned_gate_history_pkey ON public.learned_gate_history USING btree (id)
+idx CREATE UNIQUE INDEX learned_gates_pkey ON public.learned_gates USING btree (trade_type, macro_state, timeframe)
+idx CREATE UNIQUE INDEX learning_log_pkey ON public.learning_log USING btree (id)
+idx CREATE UNIQUE INDEX learning_runs_pkey ON public.learning_runs USING btree (id)
+idx CREATE UNIQUE INDEX macro_history_pkey ON public.macro_history USING btree (date)
+idx CREATE UNIQUE INDEX optimizer_settings_key_key ON public.optimizer_settings USING btree (key)
+idx CREATE UNIQUE INDEX optimizer_settings_pkey ON public.optimizer_settings USING btree (id)
+idx CREATE UNIQUE INDEX outbox_events_event_type_aggregate_type_aggregate_id_key ON public.outbox_events USING btree (event_type, aggregate_type, aggregate_id)
+idx CREATE UNIQUE INDEX outbox_events_pkey ON public.outbox_events USING btree (id)
+idx CREATE UNIQUE INDEX paper_entry_orders_pkey ON public.paper_entry_orders USING btree (signal_id)
+idx CREATE UNIQUE INDEX risk_management_date_key ON public.risk_management USING btree (date)
+idx CREATE UNIQUE INDEX risk_management_pkey ON public.risk_management USING btree (id)
+idx CREATE UNIQUE INDEX risk_recovery_events_pkey ON public.risk_recovery_events USING btree (id)
+idx CREATE UNIQUE INDEX scan_candidates_pkey ON public.scan_candidates USING btree (id)
+idx CREATE UNIQUE INDEX schema_migrations_pkey ON public.schema_migrations USING btree (version)
+idx CREATE UNIQUE INDEX service_heartbeats_pkey ON public.service_heartbeats USING btree (service_name)
+idx CREATE UNIQUE INDEX signals_pkey ON public.signals USING btree (id)
+idx CREATE UNIQUE INDEX symbol_blacklist_pkey ON public.symbol_blacklist USING btree (id)
+idx CREATE UNIQUE INDEX symbol_blacklist_symbol_key ON public.symbol_blacklist USING btree (symbol)
+idx CREATE UNIQUE INDEX symbol_whitelist_pkey ON public.symbol_whitelist USING btree (id)
+idx CREATE UNIQUE INDEX symbol_whitelist_symbol_key ON public.symbol_whitelist USING btree (symbol)
+idx CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (id)
+idx CREATE UNIQUE INDEX symbols_symbol_key ON public.symbols USING btree (symbol)
+idx CREATE UNIQUE INDEX trade_results_pkey ON public.trade_results USING btree (id)
+idx CREATE UNIQUE INDEX trade_target_fills_active_trade_id_target_number_key ON public.trade_target_fills USING btree (active_trade_id, target_number)
+idx CREATE UNIQUE INDEX trade_target_fills_pkey ON public.trade_target_fills USING btree (id)
+idx CREATE UNIQUE INDEX uq_active_trades_signal_id ON public.active_trades USING btree (signal_id) WHERE (signal_id IS NOT NULL)
+idx CREATE UNIQUE INDEX uq_signals_setup_key ON public.signals USING btree (setup_key) WHERE (setup_key IS NOT NULL)
+idx CREATE UNIQUE INDEX uq_trade_results_signal_id ON public.trade_results USING btree (signal_id) WHERE (signal_id IS NOT NULL)
+rel active_trades r
+rel active_trades_id_seq S
+rel analysis_results r
+rel approval_requests r
+rel approval_requests_id_seq S
+rel candles r
+rel candles_id_seq S
+rel indicator_weights r
+rel indicator_weights_id_seq S
+rel learned_gate_history r
+rel learned_gate_history_id_seq S
+rel learned_gates r
+rel learning_log r
+rel learning_log_id_seq S
+rel learning_runs r
+rel learning_runs_id_seq S
+rel macro_history r
+rel optimizer_settings r
+rel optimizer_settings_id_seq S
+rel outbox_events r
+rel outbox_events_id_seq S
+rel paper_entry_orders r
+rel risk_management r
+rel risk_management_id_seq S
+rel risk_recovery_events r
+rel risk_recovery_events_id_seq S
+rel scan_candidates r
+rel scan_candidates_id_seq S
+rel schema_migrations r
+rel service_heartbeats r
+rel signals r
+rel signals_id_seq S
+rel symbol_blacklist r
+rel symbol_blacklist_disabled_20260517 r
+rel symbol_blacklist_id_seq S
+rel symbol_whitelist r
+rel symbol_whitelist_disabled_20260517 r
+rel symbol_whitelist_id_seq S
+rel symbols r
+rel symbols_id_seq S
+rel trade_results r
+rel trade_results_id_seq S
+rel trade_target_fills r
+rel trade_target_fills_id_seq S
+seq active_trades_id_seq integer 1
+seq approval_requests_id_seq integer 1
+seq candles_id_seq integer 1
+seq indicator_weights_id_seq integer 1
+seq learned_gate_history_id_seq bigint 1
+seq learning_log_id_seq integer 1
+seq learning_runs_id_seq bigint 1
+seq optimizer_settings_id_seq integer 1
+seq outbox_events_id_seq bigint 1
+seq risk_management_id_seq integer 1
+seq risk_recovery_events_id_seq integer 1
+seq scan_candidates_id_seq integer 1
+seq signals_id_seq integer 1
+seq symbol_blacklist_id_seq integer 1
+seq symbol_whitelist_id_seq integer 1
+seq symbols_id_seq integer 1
+seq trade_results_id_seq integer 1
+seq trade_target_fills_id_seq bigint 1
