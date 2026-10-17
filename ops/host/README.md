@@ -18,7 +18,7 @@ This directory versions the **non-secret** host-level definitions the running sy
 | `systemd/tsbops.slice` | `${TSB_HOME}/.config/systemd/user/tsbops.slice` | Versioned as is (no host values). |
 | `cron/tsb.crontab.tmpl` | 3 lines in `crontab -l` | Template: the canary watchdog, the nightly p1bg backup (installed v1, currently failing; see `ops/tsb-p1bg/README.md`), and the collector daily seal and backup. |
 
-`values/netcup-vps-arm64.env` holds the current host's values. They are paths and a host label only, **never credentials**. `INSTALL_MAP.tsv` maps each template to its installed location.
+`values/netcup-vps-arm64.values` holds the current host's values. They are paths and a host label only, **never credentials**. `INSTALL_MAP.tsv` maps each template to its installed location.
 
 **Never committed here:**
 - `.env*` and any credential;
@@ -32,7 +32,7 @@ This directory versions the **non-secret** host-level definitions the running sy
 ## Verify (read-only)
 
 ```
-python3 ops/host/render.py compare ops/host/values/netcup-vps-arm64.env
+python3 ops/host/render.py compare ops/host/values/netcup-vps-arm64.values
 ```
 
 Result on 2026-10-18 (exit 0):
