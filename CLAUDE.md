@@ -4,6 +4,12 @@
 
 > اقرأ الملف المرتبط ذا الصلة قبل أي تعديل.
 
+## R1.3 project governance proposal
+
+- Bot-owned backups are proposed **per approved container update**, not periodically; preserve the prior certified recovery set until the replacement passes verification and a separate, named deletion is approved.
+- Use `ops/provenance/drift_check.py` as a **development and deployment governance gate**, not a scheduled independent service. Report the executed verification scope and never treat `main` HEAD as the deployed image.
+- Read [docs/ops/EVENT_DRIVEN_RECOVERY_GOVERNANCE.md](docs/ops/EVENT_DRIVEN_RECOVERY_GOVERNANCE.md). This documentation change **does not** authorize cron, backup, DB, container, or deletion operations.
+
 ## أساسيات
 - **المستخدم:** Basim | **الخادم الوحيد:** `89.58.35.49` (aarch64، 12 نواة، 23GB) | **التشغيل:** Docker Compose | **Python:** 3.12
 - **PAPER_TRADING=true دائماً** — لا تغيّره.
