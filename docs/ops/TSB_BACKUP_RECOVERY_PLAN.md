@@ -1,5 +1,7 @@
 # Trading bot backup: diagnosis and recovery plan (R1, 2026-10-18)
 
+> **R1.3 policy proposal (2026-10-18):** [EVENT_DRIVEN_RECOVERY_GOVERNANCE.md](EVENT_DRIVEN_RECOVERY_GOVERNANCE.md) replaces the proposed daily bot-owned backup/KEEP=7 and automatic retention direction with owner-approved, per-container-update recovery sets and strictly gated retirement of the previous certified set. Sections below remain a historical diagnosis and unexecuted R1 plan, **not authority to install R-1, retain seven daily sets, schedule backups, or delete any data**. Current production cron and all existing backup files remain unchanged until separately approved.
+
 **Status: PLAN.** Nothing in this document has been executed except the read-only checks marked *verified*. No backup was repaired, scheduled, moved, deleted or restored. Every action in section 5 needs the separate owner approval listed in section 7.
 
 ## 1. Scope

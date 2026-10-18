@@ -1,5 +1,7 @@
 # Runtime-to-repository traceability (R1.1, observed 2026-10-18)
 
+> **R1.3 policy proposal (2026-10-18):** [EVENT_DRIVEN_RECOVERY_GOVERNANCE.md](EVENT_DRIVEN_RECOVERY_GOVERNANCE.md) makes the existing drift checker an on-demand development/merge/deployment/handover governance gate, **not** an independent scheduled monitor. Any earlier hourly/daily scheduling suggestions below are historical and not authorized. Production remains unchanged.
+
 **Purpose:** make GitHub the auditable record of what actually runs, without making the runtime follow the latest source.
 - Every statement here is a **read-only observation** (Class A) against `main@a2d7592`. It is not a certification.
 - Re-verify with the commands in section 6.
