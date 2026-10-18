@@ -1,0 +1,55 @@
+{
+ "gaps": [
+  "No archive of the RUNNING collector image tsb-p2-forward:p2f-160-1bfb5f6-20261014T0652Z (sha256:324d52c9...) was found under ~/backups or ~/ops; it exists only in the local Docker image store."
+ ],
+ "note": "References only. Archives are NOT in Git; all are on this host only (no off-host copy). Values copied from each set's SHA256SUMS.",
+ "sets": {
+  "collector_rollback_1.5.0": {
+   "entries": {
+    "tsb-p2-forward_p2f-150-cd2935e-20261007T1105Z.rollback-1.5.0.tar": "(no .sha256 file present; not verified here)"
+   },
+   "path": "~/backups/tsb-p2-forward-images/"
+  },
+  "release_images_a564": {
+   "entries": {
+    "analyzer.image-inspect.json": "47d5c5a358a70eddf1c0df35668f6264fe97d15fb2d4f651ef4adc4ed664cc5e",
+    "analyzer.rel-ea8ae4f-r2.tar": "0122b70002fac54297616f3856597600a1308234205b6fd9b52247bd2341750c",
+    "signal_engine.image-inspect.json": "1c9436465349d6c13e52d9d96e052d322f9923077ff7ed4a294a151b809676f4",
+    "signal_engine.rel-ea8ae4f-r2.tar": "86cc85eed4883db186c790f725287ae252e016496d5d0f9855e8273593d4430e",
+    "telegram.image-inspect.json": "b570cf33c6ffcb3675d0b73f4db989a1b2c532d14c756687ead8e00a52e5f568",
+    "telegram.rel-ea8ae4f-r2.tar": "acb68ad7a06e487657c7f5c56f5da67450f2a25c34952bba3c9be58fca7260f4",
+    "trade_tracker.image-inspect.json": "2728ca97e278e7771a91c2038ee513aa2b8d716e2296898035a72400a545f500",
+    "trade_tracker.rel-ea8ae4f-r2.tar": "0265de0c4d822c398d3a5e38e16de8e16fb1de28f39958e1dd95da607bf38c7c"
+   },
+   "path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+   "sha256sums_file_sha256": "eacca43f00847212c90c6c179074cb3578be7ac225759e66311e3349ff5b5ad3"
+  },
+  "rollback_analyzer_signal_engine_p1d": {
+   "entries": {
+    "analyzer.image-inspect.json": "99d0b5671a65423d6d82ee369a9daeb01b546d257939392cdd51604c00e6a7a8",
+    "analyzer.p1d-59297305.tar": "c88e6161c7e83892ccacb74a02d19fd86656222eeac46a7e575eaf7a45f17701",
+    "signal_engine.image-inspect.json": "e3b7216090d425466cfd0d4dd09fbbd07b800bdb5ed09e024392bb0937064b3b",
+    "signal_engine.p1d-59297305.tar": "df421f7cb92900a0f257f7b357592ececd81f316b00baf47dfbf5999cb0473cc"
+   },
+   "path": "~/backups/tsb-a561-rollback-images-20261016T193728Z",
+   "sha256sums_file_sha256": "dc2a3b33b89b517d84b4b62df828a7038e0a0da85c32d7060d70f2083adbaaaa"
+  },
+  "rollback_telegram_trade_tracker_p1d": {
+   "entries": {
+    "telegram.p1d-59297305.20261014T212634Z.tar": "cea1e372cca47e8bdbc2cc7f08b8dba00abc39902b4fc776d62433b73090d4b4",
+    "trade_tracker.p1d-59297305.20261014T212634Z.tar": "73ca99f0e3212e68f50630f26c3267698f9e71a756949a01bc9d5aa8a993370b"
+   },
+   "path": "~/backups/tsb-paper-images-a41-20261014T212634Z",
+   "sha256sums_file_sha256": "fed3b61a3c8185b71a3aacdfe426a88a139b1899d7277a7a8478d1b235ed9382"
+  },
+  "scanner_aiohttp_overlay": {
+   "entries": {
+    "scanner-aiohttp-3.14.3.tar": "25d7d6d8b2597c74d344a04d818414170a2695b86320f6047913d1750ac5d708",
+    "telegram-aiohttp-3.14.3.tar": "fdbf87d91377e720edc01fd23b74d37dcf7f86bf8177f9fb4710827beeed16da",
+    "trade_tracker-aiohttp-3.14.3.tar": "b00ca02f831026567395eddd5e0fb426bb9e2524aaae178fae98ca2fb6a9163c"
+   },
+   "path": "~/backups/tsb-aiohttp-20260929T122701Z/image-archive-20260930T091705Z",
+   "sha256sums_file_sha256": "4895db711f74e1106e581b255ab589bcf568b0f5d281027fe1dc8fd2271ad802"
+  }
+ }
+}
