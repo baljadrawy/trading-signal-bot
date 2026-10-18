@@ -1,0 +1,47 @@
+name: r14-disposable-lock-candidates
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [scanner, analyzer, signal_engine, trade_tracker, telegram]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record resolver environment
+        run: |
+          mkdir -p candidate
+          python --version | tee candidate/python-version.txt
+          python -m pip --version | tee candidate/pip-version.txt
+          uname -a | tee candidate/platform.txt
+          git rev-parse HEAD | tee candidate/source-commit.txt
+      - name: Resolve wheel-only candidate without installing
+        run: |
+          python -m pip install --dry-run --ignore-installed --only-binary=:all: --report candidate/pip-report.json -r "${{ matrix.service }}/requirements.txt"
+      - name: Convert and check candidate
+        run: |
+          python ops/provenance/lock_candidate.py \
+            --service "${{ matrix.service }}" \
+            --requirements "${{ matrix.service }}/requirements.txt" \
+            --report candidate/pip-report.json \
+            --output candidate/requirements.lock.candidate \
+            --provenance candidate/provenance.json
+          python ops/provenance/lock_review.py \
+            --requirements "${{ matrix.service }}/requirements.txt" \
+            --lock candidate/requirements.lock.candidate
+      - name: Upload evidence for independent review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-lock-candidate-${{ matrix.service }}
+          path: candidate/
+          retention-days: 14
+          if-no-files-found: error
