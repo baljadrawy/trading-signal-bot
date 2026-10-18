@@ -132,3 +132,29 @@ jobs:
         if: steps.present.outputs.run == 'true'
         working-directory: p2_forward
         run: python -m pytest -q -p no:cacheprovider -rs tests
+
+  parity-inventory:
+    name: R1.4 static parity inventory (legacy gaps expected)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inventory known legacy release gaps without false certification
+        run: |
+          set +e
+          python ops/provenance/parity_inventory.py > parity-report.json
+          rc=$?
+          set -e
+          cat parity-report.json
+          python - <<'PY'
+          import json
+          p = json.load(open("parity-report.json"))
+          assert p["schema"] == "tsb-r14-static-audit/1"
+          assert p["scope"] == "GITHUB_STATIC_ONLY"
+          assert p["runtime_parity_verified"] is False
+          assert p["blockers"], "Unexpected readiness: review the gate before accepting a release"
+          PY
+          test "$rc" -eq 2
