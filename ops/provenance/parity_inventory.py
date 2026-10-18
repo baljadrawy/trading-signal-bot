@@ -24,7 +24,7 @@ def audit():
         if not req.is_file():
             problems.append("missing requirements.txt")
         else:
-            lines = [s.strip() for s in req.read_text().splitlines() if s.strip() and not s.lstrip().startswith("#")]
+            lines = [s.split("#", 1)[0].strip() for s in req.read_text().splitlines() if s.split("#", 1)[0].strip()]
             if not lines or any(not re.match(r"^[A-Za-z0-9_.-]+==[^\s;]+(?:\s*;.*)?$", s) for s in lines):
                 problems.append("requirements are not all exact pins (not a validated transitive lock)")
         if source["source_kind"] != "commit":
