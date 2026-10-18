@@ -75,6 +75,8 @@
 
 ## 5. Proposed versioned deployment manifest (proposal; not created)
 
+> **Update 2026-10-18 (R1.2):** implemented as `deploy/DEPLOYED.json` (schema and usage in `deploy/DEPLOYED.md`). The text below is the original proposal.
+
 **Purpose:** one committed, machine-readable record per deployment change. It would be proposed through a PR together with each approved deploy or rollback, and would be the reference for drift detection.
 
 **Proposed path:** `deploy/DEPLOYED.json`, with history in Git. Each release record stays in its own `deploy/<release>/` directory.
@@ -110,6 +112,8 @@ Illustrative content for today. This JSON block is documentation only; it is not
 ```
 
 ## 6. Non-mutating drift detection (design)
+
+> **Update 2026-10-18 (R1.2):** implemented as `ops/provenance/drift_check.py`, with tests in `tests/test_drift_check.py`. Not scheduled.
 
 **Principle:**
 - read-only Docker and Git operations only: `docker inspect`, `docker image inspect`, `docker save` streamed to hashing, `git hash-object`;

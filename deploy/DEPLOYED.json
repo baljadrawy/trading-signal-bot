@@ -1,0 +1,365 @@
+{
+ "compose_projects": {
+  "trading-signal-bot": {
+   "git_blob": "04f965ef8c20a0b2283f695b5eb90735e036643e",
+   "production_dir": "/home/tradmin/trading-signal-bot",
+   "production_path": "/home/tradmin/trading-signal-bot/docker-compose.yml",
+   "repo_path": "docker-compose.yml"
+  },
+  "tsb-p2-forward": {
+   "git_blob": "120529002e615036d26793b95a0e0aeec1b9ffef",
+   "production_dir": "/home/tradmin/ops/tsb-p2-forward",
+   "production_path": "/home/tradmin/ops/tsb-p2-forward/compose.yml",
+   "repo_path": "p2_forward/compose.yml"
+  }
+ },
+ "evidence": [
+  "deploy/a561-rel-ea8ae4f/IMAGES.md",
+  "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+  "deploy/a561-rel-ea8ae4f/ARCHIVE_REFERENCES.json",
+  "deploy/a561-rel-ea8ae4f/CORRECTIONS.md",
+  "deploy/baseline-2026-09-27/deployed_files.json",
+  "deploy/aiohttp-3.14.3/IMAGES.md",
+  "p2_forward/PROVENANCE.json",
+  "docs/ops/RUNTIME_TRACEABILITY.md"
+ ],
+ "host_definitions": {
+  "map": "ops/host/INSTALL_MAP.tsv",
+  "values": "ops/host/values/netcup-vps-arm64.values"
+ },
+ "learner_service": "continuous_learner",
+ "note": "Observed runtime baseline. Not a statement of intent and not proof of clean-build reproducibility. Update only through a reviewed PR after an approved deployment or rollback.",
+ "observed_at": "2026-10-18T11:58:35Z",
+ "observed_by": "R1.2 read-only (Class A) observation; provenance from the referenced records",
+ "release_manifest": {
+  "manifest": "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+  "spec": "deploy/a561-rel-ea8ae4f/services.json"
+ },
+ "repository_head": "c8902f11e71bffad130f851e59b8111c2daa3ba5",
+ "schema": "tsb-deployed/1",
+ "services": {
+  "analyzer": {
+   "archives": [
+    {
+     "file": "analyzer.rel-ea8ae4f-r2.tar",
+     "role": "running image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "0122b70002fac54297616f3856597600a1308234205b6fd9b52247bd2341750c"
+    },
+    {
+     "file": "analyzer.p1d-59297305.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-a561-rollback-images-20261016T193728Z",
+     "sha256": "c88e6161c7e83892ccacb74a02d19fd86656222eeac46a7e575eaf7a45f17701"
+    }
+   ],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "analyzer",
+   "container": "trading_analyzer",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "c69beccc09d16b2775dbd11857c60685f6ae0893d52885da282e6cbb6b403491",
+    "container_id": "40b523874ea4e6a5f0d15b92c3cfc8919cb8bc8b6584a52fe240cc776d1ac7f5",
+    "image_id": "sha256:011f99ba451b0debc25d1332d59eb60819b5ad49f26b170b3b196400af42fb57",
+    "image_ref": "tsb-a561-analyzer:rel-ea8ae4f-r2",
+    "restart_count": 0,
+    "started_at": "2026-10-16T22:19:12.953101358Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+    ],
+    "notes": "46/46 files equal ea8ae4f; 3 dormant modules",
+    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "source_kind": "commit"
+   },
+   "render_hash_service": "analyzer",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+   },
+   "safety": {
+    "paper_trading_required": true
+   }
+  },
+  "collector": {
+   "archives": [],
+   "compose_project": "tsb-p2-forward",
+   "compose_service": "collector",
+   "container": "tsb-p2-forward-collector",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "6f62e5177564809bdf01d210a2c6d7bb9351c08772cc7b779cb912860711717c",
+    "container_id": "a2e2f3a6eeacfe76a64c93c0aa08ad97f639adc14d5339d3e97779257b7b9657",
+    "image_id": "sha256:324d52c9b37a2ecd9a1ddace7e93ad5d7728411d98e8503abcd618f87c8f59e8",
+    "image_ref": "tsb-p2-forward:p2f-160-1bfb5f6-20261014T0652Z",
+    "restart_count": 0,
+    "started_at": "2026-10-14T10:26:31.65417102Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "p2_forward/PROVENANCE.json",
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json"
+    ],
+    "notes": "18/18 files equal 1bfb5f6; baked P2F_GIT_COMMIT",
+    "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b",
+    "source_kind": "commit"
+   },
+   "render_hash_note": "collector compose needs P2F_* values from p2f_continuous_up.sh; covered by D3 and D5",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "NO archive of the running image exists (gap P-05)"
+   },
+   "safety": {
+    "paper_trading_required": false
+   }
+  },
+  "continuous_learner": {
+   "archives": [],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "continuous_learner",
+   "container": "trading_continuous_learner",
+   "expected_state": "not_running",
+   "observed": {
+    "config_hash": "f2b8890c0ab735089f3da9ec75e500d35e93dff7269df9b9b17430afcd6beda8",
+    "container_id": "e8c5ab7634563a513b12c758af603a9f90ee27a33ec6af408a2e0aed93ba1137",
+    "image_id": "sha256:d1aa69bde63f53e0203c3b1c21568fb0fc036104f6fcc974bc97965af2a16aea",
+    "image_ref": "trading-signal-bot-continuous_learner",
+    "restart_count": 0,
+    "started_at": "2026-08-17T17:49:15.37145649Z",
+    "state": "exited"
+   },
+   "provenance": {
+    "evidence": [],
+    "notes": "stopped since 2026-08-17; must stay stopped",
+    "source_kind": "retired"
+   },
+   "render_hash_note": "compose-safe refuses the learner by design",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "none",
+    "notes": "retired; not part of the runtime"
+   },
+   "safety": {
+    "paper_trading_required": false
+   }
+  },
+  "postgres": {
+   "archives": [],
+   "compose_project": "external",
+   "compose_service": "postgres",
+   "container": "postgres",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "2012965f16b5b5d5d4ffeb04258df8c63bf3918bf7e8557dc85b4f9b4fb27f0e",
+    "container_id": "28eae4805e7364e210c3ca92bbe1a771bfd55c16949af16ac4eec841253574c6",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "image_ref": "postgres:16.15-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "restart_count": 0,
+    "started_at": "2026-09-29T12:05:49.494398838Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [],
+    "notes": "postgres:16.15-alpine3.24 upstream image (shared with other projects)",
+    "source_kind": "upstream"
+   },
+   "render_hash_note": "shared-postgres project, outside this repository",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "external-upstream",
+    "notes": "pulled upstream image; data restore depends on backups (docs/ops/TSB_BACKUP_RECOVERY_PLAN.md)"
+   },
+   "safety": {
+    "paper_trading_required": false
+   }
+  },
+  "scanner": {
+   "archives": [
+    {
+     "file": "scanner-aiohttp-3.14.3.tar",
+     "role": "running image",
+     "set_path": "~/backups/tsb-aiohttp-20260929T122701Z/image-archive-20260930T091705Z",
+     "sha256": "25d7d6d8b2597c74d344a04d818414170a2695b86320f6047913d1750ac5d708"
+    }
+   ],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "scanner",
+   "container": "trading_scanner",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "e99de276a5c29317907203ba18df738dd411a4ce91dd6edc539234846709f32f",
+    "container_id": "891c46fddcf5e827e2e669eae3de5f0672c27450904b820a97986f76e0b0c210",
+    "image_id": "sha256:63b38e7a659d0efbc5dd1cb2a6035da1ab210f7774e94056d77fe7c61b50615e",
+    "image_ref": "tsb-aiohttp-test-scanner:3.14.3-20260929T124120Z",
+    "restart_count": 0,
+    "started_at": "2026-09-30T06:50:17.293162836Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "deploy/baseline-2026-09-27/deployed_files.json",
+     "deploy/aiohttp-3.14.3/IMAGES.md",
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json"
+    ],
+    "notes": "23 files from older commits, each traced; 8 of 23 differ from main scanner/ and shared/",
+    "source_kind": "assembled"
+   },
+   "render_hash_service": "scanner",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "composite overlay; base source not proven"
+   },
+   "safety": {
+    "paper_trading_required": true
+   }
+  },
+  "signal_engine": {
+   "archives": [
+    {
+     "file": "signal_engine.rel-ea8ae4f-r2.tar",
+     "role": "running image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "86cc85eed4883db186c790f725287ae252e016496d5d0f9855e8273593d4430e"
+    },
+    {
+     "file": "signal_engine.p1d-59297305.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-a561-rollback-images-20261016T193728Z",
+     "sha256": "df421f7cb92900a0f257f7b357592ececd81f316b00baf47dfbf5999cb0473cc"
+    }
+   ],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "signal_engine",
+   "container": "trading_signal_engine",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "20dcae19a7020a9e251731699a5638077b00be9191530d9ed92e38051bba485e",
+    "container_id": "f12b017694ff7e775e97a1e62e58063b32b7a2f02ec72723c1bc1233fe3f7f1b",
+    "image_id": "sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418",
+    "image_ref": "tsb-a561-signal_engine:rel-ea8ae4f-r2",
+    "restart_count": 0,
+    "started_at": "2026-10-16T22:50:18.321124108Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+    ],
+    "notes": "56/56 files equal ea8ae4f; 2 dormant modules",
+    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "source_kind": "commit"
+   },
+   "render_hash_service": "signal_engine",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+   },
+   "safety": {
+    "paper_trading_required": true
+   }
+  },
+  "telegram": {
+   "archives": [
+    {
+     "file": "telegram.rel-ea8ae4f-r2.tar",
+     "role": "running image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "acb68ad7a06e487657c7f5c56f5da67450f2a25c34952bba3c9be58fca7260f4"
+    },
+    {
+     "file": "telegram.p1d-59297305.20261014T212634Z.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-paper-images-a41-20261014T212634Z",
+     "sha256": "cea1e372cca47e8bdbc2cc7f08b8dba00abc39902b4fc776d62433b73090d4b4"
+    }
+   ],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "telegram",
+   "container": "trading_telegram",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "3f03902854b6aafc4fe475c4b503b065fff828997146b6883b0280dcdc9f7ad3",
+    "container_id": "39fa735b3256af82fcf6071f8e15857e38a4d669bf6afc67d0fc081354c0718a",
+    "image_id": "sha256:51d62f4dfa512c54c29db8886cff171de7d48b356fde6f1874098df057f4d219",
+    "image_ref": "tsb-a561-telegram:rel-ea8ae4f-r2",
+    "restart_count": 0,
+    "started_at": "2026-10-16T21:48:24.589403974Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+    ],
+    "notes": "46/47 equal ea8ae4f; requirements.txt text older (installed aiohttp 3.14.3)",
+    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "source_kind": "commit"
+   },
+   "render_hash_service": "telegram",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+   },
+   "safety": {
+    "paper_trading_required": true
+   }
+  },
+  "trade_tracker": {
+   "archives": [
+    {
+     "file": "trade_tracker.rel-ea8ae4f-r2.tar",
+     "role": "running image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "0265de0c4d822c398d3a5e38e16de8e16fb1de28f39958e1dd95da607bf38c7c"
+    },
+    {
+     "file": "trade_tracker.p1d-59297305.20261014T212634Z.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-paper-images-a41-20261014T212634Z",
+     "sha256": "73ca99f0e3212e68f50630f26c3267698f9e71a756949a01bc9d5aa8a993370b"
+    }
+   ],
+   "compose_project": "trading-signal-bot",
+   "compose_service": "trade_tracker",
+   "container": "trading_tracker",
+   "expected_state": "running",
+   "observed": {
+    "config_hash": "9d914e8f999407b6517306296ea69f6579b5887dc938bfb8e928ad4d1041d0de",
+    "container_id": "c384b6113e3882f075e4773ab2894feee6e43a68a663b0a58c4fc8cc89da9f53",
+    "image_id": "sha256:2cf1dd52cd89d44b7dc70c92b0ff797a54e3799d7deaf82b4fe7d1012ba76ae8",
+    "image_ref": "tsb-a561-trade_tracker:rel-ea8ae4f-r2",
+    "restart_count": 0,
+    "started_at": "2026-10-16T21:17:23.895946868Z",
+    "state": "running"
+   },
+   "provenance": {
+    "evidence": [
+     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
+     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+    ],
+    "notes": "47/48 equal ea8ae4f; requirements.txt text older",
+    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "source_kind": "commit"
+   },
+   "render_hash_service": "trade_tracker",
+   "reproducibility": {
+    "canonical_rebuild": false,
+    "level": "L1-content-verified",
+    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+   },
+   "safety": {
+    "paper_trading_required": true
+   }
+  }
+ }
+}
