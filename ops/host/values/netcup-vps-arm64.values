@@ -1,0 +1,4 @@
+# Non-secret host values for the current production host (netcup VPS, arm64, shared host). Verified 2026-10-18
+# against the installed files with `ops/host/render.py compare`. Never put credentials here.
+TSB_HOME=/home/tradmin
+P2F_HOST_LABEL=netcup-vps-arm64-shared-host

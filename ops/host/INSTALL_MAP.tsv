@@ -1,0 +1,6 @@
+# template (repo-relative)	installed path (rendered)	kind	repo copy that must render identically (optional)
+p2_forward/compose.yml	${TSB_HOME}/ops/tsb-p2-forward/compose.yml	file	-
+ops/host/p2-forward/configs/continuous-v1.json.tmpl	${TSB_HOME}/ops/tsb-p2-forward/configs/continuous-v1.json	file	-
+ops/host/systemd/tsb-p2f-monitor.service.tmpl	${TSB_HOME}/.config/systemd/user/tsb-p2f-monitor.service	file	p2_forward/ops/systemd/tsb-p2f-monitor.service
+ops/host/systemd/tsbops.slice	${TSB_HOME}/.config/systemd/user/tsbops.slice	file	p2_forward/ops/systemd/tsbops.slice
+ops/host/cron/tsb.crontab.tmpl	crontab -l (service account)	crontab-fragment	-

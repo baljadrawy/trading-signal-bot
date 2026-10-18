@@ -1,0 +1,51 @@
+# G4: supervised, session-independent P2 forward collector monitor (observe only; owner decision D5 unchanged).
+# Owner: tradmin (P2 forward operations). Installed to ~/.config/systemd/user/, enabled (default.target),
+# survives the end of every interactive session because user lingering is enabled for tradmin.
+# Re-bind to a recreated collector ONLY with: p2f_monitor_bind.py bind --reason ... --restart
+[Unit]
+Description=P2 forward continuous collector monitor (observe-only; owner tradmin; G4)
+Documentation=https://github.com/baljadrawy/trading-signal-bot/blob/feature/g4-monitor-supervision-20261007/docs/p2/CONTINUOUS_OPERATIONS.md
+# crash loop: at most 6 starts in 15 min, then the unit stays FAILED (visible; status.json goes stale -> G2 fails closed)
+StartLimitIntervalSec=900
+StartLimitBurst=6
+
+[Service]
+Type=notify
+NotifyAccess=main
+Slice=tsbops.slice
+WorkingDirectory=${TSB_HOME}/ops/tsb-p2-forward
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u ${TSB_HOME}/ops/tsb-p2-forward/p2f_cont_monitor.py --dataset ${TSB_HOME}/research-data/trading-signal-bot/p2/forward-continuous-v1 --binding-file ${TSB_HOME}/ops/tsb-p2-forward/monitor/p2-forward-continuous-v1.binding.json --out ${TSB_HOME}/ops/tsb-p2-forward/monitor/p2-forward-continuous-v1
+# every stop (clean or not) is recorded; a non-success result also becomes a CRITICAL alerts.jsonl line
+ExecStopPost=/usr/bin/python3 -u ${TSB_HOME}/ops/tsb-p2-forward/p2f_cont_monitor.py --record-exit --out ${TSB_HOME}/ops/tsb-p2-forward/monitor/p2-forward-continuous-v1
+Restart=on-failure
+RestartSec=10
+RestartSteps=5
+RestartMaxDelaySec=120
+# 2 usage, 75 duplicate writer / lock busy, 78 bad binding: restarting cannot fix these -> FAILED at once
+RestartPreventExitStatus=2 75 78
+TimeoutStartSec=90
+TimeoutStopSec=15
+# the loop pings every ~5-15 s; a hung loop is aborted and restarted
+WatchdogSec=120
+# multiprocessing-style helpers may ignore SIGTERM: the whole cgroup gets SIGKILL after TimeoutStopSec
+KillMode=control-group
+SendSIGKILL=yes
+CPUWeight=1000
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=32
+# 100 is the lowest value an unprivileged user manager can set (its own floor; lower requests are clamped to 100)
+OOMScoreAdjust=100
+# an OOM kill of the short-lived sampler child must not stop the monitor (the sample is just missed)
+OOMPolicy=continue
+# a watchdog abort (SIGABRT) or crash loop must never leave core files on the shared host
+LimitCORE=0
+NoNewPrivileges=yes
+UMask=0002
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tsb-p2f-monitor
+
+[Install]
+WantedBy=default.target
