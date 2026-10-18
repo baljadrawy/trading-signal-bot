@@ -9,3 +9,5 @@
 - This file records provenance only. **Do not install, schedule, repair or run anything from this directory.** Production backups are changed only through the R-1 gates.
 
 Checks run for this record (2026-10-18): `bash -n` OK; `shellcheck` (all severities) produced 0 findings. The script was not executed.
+
+Diagnosis of the failure and the recovery plan (2026-10-18): `docs/ops/TSB_BACKUP_RECOVERY_PLAN.md`.
