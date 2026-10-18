@@ -1,0 +1,13 @@
+# Installed distributions in tsb-p2-forward:p2f-160-1bfb5f6-20261014T0652Z (sha256:324d52c9b37a), read from *.dist-info in the merged image layers.
+# Runtime baseline record, NOT a lock file used by any build. Includes pip/setuptools/wheel of the base image.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+attrs==26.1.0
+frozenlist==1.8.0
+idna==3.19
+multidict==6.7.1
+pip==25.0.1
+propcache==0.5.2
+typing-extensions==4.16.0
+yarl==1.24.5

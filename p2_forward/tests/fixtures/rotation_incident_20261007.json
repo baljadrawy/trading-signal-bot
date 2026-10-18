@@ -1,0 +1,175 @@
+{
+ "boot8": "b1b7edb6",
+ "counters_after": {
+  "seq_regression": 131,
+  "seq_reset": 3
+ },
+ "day_start_ms": 1791331200000,
+ "note": "Extracted read-only from the investigation evidence. The old socket's final per-stream sequence was NOT recorded in production (UNAVAILABLE); replay tests vary it over its feasible interval (reset seq, next persisted seq).",
+ "persisted": {
+  "dogeusdt@bookTicker": {
+   "after": [
+    1791331812000,
+    25626347488,
+    1791331811996
+   ],
+   "before": [
+    1791331810000,
+    25626347227,
+    1791331809541
+   ],
+   "cadence_ms": 2000,
+   "tier": 2
+  },
+  "enausdt@bookTicker": {
+   "after": [
+    1791331812000,
+    6140827921,
+    1791331811909
+   ],
+   "before": [
+    1791331810000,
+    6140827631,
+    1791331809998
+   ],
+   "cadence_ms": 2000,
+   "tier": 2
+  },
+  "pumpusdt@bookTicker": {
+   "after": [
+    1791331820000,
+    1710247792,
+    1791331819650
+   ],
+   "before": [
+    1791331810000,
+    1710247209,
+    1791331809796
+   ],
+   "cadence_ms": 10000,
+   "tier": 1
+  }
+ },
+ "retiered_conn0": [
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "aaveusdt@bookTicker",
+   "symbol": "AAVEUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "filusdt@bookTicker",
+   "symbol": "FILUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "renderusdt@bookTicker",
+   "symbol": "RENDERUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "sandusdt@bookTicker",
+   "symbol": "SANDUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "strkusdt@bookTicker",
+   "symbol": "STRKUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 2000,
+   "from_tier": 2,
+   "stream": "zrousdt@bookTicker",
+   "symbol": "ZROUSDT",
+   "to_cadence_ms": 10000,
+   "to_tier": 1
+  },
+  {
+   "from_cadence_ms": 10000,
+   "from_tier": 1,
+   "stream": "fetusdt@bookTicker",
+   "symbol": "FETUSDT",
+   "to_cadence_ms": 2000,
+   "to_tier": 2
+  },
+  {
+   "from_cadence_ms": 10000,
+   "from_tier": 1,
+   "stream": "glmrusdt@bookTicker",
+   "symbol": "GLMRUSDT",
+   "to_cadence_ms": 2000,
+   "to_tier": 2
+  },
+  {
+   "from_cadence_ms": 10000,
+   "from_tier": 1,
+   "stream": "nilusdt@bookTicker",
+   "symbol": "NILUSDT",
+   "to_cadence_ms": 2000,
+   "to_tier": 2
+  }
+ ],
+ "rotations": {
+  "conn0-book": {
+   "logged_ms": 1791331810572,
+   "new_first_msg_ms": 1791331810571,
+   "old_last_msg_ms": 1791331810570,
+   "overlap_ok": true,
+   "started_ms": 1791331809009,
+   "streams": 68,
+   "subscribe_ack_ms": 1791331810571,
+   "subscribe_sent_ms": 1791331810070,
+   "ws_connected_ms": 1791331810053
+  },
+  "conn1-depth": {
+   "logged_ms": 1791331810589,
+   "new_first_msg_ms": 1791331810588,
+   "old_last_msg_ms": 1791331810584,
+   "overlap_ok": true,
+   "started_ms": 1791331809010,
+   "streams": 67,
+   "subscribe_ack_ms": 1791331810587,
+   "subscribe_sent_ms": 1791331810086,
+   "ws_connected_ms": 1791331810071
+  }
+ },
+ "seq_reset": [
+  {
+   "recv_ns": 1791331810654951507,
+   "seq": 25626347260,
+   "stream": "dogeusdt@bookTicker"
+  },
+  {
+   "recv_ns": 1791331810655232791,
+   "seq": 6140827705,
+   "stream": "enausdt@bookTicker"
+  },
+  {
+   "recv_ns": 1791331810889739644,
+   "seq": 1710247254,
+   "stream": "pumpusdt@bookTicker"
+  }
+ ],
+ "source_dir": "backups/tsb-aiohttp-20260929T122701Z/seq-reset-investigation-20261007T081541Z",
+ "source_sha256": {
+  "00_TIMELINE.txt": "72eba758730b62b082389bb509cee4e48d391d57bf06f77ffef032af9543655f",
+  "03_lifecycle_20261007_0000-0030Z_nongc.jsonl": "be9baeabb68441bba9177967444be46d59438c7b36a1d791b9346b0fd7278593",
+  "05_data_impact.txt": "0cbca013a2da58192ce1c9eb640887ae35b5735c17f490ba325215cef97dadb8"
+ },
+ "universe_transition_ms": 1791331809007
+}

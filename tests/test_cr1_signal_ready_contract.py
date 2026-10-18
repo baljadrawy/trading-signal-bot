@@ -130,6 +130,7 @@ def test_decision_source_fits_column():
 class Recorder:
     def __init__(self):
         self.acked, self.failed, self.direct, self.approval = [], [], [], []
+        self.deferred, self.window_remaining_s = [], 3600.0
         self.gate_calls = 0
 
 
@@ -141,6 +142,8 @@ def _telegram(monkeypatch, signal_row, *, allowed=(True, 'eligible'), action='se
     class DB:
         async def fetchrow(self, sql, *args):
             assert 'FROM signals' in sql
+            if 'remaining_s' in sql:                  # A38 admission-window probe
+                return {'remaining_s': rec.window_remaining_s}
             return signal_row
 
     async def ack(event_id, owner):
@@ -148,6 +151,9 @@ def _telegram(monkeypatch, signal_row, *, allowed=(True, 'eligible'), action='se
 
     async def fail(event_id, owner, err, *a):
         rec.failed.append((event_id, err))
+
+    async def defer(event_id, owner, delay, reason):
+        rec.deferred.append((event_id, delay, reason))
 
     async def gate():
         rec.gate_calls += 1
@@ -168,6 +174,7 @@ def _telegram(monkeypatch, signal_row, *, allowed=(True, 'eligible'), action='se
     monkeypatch.setattr(tg, 'Database', DB())
     monkeypatch.setattr(tg, 'ack', ack)
     monkeypatch.setattr(tg, 'fail', fail)
+    monkeypatch.setattr(tg, 'defer', defer)
     monkeypatch.setattr(tg, 'can_deliver_candidate', gate)
     monkeypatch.setattr(tg, 'send_signal_direct', direct)
     monkeypatch.setattr(tg, 'send_approval_request', approval)
@@ -256,10 +263,16 @@ async def test_approval_flow_preserved(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_delivery_error_fails_event_for_retry(monkeypatch):
+async def test_delivery_error_is_retried_never_acked(monkeypatch):
+    # A38 contract: a transient error inside the admission window is DEFERRED (retried later
+    # without consuming an attempt); a permanent error still uses fail(). Neither is acked.
     tg, rec, mgr = _telegram(monkeypatch, _row(), send_error=ConnectionError('db'))
     assert await tg.handle_candidate_event(None, mgr, 'o', 'signal.ready', EVENT) is False
-    assert rec.acked == [] and rec.failed and rec.failed[0][0] == 70
+    assert rec.acked == [] and rec.failed == []
+    assert rec.deferred and rec.deferred[0][0] == 70 and rec.deferred[0][1] <= 3601
+    tg, rec, mgr = _telegram(monkeypatch, _row(), send_error=ValueError('defect'))
+    assert await tg.handle_candidate_event(None, mgr, 'o', 'signal.ready', EVENT) is False
+    assert rec.acked == [] and rec.deferred == [] and rec.failed and rec.failed[0][0] == 70
 
 
 # ---------------------------------------------------------------- trade_tracker -----

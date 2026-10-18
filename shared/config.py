@@ -104,6 +104,18 @@ class Config:
     TRADE_AMOUNT_USDT: float = float(os.getenv('TRADE_AMOUNT_USDT', '50'))
     STOP_SLIPPAGE: float = float(os.getenv('STOP_SLIPPAGE', '0.001'))  # 0.1% modeled stop-fill slippage
     MIN_ORDER_NOTIONAL_USDT: float = float(os.getenv('MIN_ORDER_NOTIONAL_USDT', '5'))
+    # A38: entry fill model (shared/entry_execution.py). The default keeps the pre-A38 fills
+    # exactly; 'resting_limit_v1' is a scientific contract change and needs owner approval plus
+    # a declared version boundary (active_trades.entry_fill_model records it per trade).
+    PAPER_ENTRY_FILL_MODEL: str = os.getenv('PAPER_ENTRY_FILL_MODEL', 'observed_price_v0')
+    # A38: undelivered Telegram notifications are retried, without consuming attempts, for at
+    # most this long; then they become an explicit 'notification_expired' outcome.
+    NOTIFICATION_TTL_HOURS: float = float(os.getenv('NOTIFICATION_TTL_HOURS', '24'))
+    # A44: signal integrity (A43 design). 'off' = exact pre-A44 behaviour. 'enforce' = closed-candle
+    # setup identity, freshness, insert-once persistence (schema 11 setup_key) and fail-closed
+    # safety reads in the analyzer, signal_engine and trade_tracker. Changes signal counts, so
+    # switching it is an owner-approved, declared Paper-window boundary.
+    SIGNAL_INTEGRITY_MODE: str = os.getenv('SIGNAL_INTEGRITY_MODE', 'off')
     PRICE_STREAM_ENABLED: bool = os.getenv('PRICE_STREAM_ENABLED', 'true').lower() == 'true'
     PRICE_STREAM_REFRESH_SECONDS: int = int(os.getenv('PRICE_STREAM_REFRESH_SECONDS', '5'))
     PRICE_BACKUP_CHECK_SECONDS: int = int(os.getenv('PRICE_BACKUP_CHECK_SECONDS', '30'))

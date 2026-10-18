@@ -19,6 +19,7 @@ from shared.schema import require_schema
 from shared.macro_context import MacroContext
 from signal_logic import SignalEngine, signal_identity
 from shared import evidence_v2
+from shared.signal_identity import integrity_mode
 
 logger = setup_logger('signal_engine')
 
@@ -98,6 +99,7 @@ async def main():
 
     await Database.connect()
     await require_schema('signal_engine')
+    integrity_mode(config)                       # A44: unknown SIGNAL_INTEGRITY_MODE refuses to start
     await mark_started('signal_engine')
 
     # MacroContext only calls public klines (BTC/ETH 4h) — no auth needed.
@@ -221,6 +223,17 @@ async def main():
                         _v2_cycle('signal_refused', cycle_started_ms, results, decisions,
                                   getattr(engine, 'last_v2_context', None), truncation)
                         raise
+
+                    if signal_id is None:
+                        # A44 enforce: the setup was emitted before (a concurrent worker or an
+                        # earlier cycle) — nothing was persisted or published this cycle.
+                        _v2_cycle('duplicate_setup_suppressed', cycle_started_ms, results, decisions,
+                                  getattr(engine, 'last_v2_context', None), truncation)
+                        await mark_success('signal_engine', _with_ev2({
+                            'results': len(results), 'signal_created': False,
+                            'duplicate_suppressed': getattr(engine, 'last_emission', None)}))
+                        await asyncio.sleep(60)
+                        continue
 
                     # تحديث حالة التحليل لجميع الـ Timeframes لهذه العملة
                     await Database.execute(
