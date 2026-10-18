@@ -24,6 +24,7 @@ Other observations:
 - **Revision labels:** `org.opencontainers.image.revision` is `unknown` on every trading image.
 - **Architecture:** every image is linux/arm64.
 - **Re-verify:** `ops/provenance/runtime_manifest.py verify`, then `ops/host/render.py compare`.
+- **Full runtime-to-repository traceability** (every component, checkout classification, dependencies outside Git, proposed deployment manifest and drift detection): `docs/ops/RUNTIME_TRACEABILITY.md`.
 
 ## 2. Two different recovery capabilities
 
