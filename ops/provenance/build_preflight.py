@@ -6,8 +6,8 @@ from pathlib import Path
 import re
 
 SERVICES = ("scanner", "analyzer", "signal_engine", "trade_tracker", "telegram")
-BASE = re.compile(r"^FROM\\s+[^\\s]+@sha256:[0-9a-f]{64}(?:\\s+AS\\s+\\w+)?\\s*$", re.I | re.M)
-PIN = re.compile(r"^[A-Za-z0-9_.-]+==[^\\s;#]+$")
+BASE = re.compile(r"^FROM\s+[^\s]+@sha256:[0-9a-f]{64}(?:\s+AS\s+\w+)?\s*$", re.I | re.M)
+PIN = re.compile(r"^[A-Za-z0-9_.-]+==[^\s;#]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -23,12 +23,12 @@ def check(root, service, revision):
         issues.append("missing Dockerfile")
     else:
         content = dockerfile.read_text()
-        from_lines = re.findall(r"^FROM\\s+.*$", content, re.M)
+        from_lines = re.findall(r"^FROM\s+.*$", content, re.M)
         if not from_lines or any(not BASE.fullmatch(line) for line in from_lines):
             issues.append("every FROM must use an immutable sha256 digest")
         if "org.opencontainers.image.revision" not in content:
             issues.append("missing OCI revision label")
-        if not re.search(r"\\bARG\\s+BUILD_REVISION\\b", content):
+        if not re.search(r"\bARG\s+BUILD_REVISION\b", content):
             issues.append("missing BUILD_REVISION build argument")
     if not lock.is_file():
         issues.append("missing committed requirements.lock")
