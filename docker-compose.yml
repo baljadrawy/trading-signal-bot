@@ -67,7 +67,7 @@ services:
   # ==================== Analyzer ====================
   analyzer:
     <<: *hardened-runtime
-    image: tsb-p1d-analyzer:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:b9b13d957bf4 (parent 47877db4cfe8); see deploy/p1d-forward-instrumentation/IMAGES.md
+    image: tsb-a561-analyzer:rel-ea8ae4f-r2   # A56.1 release ea8ae4f; rollback = tsb-p1d-analyzer:p1d-59297305-20261001T2045Z
     pull_policy: never
     container_name: trading_analyzer
     restart: unless-stopped
@@ -105,7 +105,7 @@ services:
   # ==================== Signal Engine ====================
   signal_engine:
     <<: *hardened-runtime
-    image: tsb-p1d-signal_engine:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:80096a981b2e (parent 04df5dd8267f); see deploy/p1d-forward-instrumentation/IMAGES.md
+    image: tsb-a561-signal_engine:rel-ea8ae4f-r2   # A56.1 release ea8ae4f; rollback = tsb-p1d-signal_engine:p1d-59297305-20261001T2045Z
     pull_policy: never
     container_name: trading_signal_engine
     restart: unless-stopped
@@ -146,7 +146,7 @@ services:
   # ==================== Trade Tracker ====================
   trade_tracker:
     <<: *hardened-runtime
-    image: tsb-p1d-trade_tracker:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:698d31730ec3 (parent f9d0b3980032); see deploy/p1d-forward-instrumentation/IMAGES.md
+    image: tsb-a561-trade_tracker:rel-ea8ae4f-r2   # A56.1 release ea8ae4f; rollback = tsb-p1d-trade_tracker:p1d-59297305-20261001T2045Z
     pull_policy: never
     container_name: trading_tracker
     restart: unless-stopped
@@ -245,7 +245,7 @@ services:
   # ==================== Telegram ====================
   telegram:
     <<: *hardened-runtime
-    image: tsb-p1d-telegram:p1d-59297305-20261001T2045Z   # P1-D candidate sha256:e5f3096b7a71 (parent e87f00f243e8); see deploy/p1d-forward-instrumentation/IMAGES.md
+    image: tsb-a561-telegram:rel-ea8ae4f-r2   # A56.1 release ea8ae4f; rollback = tsb-p1d-telegram:p1d-59297305-20261001T2045Z
     pull_policy: never
     container_name: trading_telegram
     restart: unless-stopped
