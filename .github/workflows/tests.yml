@@ -1,12 +1,13 @@
-# Test-only CI (A49). Runs the unit suite and the disposable-PostgreSQL matrix exactly as the
-# local gates do. It has no secrets, deploys nothing, builds no images and never touches production.
+# Test-only CI (A49; main-first triggers and collector job added 2026-10-18). Runs the unit suite, the
+# disposable-PostgreSQL matrix and the P2 forward collector suite exactly as the local gates do. It has no secrets,
+# deploys nothing, builds no images and never touches production (GitHub-hosted runners, contents: read only).
 name: tests
 
 on:
   push:
-    branches: ['integration/**', 'develop']
+    branches: ['integration/**', 'develop', 'main']
   pull_request:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
 
 permissions:
@@ -102,3 +103,32 @@ jobs:
           else
             echo "tests/test_a39_review.py not present on this tree"
           fi
+
+  collector:
+    name: P2 forward collector suite (p2_forward/tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                             # test_p2f_recovery_a34 archives the pre-fix tree cd2935e
+          persist-credentials: false
+      - name: presence check
+        id: present
+        run: |
+          if [ -d p2_forward/tests ]; then echo "run=true" >> "$GITHUB_OUTPUT"
+          else echo "run=false" >> "$GITHUB_OUTPUT"; echo "p2_forward/tests not present on this tree"; fi
+      - uses: actions/setup-python@v5
+        if: steps.present.outputs.run == 'true'
+        with:
+          python-version: '3.12'
+      - name: install the collector's exact pinned set (no dependency resolution) and pytest
+        if: steps.present.outputs.run == 'true'
+        run: |
+          python -m pip install --no-deps --only-binary=:all: -r p2_forward/requirements.txt
+          python -m pip install "$(grep -E '^pytest==' .github/ci/requirements-test.txt)"
+          python -m pip check
+      - name: collector tests
+        if: steps.present.outputs.run == 'true'
+        working-directory: p2_forward
+        run: python -m pytest -q -p no:cacheprovider -rs tests
