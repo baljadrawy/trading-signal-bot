@@ -27,4 +27,4 @@ def test_normalized_name():
 
 
 def test_duplicate_rejected():
-    assert any("duplicate" in issue for issue in module.verify("aiohttp==3.14.3", "aiohttp==3.14.3\nAIOHTTP==3.14.3")[0]
+    assert any("duplicate" in issue for issue in module.verify("aiohttp==3.14.3", "aiohttp==3.14.3\nAIOHTTP==3.14.3")[0])
