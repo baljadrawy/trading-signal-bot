@@ -16,20 +16,32 @@ initial-setup-only, historical, or wrong; this file wins.
 - **Paper trading only.** `PAPER_TRADING=true` always. The bot is currently fail-closed:
   PAPER_HALTED (B3, `risk:loss_streak_halt`). No operation may lift the halt; recovery follows
   `docs/loss_streak_recovery_runbook.md` and needs the owner.
+  *Verification status (2026-10-18, R0):* this halt state has **not** been re-verified from the
+  database. Read-only `trade_tracker` logs over 36 h show risk-guard rejections with reason
+  `loss_streak_reduce` and no `loss_streak_halt` line. That is a log observation, not an
+  authoritative state. Until an owner-approved database read confirms the state, treat it as
+  **unconfirmed**. Every Class B pre-gate must verify the halt state from the database; it may
+  not rely on this sentence.
 - **One service at a time.** Never mutate more than one service in one command or one step.
 - **The learner (`continuous_learner`) stays stopped.** The profile prevents the learner from
   participating in normal default Compose startup. Directly targeting the learner remains possible
   in Docker Compose and is prohibited without separate owner authorization. See "Learner" below.
 - **claude_review is retired from the runtime (CR-2).** It is no longer a Compose service; the
-  active path is signal_engine → `signal.ready` → telegram → trade_tracker. The stopped container
-  `trading_claude_review`, its image, source and historical data are kept for rollback
-  (`deploy/cr2-signal-ready/RETIREMENT.md`). Compose may report it as an orphan: never use
-  `--remove-orphans`; removing it needs separate owner authorization.
-- **Pinned images.** `scanner` runs the approved aiohttp 3.14.3 image recorded in
-  `deploy/aiohttp-3.14.3/IMAGES.md`; `analyzer` runs its D3B-1 overlay pinned in `docker-compose.yml`;
-  `telegram`, `trade_tracker` and `signal_engine` run the CR-2 overlays recorded in
-  `deploy/cr2-signal-ready/IMAGES.md` (`image:` + `pull_policy: never`, no `build:`). Never rebuild,
-  retag, re-pull or overwrite those tags.
+  active path is signal_engine → `signal.ready` → telegram → trade_tracker. Its images, source and
+  historical data are kept for rollback (`deploy/cr2-signal-ready/RETIREMENT.md`). *Observed
+  2026-10-18 (R0):* the stopped container `trading_claude_review` **no longer exists**
+  (`docker ps -a`). Only its images remain (`trading-signal-bot-claude_review:latest` and the
+  aiohttp test/base tags), so a CR-2 rollback would need a recreate from the image. Never use
+  `--remove-orphans`; removing anything related to it needs separate owner authorization.
+- **Pinned images.** The current pins are recorded in `deploy/a561-rel-ea8ae4f/IMAGES.md`, which
+  is verified against the running containers: `analyzer`, `signal_engine`, `telegram` and
+  `trade_tracker` run the A56.1 release images `tsb-a561-*:rel-ea8ae4f-r2`, and `scanner` runs the
+  aiohttp 3.14.3 image recorded in `deploy/aiohttp-3.14.3/IMAGES.md`. Pins use `image:` +
+  `pull_policy: never` and no `build:`. The earlier records are historical:
+  `deploy/p1d-forward-instrumentation/IMAGES.md` names the current rollback images
+  (`tsb-p1d-*`, also listed in the A56.1 record), and `deploy/cr2-signal-ready/IMAGES.md` names
+  older CR-2 images. Never rebuild, retag, re-pull or overwrite any of these
+  tags.
 - **Source of truth.** The production `docker-compose.yml` must equal the reviewed Git blob.
   Changes go through a PR, and installing a merged file in production is a separate,
   owner-authorized step with offline hash verification (`config --hash`).
