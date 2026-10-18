@@ -1,0 +1,102 @@
+name: r14-analyzer-isolated-install
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Capture environment and unchanged direct pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/source evidence/wheelhouse
+          git rev-parse HEAD > evidence/source-commit.txt
+          python --version > evidence/python-version.txt
+          python -m pip --version > evidence/pip-version.txt
+          uname -a > evidence/platform.txt
+          sha256sum analyzer/requirements.txt > evidence/requirements-sha256.txt
+          python - <<'PY'
+          from pathlib import Path
+          from ops.provenance.lock_review import parse
+          pins, errors = parse(Path("analyzer/requirements.txt").read_text())
+          assert not errors, errors
+          assert pins["ta"] == "0.11.0"
+          assert pins["aiohttp"] == "3.13.5"
+          PY
+      - name: Obtain and hash exact ta source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --no-binary=ta --dest evidence/source ta==0.11.0
+          test "$(find evidence/source -maxdepth 1 -type f | wc -l)" -eq 1
+          sha256sum evidence/source/* > evidence/source-sha256.txt
+      - name: Build ta wheel on disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps --no-cache-dir --wheel-dir evidence/wheelhouse evidence/source/*
+          test "$(find evidence/wheelhouse -maxdepth 1 -name 'ta-0.11.0-*.whl' | wc -l)" -eq 1
+          sha256sum evidence/wheelhouse/* > evidence/wheel-sha256.txt
+      - name: Resolve and install into disposable virtual environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/r14-analyzer-venv
+          /tmp/r14-analyzer-venv/bin/python -m pip install --only-binary=:all: \
+            --find-links evidence/wheelhouse \
+            --report evidence/install-report.json \
+            -r analyzer/requirements.txt
+          /tmp/r14-analyzer-venv/bin/python -m pip check | tee evidence/pip-check.txt
+          /tmp/r14-analyzer-venv/bin/python -m pip freeze --all > evidence/installed-freeze.txt
+          /tmp/r14-analyzer-venv/bin/python - <<'PY'
+          from importlib.metadata import version
+          assert version("ta") == "0.11.0"
+          assert version("aiohttp") == "3.13.5"
+          import ta
+          import aiohttp
+          import asyncpg
+          import binance
+          import pandas
+          import numpy
+          import websockets
+          print("PASS: analyzer direct dependency import smoke")
+          PY
+          echo "PASS: direct dependency import smoke" > evidence/import-smoke.txt
+      - name: Compare installed distributions to resolved report
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/r14-analyzer-venv/bin/python - <<'PY'
+          import json
+          from importlib.metadata import distributions
+          from pathlib import Path
+          data = json.loads(Path("evidence/install-report.json").read_text())
+          expected = {x["metadata"]["name"].lower().replace("_", "-"): x["metadata"]["version"] for x in data["install"]}
+          installed = {d.metadata["Name"].lower().replace("_", "-"): d.version for d in distributions(path=["/tmp/r14-analyzer-venv/lib/python3.12/site-packages"])}
+          missing = {k: v for k, v in expected.items() if installed.get(k) != v}
+          assert not missing, f"installed inventory mismatch: {missing}"
+          Path("evidence/inventory-comparison.json").write_text(json.dumps({
+              "status": "REVIEW_ONLY",
+              "expected_count": len(expected),
+              "installed_count": len(installed),
+              "missing_or_mismatched": missing,
+              "note": "Not a full exact-inventory equality or lock certification"
+          }, indent=2) + "\n")
+          PY
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-analyzer-isolated-install-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
