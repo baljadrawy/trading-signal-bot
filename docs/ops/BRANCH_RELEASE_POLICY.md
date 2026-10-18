@@ -77,17 +77,26 @@ Preserve ≠ merge ≠ release tag ≠ deploy ≠ run research ≠ change schedu
 3. A hotfix may never stay running from a local-only commit. Preservation on GitHub is the first step.
 
 ## 8. Branch protection (once `main` is runtime-accurate)
-- `main`:
-  - PR required;
-  - 1 approval (owner);
-  - required status `tests`;
-  - linear history or merge commits per owner choice;
-  - no force-push;
-  - no deletion;
-  - administrators included;
-  - conversation resolution required.
-- The default branch stays `main`.
-- During the transition, `develop` gets the same protection.
+**Constraint.** All PRs are currently opened and merged under the single owner account (`baljadrawy`, the only collaborator). GitHub does not let a PR author approve their own PR. A rule of "1 required approval" would therefore block every merge or push everyone onto an administrator bypass, which defeats protection. So the GitHub-enforced controls and the owner's authorization are kept separate.
+
+**Enforced by GitHub** (branch protection or a ruleset on `main`, and on `develop` during the transition):
+- a pull request is required to change the branch: no direct pushes, including the owner's;
+- required status checks, strict (the branch must be up to date with its base before merging):
+  - `default suite (no database)`;
+  - `disposable-PostgreSQL matrix`;
+  - `P2 forward collector suite (p2_forward/tests)`;
+- conversation resolution required;
+- force-push blocked; branch deletion blocked;
+- **no bypass**: rules apply to administrators;
+- allowed merge method: **merge commit** (keeps the reviewed commits and their provenance; squash and rebase merges stay disabled for these branches unless the owner decides otherwise);
+- required approving reviews: **0 while there is a single account**. As soon as a separate reviewer identity exists (a second account or a GitHub App used for independent review), require **1 approval from someone other than the author**, dismiss stale approvals on new pushes, and require approval of the most recent push.
+
+**Required by this policy** (not enforceable by GitHub with one account, therefore recorded):
+- an **independent review** of the final head SHA, recorded on the PR (the reviewer's findings and the SHA reviewed);
+- **explicit owner authorization to merge**, recorded on the PR or in the owner's instruction, naming the PR number and its exact head SHA. A merge happens only at that SHA. Any later push needs a new authorization;
+- merge authorization never implies release or deployment authorization (section 6).
+
+The default branch stays `main`.
 
 ## 9. Configuration classes
 | Class | Examples | Rule |
@@ -120,6 +129,6 @@ Agents follow this policy:
 | `docs/claude/operations.md` (`git push origin main`) | **Conflicts** (direct push) | Correct in the docs PR |
 | `docs/github-checkpoint-governance-20261008` (unmerged: "stage closure needs a verified GitHub checkpoint") | Consistent (Saved / Merged / Deployed / Validated) | Merge separately or fold in |
 | `.github/workflows/tests.yml` | Requires PR-0 (main triggers, collector job) | PR-0 |
-| `.env.example` (tracked; `.gitignore` exception `!.env.example`) | Allowed class (sanitized template), but **not yet reviewed** under section 9; its content was not inspected during consolidation | Secret scan and review in a separate step before it is relied on |
+| `.env.example` (tracked; `.gitignore` exception `!.env.example`) | Reviewed 2026-10-18 (`docs/ops/ENV_EXAMPLE_REVIEW_2026-10-18.md`): **no real secrets**, all placeholders. Several defaults are outdated or misleading | Operational defaults are not changed by this PR. Correcting the template is a separate, owner-approved change |
 | `deploy/a561-rel-ea8ae4f/IMAGES.md` (runtime-provenance PR) | States the item-5 facts: not canonical builds, inventories not locks, aiohttp pin mismatch, on-host archives, no collector archive | Record as the legacy transition exception |
 | Historical audits, release records, governance JSON/JSONL | Immutable | Never rewritten |
