@@ -1,0 +1,88 @@
+name: r14-ta-wheel-reproducibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Capture provenance and verify unchanged ta pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/source evidence/build-a evidence/build-b
+          git rev-parse HEAD > evidence/commit.txt
+          python --version > evidence/python-version.txt
+          python -m pip --version > evidence/pip-version.txt
+          uname -a > evidence/platform.txt
+          python - <<'PY'
+          from pathlib import Path
+          from ops.provenance.lock_review import parse
+          pins, errors = parse(Path("analyzer/requirements.txt").read_text())
+          assert not errors, errors
+          assert pins.get("ta") == "0.11.0"
+          PY
+      - name: Download exact source distribution and hash it
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --no-binary=ta --dest evidence/source ta==0.11.0
+          test "$(find evidence/source -maxdepth 1 -type f | wc -l)" -eq 1
+          sha256sum evidence/source/* > evidence/source-sha256.txt
+      - name: Build twice with fixed SOURCE_DATE_EPOCH
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: '1704067200'
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps --no-cache-dir --wheel-dir evidence/build-a evidence/source/*
+          python -m pip wheel --no-deps --no-cache-dir --wheel-dir evidence/build-b evidence/source/*
+          test "$(find evidence/build-a -name 'ta-0.11.0-*.whl' | wc -l)" -eq 1
+          test "$(find evidence/build-b -name 'ta-0.11.0-*.whl' | wc -l)" -eq 1
+          sha256sum evidence/build-a/*.whl > evidence/wheel-a-sha256.txt
+          sha256sum evidence/build-b/*.whl > evidence/wheel-b-sha256.txt
+      - name: Compare wheel bytes and normalized archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          import json, zipfile
+          a, = Path("evidence/build-a").glob("*.whl")
+          b, = Path("evidence/build-b").glob("*.whl")
+          def manifest(p):
+              with zipfile.ZipFile(p) as z:
+                  return {name: sha256(z.read(name)).hexdigest() for name in sorted(z.namelist())}
+          aa, bb = manifest(a), manifest(b)
+          result = {
+              "schema": "r14-ta-repro-evidence/1",
+              "source_date_epoch": 1704067200,
+              "wheel_a_sha256": sha256(a.read_bytes()).hexdigest(),
+              "wheel_b_sha256": sha256(b.read_bytes()).hexdigest(),
+              "byte_identical": a.read_bytes() == b.read_bytes(),
+              "member_content_identical": aa == bb,
+              "different_members": sorted(k for k in aa.keys() | bb.keys() if aa.get(k) != bb.get(k)),
+              "scope": "same-run, same-host, same-build-toolchain only",
+              "certification": "NONE"
+          }
+          Path("evidence/comparison.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result, indent=2))
+          assert result["byte_identical"], "STOP: same-run wheel hashes differ; review evidence"
+          PY
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-ta-wheel-reproducibility-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
