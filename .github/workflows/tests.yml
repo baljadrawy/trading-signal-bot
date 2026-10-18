@@ -152,9 +152,16 @@ jobs:
           python - <<'PY'
           import json
           p = json.load(open("parity-report.json"))
-          assert p["schema"] == "tsb-r14-static-audit/1"
+          assert p["schema"] == "tsb-r14-static-audit/2"
           assert p["scope"] == "GITHUB_STATIC_ONLY"
           assert p["runtime_parity_verified"] is False
+          services = {s["service"]: s for s in p["services"]}
+          assert set(services) == {"scanner", "analyzer", "signal_engine", "trade_tracker", "telegram", "collector"}
+          assert all(s["runtime_verified"] is False for s in services.values()), "runtime parity claimed from GitHub"
           assert p["blockers"], "Unexpected readiness: review the gate before accepting a release"
           PY
           test "$rc" -eq 2
+      - name: Parity inventory unit and negative tests
+        run: |
+          python -m pip install "$(grep -E '^pytest==' .github/ci/requirements-test.txt)"
+          python -m pytest -q -p no:cacheprovider tests/test_parity_inventory.py

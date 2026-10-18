@@ -30,3 +30,45 @@ E. Plan service-by-service production cutover only after explicit owner approval
 
 ## Stop conditions
 Missing locks, unknown image provenance, unsigned/untrusted runtime observations, protected evidence exposure, secrets in logs/artifacts, CI failure, mutable digest, changed Compose hash or safety status -> **STOP**. Never rewrite evidence to produce a passing result. A metadata-only drift check is not content parity. No cron changes, DB access, backup rotation, service restarts, merge, production deploy or protected scientific runs are authorized by this document.
+
+## Static inventory: verification layers and current readiness (2026-10-18)
+`ops/provenance/parity_inventory.py` (schema `tsb-r14-static-audit/2`) reads only committed files and keeps three layers apart:
+- **Source verified:** the image's source is identified by a commit, with per-file evidence in the repository.
+- **Build verified:** a canonical rebuild from committed inputs, attested by CI. Not implemented yet, so it is never true today.
+- **Runtime verified:** **always false** in this tool. It needs trusted server-origin attestation, and GitHub metadata can never establish it.
+
+Output of the current repository (exit 2, blockers present):
+
+| Service | Source | Build blockers found statically | Runtime |
+|---|---|---|---|
+| analyzer | commit `ea8ae4f` + per-file evidence | revision label defaults to `unknown`; **aiohttp pinned 3.13.5, installed 3.14.3**; 22 installed distributions unpinned (no lock); no canonical rebuild | not verifiable from GitHub |
+| signal_engine | commit `ea8ae4f` | the same label and aiohttp pin gaps; 42 unpinned; no canonical rebuild | not verifiable from GitHub |
+| trade_tracker | commit `ea8ae4f` | label `unknown`; 23 unpinned; no canonical rebuild | not verifiable from GitHub |
+| telegram | commit `ea8ae4f` | label `unknown`; 15 unpinned; no canonical rebuild | not verifiable from GitHub |
+| scanner | **assembled** (not a single commit) | label `unknown`; 23 unpinned; no canonical rebuild | not verifiable from GitHub |
+| collector | commit `1bfb5f6` | no OCI revision label (it bakes `P2F_GIT_COMMIT` instead); no canonical rebuild; **no archive of the running image** | not verifiable from GitHub |
+
+The compose `image:` references of the five trading services equal the observed image references in `deploy/DEPLOYED.json`. That is a static comparison only.
+
+**Gap owners and actions** (each to be closed in its own reviewed PR):
+
+| Gap | Owner | Action |
+|---|---|---|
+| Dependency locks | Operator | Add a per-service committed lock (`requirements.lock`) generated in isolation; prove installed set = lock |
+| aiohttp pins | Operator | Align `analyzer` and `signal_engine` requirements with the installed 3.14.3 (affects future builds only) |
+| Revision label | Operator | Build only with `BUILD_REVISION=<full sha>`; fail the build when it is missing or `unknown`; add an OCI label to the collector |
+| Canonical rebuild | Operator, with Owner approval | CI builds on GitHub-hosted runners after the locks exist; manifest compared with `runtime_manifest.py`; never pushed or deployed |
+| Collector archive | Owner | Approve archiving the running collector image (Class A `docker save` to a private path) |
+| Scanner provenance | Owner | Decide on a clean scanner rebuild from `main` (a deployment change, separately approved) |
+| Runtime attestation | Owner | Define the server-origin, signed observation (the R1.2 drift-check output is the candidate) |
+
+**CI semantics.** The `parity-inventory` job:
+- **passes only while blockers are detected**;
+- asserts the schema, the static scope, all six services, and `runtime_verified: false` everywhere;
+- runs the unit and negative tests;
+- **fails** if the tool ever claims runtime parity, or if blockers disappear without review ("Unexpected readiness"). Closing gaps therefore requires deliberately updating this gate in a reviewed PR; the gate is never silently weakened.
+
+Plan status:
+- **A** (static gate): implemented.
+- **B** (inventory): implemented, with the owners and actions above.
+- **C** (canonical CI builds), **D** (review packet), **E** (cutover): not started; C depends on the locks.
