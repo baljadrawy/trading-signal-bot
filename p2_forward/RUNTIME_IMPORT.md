@@ -34,3 +34,6 @@ The two source lines split at `cd2935e`. Their changes are path-disjoint: `1bfb5
 
 ## Local verification (2026-10-18, Python 3.12, the exact `requirements.txt` set installed with `--no-deps`)
 `python -m pytest -q -p no:cacheprovider -rs tests` on this tree: **369 passed, 1 skipped** (`P2C_READER_DIR`), **0 failed**. CI runs the same suite in the `collector` job.
+
+## Post-import test corrections
+One test-only correction after the import (`tests/test_p2cr_crash.py`: deterministic crash interval). See `TEST_CORRECTIONS.md`. Runtime files are unchanged, and `PROVENANCE.json` still records the imported blobs.

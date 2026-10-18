@@ -14,7 +14,7 @@ import time
 import unittest
 
 from p2_forward import cal
-from tests.test_p2cr_continuous import VC, setup_calendar, segs_of
+from tests.test_p2cr_continuous import VC, cont_cfg, setup_calendar, segs_of
 
 PY = sys.executable
 CWD = str(pathlib.Path(__file__).resolve().parents[1])
@@ -49,6 +49,16 @@ class CrashRestart(unittest.TestCase):
         cls.partials_at_kill = [f for _, _, fs in os.walk(os.path.join(cls.base, "raw")) for f in fs if f.endswith(".partial")]
         os.kill(p.pid, signal.SIGKILL); p.wait(10)
         cls.healthy_before_kill = ok
+        # Deterministic crash interval (post-import correction, see TEST_CORRECTIONS.md). The verifier counts crash
+        # downtime per stream from (last persisted sample + cadence) to the successor's ws_start. Restarting at once made
+        # that interval contain a sample boundary only when the kill phase plus the restart latency happened to cross the
+        # next grid boundary. Every persisted sample of A is <= dead_ms, so for a stream on the minimum cadence
+        # crash_end <= crash_boundary_ms; starting the successor after that boundary makes the crash span >= 1 sample.
+        grid = min(cont_cfg(cls.base)["cadence_ms"].values())          # 1000 ms: config requires multiples of 1000
+        dead_ms = time.time_ns() // 1_000_000
+        cls.crash_boundary_ms = (dead_ms // grid + 1) * grid
+        while time.time_ns() // 1_000_000 <= cls.crash_boundary_ms:
+            time.sleep(0.005)
         q = driver(cls.base, cls.cal, 75)                               # restart: crosses the day end, closes the day
         cls.boot_b = q.stdout.readline().split()[1]
         cls.code_b = q.wait(240)
@@ -93,6 +103,8 @@ class CrashRestart(unittest.TestCase):
         for d, r in self.reports.items():
             self.assertTrue(r["PASS"], json.dumps({"day": d, "f": r["failures"], "ex": r["examples"]}, default=str)[:3000])
         r = self.reports[crash_days[0]]
+        succ = next(x for x in r["info"]["runs"] if x["boot"] == self.boot_b)
+        self.assertGreater(succ["lo"], self.crash_boundary_ms, "precondition: the successor started after the boundary")
         self.assertGreater(r["info"]["totals"].get("downtime_crash", 0), 0)
         self.assertEqual(r["info"]["totals"].get("unexplained", 0), 0)
 
