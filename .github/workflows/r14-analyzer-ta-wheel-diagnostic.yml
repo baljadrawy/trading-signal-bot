@@ -1,0 +1,76 @@
+name: r14-analyzer-ta-wheel-diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ta-source-wheel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enforce original source pin and record environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/source evidence/wheelhouse
+          python - <<'PY'
+          from pathlib import Path
+          from ops.provenance.lock_review import parse
+          pins, errors = parse(Path("analyzer/requirements.txt").read_text())
+          assert not errors, errors
+          assert pins.get("ta") == "0.11.0", "STOP: original ta pin changed"
+          PY
+          git rev-parse HEAD > evidence/source-commit.txt
+          python --version > evidence/python-version.txt
+          python -m pip --version > evidence/pip-version.txt
+          uname -a > evidence/platform.txt
+          sha256sum analyzer/requirements.txt > evidence/source-requirements-sha256.txt
+      - name: Download exact ta source distribution only (do not install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --no-binary=ta --dest evidence/source ta==0.11.0
+          test "$(find evidence/source -maxdepth 1 -type f | wc -l)" -eq 1
+          sha256sum evidence/source/* > evidence/ta-sdist-sha256.txt
+      - name: Build an isolated wheel from the recorded source distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps --no-cache-dir --wheel-dir evidence/wheelhouse evidence/source/*
+          test "$(find evidence/wheelhouse -maxdepth 1 -name 'ta-0.11.0-*.whl' | wc -l)" -eq 1
+          sha256sum evidence/wheelhouse/* > evidence/ta-wheel-sha256.txt
+      - name: Analyze full analyzer wheel-only resolution with local ta wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --dry-run --ignore-installed --only-binary=:all: \
+            --find-links evidence/wheelhouse --report evidence/analyzer-resolution-report.json \
+            -r analyzer/requirements.txt
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("evidence/analyzer-resolution-report.json").read_text())
+          packages = {i["metadata"]["name"].lower().replace("_", "-"): i["metadata"]["version"] for i in data["install"]}
+          assert packages.get("ta") == "0.11.0", "STOP: analyzer did not resolve pinned ta"
+          Path("evidence/summary.json").write_text(json.dumps({
+            "schema": "tsb-r14-ta-wheel-diagnostic/1",
+            "result": "REVIEW_ONLY_NOT_CERTIFIED",
+            "ta_pin": "0.11.0",
+            "candidate_count": len(packages),
+            "constraints": ["disposable runner", "no production changes", "no runtime or lock certification"]
+          }, indent=2) + "\n")
+          PY
+      - name: Upload diagnostic evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-analyzer-ta-wheel-diagnostic
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
