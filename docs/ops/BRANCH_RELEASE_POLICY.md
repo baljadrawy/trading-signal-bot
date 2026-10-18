@@ -128,7 +128,7 @@ Agents follow this policy:
 | `SETUP_GUIDE.md` Git section | **Conflicts** (duplicate, outdated flow) | Remove in the docs PR |
 | `docs/claude/operations.md` (`git push origin main`) | **Conflicts** (direct push) | Correct in the docs PR |
 | `docs/github-checkpoint-governance-20261008` (unmerged: "stage closure needs a verified GitHub checkpoint") | Consistent (Saved / Merged / Deployed / Validated) | Merge separately or fold in |
-| `.github/workflows/tests.yml` | Requires PR-0 (main triggers, collector job) | PR-0 |
+| `.github/workflows/tests.yml` | Consistent since PR #37 (merged to develop at `4c034ed`): main triggers and the collector job | Required checks of section 8 match its job names |
 | `.env.example` (tracked; `.gitignore` exception `!.env.example`) | Reviewed 2026-10-18 (`docs/ops/ENV_EXAMPLE_REVIEW_2026-10-18.md`): **no real secrets**, all placeholders. Several defaults are outdated or misleading | Operational defaults are not changed by this PR. Correcting the template is a separate, owner-approved change |
-| `deploy/a561-rel-ea8ae4f/IMAGES.md` (runtime-provenance PR) | States the item-5 facts: not canonical builds, inventories not locks, aiohttp pin mismatch, on-host archives, no collector archive | Record as the legacy transition exception |
+| `deploy/a561-rel-ea8ae4f/IMAGES.md` (PR #38, merged to develop at `63c086a`) | States the item-5 facts: not canonical builds, inventories not locks, aiohttp pin mismatch, on-host archives, no collector archive | Record as the legacy transition exception |
 | Historical audits, release records, governance JSON/JSONL | Immutable | Never rewritten |
