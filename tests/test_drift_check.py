@@ -241,5 +241,96 @@ class NoEnvironmentLeak(unittest.TestCase):
         self.assertEqual(len(re.findall(r'\.Config\.Env', DC.PAPER_FMT)), 1)
 
 
+class Coverage(unittest.TestCase):
+    def _cov(self, m=None, host=None, deep=False):
+        m = m or copy.deepcopy(BASE)
+        res = DC.run_checks(m, host or FakeHost(m), deep=deep)
+        return DC.overall(res), DC.coverage(res, deep)
+
+    def test_metadata_only_is_never_full(self):
+        ov, cov = self._cov()
+        self.assertEqual(ov, DC.MATCH)
+        self.assertEqual(cov['verification'], 'METADATA_ONLY')
+        self.assertEqual(cov['counts'][DC.NOT_RUN], 1)
+        self.assertGreater(cov['counts'][DC.NA], 0)
+
+    def test_deep_match_is_full(self):
+        ov, cov = self._cov(deep=True)
+        self.assertEqual((ov, cov['verification'], cov['counts'][DC.NOT_RUN]), (DC.MATCH, 'FULL', 0))
+
+    def test_missing_required_check_is_unknown_not_pass(self):
+        m = copy.deepcopy(BASE)
+        del m['host_definitions']                      # D5 cannot run: partial execution
+        ov, cov = self._cov(m, deep=True)
+        self.assertEqual(ov, DC.UNKNOWN)
+        self.assertEqual(cov['verification'], 'INCOMPLETE')
+
+    def test_unknown_makes_incomplete(self):
+        m = copy.deepcopy(BASE); h = FakeHost(m); h.render['analyzer'] = None
+        ov, cov = self._cov(m, h, deep=True)
+        self.assertEqual((ov, cov['verification']), (DC.UNKNOWN, 'INCOMPLETE'))
+
+    def test_safety_precedence_unchanged_and_counted(self):
+        m = copy.deepcopy(BASE); h = FakeHost(m)
+        h.containers['trading_continuous_learner']['state'] = 'running'
+        h.render['analyzer'] = None                       # UNKNOWN present too
+        h.containers['trading_tracker']['restart_count'] += 1   # DRIFT present too
+        ov, cov = self._cov(m, h)
+        self.assertEqual(ov, DC.SAFETY)
+        self.assertEqual(DC.EXIT[ov], 3)
+        self.assertGreaterEqual(min(cov['counts'][DC.SAFETY], cov['counts'][DC.DRIFT], cov['counts'][DC.UNKNOWN]), 1)
+
+    def test_counts_cover_every_result(self):
+        m = copy.deepcopy(BASE)
+        res = DC.run_checks(m, FakeHost(m))
+        self.assertEqual(sum(DC.coverage(res, False)['counts'].values()), len(res))
+
+    def test_human_and_json_output_expose_coverage(self):
+        import tempfile
+        m = copy.deepcopy(BASE)
+        with tempfile.TemporaryDirectory() as d:
+            rp = os.path.join(d, 'r.json')
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = DC.main(['check', '--manifest', MANIFEST_PATH, '--json', rp], host=FakeHost(m))
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn('COVERAGE MATCH=', out)
+            self.assertIn('verification=METADATA_ONLY', out)
+            self.assertIn('image content NOT verified', out)
+            rep = json.load(open(rp))
+            self.assertEqual(rep['coverage']['verification'], 'METADATA_ONLY')
+            self.assertIn('INTERNAL INFRASTRUCTURE METADATA', rep['_notice'])
+
+
+class MetadataHandling(unittest.TestCase):
+    def test_report_written_0600_even_if_preexisting(self):
+        import stat, tempfile
+        m = copy.deepcopy(BASE)
+        with tempfile.TemporaryDirectory() as d:
+            rp = os.path.join(d, 'r.json')
+            open(rp, 'w').close(); os.chmod(rp, 0o644)
+            with redirect_stdout(io.StringIO()):
+                DC.main(['check', '--manifest', MANIFEST_PATH, '--json', rp], host=FakeHost(m))
+            self.assertEqual(stat.S_IMODE(os.stat(rp).st_mode), 0o600)
+
+    def test_observe_has_notice_no_env_and_private_file(self):
+        import stat, tempfile
+        m = copy.deepcopy(BASE)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            DC.main(['observe', '--manifest', MANIFEST_PATH], host=FakeHost(m))
+        obs = json.loads(buf.getvalue())
+        self.assertIn('INTERNAL INFRASTRUCTURE METADATA', obs['_notice'])
+        raw = json.dumps(obs)
+        self.assertNotIn('Env', raw)
+        self.assertNotIn('PAPER_TRADING', raw)
+        with tempfile.TemporaryDirectory() as d:
+            op = os.path.join(d, 'o.json')
+            with redirect_stdout(io.StringIO()):
+                DC.main(['observe', '--manifest', MANIFEST_PATH, '--out', op], host=FakeHost(m))
+            self.assertEqual(stat.S_IMODE(os.stat(op).st_mode), 0o600)
+
+
 if __name__ == '__main__':
     unittest.main()

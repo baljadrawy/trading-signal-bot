@@ -19,7 +19,12 @@ NOT_APPLICABLE are neutral and are always printed, so a metadata-only MATCH is n
 Usage:
   drift_check.py check   [--manifest deploy/DEPLOYED.json] [--deep] [--json REPORT] [--max-age-days 30]
   drift_check.py validate [--manifest ...]
-  drift_check.py observe  [--manifest ...]     # current observations as JSON (no provenance, no env), for review
+  drift_check.py observe  [--manifest ...] [--out FILE]   # current observations (no provenance, no env), for review
+
+Output and reports are INTERNAL INFRASTRUCTURE METADATA: authorized operational use only; never upload them to public
+services; never commit generated observations automatically. Files written by --json/--out are mode 0600.
+Every check run prints a COVERAGE line (counts per status and verification=FULL|METADATA_ONLY|INCOMPLETE); FULL is
+only possible with --deep and no UNKNOWN or NOT_RUN result. A required check that yields no result becomes UNKNOWN.
 """
 import argparse
 import datetime as dt
@@ -44,6 +49,10 @@ INSPECT_FMT = ('{"container_id":"{{.Id}}","image_id":"{{.Image}}","image_ref":"{
                '"config_hash":"{{index .Config.Labels "com.docker.compose.config-hash"}}"}')
 PAPER_FMT = ('{{range .Config.Env}}{{if eq (index (split . "=") 0) "PAPER_TRADING"}}'
              '{{index (split . "=") 1}}{{end}}{{end}}')
+REQUIRED_CHECKS = ('B0', 'D1', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8')
+METADATA_NOTICE = ('INTERNAL INFRASTRUCTURE METADATA (container/image identifiers, paths, operational state). No secrets '
+                   'or environment values. Authorized operational use only: do not upload to public services and do '
+                   'not commit generated observations automatically.')
 FORBIDDEN_KEYS = re.compile(r'(?i)(password|secret|token|api_key|apikey|private|env_values?)')
 
 
@@ -269,7 +278,23 @@ def run_checks(m, host, deep=False, max_age_days=30, root=ROOT):
                 f'{len(lines)} services verified' if rc == 0 else ('; '.join(l for l in lines if l.startswith('DIFF')) or 'verify unavailable'))
         except HostError:
             add('D2', 'image-content', UNKNOWN, 'verify unavailable')
+    # required-check guard: a required check family that produced no result can never pass silently
+    for c in REQUIRED_CHECKS + (('D2',) if deep else ()):
+        if not any(r['check'] == c for r in res):
+            add(c, 'coverage', UNKNOWN, 'required check produced no result')
     return res
+
+
+def coverage(results, deep):
+    """Counts per status plus the verification scope. FULL only when --deep ran and nothing is UNKNOWN/NOT_RUN."""
+    counts = {k: sum(1 for r in results if r['status'] == k) for k in (MATCH, DRIFT, UNKNOWN, SAFETY, NOT_RUN, NA)}
+    if counts[UNKNOWN]:
+        verification = 'INCOMPLETE'
+    elif not deep or counts[NOT_RUN]:
+        verification = 'METADATA_ONLY'
+    else:
+        verification = 'FULL'
+    return {'counts': counts, 'verification': verification, 'deep_requested': bool(deep), 'checks_total': len(results)}
 
 
 def overall(results):
@@ -289,12 +314,27 @@ def observe(m, host):
     return out
 
 
+def write_private(path, obj):
+    """Write JSON with mode 0600, also tightening a pre-existing file (umask alone would not)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            fd = None
+            json.dump(obj, f, indent=1, sort_keys=True)
+            f.write('\n')
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def main(argv=None, host=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('mode', choices=['check', 'validate', 'observe'])
     ap.add_argument('--manifest', default=os.path.join(ROOT, 'deploy', 'DEPLOYED.json'))
     ap.add_argument('--deep', action='store_true')
-    ap.add_argument('--json')
+    ap.add_argument('--json', help='write the check report (mode 0600)')
+    ap.add_argument('--out', help='observe: write observations to this file (mode 0600) instead of stdout')
     ap.add_argument('--max-age-days', type=int, default=30)
     a = ap.parse_args(argv)
     host = host or Host()
@@ -308,22 +348,26 @@ def main(argv=None, host=None):
         print('valid' if not probs else '\n'.join(probs))
         return 0 if not probs else EXIT[UNKNOWN]
     if a.mode == 'observe':
-        print(json.dumps(observe(m, host), indent=1, sort_keys=True))
+        obs = {'_notice': METADATA_NOTICE, 'observations': observe(m, host)}
+        if a.out:
+            write_private(a.out, obs)
+            print(f'observations written to {a.out} (mode 0600)')
+        else:
+            print(json.dumps(obs, indent=1, sort_keys=True))
         return 0
     results = run_checks(m, host, deep=a.deep, max_age_days=a.max_age_days)
     for r in results:
         print(f"{r['check']:3} {r['status']:15} {r['target']:28} {r['detail']}")
     ov = overall(results)
-    scope = 'metadata only (D2 not run)' if not a.deep else 'metadata + image content'
+    cov = coverage(results, a.deep)
+    scope = {'FULL': 'metadata + image content', 'METADATA_ONLY': 'metadata only (image content NOT verified)',
+             'INCOMPLETE': 'INCOMPLETE (some required evidence unavailable)'}[cov['verification']]
+    print('COVERAGE ' + ' '.join(f'{k}={v}' for k, v in cov['counts'].items()) + f" verification={cov['verification']}")
     print(f'OVERALL {ov} ({scope}); no remediation performed')
     if a.json:
-        old = os.umask(0o077)
-        try:
-            with open(a.json, 'w') as f:
-                json.dump({'overall': ov, 'scope': scope, 'manifest_observed_at': m.get('observed_at'),
-                           'checked_at': host.now().isoformat(), 'results': results}, f, indent=1)
-        finally:
-            os.umask(old)
+        write_private(a.json, {'_notice': METADATA_NOTICE, 'overall': ov, 'scope': scope, 'coverage': cov,
+                               'manifest_observed_at': m.get('observed_at'), 'checked_at': host.now().isoformat(),
+                               'results': results})
     return EXIT[ov]
 
 

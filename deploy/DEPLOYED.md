@@ -59,13 +59,31 @@ python3 ops/provenance/drift_check.py observe                  # current observa
 | `UNKNOWN` | 2 (evidence unavailable, schema invalid or baseline stale; **never treated as a pass**) |
 | `MATCH` | 0 |
 
-`NOT_RUN` (D2 without `--deep`) and `NOT_APPLICABLE` are always printed, and the overall line states the scope (metadata only, or including image content).
+`NOT_RUN` (D2 without `--deep`) and `NOT_APPLICABLE` are always printed.
+
+**Coverage summary.** Every `check` run prints, and the `--json` report contains, a `COVERAGE` line with the count of each status (`MATCH`, `DRIFT`, `UNKNOWN`, `SAFETY`, `NOT_RUN`, `NOT_APPLICABLE`) and a verification scope:
+
+| Scope | When |
+|---|---|
+| `FULL` | Only with `--deep` and no `UNKNOWN` or `NOT_RUN` result |
+| `METADATA_ONLY` | Image content not verified. The overall line says "image content NOT verified" |
+| `INCOMPLETE` | Some required evidence was unavailable |
+
+The required check families are B0, D1, D3–D8, plus D2 with `--deep`. A required family that produces no result is recorded as `UNKNOWN`, so a partial run can never present as a complete pass. Exit-code precedence is unchanged.
 
 **Measured on 2026-10-18:**
 - metadata check: 2.7 s, exit 0;
 - `--deep`: 44 s, exit 0.
 
-**Not scheduled.** Running it from cron or wiring alerts needs separate owner approval. A report written with `--json` is created with mode 600.
+**Not scheduled.** Running it from cron or wiring alerts needs separate owner approval.
+
+## Handling of observations and reports (internal infrastructure metadata)
+
+`observe` output and `--json` reports contain internal infrastructure metadata: immutable container and image identifiers, host paths, start times, restart counts, config hashes and check results. Both carry a `_notice` field saying so.
+- **Never** secrets or environment dumps. Only the single `PAPER_TRADING` flag is compared, inside Docker's template, and its value is never written. Tests enforce this.
+- **Authorized operational workflows only.** Do not paste them into public issues or chats, and do not upload them to public services or pastebins.
+- **Never commit generated observations automatically.** The baseline `DEPLOYED.json` changes only through a reviewed PR (below).
+- Files written with `--json` or `observe --out` are created with mode **0600**, and an existing file is tightened to 0600 too. Keep them in a private directory, for example under `umask 077`. Plain `observe` prints to the terminal; prefer `--out` for anything you keep.
 
 ## Updating the baseline
 
