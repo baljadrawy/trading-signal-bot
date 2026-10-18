@@ -1,0 +1,120 @@
+name: r14-ta-cross-run-provenance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [a, b]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record immutable input identities and enforce ta pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/source evidence/wheel
+          git rev-parse HEAD > evidence/source-commit.txt
+          python --version > evidence/python-version.txt
+          python -m pip --version > evidence/pip-version.txt
+          uname -a > evidence/platform.txt
+          sha256sum analyzer/requirements.txt > evidence/requirements-sha256.txt
+          python - <<'PY'
+          from pathlib import Path
+          from ops.provenance.lock_review import parse
+          pins, errors = parse(Path("analyzer/requirements.txt").read_text())
+          assert not errors, errors
+          assert pins.get("ta") == "0.11.0"
+          PY
+      - name: Download source independently and record SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip download --no-deps --no-binary=ta --dest evidence/source ta==0.11.0
+          test "$(find evidence/source -maxdepth 1 -type f | wc -l)" -eq 1
+          sha256sum evidence/source/* > evidence/source-sha256.txt
+      - name: Build with fixed epoch and record build dependency versions
+        shell: bash
+        env:
+          SOURCE_DATE_EPOCH: '1704067200'
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-deps --no-cache-dir --wheel-dir evidence/wheel evidence/source/*
+          test "$(find evidence/wheel -maxdepth 1 -name 'ta-0.11.0-*.whl' | wc -l)" -eq 1
+          sha256sum evidence/wheel/*.whl > evidence/wheel-sha256.txt
+          python -m pip list --format=freeze > evidence/runner-pip-freeze.txt
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          source, = Path("evidence/source").glob("*")
+          wheel, = Path("evidence/wheel").glob("*.whl")
+          report = {
+              "schema": "r14-cross-run-ta/1",
+              "source_name": source.name,
+              "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+              "wheel_name": wheel.name,
+              "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "epoch": 1704067200,
+              "scope": "independent runner, not audited pinned build inputs",
+              "certification": "NONE"
+          }
+          Path("evidence/manifest.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
+      - name: Upload evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-ta-independent-build-${{ matrix.attempt }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
+  compare:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r14-ta-independent-build-*
+          path: comparisons
+      - name: Verify independent source and wheel hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a = json.loads(Path("comparisons/r14-ta-independent-build-a/manifest.json").read_text())
+          b = json.loads(Path("comparisons/r14-ta-independent-build-b/manifest.json").read_text())
+          result = {
+              "schema": "r14-ta-cross-run-comparison/1",
+              "source_match": a["source_sha256"] == b["source_sha256"],
+              "wheel_match": a["wheel_sha256"] == b["wheel_sha256"],
+              "source_sha256_a": a["source_sha256"],
+              "source_sha256_b": b["source_sha256"],
+              "wheel_sha256_a": a["wheel_sha256"],
+              "wheel_sha256_b": b["wheel_sha256"],
+              "certification": "NONE: build toolchain and source upstream trust not yet pinned"
+          }
+          Path("comparisons/comparison.json").write_text(json.dumps(result, indent=2) + "\n")
+          print(json.dumps(result, indent=2))
+          assert result["source_match"], "STOP: independent source distributions differ"
+          assert result["wheel_match"], "STOP: independent wheels differ"
+          PY
+      - name: Upload comparison even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r14-ta-cross-run-comparison
+          path: comparisons/
+          retention-days: 14
+          if-no-files-found: error
