@@ -12,7 +12,7 @@
 
 Where the documents disagree, this file records the disagreement and leaves it **unresolved**: no value here is binding by being written down.
 
-Calculator: `research/power/ladder_power.py` (`s5-pwr-1-v1`). Owner decisions: `docs/strategy/S5_PWR_1_OWNER_DECISIONS.md`.
+Calculator: `research/power/ladder_power.py` (`s5-pwr-1-v2`). Owner decisions: `docs/strategy/S5_PWR_1_OWNER_DECISIONS.md`.
 
 ## 1. Source documents and provenance
 
@@ -92,7 +92,7 @@ Each entry has a class, its evidence, and the scenario or label it maps to in `r
 | ID | Class | Discrepancy | Evidence | Calculator handling |
 |---|---|---|---|---|
 | DR-1 | SUPERSEDED | Reserve alpha at half weight, 0.025/N (A30 §3, §4 item 4), and "RESERVE at half: 0.21 %" (A31 §3) vs equal 1/240 for both streams. A32 §4: "A31's 0.21 % reserve level is **withdrawn**". A30/A31 are not marked as superseded in the files themselves | A30 §3; A31 §3; A32 §4 | scenarios `A30_HALF_WEIGHT_RESERVE` and `A31_RESERVE_0_21_PCT`, status `SUPERSEDED`, kept for comparison only |
-| DR-2 | OWNER | α_cal = 1/276 (certified program bound 12/276 ≈ 4.35 %) vs the A33 owner alternative: α_cal = 1/240 with tolerance CP upper ≤ 1.15α (certified bound 5.75 %, which must be stated in those words). The roadmap (main, l.17) cites only "α = 1/240 each" | A33 §8; A34-B §2, §4 | scenarios `A33_EQUAL_1_240_CAL_1_276` (`LATEST_DOCUMENTED_NOT_GOVERNANCE_CONFIRMED`) and `A33_OWNER_ALTERNATIVE_CAL_1_240` (`UNRESOLVED_OWNER_ALTERNATIVE`) |
+| DR-2 | OWNER | α_cal = 1/276 (A33's program bound *if its validation passes*: 12/276 ≈ 4.35 %) vs the A33 owner alternative: α_cal = 1/240 with tolerance CP upper ≤ 1.15α (bound 5.75 %, which must be stated in those words if adopted). Neither is certified: the validation was never run. OD-3: both stay labelled scenarios, not an approved calibration standard. The roadmap (main, l.17) cites only "α = 1/240 each" | A33 §8; A34-B §2, §4 | scenarios `A33_EQUAL_1_240_CAL_1_276` (`LATEST_DOCUMENTED_NOT_GOVERNANCE_CONFIRMED`) and `A33_OWNER_ALTERNATIVE_CAL_1_240` (`UNRESOLVED_OWNER_ALTERNATIVE`); `program_bound` reports `certified_bound = None` |
 | DR-3 | SUPERSEDED / OWNER | Reserve allocation rule. The A30/A31 elapsed-day deficit rule gives about a 25 % share; the A33 committed-length nearest-to-target rule gives 0.201, with a preregistered all-null check of mean closure share in [0.18, 0.22]. It is bound in the A33 spec, which was never authorized | A33 §2; A34-B §1 | not computed; a documentation-only rule |
 | DR-4 | SUPERSEDED | Four O'Brien–Fleming looks (A30 §1 item 2) were replaced by final-look-only efficacy (A31 §2). The A30 §6 MDE table includes about a 3 % OBF boundary cost (3.48 × 1.03 ≈ 3.58) | A30 §1, §6; A31 §2 | the calculator models the final look only |
 | DR-5 | SUPERSEDED | Ljung–Box Q(10) is a validity gate in A30/A31 but an interpretation flag only in A32 §3 | A30 §1 item 4; A31 §2 item 4; A32 §3 | not modelled (its power cost is 0–4 points, A31 §2) |
@@ -100,43 +100,99 @@ Each entry has a class, its evidence, and the scenario or label it maps to in `r
 | DR-7 | MATH | The MDE multiplier used in the A30 §6, A42 l.238 and A45 l.169 planning tables is the normal-theory 3.48 (= z(1 − 1/240) + z(0.8)). Under the latest documented calibration (c ≈ 3.20) it becomes ≈ 4.04, so those MDEs are about 16 % optimistic for the final design | A31 §2; A33 §8 | mode `NORMAL_THEORY` reproduces 3.48; test `test_envelope_multiplier_is_about_4_04_and_labelled_unvalidated` |
 | DR-8 | MATH | A45 l.169 states an iid MDE of "≈ 0.12 %/setup" from ~6,400 setups/year, about 1/3 above the cap, σ = 1.5 %. These inputs give **0.136–0.142 %**. Its "0.2–0.4 %" range (√3–√10 × 0.12) becomes about 0.24–0.44 % | A45 l.169 (main) | test `test_a45_h2_stated_0_12_does_not_reproduce_from_its_inputs` |
 | DR-9 | MATH (reproduces) | A42 l.238 C1 "≈ 0.13 %/trade iid" reproduces (0.133) from its stated inputs | A42 l.238 (main) | test `test_a42_c1_planning_mde_reproduces` |
-| DR-10 | GAP | No ICC or day-clustering model is documented. Assumed design effects are 1 / 1.5 (A30 §6), 2–3 (A42 l.238) and 3–10 (A45 l.169) for overlapping populations | as cited | `deff`/`lrv_ratio` are explicit inputs with low/high ranges; `deff_upper_bound(cluster_sizes)` gives an outcome-free bound |
-| DR-11 | GAP | Unit mismatch: the governed test is a daily HAC z on mark-to-market net excess, while the A42/A44/A45/A46 MDEs are per trade or per setup. No mapping is documented | A33 §3 vs A42/A45 | per-trade outputs are labelled `governed=False`, "ILLUSTRATIVE ONLY" |
+| DR-10 | GAP | No ICC or day-clustering model is documented. Assumed design effects are 1 / 1.5 (A30 §6), 2–3 (A42 l.238) and 3–10 (A45 l.169) for overlapping populations | as cited | `deff`/`lrv_ratio` are explicit inputs with low/high ranges. The count-only bound is `deff_bound_any_within_cluster` = max(m), valid under heteroskedasticity given independent clusters. The exchangeable formula is labelled homoskedastic-only (§4). Neither is a measurement |
+| DR-11 | GAP | Unit mismatch: the governed test is a daily HAC z on mark-to-market net excess, while the A42/A44/A45/A46 MDEs are per trade or per setup. No mapping is documented | A33 §3 vs A42/A45 | per-trade outputs are labelled `approximates_governed_test=False`, "ILLUSTRATIVE ONLY" |
 | DR-12 | GAP | The roadmap (main, l.17) omits the 3-year program period and α_cal. Its binding sources (A29–A34) are not on GitHub | roadmap l.17; §1 | OD-1, OD-3 |
 | DR-13 | OWNER | Admission gate: B2 gate v2 CALIBRATED on a ≥ 2,000-day historical series (A30 §1 item 4; A31 §2 item 5). Its applicability to S4 families and to `enforce`-era candidates is undefined | as cited | not modelled |
 
-## 4. Governed test vs illustrative per-trade arithmetic
+## 4. Governed-test approximation vs illustrative per-trade arithmetic
 
-**Governed (approximated):** `daily_hac_sharpe_mde(scenario, stream, cv_mode, power, days ≤ 365, lrv_ratio)`.
-- It returns the minimum detectable annualized Sharpe (√365 scaling) of the daily net-excess series: (c + z_power) · √lrv_ratio · √(365/days).
+Every result carries `illustrative_until_validated = True`. No critical value has passed independent validation (DR-6; owner decision OD-5), and the result classes refuse to be built otherwise.
+
+**Approximates the governed test:** `daily_hac_sharpe_mde(scenario, stream, cv_mode, power, days, lrv_ratio)` and `power_daily_hac(...)`.
+- They set `approximates_governed_test = True`, with `endpoint = "daily_hac_sharpe"`.
+- They return the minimum detectable annualized Sharpe (√365 scaling) of the daily net-excess series, (c + z_power) · √lrv_ratio · √(365/days), or the normal-approximation power Φ(S · √(days/365) / √lrv_ratio − c).
+- `days` must lie in [30, 365].
 - **Limitations:**
   - normal approximation;
   - ignores the non-binding futility looks, the skewness gate and finite-sample HAC bias;
   - `lrv_ratio` (long-run variance / variance) is an assumption.
-- Simulated power in the source documents (A31 §5, A32 §6) is the reference, and it may differ from this approximation.
+- Simulated power in the source documents (A31 §5, A32 §6) is the reference. At a true Sharpe of 3 this approximation gives 0.42–0.44 under the envelope modes, against a simulated 0.46–0.56.
 
-**Illustrative only:** `per_trade_mde_illustrative(...)` and `required_trades_illustrative(...)`.
-- They reproduce the per-trade planning arithmetic of A42/A44/A45: k · σ · √(deff · (1/n1 + 1/n2)), or the one-sample form.
+**Illustrative only:** `per_trade_mde_illustrative`, `power_per_trade_illustrative`, `required_trades_illustrative`.
+- They set `approximates_governed_test = False`.
+- They reproduce the A42/A44/A45 planning arithmetic, k · σ · √(deff · (1/n1 + 1/n2)) or the one-sample form, assuming equal σ and independent arms.
 - They are **not** the governed test, and their units do not map onto it (DR-11).
-- They help judge whether a per-trade effect is even in range.
+- n ≥ 2 is required. A caveat is added when n/deff < 30.
+
+**Screen statuses (`admissibility_screen.screen`)** compare implied power with the **declared** target power:
+- `POWER_AT_OR_ABOVE_TARGET_UNDER_STATED_ASSUMPTIONS`
+- `POWER_BELOW_TARGET_UNDER_STATED_ASSUMPTIONS`
+- `POWER_VERSUS_TARGET_DEPENDS_ON_ASSUMPTIONS`
+- `UNKNOWN_INPUTS`
+
+Each result reports `implied_power_min` / `implied_power_max` and records every effective input:
+- scenario and its status;
+- stream;
+- critical-value mode and its status;
+- endpoint and target power;
+- effect and dependence ranges;
+- days, σ, n1 and n2.
+
+The screen also:
+- refuses SUPERSEDED scenarios;
+- refuses fields the chosen endpoint does not use;
+- refuses non-positive or sign-straddling effects (the claim is one-sided, μ > 0).
+
+`reconsideration_eligible` is `False` with explicit `reconsideration_blockers` unless all of these hold:
+- the endpoint is the daily approximation;
+- the scenario is governance-confirmed;
+- the critical value is independently validated;
+- power is at or above target for every stated assumption.
+
+None of these conditions can hold today. Even then, eligibility only allows the owner to reconsider. It never authorizes an admission.
 
 **Interpretation rules, enforced by tests:**
 1. Insufficient power is not evidence of no edge.
-2. "Powered under stated assumptions" is not evidence of an edge, not an admission, and consumes no alpha.
+2. "Power at or above target under stated assumptions" is not evidence of an edge, not an admission, and consumes no alpha.
 3. No output is a governance decision.
 4. Declared effects are written assumptions and must never be estimated from protected or research-exposed outcomes.
 
-## 5. Isolation guarantees (tested)
+**Program bound (`program_bound`)** returns these quantities separately:
+- `governance_allocation` (Σ allocated α);
+- `union_bound_at_test_levels` (Σ calibration levels per stream from `test_level`);
+- `bound_stated_if_alternative_adopted` (A33 owner alternative only: n × 1.15 × α, e.g. 5.75 % for 12 admissions);
+- `certified_bound`, which is always `None` because no calibration is validated.
 
-`tests/test_s5_pwr1_ladder_power.py` verifies:
-- **Imports:** only `dataclasses`, `fractions`, `math`, `numbers`, `statistics` and the package itself (AST check).
-- **No I/O, evaluation or environment calls:** no `open`, `exec`, `eval`, `compile`, `__import__`, `input`, and no `environ`/`getenv`/`connect`/`urlopen`/`read_text` access (AST check).
-- **Runs with I/O disabled:** every public function runs with `open`, `os.open`, directory listing, sockets, `subprocess.Popen`, `Path.open`/`read_text` and the environment disabled.
-- **Refused inputs:** paths, file objects, strings, bytes, booleans and non-finite numbers.
-- **No production caller:** no production file references the package.
-- **No defaults:** calculations refuse to run without an explicit scenario, stream and critical-value mode.
+**Design-effect functions:** these take synthetic cluster sizes only. Real cluster counts or timestamps from the sealed stream need separate authorization (OD-7).
+- `deff_bound_any_within_cluster(sizes) = max(m)` is valid for **any** within-cluster correlation and **any** heteroskedastic variances, provided clusters are independent. Proof: Var(S_c) ≤ (Σσᵢ)² ≤ m_c Σσᵢ² by Cauchy–Schwarz.
+- `n_eff_lower_bound_any_within_cluster(sizes) = N / max(m)`. With unequal clusters it can fall below the number of clusters K. In the homoskedastic ρ = 1 case n_eff = (Σm)²/Σm² ≤ K, with equality only for equal sizes.
+- `deff_exchangeable_homoskedastic(sizes, icc) = 1 + (m_w − 1)·icc`, with m_w = Σm²/Σm, is valid **only** for equal variances and exchangeable correlation. Heteroskedastic clusters can exceed it: sizes [1, 9] with standard deviations 1 and 10 give an exact DEFF of 8.99 against the formula's 8.2.
+- Cross-cluster dependence (overlapping positions, regimes) is not covered by any of them.
+- A DEFF computed from counts is a planning bound, never a measured variance-inflation factor.
 
-A mutation check, run once locally and not committed, inserted `open()` plus `import os`. Three isolation tests failed as intended.
+## 5. Isolation: what is tested, and the security boundary
+
+**Boundary.**
+- The package is a planning calculator for trusted synthetic inputs. It is **not a sandbox**.
+- The AST checks and the audit-hook test are defense-in-depth test instruments that catch regressions in this package's own code. They cannot make it safe to run hostile Python code.
+- Python audit hooks do not see environment-variable reads; the static check covers those.
+- To keep caller-supplied code from running, inputs are restricted to exact `int`/`float`/`Fraction` values (no subclasses, no conversion methods) and plain `str` labels.
+
+`tests/test_s5_pwr1_ladder_power.py` and `tests/test_s5_pwr1_remediation.py` verify:
+- **Imports:** only `from <module> import <name>` from an allowlist: `dataclasses.dataclass`, `fractions.Fraction`, `math.isfinite`/`sqrt`, `statistics.NormalDist` and the package itself. No module object from outside the package is ever bound, so attribute chains such as `dataclasses.sys.modules[...]` cannot be written.
+- **No dunder access, aliasing or introspection:** no dunder names or attributes (other than the `__name__` guard), and no use of `open`, `exec`, `eval`, `compile`, `__import__`, `getattr`, `globals`, `vars` or `__builtins__` even as plain names. The static checker is tested against nine known bypass snippets (positive controls).
+- **Runtime:** in a separate process, an audit hook records `open`, `import`, `exec`, `compile`, `socket.*`, `subprocess.*`, `os.*`, `sqlite3.*`, `urllib.*`, `http.*` and similar events while **every public function** is exercised. It must record none. A positive control (a real `open`) must be recorded, so the hook is not vacuous.
+- **Inputs:** refused inputs include
+  - paths, file objects, strings and bytes as numbers;
+  - booleans, numeric subclasses and objects with `__float__` (and the `__float__` is not called);
+  - NaN and infinity;
+  - values that overflow a float, and outputs that would be non-finite;
+  - fields unused by the chosen endpoint;
+  - empty labels;
+  - unknown scenario, stream or mode labels.
+- **No production caller:** no production file imports or references the package. This is checked by AST (`from research import power`) and by text search across `.py`, `.sh`, `.yml`, `.toml`, `.cfg`, `.ini`, `.json` and `.txt` files. Dynamically constructed import strings cannot be detected statically; that is a limitation.
+- **No defaults:** scenario, stream, critical-value mode and target power must always be given.
 
 ## 6. Full digests
 

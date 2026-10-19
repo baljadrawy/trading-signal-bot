@@ -26,7 +26,7 @@ ALPHA_1_240 = dict(scenario="A33_OWNER_ALTERNATIVE_CAL_1_240", stream="MAIN")
 
 def test_normal_theory_multiplier_matches_documented_3_48():
     c, mode = lp.critical_value("NORMAL_THEORY", **ALPHA_1_240)
-    assert mode.status == "ANALYTIC_APPROXIMATION"
+    assert mode.status == "ANALYTIC_APPROXIMATION_NOT_ENVELOPE_CALIBRATED"
     assert c + NormalDist().inv_cdf(0.8) == pytest.approx(3.48, abs=5e-3)
 
 
@@ -35,7 +35,8 @@ def test_envelope_multiplier_is_about_4_04_and_labelled_unvalidated():
     assert c == pytest.approx(3.20) and "UNVALIDATED" in mode.status
     r = lp.daily_hac_sharpe_mde(cv_mode="A33_ENVELOPE_PLUS_ALPHA_CAL_SHIFT", power=0.8, days=365, lrv_ratio=1,
                                 **LATEST)
-    assert r.value == pytest.approx(4.0416, abs=1e-3) and r.governed
+    assert r.value == pytest.approx(4.0416, abs=1e-3)
+    assert r.approximates_governed_test and r.illustrative_until_validated
 
 
 def test_a31_envelope_values_are_reported_only_where_a31_reported_them():
@@ -50,7 +51,7 @@ def test_a31_envelope_values_are_reported_only_where_a31_reported_them():
 def test_a42_c1_planning_mde_reproduces():
     r = lp.per_trade_mde_illustrative(cv_mode="NORMAL_THEORY", power=0.8, sigma=1.5, deff=1, n1=2300, n2=4700,
                                       **ALPHA_1_240)
-    assert r.value == pytest.approx(0.13, abs=0.005) and not r.governed
+    assert r.value == pytest.approx(0.13, abs=0.005) and not r.approximates_governed_test
 
 
 def test_a45_h2_stated_0_12_does_not_reproduce_from_its_inputs():
@@ -110,8 +111,9 @@ def test_every_scenario_carries_a_status_and_superseded_ones_are_marked():
 
 def test_program_ledger_arithmetic_is_exact():
     b = lp.program_bound(LATEST["scenario"], 10, 2)
-    assert b["allocated"] == Fraction(1, 20) and b["calibrated"] == Fraction(12, 276) and b["within_fwer"]
-    assert lp.program_bound("A30_HALF_WEIGHT_RESERVE", 10, 2)["allocated"] == Fraction(11, 240)
+    assert b["governance_allocation"] == Fraction(1, 20) and b["union_bound_at_test_levels"] == Fraction(12, 276)
+    assert b["allocation_within_program_fwer"] and b["certified_bound"] is None
+    assert lp.program_bound("A30_HALF_WEIGHT_RESERVE", 10, 2)["governance_allocation"] == Fraction(11, 240)
     with pytest.raises(lp.PowerInputError):
         lp.program_bound(LATEST["scenario"], 12, 1)
     with pytest.raises(lp.PowerInputError):
@@ -119,15 +121,16 @@ def test_program_ledger_arithmetic_is_exact():
 
 
 def test_deff_bound_from_cluster_sizes_only():
-    assert lp.deff_upper_bound([1] * 50) == 1
-    assert lp.deff_upper_bound([2, 2]) == 2
-    assert lp.deff_upper_bound([1, 3]) == 2.5
-    assert lp.deff_from_icc([1, 3], 0) == 1 and lp.deff_from_icc([1, 3], 1) == 2.5
+    assert lp.deff_bound_any_within_cluster([1] * 50) == 1
+    assert lp.deff_bound_any_within_cluster([2, 2]) == 2
+    assert lp.deff_bound_any_within_cluster([1, 3]) == 3
+    assert lp.deff_exchangeable_homoskedastic([1, 3], 0) == 1
+    assert lp.deff_exchangeable_homoskedastic([1, 3], 1) == 2.5
     for bad in ([], [0, 1], [1.5], [True], "1,2,3", b"12", (x for x in [1, 2])):
         with pytest.raises(lp.PowerInputError):
-            lp.deff_upper_bound(bad)
+            lp.deff_bound_any_within_cluster(bad)
     with pytest.raises(lp.PowerInputError):
-        lp.deff_from_icc([1, 2], 1.2)
+        lp.deff_exchangeable_homoskedastic([1, 2], 1.2)
 
 
 def test_canonical_table_is_deterministic_and_never_binding():
@@ -148,18 +151,19 @@ def test_cli_prints_exactly_the_canonical_table():
 
 def _decl(**kw):
     base = dict(name="synthetic", unit="per_trade_illustrative", scenario=LATEST["scenario"], stream="MAIN",
-                cv_mode="NORMAL_THEORY", sigma=1.0, n1=400, dependence_low=1, dependence_high=3, source="synthetic")
+                cv_mode="NORMAL_THEORY", power=0.8, sigma=1.0, n1=400, dependence_low=1, dependence_high=3,
+                source="synthetic")
     base.update(kw)
     return ad.CandidateDeclaration(**base)
 
 
 def test_screen_statuses_on_synthetic_declarations():
-    assert ad.screen(_decl(effect_low=0.01, effect_high=0.05)).status == ad.UNDERPOWERED
-    assert ad.screen(_decl(effect_low=1.0, effect_high=2.0)).status == ad.POWERED
-    assert ad.screen(_decl(effect_low=0.15, effect_high=0.5)).status == ad.INDETERMINATE
+    assert ad.screen(_decl(effect_low=0.01, effect_high=0.05)).status == ad.BELOW_TARGET
+    assert ad.screen(_decl(effect_low=1.0, effect_high=2.0)).status == ad.AT_OR_ABOVE_TARGET
+    assert ad.screen(_decl(effect_low=0.15, effect_high=0.5)).status == ad.DEPENDS_ON_ASSUMPTIONS
     assert ad.screen(_decl(effect_low=None, effect_high=None)).status == ad.UNKNOWN
     daily = ad.screen(_decl(unit="daily_hac_sharpe", sigma=None, n1=None, days=365, effect_low=1, effect_high=2))
-    assert daily.status == ad.UNDERPOWERED and daily.governed
+    assert daily.status == ad.BELOW_TARGET and daily.approximates_governed_test
 
 
 def test_screen_never_admits_rejects_confirms_or_spends_alpha():
@@ -172,17 +176,20 @@ def test_screen_never_admits_rejects_confirms_or_spends_alpha():
 def test_screen_vocabulary_has_no_misleading_statistical_claims():
     forbidden_tokens = ("REJECT", "NO_EDGE", "CONFIRM", "SUPPORTED", "PROFIT", "DEPLOY", "PASS", "FAIL")
     assert not any(tok in s for s in ad.STATUSES for tok in forbidden_tokens)
-    text = " ".join(ad.INTERPRETATION.values()).lower() + " ".join(ad.FIXED_CAVEATS).lower()
+    results = {ad.screen(_decl(effect_low=lo, effect_high=hi)).status: ad.screen(_decl(effect_low=lo, effect_high=hi))
+               for lo, hi in ((0.01, 0.05), (1.0, 2.0), (0.15, 0.5), (None, None))}
+    assert set(results) == set(ad.STATUSES)
+    text = " ".join(r.interpretation for r in results.values()).lower() + " ".join(ad.FIXED_CAVEATS).lower()
     for phrase in ("no edge exists", "there is no edge", "edge confirmed", "is profitable", "deployable",
-                   "proves", "edge is real"):
+                   "proves", "edge is real", "unlikely to confirm"):
         assert phrase not in text
-    assert "not evidence of no edge" in ad.INTERPRETATION[ad.UNDERPOWERED].lower()
-    assert "not evidence of an edge" in ad.INTERPRETATION[ad.POWERED].lower()
+    assert "not evidence of no edge" in results[ad.BELOW_TARGET].interpretation.lower()
+    assert "not evidence of an edge" in results[ad.AT_OR_ABOVE_TARGET].interpretation.lower()
 
 
 def test_per_trade_results_are_labelled_illustrative_not_governed():
     r = ad.screen(_decl(effect_low=0.01, effect_high=0.05))
-    assert not r.governed and any("ILLUSTRATIVE ONLY" in c for c in r.caveats)
+    assert not r.approximates_governed_test and any("ILLUSTRATIVE ONLY" in c for c in r.caveats)
 
 
 def test_max_dependence_for_target_mde():
@@ -236,7 +243,7 @@ def test_runs_with_every_io_and_network_entry_point_disabled(monkeypatch):
     monkeypatch.setattr(os, "environ", {})
     lp.canonical_table()
     lp.program_bound(LATEST["scenario"], 3, 1)
-    lp.deff_upper_bound([1, 2, 3])
+    lp.deff_bound_any_within_cluster([1, 2, 3])
     lp.required_trades_illustrative(cv_mode="NORMAL_THEORY", power=0.8, sigma=1, deff=2, effect=0.1, **LATEST)
     for d in (_decl(effect_low=0.01, effect_high=0.05), _decl(effect_low=None, effect_high=None)):
         ad.screen(d)
