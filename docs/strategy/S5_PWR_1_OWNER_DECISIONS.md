@@ -45,7 +45,7 @@ The H2/G3 thresholds are reproduced by `max_dependence_for_mde(unit="per_trade_i
 | ID | Status | Decision | Effect on this package |
 |---|---|---|---|
 | OD-1 | DECIDED | HOLD publication of the raw A29–A34 documents until U1/U3/U4 are classified | None imported; cited by commit, blob and SHA-256 only (parameters doc §1) |
-| OD-2 | DECIDED | Do not assume uncertain source material is safe | Nothing from U1/U3/U4 is quoted. Protected material is not inspected to resolve them; they remain unresolved |
+| OD-2 | DECIDED | Do not assume uncertain source material is safe | No value from U1/U3/U4 is quoted in the current documents. A U3 value appeared in commits `8b7ceb4` and `bca8b2b` and has been withdrawn (parameters doc §1.1 correction notice); history is not rewritten without owner approval. Protected material is not inspected to resolve them; they remain unresolved |
 | OD-3 | DECIDED | Keep 1/240 and 1/276 as explicitly labelled scenarios, not a newly approved calibration standard | Scenarios `A33_EQUAL_1_240_CAL_1_276` and `A33_OWNER_ALTERNATIVE_CAL_1_240` keep non-binding statuses |
 | OD-4 | DECIDED | Document verified precedence and discrepancies without rewriting historical governance | Discrepancy register DR-1..DR-13; source documents unedited; superseded scenarios kept for labelled comparison only and refused by the screen |
 | OD-5 | DECIDED | Critical-value calculations remain illustrative until calibration is independently validated | Every result has `illustrative_until_validated = True`, enforced by the result classes; `certified_bound` is always `None` |

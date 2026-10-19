@@ -410,3 +410,84 @@ def test_m1_no_production_file_imports_or_invokes_the_power_package():
         if any(n in txt for n in needles):
             offenders.append(str(rel))
     assert offenders == []
+
+
+# --- Round 2 (independent re-review of bca8b2b): N2, N4, N6, M4 ------------------------------------------------
+
+def _u_rows():
+    text = (ROOT / "docs/strategy/EVIDENCE_LADDER_PARAMETERS.md").read_text()
+    return {r.split("|")[1].strip(): r for r in text.splitlines() if r.startswith(("| U1 |", "| U3 |", "| U4 |"))}
+
+
+def test_n2_uncertain_items_carry_no_numeric_values():
+    rows = _u_rows()
+    assert set(rows) == {"U1", "U3", "U4"}
+    for uid, row in rows.items():
+        assert not __import__("re").search(r"\d+[.,]\d+", row), uid
+    assert "value withheld pending U3 provenance classification" in rows["U3"] and "UNCERTAIN" in rows["U3"]
+
+
+def test_n2_non_disclosure_statements_are_accurate():
+    params = (ROOT / "docs/strategy/EVIDENCE_LADDER_PARAMETERS.md").read_text()
+    od = (ROOT / "docs/strategy/S5_PWR_1_OWNER_DECISIONS.md").read_text()
+    assert "Nothing from U1/U3/U4 is quoted" not in od
+    assert "has been withdrawn" in od and "Correction notice (N2" in params
+    assert "quotes **no value** from U1, U3 or U4" in params
+
+
+def test_n4_max_dependence_refuses_superseded_scenarios():
+    for sc in ("A30_HALF_WEIGHT_RESERVE", "A31_RESERVE_0_21_PCT"):
+        with pytest.raises(lp.PowerInputError, match="SUPERSEDED"):
+            ad.max_dependence_for_mde(unit="daily_hac_sharpe", scenario=sc, stream="MAIN", cv_mode="NORMAL_THEORY",
+                                      target_mde=10, power=0.8, days=365)
+    for kw in (LATEST, ALT):
+        assert ad.max_dependence_for_mde(unit="daily_hac_sharpe", target_mde=10, power=0.8, days=365, **kw) > 1
+
+
+def test_n6_short_horizon_is_flagged_as_planning_only():
+    short, full = daily_mde(days=182), daily_mde(days=365)
+    assert short.approximates_governed_test and short.illustrative_until_validated
+    assert lp.SHORT_HORIZON_CAVEAT in short.caveats and lp.SHORT_HORIZON_CAVEAT not in full.caveats
+    assert "does not imply confirmation readiness" in lp.SHORT_HORIZON_CAVEAT
+    assert "statistical endpoint and form" in (ROOT / "docs/strategy/EVIDENCE_LADDER_PARAMETERS.md").read_text()
+
+
+def _linear_ratio(blocks, weights):
+    """Exact Var(sum w X) / sum w^2 sd^2 for independent clusters; block = list of row vectors (X_i = row . z)."""
+    num = den = 0.0
+    for rows, w in zip(blocks, weights):
+        k = len(rows[0])
+        comb = [sum(wi * r[j] for wi, r in zip(w, rows)) for j in range(k)]
+        num += sum(c * c for c in comb)
+        den += sum(wi * wi * sum(x * x for x in r) for wi, r in zip(w, rows))
+    return num / den
+
+
+def test_m4_bound_holds_for_weighted_two_arm_statistics_with_arbitrary_covariance():
+    rng = random.Random(4417)
+    for _ in range(400):
+        blocks, weights, sizes = [], [], []
+        for _ in range(rng.randint(1, 6)):
+            m = rng.randint(1, 10)
+            k = rng.choice([1, 2, m])                                   # rank-1 blocks are the tight case
+            blocks.append([[rng.uniform(-5, 5) for _ in range(k)] for _ in range(m)])
+            weights.append([rng.choice([1.0, -1.0]) / rng.randint(1, 50) for _ in range(m)])
+            sizes.append(m)
+        assert _linear_ratio(blocks, weights) <= lp.deff_bound_any_within_cluster(sizes) + 1e-9
+
+
+def test_m4_arms_sharing_a_day_must_be_counted_together():
+    rows = [[1.0]] * 5 + [[-1.0]] * 5                                    # arm 2 = -arm 1, one shared day
+    w = [0.2] * 5 + [-0.2] * 5
+    ratio = _linear_ratio([rows], [w])
+    assert ratio == pytest.approx(10)
+    assert ratio <= lp.deff_bound_any_within_cluster([10])               # pooled count: valid
+    assert ratio > lp.deff_bound_any_within_cluster([5])                 # per-arm count: invalid
+
+
+def test_m4_cluster_bound_does_not_capture_cross_day_serial_dependence():
+    phi = 0.5
+    lrv_ratio = (1 + phi) / (1 - phi)                                    # AR(1) long-run variance ratio
+    assert lrv_ratio == pytest.approx(3.0) and lp.deff_bound_any_within_cluster([1] * 365) == 1
+    assert "lrv_ratio" in lp.deff_bound_any_within_cluster.__doc__ and "daily HAC" in \
+        lp.deff_bound_any_within_cluster.__doc__

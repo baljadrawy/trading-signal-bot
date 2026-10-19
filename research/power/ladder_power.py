@@ -8,7 +8,9 @@ Scope and limits (see docs/strategy/EVIDENCE_LADDER_PARAMETERS.md):
 * Every result is ILLUSTRATIVE UNTIL VALIDATED: no critical value has passed independent validation (A31 §9 item 2;
   A33 validation never run; A34-B rates the A33 specification REVISE).
 * `daily_hac_sharpe_mde` APPROXIMATES the governed test (A32 §5, A33 §3: HAC-studentized, Bartlett L = 7, mean of the
-  daily mark-to-market net excess, decided once at day 365) with normal theory. It ignores the non-binding futility
+  daily mark-to-market net excess, decided once at day 365) with normal theory. `approximates_governed_test = True`
+  refers only to that statistical endpoint and form. It is not scientific validation, and a planning horizon shorter
+  than 365 days does not complete (or imply readiness for) the governed final look. It ignores the non-binding futility
   looks, the skewness gate and finite-sample HAC bias; simulated power in A31 §5 / A32 §6 is the reference.
 * Per-trade functions reproduce the A42/A44/A45 planning arithmetic. They do not approximate the governed test, and
   no mapping from per-trade units to the daily HAC statistic is documented (DR-11).
@@ -214,6 +216,8 @@ ILLUSTRATIVE_CAVEATS = (
     "deff is an assumed variance-inflation factor; no day-clustering model is documented (DR-10).",
     "Insufficient power is not evidence of no edge.",
 )
+SHORT_HORIZON_CAVEAT = ("Planning horizon shorter than the governed 365-day final look: this is a planning figure "
+                        "only and does not imply confirmation readiness.")
 SMALL_SAMPLE_CAVEAT = "Effective sample below 30: the normal approximation is optimistic (a t correction is larger)."
 
 
@@ -234,7 +238,7 @@ def daily_hac_sharpe_mde(*, scenario, stream, cv_mode, power, days, lrv_ratio):
     return MDEResult(value, "annualized Sharpe of daily net excess", "daily_hac_sharpe", True, True, c, mode.name,
                      mode.status, scenario, alpha_scenario(scenario).status, stream, float(power),
                      (f"days={d:g}", f"lrv_ratio={lrv:g}", f"power={float(power):g}", "one-sided, final look"),
-                     GOVERNED_CAVEATS)
+                     GOVERNED_CAVEATS + ((SHORT_HORIZON_CAVEAT,) if d < GOVERNED_MAX_DAYS else ()))
 
 
 def power_daily_hac(*, scenario, stream, cv_mode, days, lrv_ratio, effect):
@@ -300,12 +304,16 @@ def _sizes(cluster_sizes):
 
 
 def deff_bound_any_within_cluster(cluster_sizes):
-    """Conservative design-effect bound: max cluster size.
+    """Conservative design-effect bound for PER-TRADE linear statistics: max cluster size.
 
-    Valid for ANY within-cluster correlation and ANY (heteroskedastic) variances, given independence BETWEEN clusters:
-    Var(S_c) <= (sum_i sd_i)^2 <= m_c * sum_i sd_i^2 (Cauchy-Schwarz), so Var(sum) / sum Var <= max m_c. Cross-cluster
-    dependence (overlapping positions, regimes) is NOT covered. Computed from counts alone it is a planning bound,
-    never a measured variance inflation factor."""
+    For T = sum_i w_i X_i with fixed (outcome-independent) weights, finite variances and zero covariance between
+    clusters: Var(sum_{i in c} w_i X_i) <= (sum |w_i| sd_i)^2 <= m_c * sum w_i^2 sd_i^2 (Cauchy-Schwarz), so
+    Var(T) <= max_c m_c * sum_i w_i^2 sd_i^2. The baseline is the independent-observation variance sum w_i^2 sd_i^2,
+    so a single `sigma` used with it must be the weighted RMS of the per-trade sds. Any within-cluster covariance
+    (including negative) and unequal sizes are allowed. When several arms share a day, m_c counts ALL trades of all
+    arms in that cluster. It does NOT cover cross-cluster dependence (serial correlation across days, positions open
+    over several days) and it does not apply to the daily HAC endpoint, whose inflation is that serial dependence
+    (lrv_ratio). Computed from counts alone it is a planning bound, never a measured variance inflation factor."""
     return float(max(_sizes(cluster_sizes)))
 
 

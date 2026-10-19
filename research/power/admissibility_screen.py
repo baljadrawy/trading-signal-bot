@@ -216,6 +216,9 @@ def max_dependence_for_mde(*, unit, scenario, stream, cv_mode, target_mde, power
                            n2=None):
     """Largest lrv_ratio / deff (>= 1) at which the MDE stays <= target_mde (MDE scales with sqrt(dependence))."""
     lp._label("unit", unit, UNITS)
+    if lp.alpha_scenario(scenario).status == "SUPERSEDED":
+        raise lp.PowerInputError(f"alpha scenario {scenario} is SUPERSEDED; use ladder_power directly for labelled "
+                                 "historical comparisons")
     given = {"days": days, "sigma": sigma, "n1": n1, "n2": n2}
     for name in _UNUSED[unit]:
         if given[name] is not None:

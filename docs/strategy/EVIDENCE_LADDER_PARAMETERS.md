@@ -44,14 +44,16 @@ The S5-PWR-1 rule is: inspect for secrets, protected-outcome-derived values and 
 |---|---|---|---|
 | U1 | A29 §1 (critical diagnosis) | verdicts and power figures of the earlier governed confirmations (A25–A28) | Most likely runs on synthetic worlds. Whether "governed confirmation" results count as protected needs an owner ruling |
 | U2 | A30 §4 A2; A33 §4 set C | the "TP/SL skew −1.44" generator | **Resolved: SYNTHETIC.** Stylized generator `a28_oc_study.py:40` at `54a6369`: 20 % at +4, 80 % at −1, plus 0.3·N(0,1); the left-skew variant is its negation |
-| U3 | A29 §8 | lag-test retention "0.64–0.89" (A26) | Most likely planted synthetic edges. Not confirmed from the text |
+| U3 | A29 §8 | A26 lag-test retention range — value withheld pending U3 provenance classification | Most likely planted synthetic edges. Not confirmed from the text. **UNCERTAIN** |
 | U4 | A30 §7 | tier-1 "STRESS + MES + MDE" bps figures | **Not resolvable without an owner ruling.** STRESS uses `p2_research/h1/costs.py` (at `54a6369`), whose header says the tier spread table is "MEASURED->ASSUMED 2026 P2-X1 tier spread table". If that table comes from forward-collector data, the figures are protected-derived |
 
 A31 and A32 also name one collector symbol stream in their operational notes. That is operational metadata about the protected collector universe, not data, but it is noted.
 
+**Correction notice (N2, independent review round 2).** Commits `8b7ceb4` and `bca8b2b` of this branch quoted the U3 value in the table above, contrary to OD-1/OD-2. The current text withholds it. A later commit does not remove it from Git history, the PR diff view, CI checkouts or any integration that read the PR. Whether history is rewritten is an owner decision (see the PR description); nothing has been rewritten.
+
 **Consequence:**
 - This file quotes **only** design parameters, mathematical statements and synthetic-simulation results.
-- It quotes **nothing** from U1, U3 or U4, and no σ or cost figures in bps.
+- It quotes **no value** from U1, U3 or U4. The only cost figure is the public 10 bps-per-side fee planning baseline; no σ or other bps figures from A29–A34 are quoted (σ = 1.5 % in DR-8/DR-9 comes from A42/A45 on `main`).
 - Publishing the documents themselves is owner decision OD-1.
 
 ## 2. Parameters as documented (citations, not adoption)
@@ -100,7 +102,7 @@ Each entry has a class, its evidence, and the scenario or label it maps to in `r
 | DR-7 | MATH | The MDE multiplier used in the A30 §6, A42 l.238 and A45 l.169 planning tables is the normal-theory 3.48 (= z(1 − 1/240) + z(0.8)). Under the latest documented calibration (c ≈ 3.20) it becomes ≈ 4.04, so those MDEs are about 16 % optimistic for the final design | A31 §2; A33 §8 | mode `NORMAL_THEORY` reproduces 3.48; test `test_envelope_multiplier_is_about_4_04_and_labelled_unvalidated` |
 | DR-8 | MATH | A45 l.169 states an iid MDE of "≈ 0.12 %/setup" from ~6,400 setups/year, about 1/3 above the cap, σ = 1.5 %. These inputs give **0.136–0.142 %**. Its "0.2–0.4 %" range (√3–√10 × 0.12) becomes about 0.24–0.44 % | A45 l.169 (main) | test `test_a45_h2_stated_0_12_does_not_reproduce_from_its_inputs` |
 | DR-9 | MATH (reproduces) | A42 l.238 C1 "≈ 0.13 %/trade iid" reproduces (0.133) from its stated inputs | A42 l.238 (main) | test `test_a42_c1_planning_mde_reproduces` |
-| DR-10 | GAP | No ICC or day-clustering model is documented. Assumed design effects are 1 / 1.5 (A30 §6), 2–3 (A42 l.238) and 3–10 (A45 l.169) for overlapping populations | as cited | `deff`/`lrv_ratio` are explicit inputs with low/high ranges. The count-only bound is `deff_bound_any_within_cluster` = max(m), valid under heteroskedasticity given independent clusters. The exchangeable formula is labelled homoskedastic-only (§4). Neither is a measurement |
+| DR-10 | GAP | No ICC or day-clustering model is documented. Assumed design effects are 1 / 1.5 (A30 §6), 2–3 (A42 l.238) and 3–10 (A45 l.169) for overlapping populations | as cited | Per-trade `deff` and daily `lrv_ratio` are separate explicit inputs with low/high ranges. The count-only bound `deff_bound_any_within_cluster` = max(m) applies only to per-trade linear statistics with uncorrelated clusters (all arms counted together); it does not replace daily HAC long-run variance (§4). Neither is a measurement |
 | DR-11 | GAP | Unit mismatch: the governed test is a daily HAC z on mark-to-market net excess, while the A42/A44/A45/A46 MDEs are per trade or per setup. No mapping is documented | A33 §3 vs A42/A45 | per-trade outputs are labelled `approximates_governed_test=False`, "ILLUSTRATIVE ONLY" |
 | DR-12 | GAP | The roadmap (main, l.17) omits the 3-year program period and α_cal. Its binding sources (A29–A34) are not on GitHub | roadmap l.17; §1 | OD-1, OD-3 |
 | DR-13 | OWNER | Admission gate: B2 gate v2 CALIBRATED on a ≥ 2,000-day historical series (A30 §1 item 4; A31 §2 item 5). Its applicability to S4 families and to `enforce`-era candidates is undefined | as cited | not modelled |
@@ -110,9 +112,9 @@ Each entry has a class, its evidence, and the scenario or label it maps to in `r
 Every result carries `illustrative_until_validated = True`. No critical value has passed independent validation (DR-6; owner decision OD-5), and the result classes refuse to be built otherwise.
 
 **Approximates the governed test:** `daily_hac_sharpe_mde(scenario, stream, cv_mode, power, days, lrv_ratio)` and `power_daily_hac(...)`.
-- They set `approximates_governed_test = True`, with `endpoint = "daily_hac_sharpe"`.
+- They set `approximates_governed_test = True`, with `endpoint = "daily_hac_sharpe"`. The flag describes the **statistical endpoint and form** only. It is not scientific validation, and it does not mean the governed 365-day final look is complete or ready.
 - They return the minimum detectable annualized Sharpe (√365 scaling) of the daily net-excess series, (c + z_power) · √lrv_ratio · √(365/days), or the normal-approximation power Φ(S · √(days/365) / √lrv_ratio − c).
-- `days` must lie in [30, 365].
+- `days` must lie in [30, 365]. Below 365 days the result also carries a short-horizon caveat: it is a planning figure and does not imply confirmation readiness. The 30-day floor is a sanity limit for the normal approximation, not a validated minimum (a HAC estimate with Bartlett L = 7 on short series is biased).
 - **Limitations:**
   - normal approximation;
   - ignores the non-binding futility looks, the skewness gate and finite-sample HAC bias;
@@ -164,11 +166,22 @@ None of these conditions can hold today. Even then, eligibility only allows the 
 - `bound_stated_if_alternative_adopted` (A33 owner alternative only: n × 1.15 × α, e.g. 5.75 % for 12 admissions);
 - `certified_bound`, which is always `None` because no calibration is validated.
 
-**Design-effect functions:** these take synthetic cluster sizes only. Real cluster counts or timestamps from the sealed stream need separate authorization (OD-7).
-- `deff_bound_any_within_cluster(sizes) = max(m)` is valid for **any** within-cluster correlation and **any** heteroskedastic variances, provided clusters are independent. Proof: Var(S_c) ≤ (Σσᵢ)² ≤ m_c Σσᵢ² by Cauchy–Schwarz.
-- `n_eff_lower_bound_any_within_cluster(sizes) = N / max(m)`. With unequal clusters it can fall below the number of clusters K. In the homoskedastic ρ = 1 case n_eff = (Σm)²/Σm² ≤ K, with equality only for equal sizes.
-- `deff_exchangeable_homoskedastic(sizes, icc) = 1 + (m_w − 1)·icc`, with m_w = Σm²/Σm, is valid **only** for equal variances and exchangeable correlation. Heteroskedastic clusters can exceed it: sizes [1, 9] with standard deviations 1 and 10 give an exact DEFF of 8.99 against the formula's 8.2.
-- Cross-cluster dependence (overlapping positions, regimes) is not covered by any of them.
+**Design-effect functions (per-trade planning only).** These take synthetic cluster sizes only. Real cluster counts or timestamps from the sealed stream need separate authorization (OD-7).
+- **Estimator and baseline.**
+  - The bound applies to a linear per-trade statistic T = Σᵢ wᵢXᵢ with fixed, outcome-independent weights: the one-sample mean (wᵢ = 1/n), or a difference of arm means (wᵢ = ±1/n_arm).
+  - The independent-observation baseline is Σ wᵢ²σᵢ². A single `sigma` used with `deff` must therefore be the weighted RMS of the per-trade standard deviations, with equal σ across arms for the two-arm form.
+- **`deff_bound_any_within_cluster(sizes) = max(m)`.**
+  - Assumptions: finite variances, and zero covariance between clusters (uncorrelated is enough).
+  - Then Var(T) ≤ max_c m_c · Σ wᵢ²σᵢ², because Var(Σ_{i∈c} wᵢXᵢ) ≤ (Σ|wᵢ|σᵢ)² ≤ m_c Σ wᵢ²σᵢ² by Cauchy–Schwarz.
+  - This holds for any within-cluster covariance (including negative correlation), heteroskedastic variances and unequal sizes. It is tight in the rank-1 case.
+- **Several arms sharing a day.** m_c must count **all** trades of **all** arms in that cluster. Counting per arm can understate the variance: one day with 5 + 5 trades and perfectly opposite arms has a true ratio of 10 against a per-arm count of 5.
+- **`n_eff_lower_bound_any_within_cluster(sizes) = N / max(m)`**, under the same assumptions. With unequal clusters it can fall below the number of clusters K. In the homoskedastic ρ = 1 case n_eff = (Σm)²/Σm² ≤ K, with equality only for equal sizes.
+- **`deff_exchangeable_homoskedastic(sizes, icc) = 1 + (m_w − 1)·icc`**, with m_w = Σm²/Σm, is valid **only** for equal variances and exchangeable correlation. Heteroskedastic clusters can exceed it: sizes [1, 9] with standard deviations 1 and 10 give an exact DEFF of 8.99 against the formula's 8.2.
+- **Not a substitute for daily HAC long-run variance.**
+  - The governed endpoint has one observation per day, so within-day clustering is already inside the daily variance.
+  - What inflates it is serial correlation **across** days. That is exactly the cross-cluster dependence these bounds exclude, and `lrv_ratio` is its separate input.
+  - Example: an AR(1) daily series with φ = 0.5 has a long-run variance ratio of (1 + φ)/(1 − φ) = 3, while a one-trade-per-day cluster bound gives 1.
+- **Cross-day dependence or overlapping positions.** Positions open over several days, shared regimes or serial correlation create cross-cluster covariance. These bounds then no longer hold, and the per-trade MDE can be optimistic by an unknown factor.
 - A DEFF computed from counts is a planning bound, never a measured variance-inflation factor.
 
 ## 5. Isolation: what is tested, and the security boundary
