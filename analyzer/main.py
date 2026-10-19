@@ -15,6 +15,7 @@ from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared import evidence_v2
 from shared.signal_identity import integrity_mode
+from shared.t1_cap import t1_cap_policy
 from technical_analyzer import TechnicalAnalyzer
 from orderbook_analyzer import OrderBookAnalyzer
 
@@ -27,6 +28,7 @@ async def main():
     await Database.connect()
     await require_schema('analyzer')
     integrity_mode(config)                       # A44: unknown SIGNAL_INTEGRITY_MODE refuses to start
+    t1_cap_policy(config)                        # unknown T1_CAP_POLICY refuses to start
     await mark_started('analyzer')
 
     client = await AsyncClient.create(

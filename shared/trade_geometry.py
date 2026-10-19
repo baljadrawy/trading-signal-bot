@@ -25,6 +25,7 @@ import pandas as pd
 from shared.partial_exits import aggregate_close, fills_between, target_distribution
 from shared.signal_quality import StrategyBracketRules, required_win_rate
 from shared.strategy_math import calculate_signal_levels
+from shared.t1_cap import independent_swing_resistance
 
 VERSION = "a46-tg-v1"
 BASELINE = "prod-59297305-geometry"
@@ -176,14 +177,10 @@ def baseline_bracket(df: pd.DataFrame, timeframe: str, trade_type: str, *,
 def independent_resistance(df: pd.DataFrame, entry: float) -> float | None:
     """G1 reference: the NEAREST confirmed swing high above entry among bars that closed before
     the decision bar. A swing high is a bar whose high exceeds the highs of the two bars on each
-    side (all five already closed). None when no such level exists in the available history."""
-    prior = df.iloc[:-1]["high"].astype(float).values
-    best = None
-    for i in range(2, len(prior) - 2):
-        h = prior[i]
-        if h > entry and h > max(prior[i - 2], prior[i - 1], prior[i + 1], prior[i + 2]):
-            best = h if best is None else min(best, h)
-    return best
+    side (all five already closed). None when no such level exists in the available history.
+    Single definition: ``shared.t1_cap.independent_swing_resistance`` (the analyzer's
+    ``independent_swing_v1`` policy), so research and the wired flag cannot diverge."""
+    return independent_swing_resistance(df, entry)
 
 
 def g1_bracket(df: pd.DataFrame, timeframe: str, trade_type: str, *, breakout_n: int = 20) -> Bracket:

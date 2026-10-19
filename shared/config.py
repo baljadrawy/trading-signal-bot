@@ -116,6 +116,10 @@ class Config:
     # safety reads in the analyzer, signal_engine and trade_tracker. Changes signal counts, so
     # switching it is an owner-approved, declared Paper-window boundary.
     SIGNAL_INTEGRITY_MODE: str = os.getenv('SIGNAL_INTEGRITY_MODE', 'off')
+    # T1 resistance-cap policy (shared/t1_cap.py). 'legacy_window_v1' = exact current behaviour
+    # (the decision bar's own high can cap T1). 'independent_swing_v1' = A46 G1. Changes signal
+    # geometry, so switching it is an owner-approved, declared strategy-version boundary.
+    T1_CAP_POLICY: str = os.getenv('T1_CAP_POLICY', 'legacy_window_v1')
     PRICE_STREAM_ENABLED: bool = os.getenv('PRICE_STREAM_ENABLED', 'true').lower() == 'true'
     PRICE_STREAM_REFRESH_SECONDS: int = int(os.getenv('PRICE_STREAM_REFRESH_SECONDS', '5'))
     PRICE_BACKUP_CHECK_SECONDS: int = int(os.getenv('PRICE_BACKUP_CHECK_SECONDS', '30'))
