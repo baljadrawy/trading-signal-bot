@@ -24,10 +24,10 @@
   - Spot only, no leverage or borrowing, no replenishment or reset;
   - 0.10 %/side fee plus spread and slippage;
   - full-fill model kept as a stated limitation with mandatory sensitivity tests;
-  - no automatic permanent freeze at 1,000 USDT: risk-triggered `SUSPENDED_REVIEW` instead (trigger defaults are still a proposal).
+  - no automatic permanent freeze at 1,000 USDT, no automatic reset or resumption; `SUSPENDED_REVIEW` at a 30 % drawdown from peak equity or equity < 2,000 USDT; 8 consecutive losses → alert and review only; accounting-integrity failure → immediate block of new orders; open positions keep their predeclared exits (owner-decided 2026-10-21).
 
 ## Questions
-1. Are R1 (fixed nominal cap on cost basis + reservations), R2, R4 (no permanent cash floor) and R9 (suspension and review instead of a terminal account) defensible? Do they bias comparisons between strategies? Are the proposed R9 triggers (drawdown 30 % from peak, equity < 2,000, 8 consecutive losses, invariant failure) reasonable, and should they be identical for all strategies?
+1. Are R1 (fixed nominal cap on cost basis + reservations), R2, R4 (no permanent cash floor) and R9 (suspension and review instead of a terminal account) defensible? Do they bias comparisons between strategies? Are the owner's R9 triggers (suspend at 30 % drawdown from peak or equity < 2,000; alert-only at 8 consecutive losses; immediate block on integrity failure) reasonable, should they be identical for all strategies, and is the PROP re-arm rule after an owner resume (drawdown from the review point; 2,000 trigger on a new crossing) sound?
 2. Suspension creates a conditional (path-dependent) sample: how should results of suspended-then-resumed accounts be reported so that review decisions do not select outcomes?
 3. How should strategies with different turnover and holding periods be compared fairly? Consider daily net return series, an active return vs equal-weight buy-and-hold, cost drag and capacity.
 4. Execution realism at 500 USDT per order in top-20 liquid pairs:
@@ -55,7 +55,7 @@
 - Every variant logged.
 - No post-freeze data mounted in a backtest.
 - Cost/fill sensitivity (×1.5, ×2, adverse tick, 10 % no-fill) reported with every result.
-- A fired suspension trigger blocks entries but lets exits run; no refill or reset.
+- A fired suspension or integrity block rejects entries but lets predeclared exits run; 8 consecutive losses produce only an alert; no automatic resumption, refill or reset.
 
 ## Response template
 ```

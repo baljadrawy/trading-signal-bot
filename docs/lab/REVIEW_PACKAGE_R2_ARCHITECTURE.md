@@ -16,6 +16,7 @@
 - Owner decisions: logical `tsb_lab` on the existing cluster only if isolation is demonstrated, otherwise a physically separate DB service; R1 4 vCPU, R2 5 vCPU, R3 deferred; S0 read-only measurement; S1/S2 design and validation only; S3 deferred (no production container recreation); up to five strategy containers subject to capacity testing.
 - A single shared host (12 cores, 23 GB), a shared Postgres cluster with other projects, and Docker with live-restore and the systemd cgroup driver.
 - Production DB `trading_signals`, schema 11. The production Paper account must remain unchanged.
+- Risk policy R9 (owner-decided 2026-10-21): `SUSPENDED_REVIEW` at a 30 % drawdown from peak or equity < 2,000 USDT; alert-only at 8 consecutive losses; immediate new-order block (`BLOCKED_INTEGRITY`) on any accounting-integrity failure; open positions keep predeclared exits; no automatic reset or resumption. A pure, inactive reference implementation is proposed separately (Draft PR, not for merge before this review).
 
 ## Questions
 1. Is extending `trade_tracker` (`LAB_MODE`, a separate `tsb_lab` DB, a target-position path) the minimal safe reuse? Or is a technically necessary alternative better (e.g. a separate engine process sharing only the fill/fee library)? State the trade-offs.
@@ -53,6 +54,7 @@
 - A CPU-burn and memory-burn job is throttled and OOM-contained inside its slice, with production PSI and health unchanged.
 - Admission is refused under injected pressure.
 - §11.3 DB isolation tests 1–6 pass on a disposable cluster.
+- Integrity failure blocks new orders in the same transaction that detects it; exits are still booked atomically.
 - Pre-run snapshot hash mismatch blocks a run.
 
 ## Response template

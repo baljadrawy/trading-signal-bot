@@ -1,6 +1,6 @@
 # Strategy Research Lab: architecture design (2026-10-20)
 
-**Status: DESIGN FOR REVIEW, revision 3 (owner decisions of 2026-10-20 applied, §2.2, §10.3, §11). Not approved for implementation or deployment.** Owner-approved direction: shared immutable data, isolated strategy containers, reuse of the existing Paper engine through a backward-compatible lab extension, and per-strategy virtual accounts with fixed parameters.
+**Status: DESIGN FOR REVIEW, revision 4 (owner decisions of 2026-10-20 applied, §2.2, §10.3, §11; R9 risk policy per owner 2026-10-21). Not approved for implementation or deployment.** Owner-approved direction: shared immutable data, isolated strategy containers, reuse of the existing Paper engine through a backward-compatible lab extension, and per-strategy virtual accounts with fixed parameters.
 - Labels: VERIFIED (checked in code/host, read-only), INFERRED, UNKNOWN.
 - Baseline: `main` @ `1432a90`; deployed release `ea8ae4f` (schema 11).
 - No production, Collector, dataset or account change was made.
@@ -79,7 +79,7 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 | R6 | Fills | Full fill at the observed price adjusted by modelled slippage (unchanged Paper model). **Known limitation:** no partial fills, queue position or depth impact. Orders above a declared share of observed top-of-book depth (e.g. 10 %) are flagged. **Required:** every reported result carries a cost/fill **sensitivity test** (fees and slippage ×1.5 and ×2; an extra adverse tick; a no-fill rate of 10 % on limit-style entries) and is reported as fragile if its sign changes |
 | R7 | Rebalancing | **Strategy-specific and predeclared** (OWNER): each strategy spec fixes its rebalance schedule and minimum trade threshold (example: max(25 USDT, 10 % of the position)) before its first intent. A change is a new strategy version |
 | R8 | Accounting | **Transaction-level ledger** (every order, fill, fee and cash movement, append-only, one transaction per fill) and **daily equity snapshot** at 00:00 UTC (OWNER). Equity = cash + Σ quantity × mark; realized and unrealized P&L separate |
-| R9 | Risk-triggered suspension | **No permanent automatic freeze merely because equity falls below 1,000 USDT** (OWNER). Instead the engine sets `SUSPENDED_REVIEW` (no new entries; existing exits and stops still run; nothing is closed by force) when a predeclared trigger fires. Default triggers (PROP, fixed per spec): drawdown ≥ 30 % from the account peak; equity < 2,000 USDT; 8 consecutive losing trades; an accounting-invariant or intake-validation failure (immediate). Resumption only by a recorded owner review; closing an experiment is an explicit owner decision, never automatic. The account is never refilled or reset |
+| R9 | Risk policy | **No permanent automatic freeze at 1,000 USDT, no automatic reset, no automatic resumption** (OWNER). Triggers (OWNER, 2026-10-21): (1) equity ≥ 30 % below peak equity → `SUSPENDED_REVIEW`; (2) equity < 2,000 USDT → `SUSPENDED_REVIEW`; (3) 8 consecutive losing closed trades → **alert and review only** (a `REVIEW_ALERT` ledger event; the account stays `ACTIVE`); (4) any accounting-integrity failure → **immediate** block of new orders (`BLOCKED_INTEGRITY`). In every non-active state no new entry is accepted, while **existing open positions keep their predeclared risk handling** (stops, targets, expiry exits are still executed and booked) and nothing is force-closed. Leaving a suspension needs a recorded owner review (`by`, `ref`); `BLOCKED_INTEGRITY` additionally needs all invariants to pass. Detail (PROP, for review): after an owner resume, drawdown is measured from the equity at the review point, and the 2,000 trigger fires again on the next new crossing below 2,000. The account is never refilled or reset, and all evidence is retained |
 | R10 | Production account | Unchanged (OWNER): no schema migration on `trading_signals`; the production tracker never runs LAB_MODE code; the global B3 breaker, `TRADE_AMOUNT_USDT=50` and the bracket model stay as they are |
 
 **Engine reuse (OWNER).** The lab engine is the `trade_tracker` codebase with a **backward-compatible lab extension**: new modules (accounts, reservations, target-position path, account risk) are imported only when `LAB_MODE` is set; shared fill and fee functions are reused, not copied. Acceptance: with `LAB_MODE` unset the production test corpus is byte-identical (§6), and the production image is not rebuilt for the lab.
@@ -112,7 +112,7 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 
 ## 5. Minimal roadmap (each step a separate owner approval)
 
-1. Approve the design (this PR). R0–R10 are owner-decided; the R9 default triggers remain PROP.
+1. Approve the design (this PR). R0–R10, including the R9 triggers, are owner-decided; only the R9 re-arm detail is PROP.
 2. `tsb_lab` schema plus pure accounting module with synthetic tests (no host change).
 3. Lab engine path in the tracker codebase behind `LAB_MODE`; a production byte-identity test (like `T1_CAP_POLICY`).
 4. Strategy container template plus the intake role, tested on a disposable Postgres.
@@ -132,7 +132,7 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 - **Production identity:** with `LAB_MODE` unset, tracker outputs are byte-identical to `ea8ae4f` on the existing test corpus.
 - **Data:** a mount-permission test in the container (write to the snapshot fails); no post-freeze path is mounted.
 - **Resources:** OOM or CPU-throttle of one strategy does not affect the engine or production (fault injection on disposable infrastructure).
-- **Account rules:** exposure = cost basis + reservations, never mark value; a sixth position and a second same-symbol position are rejected; an order is clipped to cap headroom and cash; no cash floor after losses (R4); a fired R9 trigger blocks entries but lets exits run; nothing refills or resets an account.
+- **Account rules:** exposure = cost basis + reservations, never mark value; a sixth position and a second same-symbol position are rejected; an order is clipped to cap headroom and cash; no cash floor after losses (R4); a fired R9 suspension or integrity block rejects new entries but lets predeclared exits run; 8 consecutive losses only alert; no automatic resumption; nothing refills or resets an account.
 - **Fill sensitivity:** each reported result is re-run with costs ×1.5 / ×2, an adverse tick and a 10 % no-fill rate (R6).
 - **Lab DB isolation:** §11.3 acceptance tests, on a disposable cluster first.
 
@@ -161,7 +161,7 @@ Superseded for limits by §10.3 (containers 0.25 CPU / 256 MiB inside the lab bu
 
 ## 9. Preliminary author assessment (not an independent review)
 
-REVISE → GO is possible now that R0–R10 are owner-decided, if the reviewers confirm (a) G2 (the target-position path) is an extension, not a second engine, (b) the R9 trigger defaults, and (c) the §11.3 isolation tests are sufficient for a logical `tsb_lab` database. External review: **not yet received** for either package.
+REVISE → GO is possible now that R0–R10 are owner-decided, if the reviewers confirm (a) G2 (the target-position path) is an extension, not a second engine, (b) the owner's R9 triggers and the PROP re-arm detail, and (c) the §11.3 isolation tests are sufficient for a logical `tsb_lab` database. External review: **not yet received** for either package.
 
 ## 10. Host resources, budgets and scheduling (addendum, 2026-10-20)
 
@@ -251,7 +251,7 @@ Until S3, the 10 vCPU ceiling is met only by **budget arithmetic** (R1 = 4 + pro
 |---|---|---|
 | Account | 5,000 start; 500 order; ≤ 5 positions, 1 per symbol; 2,500 initial cap; no permanent cash floor; no leverage; no refill/reset | §2.2 R0–R4 |
 | Costs | 0.10 %/side + spread + slippage; full-fill limitation kept and sensitivity tests required | R5, R6 |
-| Risk | no automatic permanent freeze at 1,000; risk-triggered suspension and review | R9 |
+| Risk | no permanent freeze at 1,000; `SUSPENDED_REVIEW` at 30 % drawdown from peak or equity < 2,000; alert-only at 8 consecutive losses; immediate new-order block on integrity failure; no automatic reset or resumption; open positions keep predeclared risk handling | R9 |
 | Accounting | transaction ledger + daily equity snapshots; predeclared rebalancing | R7, R8 |
 | Engine | `trade_tracker` reused via a backward-compatible `LAB_MODE` extension; production Paper account unchanged | §2.2, R10 |
 | Resources | R1 4 vCPU, R2 5 vCPU, R3 deferred; S0 read-only; S1/S2 design only; S3 deferred | §10.3, §10.5 |
