@@ -1,6 +1,6 @@
 # Strategy Research Lab: architecture design (2026-10-20)
 
-**Status: DESIGN FOR REVIEW. Not approved for implementation or deployment.** Owner-approved direction: shared immutable data, isolated strategy containers, reuse of the existing Paper engine, and per-strategy virtual accounts with fixed parameters.
+**Status: DESIGN FOR REVIEW, revision 3 (owner decisions of 2026-10-20 applied, §2.2, §10.3, §11). Not approved for implementation or deployment.** Owner-approved direction: shared immutable data, isolated strategy containers, reuse of the existing Paper engine through a backward-compatible lab extension, and per-strategy virtual accounts with fixed parameters.
 - Labels: VERIFIED (checked in code/host, read-only), INFERRED, UNKNOWN.
 - Baseline: `main` @ `1432a90`; deployed release `ea8ae4f` (schema 11).
 - No production, Collector, dataset or account change was made.
@@ -20,7 +20,7 @@
 | A9 | Holdout | `holdout_status.json` SEALED, look count 0; freeze 2026-08-19T09:33:46Z | VERIFIED |
 | A10 | Research infra | `research/mechanisms` (#60, simulator with `DatasetPermission`), `research/power` (main), A48 replay modes, `research/data_governance` (content-addressed datasets), research-runner with quotas (REPORTED) | VERIFIED / REPORTED |
 | A11 | Host | 12 cores, 23 GB RAM (about 10 GB free + cache), 499 GB disk free; bot services use < 0.8 GB; shared with wishlist, xsch, hermes, postgres | VERIFIED (`docker stats`, `free`, `df`) |
-| A12 | PRs | #59 (T1 flag), #60 (S4 tooling), #62 (CHG-03), #63 (Phase 1): all **Draft, unmerged** | VERIFIED |
+| A12 | PRs | #59 (T1 flag), #60 (S4 tooling), #61 (policy), #62 (CHG-03), #63 (Phase 1), #64 (this design): all **Draft, unmerged**, 0 commits behind `main`, CI green (2026-10-20) | VERIFIED |
 
 **Consequence (INFERRED).** "Reuse the existing Paper engine" is feasible only as an **extension** of `trade_tracker`. Three things must be added:
 1. account-scoped ledgers;
@@ -59,27 +59,30 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
   - `read_only: true`, distinct UID per strategy (not 1000), `cap_drop: ALL`, `no-new-privileges`;
   - `cpus` 0.5, `mem_limit` 512 MB, `pids_limit` 64, `restart: "no"`.
 - **Network:** an egress allowlist covering Binance public REST/WS and the lab DB only, with no access to `shared_db_net` production DB credentials.
-- **Lab DB (`tsb_lab`, new, same shared cluster or a dedicated container):** separate from `trading_signals`.
+- **Lab DB (`tsb_lab`):** a separate logical database on the existing PostgreSQL cluster, **only if** the isolation acceptance tests in §11.3 pass; otherwise a physically separate PostgreSQL service. Separate from `trading_signals` in both cases.
   - Per-strategy role `lab_s_<id>` with `INSERT` only on `signal_intents`.
   - Row-level security pins `strategy_id = current_user`; there is no read access to other strategies' rows.
   - The lab engine role owns the account tables.
 - **Idempotency:** `signal_intents` unique on `(strategy_id, strategy_version, experiment_id, intent_key)`, with `intent_key` deterministic from the strategy's decision time and symbol. Fills are unique on `(order_id, fill_seq)`, and all ledger postings happen in one transaction with the fill.
 - **No netting:** positions are keyed by `(account_id, symbol)`. Two accounts holding the same symbol are independent rows, and no cross-account query exists in the engine.
 
-### 2.2 Proposed account rules (need owner approval; written as defaults)
+### 2.2 Account rules (owner-approved 2026-10-20 unless marked PROP)
 
-| # | Rule | Proposal |
+| # | Rule | Decision |
 |---|---|---|
-| R1 | Gross exposure cap | **Fixed 2,500 USDT nominal** (50 % of the initial 5,000), never rescaled by equity. Measured as Σ open-position **cost basis** plus Σ reserved notional of working orders. Mark-to-market growth never forces a sale |
-| R2 | Order size | Target 500 USDT notional. Reduced to available cash minus reservations minus fees. Rejected if below the lab minimum of 50 USDT or below the exchange `minNotional`. No upsizing after profits |
-| R3 | Positions | ≤ 5 open positions per account. At most one position per symbol per account (no pyramiding) unless the strategy spec declares it in advance |
-| R4 | Cash reserve | The reserve of 2,500 at the start follows from R1. **Owner choice:** (a) a hard cash floor of 2,500, so capacity shrinks after losses, or (b) no floor beyond R1/R2. Default proposal: (a) |
-| R5 | Fees | 0.10 % per side on executed notional, in USDT, no BNB; buy fee added to cost basis, sell fee deducted from proceeds; spread and slippage from `a48-cost-v1` tiers |
-| R6 | Fills | Full fill at the observed price adjusted by modelled slippage (unchanged Paper model). Partial fills are **not** simulated. Orders whose notional exceeds a declared share of the observed top-of-book depth (e.g. 10 %) are flagged |
-| R7 | Rebalancing | Target-weight strategies trade only when the position change is at least max(25 USDT, 10 % of the position). The threshold is fixed in the strategy spec |
-| R8 | Equity | Equity = cash + Σ position quantity × mark. Daily snapshot at 00:00 UTC; realized and unrealized P&L kept separately |
-| R9 | Terminal account | If equity < 1,000 USDT (proposal) the account freezes: no new orders, no replenishment, no reset, and the experiment is closed as `TERMINAL_LOSS` with its evidence retained |
-| R10 | Production account | Unchanged: no schema migration on `trading_signals`; the production tracker never runs LAB_MODE code |
+| R0 | Starting balance | **5,000 USDT virtual cash per new strategy account** (OWNER). No leverage, no borrowing, no short sale of unheld base asset. No automatic replenishment and no reset of an existing account (OWNER) |
+| R1 | Gross exposure cap | **Initial cap 2,500 USDT** (OWNER), fixed nominal, not rescaled by equity. **Exposure = Σ entry cost basis of open positions (including the buy fee) + Σ reserved notional and estimated fees of pending orders.** An intent is accepted only if exposure after reservation ≤ cap. Mark-to-market value is **monitored** (daily snapshot and on every fill) but never forces a sale and never frees cap; cap is freed only by an executed exit or a released reservation |
+| R2 | Order size | **Target 500 USDT notional** (OWNER). Reduced to min(500, cap headroom, available cash − reservations − estimated fees). Rejected if below the lab minimum of 50 USDT or below the exchange `minNotional`. No upsizing after profits |
+| R3 | Positions | **≤ 5 simultaneous open positions per account; at most one position per symbol per strategy account** (OWNER). No pyramiding. Positions in different accounts are independent (§2.1, no netting) |
+| R4 | Cash allocation | The 2,500 USDT not deployable at the start follows from R1. It is an **initial allocation, not a permanent hard cash floor** (OWNER): after losses the account may deploy remaining cash up to the cap; it can never go below zero cash |
+| R5 | Fees and costs | **0.10 % per side** on executed notional (standard spot taker, no BNB/VIP discount) **plus** spread and slippage from the `a48-cost-v1` tiers (OWNER). Buy fee added to cost basis, sell fee deducted from proceeds. Discounted-fee models are refused (`research/mechanisms/costs.py`) |
+| R6 | Fills | Full fill at the observed price adjusted by modelled slippage (unchanged Paper model). **Known limitation:** no partial fills, queue position or depth impact. Orders above a declared share of observed top-of-book depth (e.g. 10 %) are flagged. **Required:** every reported result carries a cost/fill **sensitivity test** (fees and slippage ×1.5 and ×2; an extra adverse tick; a no-fill rate of 10 % on limit-style entries) and is reported as fragile if its sign changes |
+| R7 | Rebalancing | **Strategy-specific and predeclared** (OWNER): each strategy spec fixes its rebalance schedule and minimum trade threshold (example: max(25 USDT, 10 % of the position)) before its first intent. A change is a new strategy version |
+| R8 | Accounting | **Transaction-level ledger** (every order, fill, fee and cash movement, append-only, one transaction per fill) and **daily equity snapshot** at 00:00 UTC (OWNER). Equity = cash + Σ quantity × mark; realized and unrealized P&L separate |
+| R9 | Risk-triggered suspension | **No permanent automatic freeze merely because equity falls below 1,000 USDT** (OWNER). Instead the engine sets `SUSPENDED_REVIEW` (no new entries; existing exits and stops still run; nothing is closed by force) when a predeclared trigger fires. Default triggers (PROP, fixed per spec): drawdown ≥ 30 % from the account peak; equity < 2,000 USDT; 8 consecutive losing trades; an accounting-invariant or intake-validation failure (immediate). Resumption only by a recorded owner review; closing an experiment is an explicit owner decision, never automatic. The account is never refilled or reset |
+| R10 | Production account | Unchanged (OWNER): no schema migration on `trading_signals`; the production tracker never runs LAB_MODE code; the global B3 breaker, `TRADE_AMOUNT_USDT=50` and the bracket model stay as they are |
+
+**Engine reuse (OWNER).** The lab engine is the `trade_tracker` codebase with a **backward-compatible lab extension**: new modules (accounts, reservations, target-position path, account risk) are imported only when `LAB_MODE` is set; shared fill and fee functions are reused, not copied. Acceptance: with `LAB_MODE` unset the production test corpus is byte-identical (§6), and the production image is not rebuilt for the lab.
 
 ## 3. Data-access matrix
 
@@ -101,15 +104,15 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 |---|---|---|
 | G1 No accounts | new `tsb_lab` schema: accounts, orders, fills, positions, ledger, equity_daily, signal_intents, experiments | no (new DB) |
 | G2 No target-position orders | lab engine order path `target_qty` (market, full fill) beside the bracket path; shared fill and fee functions | code in the tracker image, **inactive unless `LAB_MODE`** |
-| G3 Global risk | account-scoped risk (R1–R4, R9) in the lab path; B3 stays production-only | no |
-| G4 Raw data writable | read-only bind mounts + distinct UIDs; optional `chmod a-w` of `raw/` (owner decision: metadata change only) | no |
+| G3 Global risk | account-scoped risk (R1–R4) and suspension/review (R9) in the lab path; B3 stays production-only | no |
+| G4 Raw data writable | **no bulk chmod of `raw/`** (OWNER). Immutability by certified read-only copies and read-only mounts, §11.4 | no |
 | G5 No experiment registry | append-only, hash-chained JSONL (pattern of the CHG-03 ledger) plus content-addressed results | no |
 | G6 Intake validation | schema, limits, idempotency, account state, timestamps vs market clock | no |
 | G7 Reporting | per-account daily report and an equity/drawdown/turnover/cost view; Telegram optional | no |
 
 ## 5. Minimal roadmap (each step a separate owner approval)
 
-1. Approve the design and the R1–R10 rules (this PR).
+1. Approve the design (this PR). R0–R10 are owner-decided; the R9 default triggers remain PROP.
 2. `tsb_lab` schema plus pure accounting module with synthetic tests (no host change).
 3. Lab engine path in the tracker codebase behind `LAB_MODE`; a production byte-identity test (like `T1_CAP_POLICY`).
 4. Strategy container template plus the intake role, tested on a disposable Postgres.
@@ -129,8 +132,13 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 - **Production identity:** with `LAB_MODE` unset, tracker outputs are byte-identical to `ea8ae4f` on the existing test corpus.
 - **Data:** a mount-permission test in the container (write to the snapshot fails); no post-freeze path is mounted.
 - **Resources:** OOM or CPU-throttle of one strategy does not affect the engine or production (fault injection on disposable infrastructure).
+- **Account rules:** exposure = cost basis + reservations, never mark value; a sixth position and a second same-symbol position are rejected; an order is clipped to cap headroom and cash; no cash floor after losses (R4); a fired R9 trigger blocks entries but lets exits run; nothing refills or resets an account.
+- **Fill sensitivity:** each reported result is re-run with costs ×1.5 / ×2, an adverse tick and a 10 % no-fill rate (R6).
+- **Lab DB isolation:** §11.3 acceptance tests, on a disposable cluster first.
 
 ## 7. Resource estimate (INFERRED)
+
+Superseded for limits by §10.3 (containers 0.25 CPU / 256 MiB inside the lab budget); kept as the first estimate.
 
 | Component | Count | Resources |
 |---|---|---|
@@ -153,7 +161,7 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 
 ## 9. Preliminary author assessment (not an independent review)
 
-REVISE → GO is possible once R1–R10 are decided and the reviewers confirm G2 (the target-position path) is an extension, not a second engine.
+REVISE → GO is possible now that R0–R10 are owner-decided, if the reviewers confirm (a) G2 (the target-position path) is an extension, not a second engine, (b) the R9 trigger defaults, and (c) the §11.3 isolation tests are sufficient for a logical `tsb_lab` database. External review: **not yet received** for either package.
 
 ## 10. Host resources, budgets and scheduling (addendum, 2026-10-20)
 
@@ -192,13 +200,15 @@ Categories used below:
 | Profile | Total research + lab CPU | Split (enforceable) | Memory | Notes |
 |---|---|---|---|---|
 | R1 (default) | **4 vCPU** | runner `research.slice` 300 % + lab containers parent `tsblab.slice` 100 % | research 8 GiB + lab 2 GiB | sum of caps with production (5.0) = 9 ≤ 10 |
-| R2 (`--allow-elevated`, after measured G5 conditions) | **up to 6 vCPU** | 450 % + 150 % | 10 + 2 GiB | sum of caps = 11 > 10, so it is compliant **only** with an enforced project parent ceiling, or at 5 vCPU total without one |
-| R3 (attended only) | 8 vCPU | runner only; lab containers paused | 12 GiB | never automatic; operator present; ends to R1 |
+| R2 (`--allow-elevated`, after measured G5 conditions) | **5 vCPU** (OWNER, temporary) | 400 % + 100 % | 10 + 2 GiB | sum of caps with production = 10. No production cgroup restructuring. The existing runner R2 profile (6 workers / 600 %) must be lowered to 500 % total before R2 is used for lab work; that is a config change for separate approval |
+| R3 | **deferred** (OWNER) | — | — | attended only if ever reconsidered; not available to the lab |
 
 - **Worker count ≠ CPU quota.** Workers are processes started by the runner. The quota is the cgroup `cpu.max` that bounds them.
 - **Strategy containers:** each 0.25 CPU / 256 MiB / pids 64 / `restart: "no"`, inside `tsblab.slice`.
 - **Capacity at R1:** ≤ 5 forward strategies (the account cap) + 1 lab engine (0.25 / 256 MiB) fit in 100 % / 2 GiB. The measurement (≈ 1 CPU-s per 8-year daily run) shows daily strategies are memory- and governance-bound, not CPU-bound.
-- **Capacity at R2:** the same container count (no reason to scale strategies with CPU); the extra quota goes to backtest workers.
+- **Capacity at R2:** the same container count (no reason to scale strategies with CPU); the extra 1 vCPU goes to backtest workers.
+- **Up to five strategy containers** (OWNER), subject to the S0 measurement and an S2 capacity test; fewer if the test fails.
+- **The 10 vCPU ceiling is not enforced** (§10.2). Without S3 it holds only by budget arithmetic; this is reported as such, not as a control.
 
 ### 10.4 Scheduling and pressure behaviour (PROP)
 
@@ -224,4 +234,66 @@ Categories used below:
 | S3 | Project ceiling: parent `tsb.slice` (CPUQuota 1000 %) for **all** project containers | **requires recreating every production container** (Class B, one service at a time) | recreate without `cgroup_parent` | per-service identity gates; Paper/Collector health over 30 min |
 | S4 | PSI admission and protected windows in runner config | none | revert config | admission refused under an injected PSI threshold |
 
-Lowest risk first: S0 → S1 → S2. S3 is optional and disruptive. Until S3, the 10 vCPU ceiling is met only by **budget arithmetic** (R1), not by enforcement.
+**Owner decisions (2026-10-20):**
+- **S0:** approved as **read-only measurement** only (no unit, slice or container change).
+- **S1, S2:** design and validation only (on disposable or non-production units), no activation.
+- **S3:** **deferred.** Production containers are not recreated.
+- **S4:** not decided.
+- **No automatic escalation** to R2 or R3. No resource control was changed by this document.
+
+Until S3, the 10 vCPU ceiling is met only by **budget arithmetic** (R1 = 4 + production caps 5.0 ≤ 10; R2 = 5 → 10), not by enforcement. Three production services (telegram, tracker, shared postgres) remain uncapped, so arithmetic is not a guarantee.
+
+## 11. Owner decisions, lab database and data immutability (revision 3, 2026-10-20)
+
+### 11.1 Decisions applied
+
+| Area | Decision | Where |
+|---|---|---|
+| Account | 5,000 start; 500 order; ≤ 5 positions, 1 per symbol; 2,500 initial cap; no permanent cash floor; no leverage; no refill/reset | §2.2 R0–R4 |
+| Costs | 0.10 %/side + spread + slippage; full-fill limitation kept and sensitivity tests required | R5, R6 |
+| Risk | no automatic permanent freeze at 1,000; risk-triggered suspension and review | R9 |
+| Accounting | transaction ledger + daily equity snapshots; predeclared rebalancing | R7, R8 |
+| Engine | `trade_tracker` reused via a backward-compatible `LAB_MODE` extension; production Paper account unchanged | §2.2, R10 |
+| Resources | R1 4 vCPU, R2 5 vCPU, R3 deferred; S0 read-only; S1/S2 design only; S3 deferred | §10.3, §10.5 |
+| Data | holdout stays sealed; no bulk chmod of `raw/` | §3, §11.4 |
+
+### 11.2 Lab database
+
+- A **logical** `tsb_lab` database on the existing cluster is accepted **only after** §11.3 passes. If any test fails, the fallback is a physically separate PostgreSQL service (own container, own volume, own network) with the same roles.
+- **Roles (least privilege, dedicated credentials):**
+  - `tsb_lab_owner` (NOLOGIN, owns objects);
+  - `tsb_lab_engine` (DML on account tables);
+  - one `lab_s_<id>` per strategy (INSERT on `signal_intents`, SELECT on its own account view);
+  - `tsb_lab_ro` (reporting).
+  No lab role is superuser, CREATEDB or CREATEROLE, or a member of any production role. Credentials are new secrets, never reuse of `trading_signal_bot`.
+- **No production schema migration.** Nothing is created in `trading_signals`; production roles get no grant on `tsb_lab`.
+- **Creating the database is itself a change to the shared cluster** (Class B, separate owner approval), as is any `pg_hba.conf` change.
+
+### 11.3 Isolation acceptance tests (disposable cluster first, then a read-only check on the target)
+
+1. `REVOKE CONNECT ON DATABASE tsb_lab FROM PUBLIC`; a production role cannot connect to `tsb_lab`, and lab roles cannot connect to `trading_signals` (or other tenants' databases).
+2. `pg_hba.conf` rules limit lab roles to `tsb_lab` from the lab network only.
+3. No lab role can use `dblink`/`postgres_fdw`, `COPY ... PROGRAM` or read server files (`pg_read_server_files` not granted).
+4. RLS: strategy A cannot read or insert B's rows; `FORCE ROW LEVEL SECURITY` on the owner tables.
+5. Resource bounds: per-role `CONNECTION LIMIT`, `statement_timeout`, `idle_in_transaction_session_timeout`; a lab runaway query is cancelled without affecting production latency (measured).
+6. Backup separation: the existing shared-cluster backup keeps working, and `tsb_lab` is either included and restorable or excluded by explicit decision.
+
+### 11.4 Raw-data immutability without bulk chmod
+
+- **Observed (VERIFIED, read-only, 2026-10-20):**
+  - newest file mtime under `raw/` is 2026-08-19 (the freeze date);
+  - 0 files and 0 directories modified in the last 7 days;
+  - no process held a file open there;
+  - no container mounts `raw/` (the only `research-data` mount is the Collector's own `p2/...` dataset);
+  - no cron or user unit references `raw/`.
+
+  So no active writer was observed. This is a point-in-time observation, not a guarantee.
+- **Strategy:**
+  1. Leave the originals, their permissions and timestamps untouched.
+  2. Lab and backtest jobs never see `raw/`. They read a **certified snapshot copy** (`ds-<hash>`) built once by the runner from the manifest (`raw_files.json`, `research_freeze.json`), verified by hash before first use.
+  3. The snapshot is mounted read-only (`:ro` bind mount, container `read_only: true`, distinct UID without write permission to the snapshot directory).
+  4. A pre-run hash check of the snapshot against its manifest is mandatory; a mismatch blocks the run.
+  5. A periodic read-only re-hash of `raw/` against the manifest detects any later change and preserves evidence.
+- **Permission change of the snapshot copy (not the originals)** is allowed because the copy is new.
+- **Any permission change on `raw/` itself** stays a separate owner decision.
+
