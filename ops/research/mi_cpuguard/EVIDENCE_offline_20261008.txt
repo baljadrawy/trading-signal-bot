@@ -1,0 +1,26 @@
+test_kill_before_reservation_at_max_rate (test_mi_cpuguard.G1BudgetKill.test_kill_before_reservation_at_max_rate) ... ok
+test_margin_is_two_polls_at_quota (test_mi_cpuguard.G1BudgetKill.test_margin_is_two_polls_at_quota) ... ok
+test_randomized_rates_never_exceed_reservation (test_mi_cpuguard.G1BudgetKill.test_randomized_rates_never_exceed_reservation) ... ok
+test_baseline_unreadable_refuses_and_charges_reservation (test_mi_cpuguard.G2FailClosed.test_baseline_unreadable_refuses_and_charges_reservation) ... ok
+test_cpu_stat_parser_fails_closed (test_mi_cpuguard.G2FailClosed.test_cpu_stat_parser_fails_closed) ... ok
+test_guard_gap_kills (test_mi_cpuguard.G2FailClosed.test_guard_gap_kills) ... ok
+test_kill_error_still_charges (test_mi_cpuguard.G2FailClosed.test_kill_error_still_charges) ... ok
+test_non_monotonic_counter_kills (test_mi_cpuguard.G2FailClosed.test_non_monotonic_counter_kills) ... ok
+test_unreadable_counter_kills_and_charges_full_reservation (test_mi_cpuguard.G2FailClosed.test_unreadable_counter_kills_and_charges_full_reservation) ... ok
+test_guard_runs_outside_the_slice_and_never_restarts (test_mi_cpuguard.G3GuardLiveness.test_guard_runs_outside_the_slice_and_never_restarts) ... ok
+test_jobs_and_anchor_are_bound_to_the_guard (test_mi_cpuguard.G3GuardLiveness.test_jobs_and_anchor_are_bound_to_the_guard) ... ok
+test_slice_rate_cap_is_600_percent (test_mi_cpuguard.G3GuardLiveness.test_slice_rate_cap_is_600_percent) ... ok
+test_done_charges_measured (test_mi_cpuguard.G4Charging.test_done_charges_measured) ... ok
+test_over_reservation_is_surfaced (test_mi_cpuguard.G4Charging.test_over_reservation_is_surfaced) ... ok
+test_cap_and_open_reservations_count_as_consumed (test_mi_cpuguard.G5Ledger.test_cap_and_open_reservations_count_as_consumed) ... ok
+test_concurrent_reservations_are_serialized (test_mi_cpuguard.G5Ledger.test_concurrent_reservations_are_serialized) ... ok
+test_crash_recovery_charges_full_reservation (test_mi_cpuguard.G5Ledger.test_crash_recovery_charges_full_reservation) ... ok
+test_double_charge_and_unknown_campaign_refused (test_mi_cpuguard.G5Ledger.test_double_charge_and_unknown_campaign_refused) ... ok
+test_tamper_is_detected (test_mi_cpuguard.G5Ledger.test_tamper_is_detected) ... ok
+test_runtime_max_rendered_everywhere (test_mi_cpuguard.G6WallClock.test_runtime_max_rendered_everywhere) ... ok
+test_wall_clock_is_only_an_additional_kill (test_mi_cpuguard.G6WallClock.test_wall_clock_is_only_an_additional_kill) ... ok
+
+----------------------------------------------------------------------
+Ran 21 tests in 2.929s
+
+OK
