@@ -1,0 +1,21 @@
+# CHG-03 OPTION G-A (proposal, NOT INSTALLED): clean Collector stop during an orderly host shutdown.
+# A SYSTEM unit (needs root to install). Ordered After=docker.service, so at shutdown its ExecStop runs BEFORE
+# Docker stops: the collector drains (<= 450 s) and writes a STOPPED stop marker. After the reboot the previous run
+# is then CLEAN_STOP and the recovery needs no P2F_ACK_PREVIOUS at all. A power loss still ends uncleanly.
+[Unit]
+Description=Clean stop of the P2 forward collector before Docker stops (CHG-03 G-A)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=tradmin
+ExecStart=/bin/true
+ExecStop=/home/tradmin/ops/tsb-p2-forward/p2f_continuous_stop.sh /home/tradmin/research-data/trading-signal-bot/p2/forward-continuous-v1 /home/tradmin/ops/tsb-p2-forward/compose.yml
+# 3 = collector was not running (nothing to stop)
+SuccessExitStatus=3
+TimeoutStopSec=480
+
+[Install]
+WantedBy=multi-user.target
