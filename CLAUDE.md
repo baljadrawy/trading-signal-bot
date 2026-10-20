@@ -4,9 +4,13 @@
 
 > اقرأ الملف المرتبط ذا الصلة قبل أي تعديل.
 
-## R1.3 project governance proposal
+## Development-First policy (proposed, Draft PR-A, 2026-10-20)
 
-- Bot-owned backups are proposed **per approved container update**, not periodically; preserve the prior certified recovery set until the replacement passes verification and a separate, named deletion is approved.
+- [docs/governance/DEVELOPMENT_FIRST_POLICY.md](docs/governance/DEVELOPMENT_FIRST_POLICY.md): which rules apply to which kind of work (D0 development … D5 live). Development is the default; production operations, the sealed holdout, secrets and PAPER_ONLY rules are unchanged. Governing only after the owner merges it.
+
+## R1.3 recovery governance (merged in PR #46, 2026-10-18)
+
+- Bot-owned backups are **per approved container update**, not periodically; preserve the prior certified recovery set until the replacement passes verification and a separate, named deletion is approved.
 - Use `ops/provenance/drift_check.py` as a **development and deployment governance gate**, not a scheduled independent service. Report the executed verification scope and never treat `main` HEAD as the deployed image.
 - Read [docs/ops/EVENT_DRIVEN_RECOVERY_GOVERNANCE.md](docs/ops/EVENT_DRIVEN_RECOVERY_GOVERNANCE.md). This documentation change **does not** authorize cron, backup, DB, container, or deletion operations.
 
@@ -28,7 +32,7 @@ research/skill_application/.venv/bin/python -m pytest tests/ -q               # 
 - **Class A (قراءة فقط، مسموح دائماً):** `docker ps` / `inspect` / `logs` / `stats --no-stream` / `image inspect`، و Compose `ps` / `logs` / `top` / `images`، و `config --hash <svc>` و `config --services`. **`docker compose config` العادي يطبع أسرار `.env` مفكوكة** — لا يُعرض على الطرفية أبداً؛ فقط إعادة توجيه لملف بصلاحية 600.
 - **Class B (بموافقة صريحة من المالك + إجراء مُبوَّب):** restart/stop/recreate/deploy/rollback لخدمة **واحدة**، أو `exec` يكتب، أو تشغيل المتعلّم. الصيغة الوحيدة، من `/home/tradmin/trading-signal-bot` فقط:
   `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate <svc>`
-  مع التقاط الهوية قبل/بعد (container ID، image، StartedAt، RestartCount، IPs)، وفحص صحة طازج ×2، وبوابتي PAPER_HALTED/B3 (حالة الإيقاف **غير مؤكَّدة** من DB منذ R0؛ يُتحقَّق منها من DB قبل أي خطوة، راجع `docs/ops/COMPOSE_OPERATIONS.md`).
+  مع التقاط الهوية قبل/بعد (container ID، image، StartedAt، RestartCount، IPs)، وفحص صحة طازج ×2، وبوابتي PAPER_HALTED/B3 (حالة الإيقاف **غير مؤكَّدة** من DB منذ R0؛ يُتحقَّق منها من DB قبل أي خطوة، راجع `docs/ops/COMPOSE_OPERATIONS.md`). *ملاحظة 2026-10-20:* قاطع B3 يُحسب من الصفقات المغلقة عند كل تقييم وليس قيمة مخزّنة، فلا يُذكر PAPER_HALTED كحالة حالية دون قراءة معتمدة.
 - **Class C (ممنوع في الإنتاج):** `up`/`up -d` بلا خدمة، `up --build`، أي `build` من نسخة الإنتاج، `down`، `down -v`، `--remove-orphans`، أي `prune`، `pull` لصور التطبيق، `start`/`restart`/`rm` الشاملة، `run` يركّب مجلد الإنتاج، وأي تعديل لأكثر من خدمة.
 - **المتعلّم (`continuous_learner`) يبقى متوقفاً:** الـprofile `learner` يمنعه فقط من المشاركة في التشغيل الافتراضي العادي لـCompose (حماية من التشغيل العرضي). استهداف المتعلّم مباشرةً بالاسم يبقى ممكناً تقنياً في Docker Compose، و**ممنوع** دون تفويض منفصل من المالك. **الـprofile ليس حدّ تفويض:** حدّ التفويض هو موافقة المالك الصريحة + إجراء Class B + هذا المرجع + رفض `ops/compose-safe` للمتعلّم + قاعدة التوقف المطلقة. لا تستهدف `continuous_learner` بأي أمر Compose؛ أي تشغيل مقصود يتم فقط عبر الإجراء المُراجَع وبتفويض منفصل. **الـprofile لا يجعل الأوامر العارية مقبولة.**
 - **صور مثبّتة:** المرجع الحالي هو `deploy/a561-rel-ea8ae4f/IMAGES.md`، وقد طوبق مع الحاويات الجارية: analyzer و signal_engine و telegram و trade_tracker على صور الإصدار `tsb-a561-*:rel-ea8ae4f-r2`، و scanner على صورة `deploy/aiohttp-3.14.3/IMAGES.md`. سجلّات D3B-1/CR-2/P1-D تاريخية (صور التراجع `tsb-p1d-*`). لا إعادة بناء ولا إعادة وسم أبداً.

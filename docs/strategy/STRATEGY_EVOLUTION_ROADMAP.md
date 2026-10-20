@@ -5,6 +5,7 @@
 ## Ground rules (apply to every workstream)
 
 - **Production baseline:** `59297305`, schema 9. It is the comparison arm for every change.
+  *Dated note (2026-10-20):* stale. The deployed release is A56.5 `ea8ae4f` (schema 11, `deploy/a561-rel-ea8ae4f/`). Activity classes and approvals: `docs/governance/DEVELOPMENT_FIRST_POLICY.md` (proposed). The "no real historical backtests" boundary stays in force; a change is proposed there as OD-DF-1. S4 planning: `docs/strategy/S4_MECHANISM_COMPARISON.md` (Draft PR #60). G1 as a flag defaulting to current behaviour: Draft PR #59.
 - **Hard boundaries:**
   - experimental logic is pure, versioned and disabled, and production code never imports it (`tests/experimental_modules.py`);
   - no real historical backtests, protected outcome reads, outcome-based parameter selection, prospective trials or budget use without a separate approval;

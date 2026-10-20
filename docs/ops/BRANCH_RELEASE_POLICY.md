@@ -2,6 +2,8 @@
 
 **Status: PROPOSED (Draft PR, 2026-10-18; revision 2, same day: legacy-release exception and environment-template rules).** This policy takes effect only when the owner approves and merges this PR. Until then, existing records govern.
 
+> **Dated note (2026-10-20):** merged into `main` by PR #42 (2026-10-18), so this policy is **in effect**; the status line above is historical. `docs/governance/DEVELOPMENT_FIRST_POLICY.md` (proposed) narrows §10 (development branches and Draft PRs under a standing owner authorization) and the scope of §3 provenance and §8 independent review for docs-only and research-only PRs. Merge, release and deployment gates are unchanged.
+
 - **Source:** owner direction of 2026-10-17/18 ("main is the authoritative branch for approved project code; completed eligible branches are merged promptly after review; releases originate from approved commits reachable from main; merge and deployment are separate gates").
 - **Earlier direction:** the 2026-09-27 owner direction in `docs/product/REPOSITORY_CONSOLIDATION.md` (Draft PR #3, "one long-lived branch, `main`").
 - **No existing record is modified by this PR.** Conflicts are listed in section 12 and are resolved by dated notes after owner review. Historical governance evidence is preserved unchanged.

@@ -2,6 +2,8 @@
 
 **Status: proposed policy, documentation only.** This document does not authorize production installation, cron changes, backup execution, deletion, database access, external transfers, or deployment. It becomes governing project policy only after review and merge. Any production action still requires a separate, operation-specific owner approval.
 
+> **Dated note (2026-10-20):** merged into `main` by PR #46 (2026-10-18), so it **governs**. The §4 transition has not been executed: the p1bg v1 cron is still installed and failing. `trading_signals` is additionally dumped nightly by the xsch backup (local restic, another project). Ongoing data protection between releases is proposed in `docs/ops/BACKUP_MODEL_RD.md`.
+
 ## 1. Owner decisions (2026-10-18)
 
 1. **Bot-owned recovery backups are event-driven, not periodic.** Create a new approved recovery set for each owner-authorized update/recreate/rollback that changes a bot container's deployed state. Routine source commits, CI, tests, research outcomes, and an unchanged running container do not trigger a recovery set.
