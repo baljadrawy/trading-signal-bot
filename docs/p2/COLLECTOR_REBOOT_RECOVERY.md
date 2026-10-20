@@ -11,8 +11,7 @@
 | `p2_forward/ops/p2f_reboot_recover.py` | One-shot orchestrator (`run`, read-only `status`, operator `reset`). Stdlib only |
 | `p2_forward/ops/systemd/tsb-p2f-recover.service` | User unit, `Type=oneshot`, `WantedBy=default.target`, **no `Restart=`**. Runs once per user-manager start (lingering is enabled, so once per host boot) |
 | `p2_forward/ops/p2f-recover.example.json` | Config template: expected image tag and ID, config/compose SHA-256, paths, thresholds, Paper container names, policy, alert settings |
-| `p2_forward/ops/systemd/tsb-p2f-shutdown-stop.service` | **Option G-A** (section 6): system unit for a clean Collector stop during an orderly shutdown |
-| `p2_forward/tests/test_p2f_reboot_recover.py` | 30 deterministic tests on a fake host and fixture datasets |
+| `p2_forward/tests/test_p2f_reboot_recover.py` | 50 deterministic tests: a fake host, fixture datasets, and the real `RealHost` parsers fed with output captured on the production host |
 
 ## 2. State machine
 
@@ -31,7 +30,8 @@ ledger gate: chain intact · no ATTEMPT for this host boot · failure circuit cl
 classify previous run ─not eligible─► MANUAL not_auto_eligible:<class>
  │                    ─ORDERLY_REBOOT_UNCLEAN and policy off─► MANUAL unclean_stop_needs_operator_ack
  │
-drift gates: image ID == pinned · config SHA-256 · compose SHA-256 · compose restart "no" · dataset id ─fail─► MANUAL
+drift gates: image ID == pinned · config SHA-256 · compose SHA-256 · compose collector `restart` parsed == "no" ·
+             existing container HostConfig.RestartPolicy == no/0 · dataset id ─fail─► MANUAL
  │
 incident gate: p2f_ack_binding.gate() == {} (blocking CRITICAL never bypassed, never acknowledged) ─fail─► MANUAL
  │
@@ -39,9 +39,9 @@ preserve evidence (copy, verify each file by SHA-256) ─fail─► MANUAL
  │
 Paper snapshot · ledger ATTEMPT
  │
-p2f_continuous_up.sh (the reviewed gated script; P2F_ACK_PREVIOUS only as below) ─rc≠0─► FAILED
+p2f_continuous_up.sh (the reviewed gated script; P2F_ACK_PREVIOUS only as below) ─rc≠0 or no "restart=no"─► FAILED
  │
-verify (≤ health_wait_s): container running, image pinned, restart "no", new run ≠ previous,
+verify (≤ health_wait_s): container running, image pinned, actual RestartPolicy no/0, new run ≠ previous,
         new run.previous_run == previous run, health.boot_id == new run, write_errors 0,
         writer alive and beat ≤ 5 s, certifier alive ─fail─► FAILED
  │
@@ -60,11 +60,18 @@ Every outcome except LOCKED and NOOP writes `recovery/<UTC>-<boot8>/report.json`
 |---|---|---|
 | `CLEAN_STOP` | stop marker `state=STOPPED` for the latest run | **yes**: the start gate needs no acknowledgement |
 | `FAILED_STOP` | stop marker with another state (fail-closed, exit 6) | never |
-| `ORDERLY_REBOOT_UNCLEAN_STOP` | no marker; the run started before this host boot; its last health write lies within [−10 min, +5 min] of the previous boot's last journal entry; and that boot's user manager reached `shutdown.target` | **only** with policy `auto_ack_previous_on_orderly_reboot: true` (default **false**) |
+| `ORDERLY_REBOOT_UNCLEAN_STOP` | no marker; the run started before this host boot (kernel `btime`); its last health write lies within [−10 min, +5 min] of the previous boot's last user-journal entry; and **both** independent records show an orderly shutdown: the previous boot's user manager logged `Reached target shutdown.target`, **and** wtmp has a `shutdown system down` record starting within 5 min of that journal end and ending within 5 min of the current kernel boot time | **only** with policy `auto_ack_previous_on_orderly_reboot: true` (default **false**) |
 | `UNCLEAN_REBOOT_UNVERIFIED` | as above, but no orderly-shutdown evidence (power loss, crash) or no health evidence | never |
 | `COLLECTOR_CRASH_SAME_BOOT` | no marker; the run started during the current host boot | never |
 | `COLLECTOR_DIED_BEFORE_SHUTDOWN` | the last health write is more than 10 min before the previous boot ended | never |
 | `UNKNOWN` / `NO_PREVIOUS_RUN` | lineage mismatch, ledger inconsistency, missing records | never |
+
+**Host evidence (verified read-only on the production host, systemd 255.4-1ubuntu8.18, 2026-10-20):**
+- `journalctl --user --list-boots -o json` returns a JSON array of `{index, boot_id, first_entry, last_entry}` with timestamps in microseconds and 32-hex boot ids. The previous boot is chosen as the latest boot that **ended before the kernel boot time**, not by `index` (the user journal may not list the current boot yet).
+- The current boot is identified by `/proc/sys/kernel/random/boot_id` (dashes removed), and its start by `/proc/stat` `btime`. The user journal's first entry is 28 s later.
+- `last -x --time-format iso shutdown` prints `shutdown system down <kernel> <ISO start> - <ISO end>`. A power loss leaves no such record.
+- On the real host the parser yields: previous boot `07f9c3c2…`, ended 2026-10-19T15:04:52.437Z, `journal_shutdown_target=true`, `wtmp_shutdown=true` (15:04:53 → 15:20:18 local+2). Current boot `71a4d947…`, btime 15:20:16Z.
+- **Any** missing, unparsable or inconsistent evidence fails closed: `previous=None` or `orderly=False` gives `UNCLEAN_REBOOT_UNVERIFIED` (MANUAL), and an unreadable procfs gives `current_boot_unverifiable` (MANUAL).
 
 The previous run is always read from the dataset (`runs/`, cross-checked with `p2f_ack_binding.latest_run`). `P2F_ACK_PREVIOUS` is derived from it, never hard-coded, and is passed only in the policy-enabled orderly case. `p2f_continuous_up.sh` re-checks it.
 
@@ -88,21 +95,35 @@ It never:
 - backfills data;
 - deletes anything.
 
-## 6. Governance: the runbook acknowledgement
+## 6. Governance: the runbook acknowledgement, and why G-A was withdrawn
 
-The runbook (`docs/p2/CONTINUOUS_OPERATIONS.md` §7, on the held branch `feature/mi-am4a-stage-b-prep-20261011`, not on `main`) requires `P2F_ACK_PREVIOUS` after an unclean stop: the operator confirms that the evidence was preserved. **That confirmation is not automated by default.** Two options, each a separate owner decision:
+The runbook (`docs/p2/CONTINUOUS_OPERATIONS.md` §7, on the held branch `feature/mi-am4a-stage-b-prep-20261011`, not on `main`) requires `P2F_ACK_PREVIOUS` after an unclean stop: the operator confirms that the evidence was preserved. **That confirmation is not automated by default** (G-B stays off).
 
-| | G-A (recommended): clean stop at orderly shutdown | G-B: narrow pre-authorization |
-|---|---|---|
-| Mechanism | system unit `tsb-p2f-shutdown-stop.service`, `After=docker.service`: at shutdown its `ExecStop` runs `p2f_continuous_stop.sh` before Docker stops, so the collector drains and writes a STOPPED marker | set `policy.auto_ack_previous_on_orderly_reboot: true` |
-| Effect after an orderly reboot | `CLEAN_STOP`: no acknowledgement needed, the existing gate is unchanged | `ORDERLY_REBOOT_UNCLEAN_STOP` is started with a derived `P2F_ACK_PREVIOUS`, after evidence preservation and every gate |
-| Governance change | none to the acknowledgement rule | the runbook's operator confirmation is satisfied automatically, only for that class |
-| Needs | root to install a system unit; the shutdown waits up to 480 s for the drain | config change only |
-| Caveats | `systemctl stop` of this unit stops the collector; a power loss still ends uncleanly (then MANUAL) | relies on journal evidence of an orderly shutdown |
+**G-A (a system unit `After=docker.service` that stops the collector at shutdown) was withdrawn in review.** Read-only facts from the host:
 
-**Inferred cause of the unclean stop on 2026-10-19:** an orderly shutdown with a Docker stop deadline shorter than the collector's 450 s drain (exit 255, no stop marker). G-A addresses exactly that.
+| Fact | Value |
+|---|---|
+| Docker daemon | `live-restore: true`, cgroup driver `systemd`, cgroup v2 |
+| `docker.service` | `TimeoutStopSec=90s`, `KillMode=process` |
+| Container scope `docker-<id>.scope` | `TimeoutStopSec=90s`, `KillMode=control-group`, `KillSignal=SIGTERM`, `FinalKillSignal=SIGKILL`, `DefaultDependencies=no`, no `Before=`/`Conflicts=`, member of `system.slice` |
+| Container | `StopTimeout=450` (compose `stop_grace_period`), `RestartPolicy=no/0` |
+| System default | `DefaultTimeoutStopSec=90s`; `reboot.target` `JobTimeoutSec=30min` |
 
-Without either option, the unit still adds value: it recovers clean stops, and in every other case it alerts the owner within minutes of the boot instead of leaving the gap unnoticed.
+**Consequence (INFERRED from systemd semantics; the system journal of the shutdown is not readable by `tradmin`, so it is not directly verified):**
+- With live-restore, stopping `docker.service` does not stop containers.
+- The container's scope is stopped as part of the shutdown transaction (`system.slice`). It is not ordered against any unit, so it runs **in parallel** with any `After=docker.service` unit.
+- `KillMode=control-group` sends SIGTERM to every process in the container at once, then SIGKILL after 90 s. The collector's drain needs up to 450 s (certify grace 300 s plus close).
+- An `ExecStop` that calls `p2f_continuous_stop.sh` therefore cannot guarantee a drain before the SIGKILL.
+- This matches 2026-10-19: health stopped 2–3 s after shutdown began (15:04:55Z), there was no stop marker, and the exit was 255.
+
+**Designs that could make an orderly shutdown clean (each needs root and a separate owner decision; none is implemented):**
+- **G-A2:** after every collector start, a root helper writes a runtime drop-in `/run/systemd/system/docker-<id>.scope.d/` with `Before=<stop unit>` and `TimeoutStopSec=480`, then runs `daemon-reload`. Scoped to this one container. It needs a narrow sudo rule and must track each new container ID.
+- **G-A3:** a logind *delay* inhibitor held by a small helper that runs the gated stop on `PrepareForShutdown`. Needs `InhibitDelayMaxSec ≥ 480` in `logind.conf` (host-wide, though it only delays shutdowns while the lock is held). It does not cover shutdowns that bypass logind.
+- **Not recommended:** a prefix drop-in `docker-.scope.d/` or a higher `DefaultTimeoutStopSec`. Both change shutdown behaviour for **every** container and service on the shared host (wishlist, xsch, postgres).
+
+**G-B** (`policy.auto_ack_previous_on_orderly_reboot: true`) remains the only option without root. It is limited to the `ORDERLY_REBOOT_UNCLEAN_STOP` class (two independent orderly-shutdown records, plus every other gate). **It stays disabled** until the owner decides.
+
+Without any of these, the unit still adds value: it recovers clean stops, and in every other case it alerts the owner within minutes of the boot instead of leaving the gap unnoticed.
 
 ## 7. Production activation (each step needs the owner's approval; not done)
 
@@ -129,14 +150,9 @@ install -m 0644 p2_forward/ops/systemd/tsb-p2f-recover.service ~/.config/systemd
 systemctl --user daemon-reload
 systemctl --user enable tsb-p2f-recover.service
 systemctl --user is-enabled tsb-p2f-recover.service          # enabled
-
-# 5. optional, only with the G-A decision (root)
-sudo install -m 0644 p2_forward/ops/systemd/tsb-p2f-shutdown-stop.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now tsb-p2f-shutdown-stop.service    # ExecStart=/bin/true: does not touch the collector
 ```
 
-Then add the new unit templates to `ops/host/INSTALL_MAP.tsv` (reviewed PR) so `render.py compare` covers them. Acceptance happens at the next real reboot (planned or not): the report, the ledger and the alert are reviewed. **Do not reboot the host only to test this.**
+**INSTALL_MAP.** `ops/host/render.py compare` reports `MISSING` for any mapped file that is not installed, and exits 1. That exit is the drift gate run before every host operation. Adding the recovery unit to `ops/host/INSTALL_MAP.tsv` **before** it is installed would break that gate, and `render.py` has no "planned" kind. Rule: add the templates (`ops/host/systemd/tsb-p2f-recover.service.tmpl` and the `recover.json` template) to `INSTALL_MAP.tsv` **in the same approved activation change**, then run `render.py compare` right after step 4; it must report IDENTICAL. Acceptance happens at the next real reboot (planned or not): the report, the ledger and the alert are reviewed. **Do not reboot the host only to test this.**
 
 ## 8. Rollback
 
@@ -144,16 +160,17 @@ Then add the new unit templates to `ops/host/INSTALL_MAP.tsv` (reviewed PR) so `
 systemctl --user disable tsb-p2f-recover.service
 rm ~/.config/systemd/user/tsb-p2f-recover.service && systemctl --user daemon-reload
 # keep ~/ops/tsb-p2-forward/recovery/ (ledger and reports are evidence)
-# G-A: `disable` only. `systemctl stop` / `disable --now` would run ExecStop and stop the collector
-sudo systemctl disable tsb-p2f-shutdown-stop.service
+# revert the INSTALL_MAP.tsv entries added by the activation change (reviewed PR), then render.py compare
 ```
 
 Nothing in the dataset needs rolling back, because the orchestrator never writes there.
 
 ## 9. Residual risks
 
-- A power loss, a crash, or a reboot without G-A/G-B still needs a person; the alert shortens detection, not recovery.
+- With G-B off, **every** host reboot today ends in MANUAL: on this host an orderly shutdown also kills the collector uncleanly (section 6). The value until G-A2/G-A3/G-B is decided is detection (an alert within minutes), not recovery.
+- A power loss or a crash always needs a person.
 - Alerts depend on Telegram and the bot `.env`; a failed send is only logged locally.
 - The unit runs at user-manager start. If lingering were disabled, it would run only at login.
 - A health state of DEGRADED from latched historical incidents is accepted by verification: the criteria are writer, certifier and lineage, not a clean state. Latched incidents are never acknowledged automatically.
-- The orderly-shutdown signal comes from the user journal. If journal retention removes the previous boot, the class is `UNCLEAN_REBOOT_UNVERIFIED` (MANUAL), which fails safe.
+- The orderly-shutdown evidence needs both the user journal (persistent: `/var/log/journal` exists) and wtmp (`/var/log/wtmp`). If either is rotated away or unreadable, the class is `UNCLEAN_REBOOT_UNVERIFIED` (MANUAL), which fails safe.
+- The compose check is a line-based parser of the collector service block, not a YAML parser. Anything it does not recognise refuses. The authoritative check is the container's actual `HostConfig.RestartPolicy`, both before and after the start.

@@ -23,10 +23,12 @@ defaults to false: it needs a separate owner decision (CHG-03 governance proposa
 from __future__ import annotations
 
 import argparse
+import datetime
 import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -126,12 +128,16 @@ class RealHost:
     def container_state(self, name):
         rc, out = self._run(["docker", "inspect", "-f",
                              "{{.State.Running}}|{{.State.Status}}|{{.State.ExitCode}}|{{.Id}}|{{.Image}}|"
-                             "{{.HostConfig.RestartPolicy.Name}}", name])
+                             "{{.HostConfig.RestartPolicy.Name}}|{{.HostConfig.RestartPolicy.MaximumRetryCount}}",
+                             name])
         if rc != 0:
             return None
-        running, status, code, cid, image, policy = out.strip().split("|")
-        return {"running": running == "true", "status": status, "exit_code": int(code), "id": cid,
-                "image": image, "restart_policy": policy}
+        try:
+            running, status, code, cid, image, policy, retries = out.strip().split("|")
+            return {"running": running == "true", "status": status, "exit_code": int(code), "id": cid,
+                    "image": image, "restart_policy": policy, "restart_retries": int(retries)}
+        except ValueError:
+            return {"unparsable": True}
 
     def image_id(self, tag):
         rc, out = self._run(["docker", "image", "inspect", tag, "--format", "{{.Id}}"])
@@ -156,22 +162,31 @@ class RealHost:
                     return int(ln.split()[1]) / 1024
         return 0.0
 
-    def host_boots(self):
-        """Current and previous host boot from the user journal (Class A). ``orderly`` = the previous boot's
-        user manager reached shutdown.target (an orderly shutdown), which a power loss never logs."""
+    def _read_proc_boot(self):
+        """(kernel boot id, boot time in epoch seconds) from procfs."""
         with open("/proc/sys/kernel/random/boot_id") as fh:
-            cur_id = fh.read().strip().replace("-", "")
+            cur_id = fh.read().strip()
+        with open("/proc/stat") as fh:
+            btime = next(int(ln.split()[1]) for ln in fh if ln.startswith("btime "))
+        return cur_id, btime
+
+    def host_boots(self):
+        """Current and previous host boot (Class A, read-only). Fails closed: any missing, unparsable or
+        inconsistent evidence yields previous=None or orderly=False, never a guess."""
+        try:
+            cur_id, btime = self._read_proc_boot()
+        except (OSError, StopIteration, ValueError, IndexError):
+            return {"current": {"boot_id": None, "start_ms": None}, "previous": None}
         rc, out = self._run(["journalctl", "--user", "--list-boots", "-o", "json", "--no-pager"])
-        boots = json.loads(out) if rc == 0 and out.strip().startswith("[") else []
-        cur = next((b for b in boots if b.get("boot_id") == cur_id), None)
-        prev = next((b for b in boots if b.get("index") == -1), None) if cur else None
-        res = {"current": {"boot_id": cur_id, "start_ms": cur["first_entry"] // 1000 if cur else None},
-               "previous": None}
+        prev = parse_list_boots(out, btime * 1000) if rc == 0 else None
+        res = {"current": {"boot_id": normalize_boot_id(cur_id), "start_ms": btime * 1000}, "previous": prev}
         if prev:
             rc2, tail = self._run(["journalctl", "--user", "-b", prev["boot_id"], "-n", "40", "-o", "cat",
                                    "--no-pager"])
-            res["previous"] = {"boot_id": prev["boot_id"], "end_ms": prev["last_entry"] // 1000,
-                               "orderly": rc2 == 0 and "Reached target shutdown.target" in tail}
+            rc3, wtmp = self._run(["last", "-x", "--time-format", "iso", "shutdown"])
+            prev["journal_shutdown_target"] = rc2 == 0 and journal_reached_shutdown(tail)
+            prev["wtmp_shutdown"] = rc3 == 0 and wtmp_orderly_shutdown(wtmp, prev["end_ms"], btime * 1000)
+            prev["orderly"] = prev["journal_shutdown_target"] and prev["wtmp_shutdown"]
         return res
 
     def docker_inspect_json(self, name):
@@ -213,6 +228,104 @@ class RealHost:
                 return json.loads(r.read()).get("ok") is True, None
         except Exception as e:                 # never include the URL: it contains the token
             return False, type(e).__name__
+
+
+# --------------------------------------------------------------------------------------------- boot evidence
+
+_HEX32 = re.compile(r"^[0-9a-f]{32}$")
+ORDERLY_MATCH_S = 300          # journal end vs wtmp shutdown start, and wtmp shutdown end vs kernel boot time
+
+
+def normalize_boot_id(v):
+    """'71a4d947-99ee-...' (procfs) or '71a4d947...' (journal) -> 32 lowercase hex, else None."""
+    v = str(v or "").strip().lower().replace("-", "")
+    return v if _HEX32.match(v) else None
+
+
+def parse_list_boots(text, current_start_ms):
+    """``journalctl --user --list-boots -o json`` (systemd 255: a JSON array of objects with ``index``,
+    ``boot_id``, ``first_entry``, ``last_entry``, timestamps in microseconds). Returns the latest boot that
+    ended before the current kernel boot time, or None when the evidence is missing or malformed."""
+    try:
+        boots = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(boots, list):
+        return None
+    best = None
+    for b in boots:
+        if not isinstance(b, dict):
+            return None
+        bid = normalize_boot_id(b.get("boot_id"))
+        first, last = b.get("first_entry"), b.get("last_entry")
+        if bid is None or not all(isinstance(x, int) and not isinstance(x, bool) and x > 0 for x in (first, last)) \
+                or last < first:
+            return None
+        end_ms = last // 1000
+        if end_ms < current_start_ms and (best is None or end_ms > best["end_ms"]):
+            best = {"boot_id": bid, "start_ms": first // 1000, "end_ms": end_ms}
+    return best
+
+
+def journal_reached_shutdown(text):
+    """The previous boot's user manager logged reaching shutdown.target (an orderly shutdown)."""
+    return any(ln.startswith("Reached target shutdown.target") for ln in str(text or "").splitlines())
+
+
+_WTMP = re.compile(r"^shutdown\s+system down\s+\S+\s+(\S+)\s+-\s+(\S+)\s")
+
+
+def _iso_ms(v):
+    try:
+        t = datetime.datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    return int(t.timestamp() * 1000) if t.tzinfo else None
+
+
+def wtmp_orderly_shutdown(text, prev_end_ms, current_start_ms):
+    """``last -x --time-format iso shutdown``: an orderly shutdown writes a 'shutdown system down <start> - <end>'
+    record (end = next boot). True only if one record starts within ORDERLY_MATCH_S of the previous boot's last
+    journal entry and ends within ORDERLY_MATCH_S of the current kernel boot time. A power loss writes none."""
+    w = ORDERLY_MATCH_S * 1000
+    for ln in str(text or "").splitlines():
+        m = _WTMP.match(ln)
+        if not m:
+            continue
+        a, b = _iso_ms(m.group(1)), _iso_ms(m.group(2))
+        if a is not None and b is not None and abs(a - prev_end_ms) <= w and abs(b - current_start_ms) <= w:
+            return True
+    return False
+
+
+def compose_restart_policy(text):
+    """The collector service's restart policy from the compose text: exactly one uncommented ``restart:`` key
+    inside ``services: collector:``, and no ``restart_policy`` anywhere. Returns the unquoted value or raises."""
+    lines = str(text).splitlines()
+    in_services = in_collector = False
+    coll_indent = None
+    found = []
+    for ln in lines:
+        code = ln.split("#", 1)[0].rstrip()
+        if not code.strip():
+            continue
+        indent = len(code) - len(code.lstrip())
+        key = code.strip()
+        if "restart_policy" in key:
+            raise Stop(MANUAL, "compose_has_restart_policy_block")
+        if indent == 0:
+            in_services, in_collector = key == "services:", False
+            continue
+        if in_services and key == "collector:":
+            in_collector, coll_indent = True, indent
+            continue
+        if in_collector and indent <= coll_indent:
+            in_collector = False
+        if in_collector and key.startswith("restart:"):
+            found.append(key.split(":", 1)[1].strip().strip("\"'"))
+    if len(found) != 1:
+        raise Stop(MANUAL, "compose_restart_key_not_unique", {"count": len(found)})
+    return found[0]
 
 
 # --------------------------------------------------------------------------------------------- ledger
@@ -355,14 +468,25 @@ def drift_gates(cfg, host):
             raise Stop(MANUAL, f"{key.split('_')[0]}_drift")
     with open(cfg["compose_file"], encoding="utf-8") as fh:
         compose = fh.read()
-    if 'restart: "no"' not in compose:
+    if compose_restart_policy(compose) != "no":
         raise Stop(MANUAL, "compose_restart_policy_not_no")
+    st = host.container_state(cfg["container"])
+    if st is not None and not restart_policy_is_no(st):
+        raise Stop(MANUAL, "container_restart_policy_not_no", {k: st.get(k) for k in ("restart_policy",
+                                                                                     "restart_retries")})
     with open(cfg["config_file"], encoding="utf-8") as fh:
         ccfg = json.load(fh)
     with open(os.path.join(cfg["dataset_dir"], "dataset.json"), encoding="utf-8") as fh:
         ds = json.load(fh)
     if ccfg.get("dataset_id") != ds.get("dataset_id"):
         raise Stop(MANUAL, "dataset_id_mismatch")
+
+
+def restart_policy_is_no(st):
+    """Docker's actual HostConfig for the container: policy 'no' with no retries ('' is Docker's spelling of
+    'no' on some versions). Anything unparsable is treated as not 'no'."""
+    return (not st.get("unparsable") and st.get("restart_policy") in ("no", "")
+            and st.get("restart_retries") == 0)
 
 
 def incident_gate(cfg):
@@ -440,7 +564,10 @@ def verify_started(cfg, host, prev_boot):
         st = host.container_state(cfg["container"])
         run = latest_run_record(data)
         h = read_health(data)
-        ok = (st and st["running"] and st["image"] == cfg["image_id"] and st["restart_policy"] == "no"
+        if st and st.get("running") and not restart_policy_is_no(st):
+            raise Stop(FAILED, "running_restart_policy_not_no", {k: st.get(k) for k in ("restart_policy",
+                                                                                       "restart_retries")})
+        ok = (st and st.get("running") and st["image"] == cfg["image_id"]
               and run and run["boot_id"] != prev_boot
               and (prev_boot is None or (run.get("previous_run") or {}).get("boot_id") == prev_boot)
               and h and h.get("boot_id") == run["boot_id"] and h.get("write_errors") == 0
@@ -450,7 +577,7 @@ def verify_started(cfg, host, prev_boot):
         if ok:
             return run, h, st
         last = {"container": st, "run": run and run["boot_id"], "health_boot": h and h.get("boot_id")}
-        if st and not st["running"]:
+        if st and not st.get("running"):
             raise Stop(FAILED, "collector_exited_after_start", last)
         if host.now_ms() >= deadline:
             raise Stop(FAILED, "health_not_verified", last)
@@ -461,7 +588,7 @@ def verify_started(cfg, host, prev_boot):
 
 def alert_text(rep):
     lines = [f"[TSB P2 collector recovery] {rep['outcome']}: {rep['reason']}",
-             f"host boot {rep.get('host_boot_id', '?')[:8]}  class {rep.get('classification')}",
+             f"host boot {str(rep.get('host_boot_id') or '?')[:8]}  class {rep.get('classification')}",
              f"previous run {str(rep.get('previous_run'))[:8]}  new run {str(rep.get('new_run'))[:8]}"]
     if rep["outcome"] != RECOVERED:
         lines.append("Manual action needed: see " + rep.get("report_file", "the recovery ledger"))
@@ -490,6 +617,9 @@ def run(cfg, host):
         storage_gates(cfg, host)
         boots = host.host_boots()
         rep["host_boot_id"] = boots["current"]["boot_id"]
+        rep["boot_evidence"] = boots.get("previous")
+        if not rep["host_boot_id"] or not boots["current"].get("start_ms"):
+            raise Stop(MANUAL, "current_boot_unverifiable")
         ledger = read_ledger(cfg)
         cls, facts = classify(cfg, boots, ledger)
         rep.update(classification=cls, facts=facts, previous_run=facts.get("previous_run"))
@@ -515,6 +645,8 @@ def run(cfg, host):
         rep["up_rc"], rep["up_tail"] = rc, out.strip().splitlines()[-3:]
         if rc != 0 or "UP OK" not in out:
             raise Stop(FAILED, "gated_start_refused_or_failed", {"rc": rc})
+        if not re.search(r"\brestart=no\b", out):
+            raise Stop(FAILED, "gated_start_restart_policy_unconfirmed")
         newrun, health, cst = verify_started(cfg, host, rep["previous_run"])
         rep.update(new_run=newrun["boot_id"], new_run_created_ms=newrun["created_ms"], container_id=cst["id"])
         brc, bout = host.run_bind(f"CHG-03 automatic recovery after host boot {rep['host_boot_id'][:8]}",

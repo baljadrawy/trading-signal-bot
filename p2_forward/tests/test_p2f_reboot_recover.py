@@ -15,7 +15,6 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPS = ROOT / "ops"
 UNIT = OPS / "systemd" / "tsb-p2f-recover.service"
-STOP_UNIT = OPS / "systemd" / "tsb-p2f-shutdown-stop.service"
 
 
 def load(name, path):
@@ -106,12 +105,13 @@ class FakeHost:
 
     def __init__(self, fx, *, orderly=True, docker_ready_after_s=0, running=False, image=IMG, up_rc=0,
                  exits_after_start=False, bind_rc=0, disk=500.0, mem=20_000.0, paper_changes=False,
-                 healthy=True):
+                 healthy=True, pre_policy=("no", 0), post_policy=("no", 0), up_out="UP OK test restart=no"):
         self.fx, self.orderly, self.ready_at = fx, orderly, BOOT_START + 60_000 + docker_ready_after_s * 1000
         self.t = BOOT_START + 60_000
         self.running, self.image, self.up_rc = running, image, up_rc
         self.exits_after_start, self.bind_rc, self.disk, self.mem = exits_after_start, bind_rc, disk, mem
         self.paper_changes, self.healthy = paper_changes, healthy
+        self.pre_policy, self.post_policy, self.up_out = pre_policy, post_policy, up_out
         self.calls, self.alerts, self.up_env = [], [], None
         self.boot_id = secrets.token_hex(16)
         self.paper = [f"/{n} id{n} img started 0 running" for n in PAPER]
@@ -131,8 +131,9 @@ class FakeHost:
         self.calls.append(("inspect", name))
         if name != self.fx.cfg["container"]:
             raise AssertionError("only the collector may be inspected through container_state")
+        pol, retries = self.post_policy if self.new_run else self.pre_policy
         return {"running": self.running, "status": "running" if self.running else "exited", "exit_code": 255,
-                "id": "c" * 64, "image": IMG, "restart_policy": "no"}
+                "id": "c" * 64, "image": IMG, "restart_policy": pol, "restart_retries": retries}
 
     def image_id(self, tag):
         return self.image
@@ -177,7 +178,7 @@ class FakeHost:
              "write_errors": 0 if self.healthy else 3,
              "writer": {"alive": True, "beat_age_ms": 50}, "certifier": {"alive": True}}))
         self.running = not self.exits_after_start
-        return 0, "UP OK test"
+        return 0, self.up_out
 
     def run_bind(self, reason, timeout):
         self.calls.append(("run_bind", reason))
@@ -457,13 +458,6 @@ class TestContract(Base):
         self.assertIn("p2f_reboot_recover.py run --config", s["ExecStart"])
         self.assertEqual(c["Install"]["WantedBy"], "default.target")
 
-    def test_shutdown_stop_unit_orders_before_docker_stops(self):
-        c = configparser.ConfigParser(interpolation=None, strict=False)
-        c.read(STOP_UNIT)
-        self.assertEqual(c["Unit"]["After"], "docker.service")
-        self.assertIn("p2f_continuous_stop.sh", c["Service"]["ExecStop"])
-        self.assertGreaterEqual(int(c["Service"]["TimeoutStopSec"]), 460)   # > compose stop_grace_period 450 s
-
     def test_start_only_through_the_gated_script_and_no_ack_or_restart_policy_code(self):
         src = (OPS / "p2f_reboot_recover.py").read_text()
         self.assertIn("p2f_continuous_up.sh", src)
@@ -487,6 +481,199 @@ class TestContract(Base):
         blob = open(rep["report_file"]).read() + open(os.path.join(cfg["state_dir"], "alert_errors.log")).read()
         blob += open(R.ledger_path(cfg)).read()
         self.assertNotIn(tok, blob)
+
+
+# --- review corrections (2026-10-20): real host evidence formats and actual restart policy -------------------
+
+# captured read-only on the production host (systemd 255.4-1ubuntu8.18), 2026-10-20
+REAL_LIST_BOOTS = ('[{"index":-3,"boot_id":"cb80d49eec0e436487b2498820333741","first_entry":1780745984463758,'
+                   '"last_entry":1781257366700366},{"index":-2,"boot_id":"225872b9f6fb477da8eaca210e787c7f",'
+                   '"first_entry":1781429822691270,"last_entry":1790502242822406},{"index":-1,'
+                   '"boot_id":"07f9c3c2fdd54e0a93129338f5b1920c","first_entry":1790502304544430,'
+                   '"last_entry":1792422292437621},{"index":0,"boot_id":"71a4d94799ee4529aa052b15a4760b3a",'
+                   '"first_entry":1792423244500708,"last_entry":1792497200971711}]')
+REAL_BTIME_MS = 1792423216 * 1000
+REAL_WTMP = ("shutdown system down  6.8.0-142-generi 2026-10-19T17:04:53+02:00 - 2026-10-19T17:20:18+02:00  (00:15)\n"
+             "shutdown system down  6.8.0-124-generi 2026-09-27T11:44:03+02:00 - 2026-09-27T11:44:43+02:00  (00:00)\n")
+REAL_JOURNAL_TAIL = ("Stopped target default.target - Main User Target.\n"
+                     "Reached target shutdown.target - Shutdown.\n"
+                     "Finished systemd-exit.service - Exit the Session.\n"
+                     "Reached target exit.target - Exit the Session.\n")
+REAL_PREV_END_MS = 1792422292437
+
+
+class StubRealHost(R.RealHost):
+    """RealHost with its subprocess and procfs reads replaced: exercises the real parsing paths."""
+
+    def __init__(self, outputs, proc=("71a4d947-99ee-4529-aa05-2b15a4760b3a", REAL_BTIME_MS // 1000)):
+        super().__init__({})
+        self.outputs, self.proc, self.seen = outputs, proc, []
+
+    def _read_proc_boot(self):
+        if isinstance(self.proc, Exception):
+            raise self.proc
+        return self.proc
+
+    def _run(self, args, timeout=30, env=None):
+        self.seen.append(args)
+        for key, val in self.outputs.items():
+            if key in " ".join(args):
+                return val
+        return 1, ""
+
+
+def real_outputs(**over):
+    out = {"--list-boots": (0, REAL_LIST_BOOTS), "-b 07f9c3c2fdd54e0a93129338f5b1920c": (0, REAL_JOURNAL_TAIL),
+           "last -x": (0, REAL_WTMP)}
+    out.update(over)
+    return out
+
+
+class TestBootEvidence(unittest.TestCase):
+    def test_real_host_output_parses_to_the_previous_boot_with_both_orderly_sources(self):
+        b = StubRealHost(real_outputs()).host_boots()
+        self.assertEqual(b["current"], {"boot_id": "71a4d94799ee4529aa052b15a4760b3a", "start_ms": REAL_BTIME_MS})
+        p = b["previous"]
+        self.assertEqual((p["boot_id"], p["end_ms"]), ("07f9c3c2fdd54e0a93129338f5b1920c", REAL_PREV_END_MS))
+        self.assertTrue(p["journal_shutdown_target"] and p["wtmp_shutdown"] and p["orderly"])
+
+    def test_current_boot_start_comes_from_kernel_btime_not_the_user_journal(self):
+        b = StubRealHost(real_outputs()).host_boots()
+        self.assertLess(b["current"]["start_ms"], 1792423244500)        # user journal starts 28 s later
+
+    def test_orderly_needs_both_sources(self):
+        for over in ({"-b 07f9c3c2fdd54e0a93129338f5b1920c": (0, "Stopped target x\n")},
+                     {"-b 07f9c3c2fdd54e0a93129338f5b1920c": (1, "")},
+                     {"last -x": (0, "")}, {"last -x": (1, REAL_WTMP)}):
+            with self.subTest(over=list(over)):
+                p = StubRealHost(real_outputs(**over)).host_boots()["previous"]
+                self.assertFalse(p["orderly"])
+
+    def test_power_loss_wtmp_has_no_shutdown_record(self):
+        crash = "reboot   system boot  6.8.0-142-generi 2026-09-27T11:44:43+02:00 - crash  (22+05:20)\n"
+        self.assertFalse(R.wtmp_orderly_shutdown(crash, REAL_PREV_END_MS, REAL_BTIME_MS))
+
+    def test_wtmp_record_must_match_both_boundaries(self):
+        self.assertTrue(R.wtmp_orderly_shutdown(REAL_WTMP, REAL_PREV_END_MS, REAL_BTIME_MS))
+        self.assertFalse(R.wtmp_orderly_shutdown(REAL_WTMP, REAL_PREV_END_MS - 3_600_000, REAL_BTIME_MS))
+        self.assertFalse(R.wtmp_orderly_shutdown(REAL_WTMP, REAL_PREV_END_MS, REAL_BTIME_MS + 3_600_000))
+        naive = "shutdown system down  k 2026-10-19T17:04:53 - 2026-10-19T17:20:18  (00:15)\n"
+        self.assertFalse(R.wtmp_orderly_shutdown(naive, REAL_PREV_END_MS, REAL_BTIME_MS))
+
+    def test_malformed_or_unavailable_list_boots_fails_closed(self):
+        for bad in ("", "not json", "{}", "[1]", '[{"boot_id":"x","first_entry":1,"last_entry":2}]',
+                    '[{"boot_id":"07f9c3c2fdd54e0a93129338f5b1920c","first_entry":true,"last_entry":2}]',
+                    '[{"boot_id":"07f9c3c2fdd54e0a93129338f5b1920c","first_entry":5,"last_entry":2}]'):
+            with self.subTest(bad=bad):
+                self.assertIsNone(R.parse_list_boots(bad, REAL_BTIME_MS))
+        self.assertIsNone(StubRealHost(real_outputs(**{"--list-boots": (1, "")})).host_boots()["previous"])
+
+    def test_previous_boot_is_chosen_by_time_not_by_index(self):
+        # right after boot the user journal may not list the current boot yet: then index 0 is the previous boot
+        # and index -1 an older one. The parser must pick the latest boot that ended before the kernel boot time.
+        no_current = ('[{"index":-2,"boot_id":"cb80d49eec0e436487b2498820333741","first_entry":1780745984463758,'
+                      '"last_entry":1781257366700366},{"index":-1,"boot_id":"225872b9f6fb477da8eaca210e787c7f",'
+                      '"first_entry":1781429822691270,"last_entry":1790502242822406},{"index":0,'
+                      '"boot_id":"07f9c3c2fdd54e0a93129338f5b1920c","first_entry":1790502304544430,'
+                      '"last_entry":1792422292437621}]')
+        self.assertEqual(R.parse_list_boots(no_current, REAL_BTIME_MS)["boot_id"], "07f9c3c2fdd54e0a93129338f5b1920c")
+
+    def test_no_boot_before_the_current_one_means_no_previous(self):
+        only_current = '[{"index":0,"boot_id":"71a4d94799ee4529aa052b15a4760b3a","first_entry":1792423244500708,' \
+                       '"last_entry":1792497200971711}]'
+        self.assertIsNone(R.parse_list_boots(only_current, REAL_BTIME_MS))
+
+    def test_procfs_unreadable_makes_the_current_boot_unverifiable(self):
+        b = StubRealHost(real_outputs(), proc=OSError("denied")).host_boots()
+        self.assertEqual(b, {"current": {"boot_id": None, "start_ms": None}, "previous": None})
+
+    def test_boot_id_normalisation(self):
+        self.assertEqual(R.normalize_boot_id("71a4d947-99ee-4529-aa05-2b15a4760b3a"),
+                         "71a4d94799ee4529aa052b15a4760b3a")
+        for bad in ("", None, "xyz", "71a4d947", "g" * 32):
+            self.assertIsNone(R.normalize_boot_id(bad))
+
+
+class TestBootEvidenceInRecovery(Base):
+    def test_unverifiable_current_boot_is_manual(self):
+        fx = self.fx(clean_stop=True)
+        host = FakeHost(fx)
+        host.host_boots = lambda: {"current": {"boot_id": None, "start_ms": None}, "previous": None}
+        rep = R.run(fx.config_for(), host)
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "current_boot_unverifiable"))
+        self.assertEqual(self.ups(host), [])
+
+    def test_missing_previous_boot_evidence_never_auto_acks(self):
+        fx = self.fx()
+        host = FakeHost(fx)
+        host.host_boots = lambda: {"current": {"boot_id": host.boot_id, "start_ms": BOOT_START}, "previous": None}
+        rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+        self.assertEqual((rep["outcome"], rep["classification"]), (R.MANUAL, R.POWER_LOSS_OR_UNVERIFIED))
+
+
+class TestRestartPolicy(Base):
+    REPO_COMPOSE = (ROOT / "compose.yml").read_text()
+
+    def test_repo_compose_parses_to_no(self):
+        self.assertEqual(R.compose_restart_policy(self.REPO_COMPOSE), "no")
+
+    def test_commented_or_misplaced_restart_lines_do_not_count(self):
+        tricky = ('services:\n  collector:\n    image: x\n    # restart: "no"\n    restart: always\n'
+                  '  other:\n    restart: "no"\n')
+        self.assertEqual(R.compose_restart_policy(tricky), "always")
+        only_comment = 'services:\n  collector:\n    image: x\n    # restart: "no"\n'
+        with self.assertRaises(R.Stop) as e:
+            R.compose_restart_policy(only_comment)
+        self.assertEqual(e.exception.reason, "compose_restart_key_not_unique")
+        twice = 'services:\n  collector:\n    restart: "no"\n    restart: "no"\n'
+        with self.assertRaises(R.Stop):
+            R.compose_restart_policy(twice)
+        deploy = 'services:\n  collector:\n    restart: "no"\n    deploy:\n      restart_policy:\n        condition: any\n'
+        with self.assertRaises(R.Stop) as e:
+            R.compose_restart_policy(deploy)
+        self.assertEqual(e.exception.reason, "compose_has_restart_policy_block")
+
+    def test_trailing_comments_are_stripped_and_commented_keys_ignored(self):
+        self.assertEqual(R.compose_restart_policy('services:\n  collector:\n    restart: "no"   # D3, reviewed\n'), "no")
+        self.assertEqual(R.compose_restart_policy(
+            'services:\n  collector:\n    # deploy: {restart_policy: any}\n    restart: "no"\n'), "no")
+
+    def test_existing_container_with_another_restart_policy_refuses(self):
+        for pol in (("always", 0), ("on-failure", 5), ("no", 3), ("unless-stopped", 0)):
+            with self.subTest(pol=pol):
+                fx = Fixture(tempfile.mkdtemp(dir=self._tmp), clean_stop=True)
+                host = FakeHost(fx, pre_policy=pol)
+                rep = R.run(fx.config_for(), host)
+                self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "container_restart_policy_not_no"))
+                self.assertEqual(self.ups(host), [])
+
+    def test_unparsable_container_state_is_not_no(self):
+        self.assertFalse(R.restart_policy_is_no({"unparsable": True}))
+        self.assertFalse(R.restart_policy_is_no({"restart_policy": "no"}))           # retries unknown
+        self.assertTrue(R.restart_policy_is_no({"restart_policy": "no", "restart_retries": 0}))
+
+    def test_started_container_with_another_policy_is_failed(self):
+        fx = self.fx(clean_stop=True)
+        rep = R.run(fx.config_for(), FakeHost(fx, post_policy=("unless-stopped", 0)))
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.FAILED, "running_restart_policy_not_no"))
+
+    def test_gated_script_must_confirm_restart_no(self):
+        fx = self.fx(clean_stop=True)
+        rep = R.run(fx.config_for(), FakeHost(fx, up_out="UP OK test restart=always"))
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.FAILED, "gated_start_restart_policy_unconfirmed"))
+
+    def test_real_container_state_parsing(self):
+        h = StubRealHost({"docker inspect": (0, "true|running|0|cid|sha256:x|no|0\n")})
+        self.assertEqual(h.container_state("c")["restart_retries"], 0)
+        h = StubRealHost({"docker inspect": (0, "garbage\n")})
+        self.assertTrue(h.container_state("c")["unparsable"])
+
+
+class TestNoShutdownUnitShipped(unittest.TestCase):
+    def test_the_insufficient_g_a_unit_is_not_shipped(self):
+        # review 2026-10-20: with live-restore and the systemd cgroup driver the container scope is stopped
+        # in parallel at shutdown (SIGKILL after 90 s), so an After=docker.service unit cannot guarantee a drain
+        self.assertFalse((OPS / "systemd" / "tsb-p2f-shutdown-stop.service").exists())
 
 
 if __name__ == "__main__":
