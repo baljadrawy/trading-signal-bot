@@ -154,3 +154,74 @@ Production: trade_tracker + trading_signals DB: UNCHANGED (no schema 12, no new 
 ## 9. Preliminary author assessment (not an independent review)
 
 REVISE → GO is possible once R1–R10 are decided and the reviewers confirm G2 (the target-position path) is an extension, not a second engine.
+
+## 10. Host resources, budgets and scheduling (addendum, 2026-10-20)
+
+Categories used below:
+- **HIST** — historical observation;
+- **OWNER** — owner approval;
+- **PROP** — proposed budget;
+- **ENF** — currently enforced and verified read-only.
+
+### 10.1 Inventory (read-only, 2026-10-20)
+
+| Item | Value | Class |
+|---|---|---|
+| CPUs / RAM / swap | 12 logical; 23.4 GB (21.4 GB available); swap 4 GB (0 used) | ENF/VERIFIED |
+| Load, PSI | loadavg 0.6–0.9; PSI cpu some avg60 0.20 %, memory 0, io 0.02 % | VERIFIED |
+| Project CPU ceiling 10 vCPU | owner-approved; **not technically enforced**: no parent cgroup groups the project's containers and user-slice jobs | OWNER / **not ENF** |
+| Production container caps | analyzer 1.5 CPU / 1 GiB; signal_engine 1.0 / 512 MiB; scanner 1.0 / 512 MiB; telegram, tracker **no CPU cap** / 256 MiB; postgres (shared) **no CPU cap** / 512 MiB | ENF |
+| Collector | 1.5 CPU / 768 MiB / pids 64; measured about 0.34 CPU | ENF / VERIFIED |
+| Monitor | user `tsbops.slice` CPUWeight 1000, MemoryMax 512 MiB, TasksMax 64 | ENF |
+| Research runner | profiles R1 4 workers / CPUQuota 400 %, R2 6 / 600 % (`--allow-elevated`), R3 8 / 800 % (`--attended`), LIGHT 2 / 200 %; per-job MemoryMax 10 GiB; aggregate `research.slice` 800 % / 12 GiB (`~/ops/research-runner/research_exec/config.py`) | HIST/OWNER in config; **ENF only while a runner job exists** (the slice is inactive now) |
+| Docker vs slices | containers run under `system.slice/docker-<id>.scope`; a lab container would **not** be inside the user `research.slice` | VERIFIED |
+| I/O controls | none set (no IOWeight / io.max on any project unit) | VERIFIED |
+| Other tenants | hermes 4 CPU / 4 GiB; wishlist, xsch uncapped | VERIFIED |
+| Measured lab workload (synthetic) | 8-year × 20-asset daily simulation of two rules: **0.86 CPU-s, 15 MB RSS** | VERIFIED (benchmark of `research/mechanisms`, #60) |
+
+### 10.2 Gaps between policy and enforcement
+
+1. The 10 vCPU project ceiling is not enforced. The sum of explicit production caps is 5.0, plus three uncapped services, plus up to 8 research.
+2. `research.slice` limits apply only to runner-launched jobs, and only while they run.
+3. Docker-based strategy containers would bypass `research.slice`.
+4. There is no I/O isolation.
+5. There is no PSI-based admission for containers. The runner has its own admission checks, but containers do not.
+
+### 10.3 One shared research budget (PROP)
+
+| Profile | Total research + lab CPU | Split (enforceable) | Memory | Notes |
+|---|---|---|---|---|
+| R1 (default) | **4 vCPU** | runner `research.slice` 300 % + lab containers parent `tsblab.slice` 100 % | research 8 GiB + lab 2 GiB | sum of caps with production (5.0) = 9 ≤ 10 |
+| R2 (`--allow-elevated`, after measured G5 conditions) | **up to 6 vCPU** | 450 % + 150 % | 10 + 2 GiB | sum of caps = 11 > 10, so it is compliant **only** with an enforced project parent ceiling, or at 5 vCPU total without one |
+| R3 (attended only) | 8 vCPU | runner only; lab containers paused | 12 GiB | never automatic; operator present; ends to R1 |
+
+- **Worker count ≠ CPU quota.** Workers are processes started by the runner. The quota is the cgroup `cpu.max` that bounds them.
+- **Strategy containers:** each 0.25 CPU / 256 MiB / pids 64 / `restart: "no"`, inside `tsblab.slice`.
+- **Capacity at R1:** ≤ 5 forward strategies (the account cap) + 1 lab engine (0.25 / 256 MiB) fit in 100 % / 2 GiB. The measurement (≈ 1 CPU-s per 8-year daily run) shows daily strategies are memory- and governance-bound, not CPU-bound.
+- **Capacity at R2:** the same container count (no reason to scale strategies with CPU); the extra quota goes to backtest workers.
+
+### 10.4 Scheduling and pressure behaviour (PROP)
+
+- **Priority:** production services > Collector > Paper/lab engine > forward strategy containers > shadow > backtests.
+- **Weights:** research `CPUWeight=idle` (or 1) and `IOWeight=10`; lab 50; production keeps its default of 100. Weights only matter under contention, so production preempts research.
+- **Bounded queue:** the runner admits at most one R2 job and at most two R1 jobs at once; it queues the rest, FIFO within each priority class. `cancel` stops a job via the unit (`systemctl --user stop`) and keeps its evidence.
+- **Pressure safeguards:**
+  - refuse new admissions when PSI cpu some avg60 > 20 %, memory some avg10 > 1 %, MemAvailable < 4 GiB or disk free < 100 GB;
+  - pause the backtest queue (no kill) while production or Collector health is degraded.
+- **Protected windows (no new research admissions):**
+  - Collector day close and universe refresh 23:50–00:30 UTC;
+  - seal and backup at :15–:20 each hour, around 01:15 UTC (xsch), 01:20 UTC (shared-postgres) and 02:50 UTC (p1bg) local-time jobs.
+- **No automatic escalation:** R2/R3 need the existing explicit flags. Nothing escalates on its own.
+- **A29 20 % reserve:** this is a **scientific** allocation of prospective confirmation capacity (admissions/alpha over time) for set-aside candidates. It is **not** a CPU reservation and does not change the budgets above.
+
+### 10.5 How enforcement would be added (stages; each a separate approval; none done)
+
+| Stage | Change | Disruption | Rollback | Acceptance test |
+|---|---|---|---|---|
+| S0 | Measure: one week of PSI and per-cgroup `cpu.stat` / `memory.peak` sampling (read-only script) | none | remove the script | report of p95/p99 per service |
+| S1 | Persistent `research.slice` drop-in (CPUQuota 300/450 %, MemoryMax, MemorySwapMax 0, CPUWeight idle, IOWeight 10) | none (runner only) | delete the drop-in + daemon-reload | `systemctl --user show research.slice` values; synthetic CPU-burn job throttled at the quota |
+| S2 | System `tsblab.slice` (CPUQuota 100/150 %, MemoryMax 2 GiB) + lab compose `cgroup_parent: tsblab.slice` | none (new containers only) | remove the slice; containers recreated without parent | a burn in one lab container cannot exceed its slice; production PSI unchanged |
+| S3 | Project ceiling: parent `tsb.slice` (CPUQuota 1000 %) for **all** project containers | **requires recreating every production container** (Class B, one service at a time) | recreate without `cgroup_parent` | per-service identity gates; Paper/Collector health over 30 min |
+| S4 | PSI admission and protected windows in runner config | none | revert config | admission refused under an injected PSI threshold |
+
+Lowest risk first: S0 → S1 → S2. S3 is optional and disruptive. Until S3, the 10 vCPU ceiling is met only by **budget arithmetic** (R1), not by enforcement.

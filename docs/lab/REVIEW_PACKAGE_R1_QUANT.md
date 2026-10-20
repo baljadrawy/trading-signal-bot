@@ -41,6 +41,8 @@
 7. Is the four-mode separation (backtest / shadow / forward Paper / confirmation) correct? When may Paper results inform an admission?
 8. Treatment of failed or inconclusive strategies: retention, reporting, and no silent re-runs.
 
+9. Resources and fairness (§10): does a shared research budget (R1 4 vCPU / R2 ≤ 6) bias strategy comparison? For example, do backtest throughput or queueing alter which variants get evaluated? Is keeping the A29 20 % prospective reserve separate from compute correct?
+
 ## Acceptance tests the reviewer should require or confirm
 - Accounting invariants under concurrency.
 - Cost reconciliation against `a48-cost-v1`.

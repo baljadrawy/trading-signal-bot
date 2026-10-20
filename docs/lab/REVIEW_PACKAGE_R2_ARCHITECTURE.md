@@ -35,6 +35,12 @@
 7. Reproducibility: image digest pinning, an experiment registry (append-only, hash-chained), and content-addressed results.
 8. Deployment and rollback: the minimal steps; how removing the lab leaves production byte-identical.
 
+9. Resource isolation (§10):
+   - Is the split budget (user `research.slice` + system `tsblab.slice`) correct given that Docker scopes live under `system.slice`?
+   - Is S3 (a project parent slice requiring production recreates) worth it, or are weights plus caps enough?
+   - Are PSI thresholds, protected windows and bounded queues adequate?
+   - Is R2 at 6 vCPU compliant with the 10 vCPU ceiling without S3?
+
 ## Acceptance tests the reviewer should require or confirm
 - RLS cross-strategy denial.
 - Replayed-intent single order.
@@ -43,6 +49,8 @@
 - A write to the snapshot mount fails.
 - No mount of `p2` / post-freeze paths.
 - Removing the lab leaves `trading_signals` and the Collector untouched.
+- A CPU-burn and memory-burn job is throttled and OOM-contained inside its slice, with production PSI and health unchanged.
+- Admission is refused under injected pressure.
 
 ## Response template
 ```
