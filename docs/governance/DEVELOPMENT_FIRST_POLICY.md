@@ -95,7 +95,7 @@ None of these rows touches a scientific constraint.
 |---|---|---|---|
 | **OD-DF-1** | Allow D1 exploratory historical analysis for hypothesis development on data with a recorded permission (licence cleared, entirely before the 2026-08-19 freeze or otherwise outside every holdout), labelled exploratory and never used as confirmation | roadmap "no real historical backtests without separate approval"; S4 HOLD "any backtest" | Without any real-data exploration, mechanism research is limited to literature; the A18/A19 licence question still has to be answered first |
 | **OD-DF-2** | Decide a validation design for realistic effect sizes: longer prospective windows, a multi-candidate design, or long licence-cleared history for qualification plus a short prospective sanity check | Evidence Ladder 365 days | The 365-day daily-HAC Sharpe MDE is ≈ 3.5–7.0 (`research/power`, illustrative); no realistic daily strategy can be confirmed in one window |
-| **OD-DF-3** | Collector option C1 (keep stopped, preserve evidence) | P2-CR continuous operation | `docs/ops/COLLECTOR_NECESSITY_ASSESSMENT.md` |
+| **OD-DF-3** | ~~Collector option C1 (keep stopped, preserve evidence)~~ **DECIDED 2026-10-20: retain continuous collection** (CHG-02 executed; CHG-03 reboot recovery in development) | P2-CR continuous operation | `docs/ops/COLLECTOR_NECESSITY_ASSESSMENT.md` §0 |
 | **OD-DF-4** | Backup model of `docs/ops/BACKUP_MODEL_RD.md` | R1.3 + legacy p1bg cron | the model separates release recovery from ongoing data protection |
 
 ## 8. Precedence and document map

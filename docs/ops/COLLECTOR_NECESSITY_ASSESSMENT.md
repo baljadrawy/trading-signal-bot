@@ -2,7 +2,18 @@
 
 **Status:** decision framework for the owner (OD-DF-3 in `docs/governance/DEVELOPMENT_FIRST_POLICY.md`). Nothing was started, stopped, changed or deleted. Observations are Class A metadata reads (container state, monitor status, file listings); no dataset content and no Paper outcome was read.
 
-## 1. Current state
+## 0. Owner decision (2026-10-20, recorded after this assessment)
+
+The owner decided to **retain continuous prospective collection**, so option C2 applies instead of the recommended C1. The decision is recorded here; the analysis below is kept unchanged as the decision record.
+- **CHG-02 (executed, owner-approved):** the Collector was restarted through the gated script at 2026-10-20T08:26:50Z.
+  - New run `d1417a9c686b485b9c56a448e7546b65`, `previous_run = 2cfb872f…`, `restart: "no"` kept, monitor re-bound.
+  - The running image is now archived (`~/backups/tsb-p2-forward-images/tsb-p2-forward_p2f-160-1bfb5f6-20261014T0652Z.tar`, checksum verified).
+  - Day 2026-10-19 sealed PASS with the downtime recorded. The total gap is 2026-10-19 15:04:55Z → 2026-10-20 08:26:56Z (17 h 22 min), and it is not backfilled.
+- **CHG-03 (in development, not installed):** gated automatic recovery after a host reboot (`docs/p2/COLLECTOR_REBOOT_RECOVERY.md` on branch `ops/chg03-collector-reboot-recovery`). It replaces the C2 prerequisite list in section 5 for future reboots. `restart: "no"` stays.
+
+The burden noted in section 3 item 6 is accepted as the cost of continuous collection. The C2 prerequisites in section 5 were met by CHG-02.
+
+## 1. Current state (as assessed before CHG-02)
 
 | Item | State | Class |
 |---|---|---|
