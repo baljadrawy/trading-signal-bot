@@ -50,8 +50,8 @@ def tree_hash(d, skip=()):
 class Fixture:
     """A dataset + ops dir shaped like production: runs/, control/, incidents/, quarantine/, health/, configs."""
 
-    def __init__(self, tmp, *, clean_stop=None, run_created=PREV_END - 5 * H, health_ts=PREV_END - 2_000,
-                 critical=False):
+    def __init__(self, tmp, *, clean_stop=None, run_created=PREV_END - 5 * H, health_ts=PREV_END + 3_000,
+                 critical=False, health_state="STOPPING", stop_ts=PREV_END + 30_000):
         self.tmp = pathlib.Path(tmp)
         self.data = self.tmp / "dataset"
         self.ops = self.tmp / "ops"
@@ -59,6 +59,7 @@ class Fixture:
             (self.data / d).mkdir(parents=True)
         (self.ops / "monitor" / "p2-forward-continuous-v1").mkdir(parents=True)
         (self.ops / "monitor" / "p2-forward-continuous-v1" / "status.json").write_text('{"severity":"STOPPED"}')
+        (self.ops / "monitor" / "p2-forward-continuous-v1" / "samples.jsonl").write_text('{"t": 1}\n')
         (self.data / "dataset.json").write_text(json.dumps({"dataset_id": "p2-forward-continuous-v1"}))
         (self.data / "seals" / "2026-10-18.json").write_text('{"PASS": true}')
         self.prev = secrets.token_hex(16)                 # dynamic previous run id: never a fixed value
@@ -66,7 +67,8 @@ class Fixture:
         if clean_stop is not None:
             (self.data / "control" / f"stop-{self.prev[:8]}.json").write_text(json.dumps(
                 {"boot_id": self.prev, "state": "STOPPED" if clean_stop else "FAILED",
-                 "exit_code": 0 if clean_stop else 6, "reason": "signal" if clean_stop else "fail_closed"}))
+                 "exit_code": 0 if clean_stop else 6, "reason": "signal" if clean_stop else "fail_closed",
+                 "ts_ms": stop_ts}))
         incs = [{"id": "inc-1-aaaa-1", "key": "observation_loss:tier0", "severity": "WARNING", "active": True,
                  "ack": None, "first_ms": 1, "last_ms": 1, "count": 1, "boot8": "aaaaaaaa"}]
         if critical:
@@ -74,7 +76,7 @@ class Fixture:
                          "active": True, "ack": None, "first_ms": 2, "last_ms": 2, "count": 1, "boot8": "bbbbbbbb"})
         (self.data / "incidents" / "state.json").write_text(json.dumps({"incidents": incs, "updated_ms": 3}))
         (self.data / "health" / "collector_health.json").write_text(json.dumps(
-            {"boot_id": self.prev, "ts_ms": health_ts, "state": "HEALTHY", "write_errors": 0,
+            {"boot_id": self.prev, "ts_ms": health_ts, "state": health_state, "write_errors": 0,
              "writer": {"alive": True, "beat_age_ms": 100}, "certifier": {"alive": True}}))
         self.config = self.ops / "continuous-v1.json"
         self.config.write_text(json.dumps({"dataset_id": "p2-forward-continuous-v1", "mode": "continuous"}))
@@ -516,9 +518,10 @@ class StubRealHost(R.RealHost):
 
     def _run(self, args, timeout=30, env=None):
         self.seen.append(args)
-        for key, val in self.outputs.items():
-            if key in " ".join(args):
-                return val
+        cmd = " ".join(args)
+        for key in sorted(self.outputs, key=len, reverse=True):     # most specific match wins
+            if key in cmd:
+                return self.outputs[key]
         return 1, ""
 
 
@@ -674,6 +677,160 @@ class TestNoShutdownUnitShipped(unittest.TestCase):
         # review 2026-10-20: with live-restore and the systemd cgroup driver the container scope is stopped
         # in parallel at shutdown (SIGKILL after 90 s), so an After=docker.service unit cannot guarantee a drain
         self.assertFalse((OPS / "systemd" / "tsb-p2f-shutdown-stop.service").exists())
+
+
+# --- G-B readiness review (2026-10-20) --------------------------------------------------------------------
+
+OCT19_RUN = "2cfb872f9e2841a3bc0f75d53996f147"          # real run id (dataset metadata, not trading data)
+OCT19_RUN_CREATED = 1791973596247                       # 2026-10-14T10:26:36.247Z
+OCT19_HEALTH_TS = 1792422295681                         # 2026-10-19T15:04:55.681Z, state STOPPING
+
+
+class Oct19Fixture(Fixture):
+    """The real 2026-10-19 situation, rebuilt from read-only metadata: run 2cfb872f, no stop marker, last health
+    STOPPING 3.2 s after the previous boot's last user-journal entry."""
+
+    def __init__(self, tmp):
+        super().__init__(tmp, run_created=OCT19_RUN_CREATED, health_ts=OCT19_HEALTH_TS)
+        os.unlink(self.data / "runs" / f"run-{self.prev}.json")
+        self.prev = OCT19_RUN
+        self.write_run(OCT19_RUN, OCT19_RUN_CREATED, None)
+        h = json.loads((self.data / "health" / "collector_health.json").read_text())
+        h["boot_id"] = OCT19_RUN
+        (self.data / "health" / "collector_health.json").write_text(json.dumps(h))
+
+
+class RealBootsFakeHost(FakeHost):
+    """FakeHost whose host evidence comes from the real parsers fed with output captured on the host."""
+
+    def __init__(self, fx, outputs=None, **kw):
+        super().__init__(fx, **kw)
+        self.boot_id = "71a4d94799ee4529aa052b15a4760b3a"
+        self._real = StubRealHost(outputs or real_outputs())
+
+    def host_boots(self):
+        return self._real.host_boots()
+
+
+class TestGBReadiness(Base):
+    def test_oct19_reboot_is_classified_orderly_unclean_and_stays_manual_by_default(self):
+        fx = Oct19Fixture(self._tmp)
+        host = RealBootsFakeHost(fx)
+        rep = R.run(fx.config_for(), host)
+        self.assertEqual(rep["classification"], R.ORDERLY_REBOOT_UNCLEAN)
+        self.assertEqual(rep["facts"]["last_health_state"], "STOPPING")
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "unclean_stop_needs_operator_ack"))
+        self.assertEqual(self.ups(host), [])
+
+    def test_oct19_reboot_with_g_b_derives_the_same_ack_the_owner_used_in_chg02(self):
+        fx = Oct19Fixture(self._tmp)
+        host = RealBootsFakeHost(fx)
+        rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+        self.assertEqual(rep["outcome"], R.RECOVERED, rep)
+        self.assertEqual(host.up_env, {"P2F_ACK_PREVIOUS": "2cfb872f"})
+
+    def test_crash_shortly_before_shutdown_is_not_a_reboot(self):
+        for state, ts in (("HEALTHY", PREV_END - 5 * 60_000), ("DEGRADED", PREV_END - 30_000),
+                          ("STOPPING", PREV_END - 20 * 60_000), ("STARTING", PREV_END + 3_000)):
+            with self.subTest(state=state, ts=ts):
+                fx = Fixture(tempfile.mkdtemp(dir=self._tmp), health_state=state, health_ts=ts)
+                host = FakeHost(fx)
+                rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+                self.assertEqual((rep["outcome"], rep["classification"]), (R.MANUAL, R.DIED_BEFORE_SHUTDOWN))
+                self.assertEqual(self.ups(host), [])
+
+    def test_stopping_window_boundaries(self):
+        for ts, cls in ((PREV_END - 59_000, R.ORDERLY_REBOOT_UNCLEAN), (PREV_END + 299_000, R.ORDERLY_REBOOT_UNCLEAN),
+                        (PREV_END - 61_000, R.DIED_BEFORE_SHUTDOWN), (PREV_END + 301_000, R.UNKNOWN)):
+            with self.subTest(ts=ts):
+                fx = Fixture(tempfile.mkdtemp(dir=self._tmp), health_ts=ts)
+                self.assertEqual(R.classify(fx.config_for(), FakeHost(fx).host_boots(), [])[0], cls)
+
+    def test_deliberate_clean_stop_before_shutdown_is_respected(self):
+        fx = self.fx(clean_stop=True, stop_ts=PREV_END - 3 * H)
+        host = FakeHost(fx)
+        rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+        self.assertEqual((rep["outcome"], rep["classification"]), (R.MANUAL, R.OPERATOR_STOP))
+        self.assertEqual(self.ups(host), [])
+
+    def test_clean_stop_at_shutdown_needs_orderly_evidence(self):
+        fx = self.fx(clean_stop=True)
+        rep = R.run(fx.config_for(), FakeHost(fx, orderly=False))
+        self.assertEqual((rep["outcome"], rep["classification"]), (R.MANUAL, R.OPERATOR_STOP))
+
+    def test_operator_hold_blocks_everything(self):
+        fx = self.fx(clean_stop=True)
+        cfg = fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True})
+        os.makedirs(cfg["state_dir"], exist_ok=True)
+        open(os.path.join(cfg["state_dir"], "HOLD"), "w").close()
+        host = FakeHost(fx)
+        rep = R.run(cfg, host)
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "operator_hold"))
+        self.assertEqual(self.ups(host), [])
+
+    def test_derived_ack_never_bypasses_a_blocking_incident(self):
+        fx = Oct19Fixture(self._tmp)
+        st = json.loads((fx.data / "incidents" / "state.json").read_text())
+        st["incidents"].append({"id": "inc-9-cccc-1", "key": "failclosed:disk_hard_stop", "severity": "CRITICAL",
+                                "active": True, "ack": None, "first_ms": 9, "last_ms": 9, "count": 1,
+                                "boot8": "2cfb872f"})
+        (fx.data / "incidents" / "state.json").write_text(json.dumps(st))
+        before = tree_hash(fx.data / "incidents")
+        host = RealBootsFakeHost(fx)
+        rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "blocking_critical_incident"))
+        self.assertEqual(self.ups(host), [])
+        self.assertEqual(tree_hash(fx.data / "incidents"), before)
+
+    def test_derived_ack_never_bypasses_missing_or_unverifiable_evidence(self):
+        fx = Oct19Fixture(self._tmp)
+        shutil.rmtree(fx.data / "quarantine")
+        host = RealBootsFakeHost(fx)
+        rep = R.run(fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host)
+        self.assertEqual((rep["outcome"], rep["reason"]), (R.MANUAL, "evidence_source_missing"))
+        self.assertEqual(self.ups(host), [])
+        fx2 = Oct19Fixture(tempfile.mkdtemp(dir=self._tmp))
+        real_sha = R.sha256_file
+
+        def lying_sha(p):                                        # a copy that does not match its source
+            return "0" * 64 if os.sep + "evidence" + os.sep in str(p) else real_sha(p)
+        R.sha256_file = lying_sha
+        try:
+            host2 = RealBootsFakeHost(fx2)
+            rep2 = R.run(fx2.config_for(policy={"auto_ack_previous_on_orderly_reboot": True}), host2)
+        finally:
+            R.sha256_file = real_sha
+        self.assertEqual((rep2["outcome"], rep2["reason"]), (R.MANUAL, "evidence_copy_mismatch"))
+        self.assertEqual(self.ups(host2), [])
+
+    def test_derived_ack_never_bypasses_drift_or_the_per_boot_limit(self):
+        fx = Oct19Fixture(self._tmp)
+        host = RealBootsFakeHost(fx, image="sha256:" + "ee" * 32)
+        cfg = fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True})
+        self.assertEqual(R.run(cfg, host)["reason"], "image_id_mismatch")
+        self.assertEqual(self.ups(host), [])
+
+    def test_attempt_is_bound_to_the_preserved_evidence(self):
+        fx = Oct19Fixture(self._tmp)
+        cfg = fx.config_for(policy={"auto_ack_previous_on_orderly_reboot": True})
+        rep = R.run(cfg, RealBootsFakeHost(fx))
+        att = [r for r in R.read_ledger(cfg) if r["kind"] == "ATTEMPT"][0]
+        sums = os.path.join(rep["report_dir"], "evidence", "SHA256SUMS")
+        self.assertEqual(att["evidence_sums_sha256"], R.sha256_file(sums))
+        self.assertTrue(att["auto_ack"])
+        self.assertTrue(os.path.isfile(os.path.join(rep["report_dir"], "evidence", "monitor",
+                                                    "p2-forward-continuous-v1", "samples.jsonl")))
+
+    def test_wtmp_fallback_and_boot_tolerance(self):
+        stub = StubRealHost(real_outputs(**{"last -x": (0, ""),
+                                            "last -x --time-format iso -f /var/log/wtmp.1": (0, REAL_WTMP)}))
+        b = stub.host_boots()
+        self.assertTrue(b["previous"]["wtmp_shutdown"])
+        self.assertIn(["last", "-x", "--time-format", "iso", "-f", "/var/log/wtmp.1", "shutdown"], stub.seen)
+        none = StubRealHost(real_outputs(**{"last -x": (0, "")})).host_boots()
+        self.assertFalse(none["previous"]["wtmp_shutdown"] or none["previous"]["orderly"])
+        self.assertTrue(R.wtmp_orderly_shutdown(REAL_WTMP, REAL_PREV_END_MS, REAL_BTIME_MS + 600_000))   # slow fsck
+        self.assertFalse(R.wtmp_orderly_shutdown(REAL_WTMP, REAL_PREV_END_MS, REAL_BTIME_MS + 1_000_000))
 
 
 if __name__ == "__main__":

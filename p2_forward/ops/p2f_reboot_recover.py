@@ -49,7 +49,8 @@ MANUAL, FAILED = "MANUAL_REQUIRED", "FAILED"
 EXIT = {RECOVERED: 0, NOOP_RUNNING: 0, LOCKED: 75, MANUAL: 10, FAILED: 11}
 
 # classifications of the previous run's end
-CLEAN_STOP = "CLEAN_STOP"
+CLEAN_STOP = "CLEAN_STOP_AT_SHUTDOWN"
+OPERATOR_STOP = "CLEAN_STOP_BEFORE_SHUTDOWN"        # a deliberate stop: never undone automatically
 FAILED_STOP = "FAILED_STOP"
 ORDERLY_REBOOT_UNCLEAN = "ORDERLY_REBOOT_UNCLEAN_STOP"
 POWER_LOSS_OR_UNVERIFIED = "UNCLEAN_REBOOT_UNVERIFIED"
@@ -63,7 +64,8 @@ REQUIRED_CONFIG = ("dataset_dir", "config_file", "config_sha256", "compose_file"
                    "image_id", "container", "state_dir", "monitor_dir", "paper_containers")
 DEFAULTS = {"min_disk_free_gb": 100, "min_mem_available_mb": 1024, "docker_wait_s": 600, "up_timeout_s": 300,
             "bind_timeout_s": 180, "health_wait_s": 240, "max_consecutive_failures": 2,
-            "shutdown_window_before_s": 600, "shutdown_window_after_s": 300,
+            "stopping_window_before_s": 60, "stopping_window_after_s": 300,
+            "clean_stop_window_before_s": 120, "clean_stop_window_after_s": 600,
             "max_health_beat_ms": 5000, "policy": {"auto_ack_previous_on_orderly_reboot": False},
             "alert": {"enabled": True, "env_file": "/home/tradmin/trading-signal-bot/.env"}}
 
@@ -183,9 +185,13 @@ class RealHost:
         if prev:
             rc2, tail = self._run(["journalctl", "--user", "-b", prev["boot_id"], "-n", "40", "-o", "cat",
                                    "--no-pager"])
-            rc3, wtmp = self._run(["last", "-x", "--time-format", "iso", "shutdown"])
             prev["journal_shutdown_target"] = rc2 == 0 and journal_reached_shutdown(tail)
-            prev["wtmp_shutdown"] = rc3 == 0 and wtmp_orderly_shutdown(wtmp, prev["end_ms"], btime * 1000)
+            prev["wtmp_shutdown"] = False
+            for extra in ([], ["-f", "/var/log/wtmp.1"]):          # monthly rotation (minsize 1M) moves it
+                rc3, wtmp = self._run(["last", "-x", "--time-format", "iso", *extra, "shutdown"])
+                if rc3 == 0 and wtmp_orderly_shutdown(wtmp, prev["end_ms"], btime * 1000):
+                    prev["wtmp_shutdown"] = True
+                    break
             prev["orderly"] = prev["journal_shutdown_target"] and prev["wtmp_shutdown"]
         return res
 
@@ -233,7 +239,9 @@ class RealHost:
 # --------------------------------------------------------------------------------------------- boot evidence
 
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
-ORDERLY_MATCH_S = 300          # journal end vs wtmp shutdown start, and wtmp shutdown end vs kernel boot time
+ORDERLY_MATCH_S = 300          # journal end vs wtmp shutdown start
+BOOT_MATCH_S = 900             # wtmp shutdown end (next boot's utmp record) vs kernel boot time: a slow fsck
+#                                can delay systemd-update-utmp by minutes
 
 
 def normalize_boot_id(v):
@@ -293,7 +301,8 @@ def wtmp_orderly_shutdown(text, prev_end_ms, current_start_ms):
         if not m:
             continue
         a, b = _iso_ms(m.group(1)), _iso_ms(m.group(2))
-        if a is not None and b is not None and abs(a - prev_end_ms) <= w and abs(b - current_start_ms) <= w:
+        if a is not None and b is not None and abs(a - prev_end_ms) <= w \
+                and abs(b - current_start_ms) <= BOOT_MATCH_S * 1000:
             return True
     return False
 
@@ -432,14 +441,23 @@ def classify(cfg, boots, ledger):
     rec = [r for r in ledger if r.get("kind") == "OUTCOME" and r.get("new_run")]
     if rec and rec[-1].get("new_run_created_ms") and run["created_ms"] < rec[-1]["new_run_created_ms"]:
         return UNKNOWN, {**facts, "why": "latest_run_older_than_ledger"}
+    cur, prev = boots.get("current") or {}, boots.get("previous")
     mk = os.path.join(data, "control", f"stop-{b[:8]}.json")
     if os.path.exists(mk):
         with open(mk, encoding="utf-8") as fh:
             m = json.load(fh)
-        facts["stop_marker"] = {k: m.get(k) for k in ("state", "exit_code", "reason")}
-        return (CLEAN_STOP if m.get("state") == "STOPPED" else FAILED_STOP), facts
+        facts["stop_marker"] = {k: m.get(k) for k in ("state", "exit_code", "reason", "ts_ms")}
+        if m.get("state") != "STOPPED":
+            return FAILED_STOP, facts
+        ts = m.get("ts_ms")
+        # automatic only for a clean stop caused by the shutdown; a deliberate earlier stop is respected
+        if (prev and prev.get("orderly") and cur.get("start_ms") and isinstance(ts, int)
+                and run["created_ms"] < cur["start_ms"]
+                and prev["end_ms"] - cfg["clean_stop_window_before_s"] * 1000 <= ts
+                <= prev["end_ms"] + cfg["clean_stop_window_after_s"] * 1000):
+            return CLEAN_STOP, facts
+        return OPERATOR_STOP, facts
     facts["stop_marker"] = None
-    cur, prev = boots.get("current") or {}, boots.get("previous")
     if not cur.get("start_ms"):
         return UNKNOWN, {**facts, "why": "current_boot_unknown"}
     if run["created_ms"] >= cur["start_ms"]:
@@ -447,10 +465,14 @@ def classify(cfg, boots, ledger):
     h = read_health(data)
     if not prev or not h or h.get("boot_id") != b or not isinstance(h.get("ts_ms"), int):
         return POWER_LOSS_OR_UNVERIFIED, {**facts, "why": "no_previous_boot_or_health_evidence"}
-    facts.update(last_health_ms=h["ts_ms"], previous_boot_end_ms=prev["end_ms"], orderly=prev["orderly"])
-    if h["ts_ms"] < prev["end_ms"] - cfg["shutdown_window_before_s"] * 1000:
+    facts.update(last_health_ms=h["ts_ms"], last_health_state=h.get("state"),
+                 previous_boot_end_ms=prev["end_ms"], orderly=prev["orderly"])
+    # The collector writes state STOPPING (and its health) the moment its stop event fires (a signal), and
+    # FAILED on fail-closed paths. A crash (OOM, SIGKILL, segfault) leaves the last periodic state instead.
+    # So an unclean end caused by the shutdown shows STOPPING at about the shutdown time.
+    if h.get("state") != "STOPPING" or h["ts_ms"] < prev["end_ms"] - cfg["stopping_window_before_s"] * 1000:
         return DIED_BEFORE_SHUTDOWN, facts
-    if h["ts_ms"] > prev["end_ms"] + cfg["shutdown_window_after_s"] * 1000:
+    if h["ts_ms"] > prev["end_ms"] + cfg["stopping_window_after_s"] * 1000:
         return UNKNOWN, {**facts, "why": "health_after_previous_boot_end"}
     return (ORDERLY_REBOOT_UNCLEAN if prev["orderly"] else POWER_LOSS_OR_UNVERIFIED), facts
 
@@ -507,8 +529,7 @@ def preserve_evidence(cfg, host, rdir):
                 raise Stop(MANUAL, "evidence_source_missing", d)
             shutil.copytree(src, os.path.join(ev, d), symlinks=True)
         if os.path.isdir(cfg["monitor_dir"]):
-            shutil.copytree(cfg["monitor_dir"], os.path.join(ev, "monitor"), symlinks=True,
-                            ignore=shutil.ignore_patterns("samples*.jsonl*"))
+            shutil.copytree(cfg["monitor_dir"], os.path.join(ev, "monitor"), symlinks=True)   # runbook: whole dir
         with open(os.path.join(ev, "collector_inspect.json"), "w") as fh:
             fh.write(host.docker_inspect_json(cfg["container"]))
         with open(os.path.join(ev, "collector_logs.txt"), "w") as fh:
@@ -614,6 +635,8 @@ def run(cfg, host):
         st = host.container_state(cfg["container"])
         if st and st["running"]:
             return {**rep, "outcome": NOOP_RUNNING, "reason": "collector_already_running"}
+        if os.path.exists(os.path.join(cfg["state_dir"], "HOLD")):
+            raise Stop(MANUAL, "operator_hold")
         storage_gates(cfg, host)
         boots = host.host_boots()
         rep["host_boot_id"] = boots["current"]["boot_id"]
@@ -636,10 +659,11 @@ def run(cfg, host):
         rdir = report_dir(cfg, rep)
         rep["report_dir"] = rdir
         rep["evidence_files"] = preserve_evidence(cfg, host, rdir)
+        rep["evidence_sums_sha256"] = sha256_file(os.path.join(rdir, "evidence", "SHA256SUMS"))
         rep["paper_before"] = host.paper_snapshot(cfg["paper_containers"])
         append_ledger(cfg, {"kind": "ATTEMPT", "at_ms": host.now_ms(), "host_boot_id": rep["host_boot_id"],
                             "classification": cls, "previous_run": rep["previous_run"],
-                            "auto_ack": bool(ack_env)})
+                            "auto_ack": bool(ack_env), "evidence_sums_sha256": rep["evidence_sums_sha256"]})
         attempted = True
         rc, out = host.run_up(ack_env, cfg["up_timeout_s"])
         rep["up_rc"], rep["up_tail"] = rc, out.strip().splitlines()[-3:]
