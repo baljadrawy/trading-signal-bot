@@ -22,6 +22,10 @@ initial-setup-only, historical, or wrong; this file wins.
   authoritative state. Until an owner-approved database read confirms the state, treat it as
   **unconfirmed**. Every Class B pre-gate must verify the halt state from the database; it may
   not rely on this sentence.
+  *Dated note (2026-10-20):* the loss-streak halt is not a stored flag. It is recomputed from
+  `trade_results` at every admission (`shared/risk_epoch.py`) and can clear by a non-losing close
+  or a recorded recovery, so no document may state PAPER_HALTED as the current state without an
+  approved read. The administrative pause (`risk_management`) is the only stored part.
 - **One service at a time.** Never mutate more than one service in one command or one step.
 - **The learner (`continuous_learner`) stays stopped.** The profile prevents the learner from
   participating in normal default Compose startup. Directly targeting the learner remains possible

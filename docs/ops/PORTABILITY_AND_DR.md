@@ -63,6 +63,11 @@ Never describe artifact recovery as reproducibility, or the reverse.
 | R-01 | The collector research dataset (4.5 GB) and its sealed-day backups are on this host only | Medium | Owner (research governance) | D-02 | Off-host decision under research governance; the holdout stays sealed |
 | M-01 | No monitoring from outside the host | Medium | Owner | — | Decision recorded |
 
+### Dated notes (2026-10-20, read-only observations)
+- **D-01/D-02:** `trading_signals` *is* dumped nightly by the xsch backup into the local restic repository `~/backups/restic` (since 2026-08-04). The DB therefore has a working local recovery point ≤ 24 h old, but it is still not off-host and its restore is not proven. D-02 stays open. Proposal: `docs/ops/BACKUP_MODEL_RD.md`.
+- **G-01:** B3 is computed from closed trades at each evaluation (`shared/risk_epoch.py`), so its state is outcome-derived; it is still UNVERIFIED.
+- **R-02 (new):** the Collector has been stopped since the host reboot of 2026-10-19 (`restart: "no"`, by design); necessity assessment in `docs/ops/COLLECTOR_NECESSITY_ASSESSMENT.md`. Its running image (1.6.0) still has no archive (P-05).
+
 ## 4. Existing documents this register builds on
 
 - **Releases and images:**

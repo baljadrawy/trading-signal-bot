@@ -15,6 +15,8 @@ Not in scope:
 - the research collector dataset (it has its own sealed-day backup);
 - protected research outcomes. Those are never read by any step in this plan.
 
+> **Dated correction (2026-10-20, read-only observation):** the table below omits one mechanism. The twitter-scheduler (xsch) nightly backup (`~/twitter-scheduler/scripts/backup-run.sh`, 03:17 local) dumps `trading_signals` with role `trading_signal_bot` into the **local** restic repository `~/backups/restic` every night since 2026-08-04 (last success 2026-10-19). It is encrypted, but its key file is on the same host, it has no off-host step, and its monthly restore test covers `xsch` only. Also: one successful p1bg v1 night would let `KEEP=7` delete the 2026-10-02 set automatically, which conflicts with R1.3 decision 2. See `docs/ops/BACKUP_MODEL_RD.md`.
+
 **Coverage today (verified 2026-10-18):**
 
 | Mechanism | Covers `trading_signals`? | Off-host? | State |
