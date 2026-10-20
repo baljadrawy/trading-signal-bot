@@ -110,8 +110,44 @@ def _text_problems(a: dict) -> list:
     return out
 
 
+MERGED_ACK_KEYS = {"by", "ref", "ack_ms"}          # exactly what IncidentLog.poll_acks() writes into the record
+
+
+def pre_ack_record(inc: dict):
+    """A41 canonicalization contract. After the collector merges an ack, the ONLY change to the incident record
+    is `ack` (None -> {by, ref, ack_ms}): raise_()/resolve() never touch an acknowledged incident (_open_for
+    excludes it). So the record that was bound is the merged record with `ack` restored to None. Returns
+    (record, problems); any other shape is ambiguous and fails closed."""
+    a = inc.get("ack")
+    if a is None:
+        return inc, []
+    if not isinstance(a, dict) or set(a) != MERGED_ACK_KEYS or not isinstance(a.get("ack_ms"), int) \
+            or isinstance(a.get("ack_ms"), bool) or not isinstance(a.get("by"), str) or not isinstance(a.get("ref"), str):
+        return None, ["merged_ack_malformed"]
+    return {**inc, "ack": None}, []
+
+
+def _bound_run_problems(data: str, lineage) -> list:
+    """Historical (merged) acks: the run record bound at ack time must still exist, unchanged (it is immutable).
+    It need not be the latest run, since every later restart creates a newer one."""
+    if not isinstance(lineage, dict) or not isinstance(lineage.get("boot_id"), str):
+        return ["run_lineage_missing"]
+    p = os.path.join(data, "runs", f"run-{lineage['boot_id']}.json")
+    if not os.path.isfile(p) or os.path.islink(p):
+        return ["bound_run_record_missing"]
+    if file_sha(p) != lineage.get("run_record_sha256"):
+        return ["bound_run_record_changed"]
+    return []
+
+
 def validate(data: str, inc: dict, now=None) -> list:
-    """Problems with incidents/ack/<inc id>.json as an acknowledgement of exactly this incident record ([] = valid)."""
+    """Problems with incidents/ack/<inc id>.json as an acknowledgement of exactly this incident record ([] = valid).
+    A41: two modes, chosen by the record itself.
+      pending (inc["ack"] is None; what the start gate checks): unchanged. The bound record must equal the current
+               one, and the lineage must be the current (latest) run.
+      merged  (the collector has merged the ack): the bound record must equal the current record with only `ack`
+               restored to None; the merged ack must match this file (by/ref as the collector truncates them,
+               ack_ms not before the file's ts_ms); the bound run record must still exist unchanged."""
     p = ack_path(data, inc["id"])
     if os.path.islink(p):
         return ["ack_is_symlink"]
@@ -140,12 +176,23 @@ def validate(data: str, inc: dict, now=None) -> list:
     for k in INC_FIELDS[1:]:
         if bi.get(k) != inc.get(k):
             out.append(f"incident_{k}_mismatch")
-    if a.get("incident_sha256") != sha(inc):
+    record, probs = pre_ack_record(inc)
+    out += probs
+    merged = inc.get("ack") is not None
+    if record is not None and a.get("incident_sha256") != sha(record):
         out.append("incident_record_changed_since_ack")
     if a.get("dataset_id") != dataset_id(data):
         out.append("dataset_id_mismatch")
-    if a.get("lineage") != latest_run(data):
-        out.append("run_lineage_mismatch")
+    if not merged:
+        if a.get("lineage") != latest_run(data):
+            out.append("run_lineage_mismatch")
+    else:
+        out += _bound_run_problems(data, a.get("lineage"))
+        m = inc["ack"] if not probs else {}
+        if m and (m.get("by") != str(a.get("by"))[:80] or m.get("ref") != str(a.get("ref"))[:200]):
+            out.append("merged_ack_differs_from_file")
+        if m and isinstance(a.get("ts_ms"), int) and m.get("ack_ms", 0) < a["ts_ms"]:
+            out.append("merged_before_ack_written")
     ts = a.get("ts_ms")
     if not isinstance(ts, int) or isinstance(ts, bool):
         out.append("ts_ms_invalid")
