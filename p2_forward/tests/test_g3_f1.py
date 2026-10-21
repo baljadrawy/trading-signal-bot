@@ -1,4 +1,6 @@
 """G3-F1 (per-tier depth / book freshness) and G3-F2 (verifier CLI JSON export) regression tests."""
+import datetime as dt
+import gzip
 import json
 import os
 import shutil
@@ -7,13 +9,48 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from p2_forward import app as A, config as C, universe as U
 from tests.test_regression_g2r import mk, book, depth, mini, gaps, drain, healthy_collector, stop_writer
+from p2_forward import writer as W
 from tests.test_g3_prereqs import run_g3_e2e, g3_test_spec, VI, segs_of, recertify
 
 UNI = {**U.tier0_only(C.DEFAULTS), "tier1": ["ADAUSDT"], "tier2": ["SOLUSDT"]}
 T1D, T2D, T0D = "adausdt@depth10", "soldusdt@depth10".replace("sold", "sol"), "btcusdt@depth20"
+
+
+def tamper_first_matching(base, typ, pick, mutate):
+    """Apply `mutate` to the first record (segment order) for which `pick` is true, searching ALL `typ` segments.
+
+    Segments are cut at the writer's wall-clock UTC hour (writer.py `_write`), so a run that crosses an hour boundary
+    can leave the wanted record outside the first segment. Fails loudly when nothing matched, so a tamper test can
+    never pass or fail vacuously. Returns the recertified segment."""
+    for seg in segs_of(base, typ):
+        if not any(pick(json.loads(line)) for line in gzip.open(seg, "rt")):
+            continue
+        changed = []
+
+        def transform(ls):
+            for x in ls:
+                if pick(x):
+                    mutate(x); changed.append(x)
+                    break
+            return ls
+        recertify(base, seg, transform)
+        assert len(changed) == 1, "exactly one record must be mutated"
+        return seg
+    raise AssertionError(f"no {typ} record matched the tamper predicate: the test would be vacuous")
+
+
+def make_stale_tier2(x):
+    """Tier-2 depth value 15.001 s old (Tier-2 pinned threshold: 15 s)."""
+    x["recv_ts_ns"] = (x["sample_ms"] - 15_001) * 1_000_000
+    x["observed_at_ms"] = x["available_at_ms"] = x["sample_ms"] - 15_001
+
+
+def is_tier2(x):
+    return x.get("tier") == 2
 
 
 def mkt(d, **over):
@@ -150,15 +187,13 @@ class VerifierFreshnessAndCli(unittest.TestCase):
         s = g3_test_spec(); s["depth_stale_ms_by_tier"] = {"t0": 2000, "t1": 60000, "t2": 5000}
         self.assertIn("ACC_FRESHNESS_THRESHOLDS_NOT_SPEC", VI.verify(self.base, spec=s)["failures"])
         d = tempfile.mkdtemp(dir=self.tmp.name); dst = os.path.join(d, "data"); shutil.copytree(self.base, dst)
-        def old(ls):
-            for x in ls:
-                if x["tier"] == 2:                                       # Tier-2 depth value 15.001 s old
-                    x["recv_ts_ns"] = (x["sample_ms"] - 15_001) * 1_000_000
-                    x["observed_at_ms"] = x["available_at_ms"] = x["sample_ms"] - 15_001
-                    break
-            return ls
-        recertify(dst, segs_of(dst, "depth")[0], old)
+        tamper_first_matching(dst, "depth", is_tier2, make_stale_tier2)   # any segment: hour-boundary safe
         self.assertIn("STALE_VALUE_PERSISTED", VI.verify(dst)["failures"])
+
+    def test_tamper_helper_refuses_vacuous_tamper(self):
+        d = tempfile.mkdtemp(dir=self.tmp.name); dst = os.path.join(d, "data"); shutil.copytree(self.base, dst)
+        with self.assertRaises(AssertionError):
+            tamper_first_matching(dst, "depth", lambda x: x.get("tier") == 99, make_stale_tier2)
 
     def test_str_keys_direct(self):
         self.assertEqual(json.loads(json.dumps(VI.str_keys({None: 1, 2: {None: 3}, "a": [{None: 4}]}), sort_keys=True)),
@@ -185,3 +220,64 @@ class VerifierFreshnessAndCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HourBoundarySegmentation(unittest.TestCase):
+    """Regression for the 2026-10-20 main CI failure (run 39504743271, 85d1c4a): the e2e run crossed a UTC hour, the
+    first depth segment held no Tier-2 record, the old test tampered nothing and VI.verify returned no failures.
+
+    Deterministic: the writer's hour clock (writer._utc) reports the previous hour until the first Tier-2 depth record
+    is about to be written, so the boundary always falls between the first depth record and the first Tier-2 one."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.base = os.path.join(cls.tmp.name, "data"); os.makedirs(cls.base)
+        flipped = {"v": False}
+        real_utc, real_write = W._utc, W.SegmentWriter._write
+
+        def utc(ns):
+            t = real_utc(ns)
+            return t if flipped["v"] else t - dt.timedelta(hours=1)
+
+        def write(self, rec):
+            if rec.get("type") == "depth" and rec.get("tier") == 2:
+                flipped["v"] = True                                    # the hour turns before the first Tier-2 write
+            return real_write(self, rec)
+        with mock.patch.object(W, "_utc", utc), mock.patch.object(W.SegmentWriter, "_write", write):
+            run_g3_e2e(cls.base)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_boundary_puts_no_tier2_record_in_first_depth_segment(self):
+        segs = segs_of(self.base, "depth")
+        self.assertGreaterEqual(len(segs), 2)
+        first = [json.loads(line) for line in gzip.open(segs[0], "rt")]
+        self.assertTrue(first)                                         # earlier depth records exist (Tier 0/1)
+        self.assertFalse([x for x in first if is_tier2(x)])            # ... but no Tier-2 one
+
+    def test_old_first_segment_tamper_was_vacuous(self):
+        """Reproduces the CI failure mode: tampering only segs[0] changes nothing and STALE is not reported."""
+        d = tempfile.mkdtemp(dir=self.tmp.name); dst = os.path.join(d, "data"); shutil.copytree(self.base, dst)
+        seg0 = segs_of(dst, "depth")[0]
+        before = gzip.open(seg0, "rb").read()
+        changed = []
+
+        def old(ls):                                                   # the pre-fix transform, verbatim logic
+            for x in ls:
+                if x["tier"] == 2:
+                    make_stale_tier2(x); changed.append(x)
+                    break
+            return ls
+        recertify(dst, seg0, old)
+        self.assertEqual(changed, [])                                  # nothing was tampered ...
+        self.assertEqual(gzip.open(seg0, "rb").read(), before)
+        self.assertNotIn("STALE_VALUE_PERSISTED", VI.verify(dst)["failures"])   # ... so the old assertion failed
+
+    def test_tamper_across_segments_is_detected(self):
+        d = tempfile.mkdtemp(dir=self.tmp.name); dst = os.path.join(d, "data"); shutil.copytree(self.base, dst)
+        seg = tamper_first_matching(dst, "depth", is_tier2, make_stale_tier2)
+        self.assertNotEqual(seg, segs_of(dst, "depth")[0])             # the Tier-2 record lives after the boundary
+        self.assertIn("STALE_VALUE_PERSISTED", VI.verify(dst)["failures"])
