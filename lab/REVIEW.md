@@ -32,6 +32,15 @@ Mutation check: 13/13 hand-written mutants killed. The list is in the PR descrip
 5. **PROP:** after an owner resume, drawdown is re-measured from the review point, and the 2,000 trigger re-arms on the next crossing.
 6. In-memory only. Persistence (the `tsb_lab` schema), transactions across processes, and crash recovery from the DB are later steps.
 
+## Architecture alignment (owner direction 2026-10-21)
+
+See `lab/ARCHITECTURE_ALIGNMENT.md`. The current exit plan and cost arithmetic in `lab/account.py` duplicate, and only partly match, the shared production components:
+- missing T1 break-even, T2 trailing and timeframe expiry;
+- no entry policy;
+- a separate cost class.
+
+They are to be replaced by an adapter over the shared pure components. That replacement is **not implemented yet**: it is gated on review of the alignment and of the parity tests P1–P7.
+
 ## Questions for the reviewer
 
 1. Should `BLOCKED_INTEGRITY` keep executing predeclared exits on a ledger that just failed an invariant, or freeze everything pending review? The current choice follows the owner rule that open positions keep their risk handling.
@@ -39,3 +48,7 @@ Mutation check: 13/13 hand-written mutants killed. The list is in the PR descrip
 3. Is the re-arm rule (limit 5) acceptable, or must the owner set an explicit new baseline at each resume?
 4. Must the cost floor (half-spread > 0, slippage ≥ 0.05 %) be per-symbol tiers (a48-cost-v1) rather than one floor?
 5. Which persistence design keeps I7/I8 under concurrency: one DB transaction per operation with unique keys on intent, order and exit ids, or something else?
+6. Is the adapter boundary in `ARCHITECTURE_ALIGNMENT.md` §3 correct? Only `step_barrier` decisions and `fills_between` fractions are taken from production, and money is booked by the lab with `CostModel` once.
+7. For the stop trigger: should production's `TripleBarrierResult` gain an additive `stop_reference` field (a shared change with its own regression gate), or should the lab invert the modelled stop fill?
+8. Are the parity tests P1–P7 sufficient, and is pinning shared-module blob hashes in a lab test an acceptable change-control mechanism?
+9. Which break-even cost basis should lab strategies declare by default: production parity (`0.003 / 0.001`) or the lab cost model?
