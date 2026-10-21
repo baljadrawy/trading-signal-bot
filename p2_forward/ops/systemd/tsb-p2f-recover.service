@@ -1,0 +1,27 @@
+# CHG-03: one gated Collector recovery attempt per host boot (user unit, owner tradmin).
+# NOT INSTALLED. Installing/enabling it is a separate owner approval (docs/p2/COLLECTOR_REBOOT_RECOVERY.md).
+# It never uses a Docker restart policy: it calls p2f_reboot_recover.py, which starts the collector only through
+# p2f_continuous_up.sh after every gate passes, at most once per host boot (recovery ledger), and alerts the owner.
+[Unit]
+Description=P2 forward collector gated recovery after host boot (CHG-03; one attempt per boot)
+After=tsb-p2f-monitor.service
+# a failed attempt is never retried by systemd (no Restart=); the ledger also refuses a second attempt per boot
+
+[Service]
+Type=oneshot
+Slice=tsbops.slice
+WorkingDirectory=/home/tradmin/ops/tsb-p2-forward
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -u /home/tradmin/ops/tsb-p2-forward/p2f_reboot_recover.py run --config /home/tradmin/ops/tsb-p2-forward/recover.json
+# docker wait 600 + start 300 + health 240 + monitor re-bind 180 (+ margin)
+TimeoutStartSec=1500
+# 0 recovered or already running; 10 manual action required and 11 failed (both alerted, unit shows failed); 75 another attempt running
+SuccessExitStatus=75
+NoNewPrivileges=yes
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tsb-p2f-recover
+
+[Install]
+WantedBy=default.target
