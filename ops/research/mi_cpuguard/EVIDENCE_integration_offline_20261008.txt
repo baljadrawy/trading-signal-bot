@@ -1,0 +1,121 @@
+2026-10-08T20:16:12Z
+test_admits_when_all_clear (test_admission_and_logic.TestAdmission.test_admits_when_all_clear) ... ok
+test_g4_refuses_stopped_unknown_missing_and_old_content (test_admission_and_logic.TestAdmission.test_g4_refuses_stopped_unknown_missing_and_old_content) ... ok
+test_g4_refuses_unsupervised_or_foreign_writer (test_admission_and_logic.TestAdmission.test_g4_refuses_unsupervised_or_foreign_writer) ... ok
+test_g4_unit_state_cross_check (test_admission_and_logic.TestAdmission.test_g4_unit_state_cross_check) ... ok
+test_refuses_inside_protected_window (test_admission_and_logic.TestAdmission.test_refuses_inside_protected_window) ... ok
+test_refuses_monitor_degraded_or_stale (test_admission_and_logic.TestAdmission.test_refuses_monitor_degraded_or_stale) ... ok
+test_refuses_on_steal (test_admission_and_logic.TestAdmission.test_refuses_on_steal) ... ok
+test_refuses_stale_health_and_lag (test_admission_and_logic.TestAdmission.test_refuses_stale_health_and_lag) ... ok
+test_refuses_unhealthy_collector (test_admission_and_logic.TestAdmission.test_refuses_unhealthy_collector) ... ok
+test_refuses_unreadable_health (test_admission_and_logic.TestAdmission.test_refuses_unreadable_health) ... ok
+test_refuses_when_lock_held (test_admission_and_logic.TestAdmission.test_refuses_when_lock_held) ... ok
+test_steal_math (test_admission_and_logic.TestAdmission.test_steal_math) ... ok
+test_jobwrap_refuses_when_lock_busy_and_records (test_admission_and_logic.TestProfilesAndJobwrap.test_jobwrap_refuses_when_lock_busy_and_records) ... ok
+test_profile_opt_in_and_bounds (test_admission_and_logic.TestProfilesAndJobwrap.test_profile_opt_in_and_bounds) ... ok
+test_clean (test_admission_and_logic.TestWatchdogLogic.test_clean) ... ok
+test_each_freeze_trigger (test_admission_and_logic.TestWatchdogLogic.test_each_freeze_trigger) ... ok
+test_kill_triggers (test_admission_and_logic.TestWatchdogLogic.test_kill_triggers) ... ok
+test_daily_wraps_midnight (test_admission_and_logic.TestWindows.test_daily_wraps_midnight) ... ok
+test_hourly (test_admission_and_logic.TestWindows.test_hourly) ... ok
+test_kill_mid_run_then_resume (test_detpool.TestCheckpoint.test_kill_mid_run_then_resume)
+SIGKILL a real multi-worker run part-way, plant partial files, resume. ... ok
+test_plan_mismatch_refused (test_detpool.TestCheckpoint.test_plan_mismatch_refused) ... ok
+test_resume_reuses_and_matches (test_detpool.TestCheckpoint.test_resume_reuses_and_matches) ... ok
+test_tampered_unit_detected_quarantined_recomputed (test_detpool.TestCheckpoint.test_tampered_unit_detected_quarantined_recomputed) ... ok
+test_rejects_bad_keys_and_duplicates (test_detpool.TestDeterminism.test_rejects_bad_keys_and_duplicates) ... ok
+test_same_hash_any_worker_count_and_completion_order (test_detpool.TestDeterminism.test_same_hash_any_worker_count_and_completion_order) ... ok
+test_seed_derivation_is_stable (test_detpool.TestDeterminism.test_seed_derivation_is_stable) ... ok
+test_1_envelope_oom_adj_watchdog_lifetime_record (test_integration_systemd.TestSystemdIntegration.test_1_envelope_oom_adj_watchdog_lifetime_record) ... skipped 'set RESEARCH_EXEC_INTEGRATION=1 to run systemd integration tests'
+test_2_freeze_stops_cpu_then_thaw_completes_correctly (test_integration_systemd.TestSystemdIntegration.test_2_freeze_stops_cpu_then_thaw_completes_correctly) ... skipped 'set RESEARCH_EXEC_INTEGRATION=1 to run systemd integration tests'
+test_3_escalation_group_kill_no_stragglers (test_integration_systemd.TestSystemdIntegration.test_3_escalation_group_kill_no_stragglers) ... skipped 'set RESEARCH_EXEC_INTEGRATION=1 to run systemd integration tests'
+test_4_cgroup_oom_kills_whole_group (test_integration_systemd.TestSystemdIntegration.test_4_cgroup_oom_kills_whole_group) ... skipped 'set RESEARCH_EXEC_INTEGRATION=1 to run systemd integration tests'
+test_5_admission_refusals_start_nothing (test_integration_systemd.TestSystemdIntegration.test_5_admission_refusals_start_nothing) ... skipped 'set RESEARCH_EXEC_INTEGRATION=1 to run systemd integration tests'
+test_job_unit_disables_swap_for_every_profile (test_launcher_swap.TestResearchSwapIsolation.test_job_unit_disables_swap_for_every_profile) ... ok
+test_slice_runtime_properties_disable_swap (test_launcher_swap.TestResearchSwapIsolation.test_slice_runtime_properties_disable_swap) ... ok
+test_watchdog_unit_disables_swap (test_launcher_swap.TestResearchSwapIsolation.test_watchdog_unit_disables_swap) ... ok
+test_kill_before_reservation_at_max_rate (test_mi_cpuguard.G1BudgetKill.test_kill_before_reservation_at_max_rate) ... ok
+test_margin_is_two_polls_at_quota (test_mi_cpuguard.G1BudgetKill.test_margin_is_two_polls_at_quota) ... ok
+test_randomized_rates_never_exceed_reservation (test_mi_cpuguard.G1BudgetKill.test_randomized_rates_never_exceed_reservation) ... ok
+test_baseline_unreadable_refuses_and_charges_reservation (test_mi_cpuguard.G2FailClosed.test_baseline_unreadable_refuses_and_charges_reservation) ... ok
+test_cpu_stat_parser_fails_closed (test_mi_cpuguard.G2FailClosed.test_cpu_stat_parser_fails_closed) ... ok
+test_guard_gap_kills (test_mi_cpuguard.G2FailClosed.test_guard_gap_kills) ... ok
+test_kill_error_still_charges (test_mi_cpuguard.G2FailClosed.test_kill_error_still_charges) ... ok
+test_non_monotonic_counter_kills (test_mi_cpuguard.G2FailClosed.test_non_monotonic_counter_kills) ... ok
+test_unreadable_counter_kills_and_charges_full_reservation (test_mi_cpuguard.G2FailClosed.test_unreadable_counter_kills_and_charges_full_reservation) ... ok
+test_guard_runs_outside_the_slice_and_never_restarts (test_mi_cpuguard.G3GuardLiveness.test_guard_runs_outside_the_slice_and_never_restarts) ... ok
+test_jobs_and_anchor_are_bound_to_the_guard (test_mi_cpuguard.G3GuardLiveness.test_jobs_and_anchor_are_bound_to_the_guard) ... ok
+test_slice_rate_cap_is_600_percent (test_mi_cpuguard.G3GuardLiveness.test_slice_rate_cap_is_600_percent) ... ok
+test_done_charges_measured (test_mi_cpuguard.G4Charging.test_done_charges_measured) ... ok
+test_over_reservation_is_surfaced (test_mi_cpuguard.G4Charging.test_over_reservation_is_surfaced) ... ok
+test_cap_and_open_reservations_count_as_consumed (test_mi_cpuguard.G5Ledger.test_cap_and_open_reservations_count_as_consumed) ... ok
+test_concurrent_reservations_are_serialized (test_mi_cpuguard.G5Ledger.test_concurrent_reservations_are_serialized) ... ok
+test_crash_recovery_charges_full_reservation (test_mi_cpuguard.G5Ledger.test_crash_recovery_charges_full_reservation) ... ok
+test_double_charge_and_unknown_campaign_refused (test_mi_cpuguard.G5Ledger.test_double_charge_and_unknown_campaign_refused) ... ok
+test_tamper_is_detected (test_mi_cpuguard.G5Ledger.test_tamper_is_detected) ... ok
+test_runtime_max_rendered_everywhere (test_mi_cpuguard.G6WallClock.test_runtime_max_rendered_everywhere) ... ok
+test_wall_clock_is_only_an_additional_kill (test_mi_cpuguard.G6WallClock.test_wall_clock_is_only_an_additional_kill) ... ok
+test_i1_slice_quota_600_caps_all_children (test_mi_cpuguard_integration.RealKernel.test_i1_slice_quota_600_caps_all_children) ... skipped 'set MI_CPUGUARD_INTEGRATION=1 (real transient units)'
+test_i2_guard_kills_on_cumulative_budget (test_mi_cpuguard_integration.RealKernel.test_i2_guard_kills_on_cumulative_budget) ... skipped 'set MI_CPUGUARD_INTEGRATION=1 (real transient units)'
+test_i3_jobs_die_with_the_guard_and_never_start_without_it (test_mi_cpuguard_integration.RealKernel.test_i3_jobs_die_with_the_guard_and_never_start_without_it) ... skipped 'set MI_CPUGUARD_INTEGRATION=1 (real transient units)'
+test_i4_counter_vanishes_kill_and_full_charge (test_mi_cpuguard_integration.RealKernel.test_i4_counter_vanishes_kill_and_full_charge) ... skipped 'set MI_CPUGUARD_INTEGRATION=1 (real transient units)'
+test_budget_kill_charges_at_most_the_reservation (test_mi_integration.Budget.test_budget_kill_charges_at_most_the_reservation) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:298: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp2j1z5ryj/mi-cpuguard-b2.service.log' mode='w' encoding='UTF-8'>
+  rc = self.host.wait_guard_exit("b2")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_open_burn_close_charges_measured (test_mi_integration.Budget.test_open_burn_close_charges_measured) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:101: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpmg_mant8/mi-cpuguard-b1.service.log' mode='w' encoding='UTF-8'>
+  for n, u in list(self.units.items()):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_retries_and_crashes_never_free_budget (test_mi_integration.Budget.test_retries_and_crashes_never_free_budget) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:314: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmppeeccxp_/mi-cpuguard-r1.service.log' mode='w' encoding='UTF-8'>
+  self.host.sigkill_guard("r1")                                       # crash: no charge written
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_corrupted_ledger_refuses_open_without_side_effects (test_mi_integration.FailClosed.test_corrupted_ledger_refuses_open_without_side_effects) ... ok
+test_counter_failure_kills_and_charges_full_reservation (test_mi_integration.FailClosed.test_counter_failure_kills_and_charges_full_reservation) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:347: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmp7ynngkok/mi-cpuguard-f2.service.log' mode='w' encoding='UTF-8'>
+  rc = self.host.wait_guard_exit("f2")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_guard_death_stops_jobs_and_refuses_new_ones (test_mi_integration.FailClosed.test_guard_death_stops_jobs_and_refuses_new_ones) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:336: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpix4idlof/mi-cpuguard-f1.service.log' mode='w' encoding='UTF-8'>
+  self.host.sigkill_guard("f1")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_job_refused_when_ready_invocation_mismatches (test_mi_integration.FailClosed.test_job_refused_when_ready_invocation_mismatches) ... ok
+test_ledger_corrupted_mid_campaign_guard_kills_and_stops (test_mi_integration.FailClosed.test_ledger_corrupted_mid_campaign_guard_kills_and_stops) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:385: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpu1pyqass/mi-cpuguard-f5.service.log' mode='w' encoding='UTF-8'>
+  rc = self.host.wait_guard_exit("f5")
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_guard_refuses_bad_target_before_reserving (test_mi_integration.KillScope.test_guard_refuses_bad_target_before_reserving) ... {"reason": "kill target not an MI child slice: docker-x.scope / /sys/fs/cgroup/system.slice/docker-x.scope", "verdict": "REFUSED"}
+ok
+test_kill_always_goes_to_the_user_manager (test_mi_integration.KillScope.test_kill_always_goes_to_the_user_manager) ... ok
+test_only_an_mi_child_slice_of_research_can_be_killed (test_mi_integration.KillScope.test_only_an_mi_child_slice_of_research_can_be_killed) ... ok
+test_disabled_by_default_everywhere (test_mi_integration.OptInAndRegression.test_disabled_by_default_everywhere) ... ok
+test_non_mi_argv_identical_to_baseline_runner (test_mi_integration.OptInAndRegression.test_non_mi_argv_identical_to_baseline_runner) ... ok
+test_ceilings_cannot_be_raised (test_mi_integration.Quota.test_ceilings_cannot_be_raised) ... ok
+test_slice_and_job_placement (test_mi_integration.Quota.test_slice_and_job_placement) ... ok
+test_close_is_idempotent (test_mi_integration.RollbackAndRecovery.test_close_is_idempotent) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:101: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe25skvtj/mi-cpuguard-o4.service.log' mode='w' encoding='UTF-8'>
+  for n, u in list(self.units.items()):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_failed_anchor_start_aborts_and_guard_charges (test_mi_integration.RollbackAndRecovery.test_failed_anchor_start_aborts_and_guard_charges) ... /home/tradmin/tsb-micpu-worktree/ops/research/research_exec/mi_campaign.py:173: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpayq91pg9/mi-cpuguard-o3.service.log' mode='w' encoding='UTF-8'>
+  run(["systemctl", "--user", "stop", guard_unit(campaign)])
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_failed_guard_start_aborts_without_reservation (test_mi_integration.RollbackAndRecovery.test_failed_guard_start_aborts_without_reservation) ... ok
+test_interrupted_open_after_reservation_is_recoverable (test_mi_integration.RollbackAndRecovery.test_interrupted_open_after_reservation_is_recoverable) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:478: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpjut_blqe/mi-cpuguard-o6.service.log' mode='w' encoding='UTF-8'>
+  self.host.sigkill_guard("o6")                                        # operator / host crash mid-campaign
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_recover_refused_while_guard_alive_then_clean_after_close (test_mi_integration.RollbackAndRecovery.test_recover_refused_while_guard_alive_then_clean_after_close) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:101: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpv2wy_y0g/mi-cpuguard-o5.service.log' mode='w' encoding='UTF-8'>
+  for n, u in list(self.units.items()):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_single_open_campaign_at_a_time (test_mi_integration.RollbackAndRecovery.test_single_open_campaign_at_a_time) ... /home/tradmin/tsb-micpu-worktree/ops/research/tests/test_mi_integration.py:101: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpd4ayndd5/mi-cpuguard-s1.service.log' mode='w' encoding='UTF-8'>
+  for n, u in list(self.units.items()):
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+
+----------------------------------------------------------------------
+Ran 80 tests in 15.369s
+
+OK (skipped=9)

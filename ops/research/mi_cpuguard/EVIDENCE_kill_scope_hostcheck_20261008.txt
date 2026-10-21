@@ -1,0 +1,12 @@
+read-only host check 2026-10-08T20:15:15Z: cgroup of each protected workload vs the MI slice path
+MI slice cgroup (planned): /user.slice/user-1000.slice/user@1000.service/research.slice/research-mi.slice
+tsb-p2-forward-collector pid=3550869 cgroup=/system.slice/docker-ce4e6b6656a5616c1d502ac0f2821a160762d1e251dff21845fee117e3900e87.scope
+trading_scanner pid=1965101 cgroup=/system.slice/docker-891c46fddcf5e827e2e669eae3de5f0672c27450904b820a97986f76e0b0c210.scope
+trading_analyzer pid=3091454 cgroup=/system.slice/docker-938664984ac3b5c37878967ade99484fd74ce37cb95a006bd38ff3a708ee1fa3.scope
+trading_signal_engine pid=3092724 cgroup=/system.slice/docker-7c663dc07252440ad299cbc6c60ece3bdbbbf9eebf2be569a084c58f2a177945.scope
+trading_telegram pid=3090176 cgroup=/system.slice/docker-91680b9090175b7f4b7a3965dae9ad414785bb8620e7e17a66b0baac6a26a1fa.scope
+trading_tracker pid=3088922 cgroup=/system.slice/docker-3f40e244b5c149d2e6e370f78736ad83c05b8dfc1da333c3a931010549170b93.scope
+postgres pid=1463768 cgroup=/system.slice/docker-28eae4805e7364e210c3ca92bbe1a771bfd55c16949af16ac4eec841253574c6.scope
+hermes pid=94916 cgroup=/system.slice/docker-4e8ac98059668be47da6979b808f3956bd3e865a1dcda81a2882d54801142eaf.scope
+tsb-p2f-monitor pid=3551927 cgroup=/user.slice/user-1000.slice/user@1000.service/tsbops.slice/tsb-p2f-monitor.service
+systemd user manager scope:  (research.slice; absent until a job runs)

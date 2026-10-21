@@ -1,0 +1,17 @@
+test_i1_slice_quota_600_caps_all_children (test_mi_cpuguard_integration.RealKernel.test_i1_slice_quota_600_caps_all_children) ... ok
+test_i2_guard_kills_on_cumulative_budget (test_mi_cpuguard_integration.RealKernel.test_i2_guard_kills_on_cumulative_budget) ... ok
+test_i3_jobs_die_with_the_guard_and_never_start_without_it (test_mi_cpuguard_integration.RealKernel.test_i3_jobs_die_with_the_guard_and_never_start_without_it) ... ok
+test_i4_counter_vanishes_kill_and_full_charge (test_mi_cpuguard_integration.RealKernel.test_i4_counter_vanishes_kill_and_full_charge) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 8.953s
+
+OK
+
+I1: 9 busy children, slice CPUQuota=600%: 9.51 CPU-s over 1.67 s = 5.71 cores (cap 6.00)
+
+I2: {'verdict': 'KILL', 'reason': 'budget: used 2.039 >= limit 2.000 CPU-s', 'charged_cpu_s': 2.046604, 'basis': 'cgroup_usage_usec', 'reservation_cpu_s': 4.0, 'limit_cpu_s': 2.0, 'stop_campaign': True}
+
+I3: job stopped after guard SIGKILL; job2 start without guard rc=1 state=inactive
+
+I4: {'verdict': 'KILL', 'reason': "read_fault: cpu.stat unreadable: FileNotFoundError: [Errno 2] No such file or directory: '/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/migtbntfpe.slice/cpu.stat'", 'charged_cpu_s': 3.0, 'basis': 'full_reservation_unreadable', 'reservation_cpu_s': 3.0, 'limit_cpu_s': 2.0, 'stop_campaign': True}
