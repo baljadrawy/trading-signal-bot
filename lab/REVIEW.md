@@ -52,3 +52,4 @@ They are to be replaced by an adapter over the shared pure components. That repl
 7. For the stop trigger: should production's `TripleBarrierResult` gain an additive `stop_reference` field (a shared change with its own regression gate), or should the lab invert the modelled stop fill?
 8. Are the parity tests P1–P7 sufficient, and is pinning shared-module blob hashes in a lab test an acceptable change-control mechanism?
 9. Which break-even cost basis should lab strategies declare by default: production parity (`0.003 / 0.001`) or the lab cost model?
+10. `lab/PARITY_TEST_SPEC.md` rejects the reverse transformation (B) because of 8-decimal rounding, gap-through ambiguity and reason dependence, and recommends two optional, defaulted fields on `TripleBarrierResult` (A). Is A the smallest safe shared change, and are P1–P7 plus F1–F10 sufficient?
