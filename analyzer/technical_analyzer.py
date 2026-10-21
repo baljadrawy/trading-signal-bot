@@ -13,6 +13,7 @@ from shared.logger import setup_logger
 from shared.retry_utils import format_error
 from shared.ohlcv import prepare_ohlcv
 from shared.signal_stop import plan_signal_stop
+from shared.t1_cap import LEGACY_WINDOW_V1, capped_t1, resistance_for, t1_cap_policy
 from shared.regime import classify_regime
 from shared import evidence_v2
 from shared.signal_identity import IdentityError, candle_bounds, integrity_mode
@@ -460,13 +461,14 @@ class TechnicalAnalyzer:
         if target_3 <= target_2:
             target_3 = entry + (risk * 2.2)
 
-        # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول
-        if target_1 > resistance and resistance > entry:
-            resistance_fill = resistance * 0.99
-            if resistance_fill > entry:
-                target_1 = resistance_fill
+        # إذا كان الهدف الأول فوق المقاومة نستخدم المقاومة لكن فقط إذا كانت أعلى من الدخول.
+        # أي مستوى يُعدّ "مقاومة" سياسةٌ مُصدَّرة (shared/t1_cap.py)؛ الافتراضي legacy_window_v1 = السلوك الحالي.
+        t1_policy = t1_cap_policy(config)
+        if t1_policy != LEGACY_WINDOW_V1:
+            resistance = resistance_for(df, entry, trade_type, t1_policy)
+        target_1 = capped_t1(entry, risk, resistance)
 
-        return {
+        levels = {
             'entry': round(entry, 8),
             'stop':  round(stop_loss, 8),
             'stop_policy': stop_policy,
@@ -478,6 +480,9 @@ class TechnicalAnalyzer:
             't2':    round(target_2, 8),
             't3':    round(target_3, 8),
         }
+        if t1_policy != LEGACY_WINDOW_V1:          # provenance only off the default (default rows unchanged)
+            levels['t1_cap_policy'] = t1_policy
+        return levels
 
     async def _get_indicator_weights(self, market_condition: str) -> Dict:
         try:

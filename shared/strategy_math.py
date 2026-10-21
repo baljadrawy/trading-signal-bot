@@ -6,6 +6,7 @@ import pandas as pd
 import ta
 
 from shared.signal_stop import plan_signal_stop
+from shared.t1_cap import LEGACY_WINDOW_V1, capped_t1, resistance_for
 
 
 def calculate_production_indicators(df: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
@@ -47,8 +48,10 @@ def production_indicator_params(config: Any) -> dict[str, Any]:
 
 
 def calculate_signal_levels(df: pd.DataFrame, timeframe: str, trade_type: str | None,
-                            *, breakout_n: int = 20) -> dict[str, Any]:
-    """Build the production long bracket. Extraction only; no policy choices here."""
+                            *, breakout_n: int = 20,
+                            t1_cap_policy: str = LEGACY_WINDOW_V1) -> dict[str, Any]:
+    """Build the production long bracket. Extraction only; the T1 cap policy is explicit
+    (default = production default, shared/t1_cap.py)."""
     last = df.iloc[-1]; atr = float(last["atr"]); entry = float(last["close"])
     recent = df.tail(20); support = float(recent["low"].min()); resistance = float(recent["high"].max())
     stop_loss = max(entry - atr * 1.5, support * 0.99)
@@ -67,12 +70,14 @@ def calculate_signal_levels(df: pd.DataFrame, timeframe: str, trade_type: str | 
     elif entry - stop_loss > entry * cap:
         stop_loss = entry - entry * cap
     risk = entry - stop_loss
-    t1, t2, t3 = entry + risk, entry + risk * 1.8, entry + risk * 2.2
-    if t1 > resistance > entry:
-        capped = resistance * 0.99
-        if capped > entry: t1 = capped
-    return {"entry": round(entry, 8), "stop": round(stop_loss, 8),
-            "stop_policy": policy, "stop_invalidation": round(invalidation, 8),
-            "stop_risk_pct": round((entry - stop_loss) / entry * 100, 4),
-            "stop_valid": valid, "stop_reject_reason": reject,
-            "t1": round(t1, 8), "t2": round(t2, 8), "t3": round(t3, 8)}
+    if t1_cap_policy != LEGACY_WINDOW_V1:
+        resistance = resistance_for(df, entry, trade_type, t1_cap_policy)
+    t1, t2, t3 = capped_t1(entry, risk, resistance), entry + risk * 1.8, entry + risk * 2.2
+    levels = {"entry": round(entry, 8), "stop": round(stop_loss, 8),
+              "stop_policy": policy, "stop_invalidation": round(invalidation, 8),
+              "stop_risk_pct": round((entry - stop_loss) / entry * 100, 4),
+              "stop_valid": valid, "stop_reject_reason": reject,
+              "t1": round(t1, 8), "t2": round(t2, 8), "t3": round(t3, 8)}
+    if t1_cap_policy != LEGACY_WINDOW_V1:
+        levels["t1_cap_policy"] = t1_cap_policy
+    return levels
