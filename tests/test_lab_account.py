@@ -136,7 +136,7 @@ def test_round_trip_cost_accounting():
     x = a.fill_exit("x", "BTCUSDT", "100", C, ts(5))                       # flat price: pure cost drag
     total_cost = D(5000) - a.cash
     assert x["pnl"] < 0 and total_cost == -x["pnl"]
-    assert total_cost == a.fees_total + a.implicit_cost_total or abs(total_cost - a.fees_total - a.implicit_cost_total) < D("1e-6")
+    assert abs(total_cost - a.fees_total - a.implicit_cost_total) < D("1e-6")   # only qty rounding remains
     assert a.integrity_problems() == []
 
 
@@ -341,3 +341,59 @@ def test_rehashed_ledger_edit_detected_by_cash_reconciliation():
     assert "ledger_cash_mismatch" in a.integrity_problems()
     a.mark({}, ts(9))
     assert a.status == BLOCKED_INTEGRITY
+
+
+def test_randomized_multi_account_reconciliation_and_isolation():
+    """Seeded random operations over 3 independent accounts: invariants and ledger reconciliation always hold,
+    exposure/positions limits are never exceeded, and no account ever sees another account's events."""
+    import random
+    rng = random.Random(20261021)
+    lab = Lab()
+    accts = [lab.open_account(f"s{k}", ts(0)) for k in range(3)]
+    prices = {s: D(100) for s in SYMS}
+    for step in range(1500):
+        t = f"2026-01-02T00:00:{step:06d}Z"
+        sym = rng.choice(SYMS)
+        prices[sym] = max(D("1"), prices[sym] * (1 + D(rng.randint(-60, 60)) / 1000))
+        a = rng.choice(accts)
+        op = rng.random()
+        if op < 0.35:
+            plan = ExitPlan(stop=prices[sym] * D("0.9"),
+                            targets=((prices[sym] * D("1.03"), D("0.25")), (prices[sym] * D("1.06"), D("0.5")),
+                                     (prices[sym] * D("1.1"), D("0.25"))))
+            d = a.request_entry(f"i{step}", sym, prices[sym], t, plan)
+            if d.accepted and rng.random() < 0.8:
+                a.fill_entry(d.order_id, prices[sym], C, t)
+                a.fill_entry(d.order_id, prices[sym], C, t)              # replay: no double booking
+            elif d.accepted:
+                a.cancel(d.order_id, "expired", t)
+        elif op < 0.75:
+            a.on_price(sym, prices[sym], C, t)
+        elif op < 0.9 and a.positions:
+            s_ = rng.choice(sorted(a.positions))
+            a.fill_exit(f"x{step}", s_, prices[s_], C, t, fraction=rng.choice(["0.5", "1"]))
+        else:
+            a.mark(prices, t)
+        for b in accts:
+            assert b.status != BLOCKED_INTEGRITY, (step, b.account_id, b.status_reason)   # self-check ran per op
+            if step % 50 == 0:
+                assert b.integrity_problems() == [], (step, b.account_id)
+            assert b.exposure() <= D(2500) and b.open_slots() <= 5
+            assert len(set(b.positions)) == len(b.positions)
+            assert b.cash >= 0
+    for b in accts:
+        assert b.integrity_problems() == [] and b.ledger_cash() == b.cash
+        assert all(e["account_id"] == b.account_id for e in b.ledger) and b.verify_ledger()
+        assert sum(1 for e in b.ledger if e["type"] == "FILL_BUY") == len(b.fills)
+    assert sum(len(b.fills) for b in accts) > 50 and sum(len(b.exits) for b in accts) > 50
+
+
+def test_sell_fee_is_ten_bps_of_executed_gross():
+    a = Account("s1")
+    f = buy(a, "BTCUSDT")
+    x = a.fill_exit("x", "BTCUSDT", "110", C, ts(5))
+    assert x["price"] == D(110) * (1 - D("0.0007"))                       # spread + slippage against the seller
+    assert x["gross"] == (f["qty"] * x["price"]).quantize(D("1e-8"))
+    assert x["fee"] == (x["gross"] * D("0.001")).quantize(D("1e-8")) and x["fee"] > 0
+    assert a.fees_total == f["fee"] + x["fee"]
+    assert x["pnl"] == x["gross"] - x["fee"] - (f["notional"] + f["fee"])
