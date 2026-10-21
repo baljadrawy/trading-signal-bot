@@ -52,3 +52,20 @@ Production books a stop exit as `exit_price = round(min(effective_stop, observed
 ## 4. Remaining limitations (unchanged by A)
 
 Poll-based decisions, full fills, optimistic target fills, and a break-even level that depends on the declared cost basis. See `ARCHITECTURE_ALIGNMENT.md` §7.
+
+## 5. Evaluation of interface A (owner-approved direction for isolated planning, 2026-10-22)
+
+| Requirement | Finding (`main` @ `5ce3ca3`) | Gate |
+|---|---|---|
+| Backward-compatible defaults | `TripleBarrierResult` is built at 4 sites in `triple_barrier.py`; `_stop_result` constructs it positionally. New fields **appended last with defaults** keep every call valid | P6a; a compile-time test constructs it with the old positional arity |
+| Serialization compatibility | no `asdict` / JSON / `__dict__` / pickle use of `TripleBarrierResult` in production or tests. The tracker reads attributes only. Dataclass `__eq__` would include the new fields; no production equality use was found | P6a compares only the pre-existing fields; grep gate in CI for new `asdict(result` uses |
+| Decision parity, Paper unchanged | fields are set where the result is built; no decision or formula changes; `trade_tracker` untouched | P1, P2, P6a, plus the tracker suites |
+| No duplicate fee booking | the lab books money **only** from `trigger_price` (or the tranche target price) with `CostModel` + fee **once**, and never from `exit_price` | new L-test: round-trip cost = fees + implicit costs exactly, for stop, target and expiry exits; mutant "book from exit_price" must fail |
+| Gaps | `trigger_kind = stop_gap_through` when `observed < effective_stop`, else `stop_at_level`; `trigger_price = min(effective_stop, observed)` | P7 + F3 |
+| Partial fills | tranche exits stay `fills_between` at the target price (`trigger_kind = target`); order-level partial fills are **not** modelled (stated limitation, R6 sensitivity) | P3, F4 |
+| Rounding | `trigger_price` is the unrounded float (no 8-dp loss); the lab converts it to Decimal once at the adapter boundary; production `exit_price` keeps its rounding | F9; property test: `round(trigger × (1 − s), 8) == exit_price` for stops |
+| Stop triggers | break-even and trailing stops use the same path (`effective_stop`); `trigger_kind` records which reason applied in `exit_reason` | P2, P7 |
+| Failure | invalid bracket, non-finite price, replay, policy-pin mismatch | F1, F2, F5, F7 |
+| Concurrency | the adapter and `Account` are pure and not thread-safe by design; the engine must serialize per account (one lock or one task per account). Test: N concurrent tick streams through the engine lock produce a ledger identical to sequential replay; two accounts on the same symbol never share state | new C1 / C2 tests |
+
+**Status:** design and test specification only. No shared-module change. The change to `triple_barrier.py` needs its own PR with P1–P7, F1–F10 and C1–C2 green, plus the independent architecture review.
