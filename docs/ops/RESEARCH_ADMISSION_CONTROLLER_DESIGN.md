@@ -13,7 +13,7 @@ Status: **design only.** No host quota, slice, unit, Docker or runner change has
 
 | Rule | Mechanism | Effect |
 |---|---|---|
-| A1. **Budget token.** An admitted job holds `cpu_quota_pct` from a single budget B (R1 mode: 400, R2 mode: 500). Admission fails if `held + requested > B` | runner admission (state file under the existing `flock`; one writer) | LIGHT (200) + R2 (500) = 700 > 500 → LIGHT waits or is refused. LIGHT + R1 = 600 > 400 → refused unless R1 is lowered to 200 |
+| A1. **Budget reservation.** An admitted job holds `cpu_quota_pct` from a single budget B (R1 mode: 400, R2 mode: 500). Admission fails if `held + requested > B` | runner admission (state file under the existing `flock`; one writer) | LIGHT (200) + R2 (500) = 700 > 500 → LIGHT waits or is refused. LIGHT + R1 = 600 > 400 → refused unless R1 is lowered to 200 |
 | A2. **Mode.** B is R1 = 400 by default. R2 mode (500) needs `--allow-elevated` for that job and drops back to R1 when the job ends | runner state | no automatic escalation |
 | A3. **Slice backstop.** `research.slice` `CPUQuota` = B, set on start from the mode | runner-owned slice property | the kernel enforces the total for runner jobs even if the admission bookkeeping were wrong |
 | A4. **Lab share.** Future lab containers live under a separate system `tsblab.slice` (100 %). While it is active, B is reduced by 100 (R1 300, R2 400) | admission reads `tsblab.slice` presence and quota | research + lab ≤ 4 / 5 vCPU, as §10.3 specifies |
