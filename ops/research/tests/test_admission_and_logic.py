@@ -207,6 +207,12 @@ class TestProfilesAndJobwrap(unittest.TestCase):
         p = config.resolve_profile(cfg, "R1", workers=None, allow_elevated=False, attended=False,
                                    max_runtime_s=None)
         self.assertEqual((p["workers"], p["cpu_quota_pct"]), (4, 400))
+        p2 = config.resolve_profile(cfg, "R2", workers=None, allow_elevated=True, attended=False,
+                                    max_runtime_s=None)
+        self.assertEqual((p2["workers"], p2["cpu_quota_pct"]), (5, 500))   # owner budget: R2 = 5 vCPU
+        with self.assertRaises(ValueError):                                 # workers can only be lowered
+            config.resolve_profile(cfg, "R2", workers=6, allow_elevated=True, attended=False,
+                                   max_runtime_s=None)
         with self.assertRaises(PermissionError):
             config.resolve_profile(cfg, "R2", workers=None, allow_elevated=False, attended=False,
                                    max_runtime_s=None)

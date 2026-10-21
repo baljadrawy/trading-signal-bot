@@ -36,11 +36,12 @@ research-run run ... -- CMD            (caller: agent shell or human; may exit, 
 | profile | workers | CPUQuota | MemoryHigh / Max | TasksMax | oom_score_adj | max runtime | opt-in |
 |---|---|---|---|---|---|---|---|
 | R1 (default) | 4 | 400 % | 8 G / 10 G | 512 | +500 | 12 h | none |
-| R2 | 6 | 600 % | 8 G / 10 G | 512 | +500 | 12 h | `--allow-elevated` |
+| R2 | 5 | 500 % | 8 G / 10 G | 512 | +500 | 12 h | `--allow-elevated` |
 | R3 | 8 | 800 % | 8 G / 10 G | 512 | +500 | 6 h | `--attended` |
 | LIGHT | 2 | 200 % | 2 G / 3 G | 256 | +500 | 2 h | none; separate `light` lock |
 
 - Workers and runtime can only be **lowered** below the profile.
+- R2 was 6 / 600 % until the owner's 5 vCPU budget (2026-10-20); see `docs/lab/STRATEGY_LAB_ARCHITECTURE.md` §10.3. **Proposed in the repository only; the installed runner is unchanged until a separate install approval.**
 - research.slice holds an aggregate runtime ceiling of 800 % / 12 G / 1024 tasks, so R3 is the hard maximum. Even with all ceilings in place, at least 4 vCPU stay free for production wake-ups, Hermes bursts and post-stall catch-up.
 - `MemorySwapMax=0` (G6 step 1, 2026-10-08) on the job unit, the watchdog unit and the slice: memory pressure is contained in the research cgroup (MemoryHigh reclaim, then group OOM kill) and never pushed to host swap, which has no IO isolation from the Collector writer or postgres.
 - `OOMScoreAdjust=+500` applies only to processes the layer launches; children inherit it. No host-wide OOM policy is changed.
