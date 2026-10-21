@@ -95,3 +95,43 @@ def test_write_amplification_benchmark():
     (w0, b0), (w1, b1) = out[0.0], out[60.0]
     print(f"\nbenchmark/hour: current writes={w0} bytes={b0}; 60s writes={w1} bytes={b1}; reduction={b0 / b1:.1f}x")
     assert w0 == 720 and w1 <= 62 and b0 / b1 >= 11
+
+
+def test_abrupt_termination_leaves_last_complete_file():
+    """No shutdown (process killed): the file on disk is the last complete atomic write, valid JSON, never torn."""
+    with tempfile.TemporaryDirectory() as d:
+        c = Clock(); r = rec(d, 60.0, c); p = os.path.join(d, "_telemetry.json")
+        run_cycles(r, c, 30, path=p)                                         # 150 s: writes at 0, 60, 120 s
+        data = json.load(open(p))
+        assert isinstance(data, list) and data and not os.path.exists(p + ".tmp")
+        assert len(data) <= len(r._tel_history)                              # unwritten tail is the only loss
+
+
+def test_failed_replace_keeps_old_file_and_retries_next_cycle(monkeypatch=None):
+    import research.null_a.recorder as M
+    with tempfile.TemporaryDirectory() as d:
+        c = Clock(); r = rec(d, 60.0, c); p = os.path.join(d, "_telemetry.json")
+        r.dump_telemetry(); good = open(p).read()
+        real = M.os.replace
+        def boom(a, b): raise OSError("disk full")
+        M.os.replace = boom
+        try:
+            c.t += 61; r.dump_telemetry()                                     # due, but replace fails: buried
+        finally:
+            M.os.replace = real
+        assert open(p).read() == good and r.telemetry_writes == 1            # old file intact
+        c.t += 5; r.dump_telemetry()                                          # not marked written => retried now
+        assert r.telemetry_writes == 2 and len(json.load(open(p))) == 3
+
+
+def test_canary_watchdog_fields_and_freshness():
+    """Fields read by ~/canary_watchdog.py worst()/status and its STALE rule (latest ts older than 600 s)."""
+    import time
+    with tempfile.TemporaryDirectory() as d:
+        c = Clock(); r = rec(d, 60.0, c); p = os.path.join(d, "_telemetry.json")
+        r.dump_telemetry()
+        latest = json.load(open(p))[-1]
+        for k in ("ts", "evidence_capture_latency_ms_p95", "evidence_dropped_records", "evidence_write_success_rate",
+                  "evidence_pending_records_on_shutdown", "evidence_captured_total"):
+            assert k in latest, k
+        assert time.time() - latest["ts"] < 600
