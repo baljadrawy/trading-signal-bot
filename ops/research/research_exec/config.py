@@ -19,7 +19,8 @@ PROFILES = {
     "R1": {"workers": 4, "cpu_quota_pct": 400, "memory_high": 8 * GIB, "memory_max": 10 * GIB,
            "tasks_max": 512, "oom_score_adj": 500, "max_runtime_s": 12 * 3600, "opt_in": None,
            "lock": "heavy"},
-    "R2": {"workers": 6, "cpu_quota_pct": 600, "memory_high": 8 * GIB, "memory_max": 10 * GIB,
+    # R2 = 5 vCPU (owner budget 2026-10-20, temporary, no production cgroup restructuring); was 6 / 600 %.
+    "R2": {"workers": 5, "cpu_quota_pct": 500, "memory_high": 8 * GIB, "memory_max": 10 * GIB,
            "tasks_max": 512, "oom_score_adj": 500, "max_runtime_s": 12 * 3600,
            "opt_in": "allow_elevated", "lock": "heavy"},
     "R3": {"workers": 8, "cpu_quota_pct": 800, "memory_high": 8 * GIB, "memory_max": 10 * GIB,
