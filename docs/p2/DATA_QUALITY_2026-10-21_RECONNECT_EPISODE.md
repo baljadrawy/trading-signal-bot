@@ -6,7 +6,7 @@ This record is documentation only. No dataset was excluded, modified or re-certi
 
 | Field | Value |
 |---|---|
-| Interval (UTC) | **2026-10-21 13:34:59 → 16:41:55** (≈ 3 h 07 min); first and last WS disconnect |
+| Interval (UTC) | **2026-10-21 13:34Z → 16:42Z** (≈ 3 h 07 min, minute precision; first and last WS disconnect; the gap records are authoritative) |
 | Connections | `conn0-book`: 193 disconnects. `conn1-depth`: 58. Both stopped within 21 s of each other, with no Collector restart, redeploy or configuration change |
 | Session pattern | `conn0-book` median session 48–70 s (min 13 s, max ≈ 2 min). All ended as `ws_disconnected`; 0 `connect_failed`; 25 `subscribe_timeout`; 0 `data_stall`; no `serverShutdown` |
 | Local indicators | inside the Collector network namespace: TCP retransmissions ≈ 0, connect failures 0, timeouts 0, receive-queue drops 0; event-loop lag ≤ 193 ms; container CPU ≈ 3 % |
