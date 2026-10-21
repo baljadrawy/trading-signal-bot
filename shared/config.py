@@ -51,6 +51,8 @@ class Config:
     EVIDENCE_FLUSH_BACKOFF_MS: float = float(os.getenv('EVIDENCE_FLUSH_BACKOFF_MS', '50'))
     EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS: float = float(os.getenv('EVIDENCE_SHUTDOWN_FLUSH_TIMEOUT_MS', '2000'))
     EVIDENCE_TELEMETRY_HISTORY: int = int(os.getenv('EVIDENCE_TELEMETRY_HISTORY', '500'))  # ring-buffer snapshots
+    # 0 = rewrite _telemetry.json on every flush (current behaviour); > 0 = at most this often (alarms: at once)
+    EVIDENCE_TELEMETRY_MIN_INTERVAL_S: float = float(os.getenv('EVIDENCE_TELEMETRY_MIN_INTERVAL_S', '0'))
     EVIDENCE_PHASE_ID: str = os.getenv('EVIDENCE_PHASE_ID', '')  # canary run label (e.g. PhaseA-R2)
     # Capture filter (canary scoping). Empty list = allow all; max/hour 0 = unlimited.
     EVIDENCE_FILTER_SYMBOLS: list = field(default_factory=lambda: [s for s in os.getenv('EVIDENCE_FILTER_SYMBOLS', '').split(',') if s])
