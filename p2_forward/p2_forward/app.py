@@ -816,6 +816,11 @@ class Collector:
             if ev is not None:
                 self.incidents.resolve(f"conn_flapping:{name}")
                 self.lifecycle("conn_flapping_resolved", ev[1])
+        for c in list(self.conns):                     # restart: a state-like episode of an earlier boot has no
+            key = f"conn_flapping:{c.name}"              # detector state here; resolve it (it reopens if it recurs)
+            if c.name not in fd.open and self.incidents._open_for(key) is not None:
+                self.incidents.resolve(key)
+                self.lifecycle("conn_flapping_resolved", {"conn": c.name, "previous_boot": True})
 
     def on_conn_recovery(self, conn, res: dict) -> None:
         """P2F 1.6.0: every bounded session end is recorded; a WEDGED session (still alive after graceful close,

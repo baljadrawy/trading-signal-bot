@@ -36,7 +36,7 @@ def session_end_info(msg, ws) -> dict:
         return {"kind": kind, "exc_type": name, "close_code": _close_code(ws)}
     if msg.type == aiohttp.WSMsgType.CLOSE:
         code = msg.data if isinstance(msg.data, int) else _close_code(ws)
-        return {"kind": "remote_close", "close_code": code}
+        return {"kind": "remote_close" if (code is not None and code != 1006) else "abnormal_end", "close_code": code}
     return {"kind": "closed", "close_code": _close_code(ws)}
 
 class EndpointNotAllowed(Exception):
@@ -228,7 +228,10 @@ class WSConnection:
                         break
                 else:                                    # aiohttp ends iteration on CLOSE / CLOSING / CLOSED
                     code = _close_code(ws)
-                    end.update(kind="remote_close" if code is not None else "stream_ended", close_code=code)
+                    # 1006 is never sent on the wire (aiohttp sets it locally on an abnormal end): not a remote close
+                    kind = "remote_close" if (code is not None and code != 1006) else \
+                           ("abnormal_end" if code == 1006 else "stream_ended")
+                    end.update(kind=kind, close_code=code)
         except asyncio.CancelledError:
             end["kind"] = "local_cancel"
             raise
@@ -256,12 +259,13 @@ class WSConnection:
             return
         try:
             local = bool(self._ending is not None or self._closing or self.retired)
-            if end["kind"] in ("remote_close", "closed") and local:
+            if end["kind"] in ("remote_close", "closed", "abnormal_end", "stream_ended") and local:
                 end["kind"] = "local_end"                       # our bounded end (_end_session) closed it
             info = {"conn": self.name, "gen": self.gen, "connected": t_up is not None,
                     "duration_ms": None if t_up is None else round((time.monotonic() - t_up) * 1000),
+                    # "remote" only with positive evidence: a peer close code (not 1006) or a missing PONG
                     "initiator": "local" if (local or end["kind"] == "local_cancel") else
-                                 ("remote" if end["kind"] in ("remote_close", "ping_timeout", "stream_ended") else "unknown"),
+                                 ("remote" if end["kind"] in ("remote_close", "ping_timeout") else "unknown"),
                     **end}
             self.on_session_end(self, info)
         except Exception:                                        # noqa: BLE001 - observability must never break a session

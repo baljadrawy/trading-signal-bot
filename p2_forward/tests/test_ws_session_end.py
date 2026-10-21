@@ -71,7 +71,7 @@ class SessionEndClassification(unittest.TestCase):
 
     def test_missing_close_code(self):
         _, ends = run_session(lambda u, **k: FakeWS([], close_code=None))
-        self.check(ends, kind="stream_ended", close_code=None, initiator="remote")
+        self.check(ends, kind="stream_ended", close_code=None, initiator="unknown")   # never assumed remote
 
     def test_ping_timeout(self):
         err = mock.Mock(type=WS.ERROR, data=T.aiohttp.ServerTimeoutError("No PONG received after 15.0 seconds"))
@@ -203,6 +203,71 @@ class AppWiring(unittest.TestCase):
                 self.assertFalse(act[0]["latched"]); self.assertEqual(act[0]["count"], 1)    # deduplicated
                 t["m"] += 31 * 60_000; c._flap_tick(t["m"])
                 self.assertFalse([i for i in c.incidents.active() if i["key"] == "conn_flapping:conn0-book"])
+
+
+    def test_abnormal_1006_is_not_a_remote_close(self):
+        _, ends = run_session(lambda u, **k: FakeWS([], close_code=1006))
+        self.assertEqual((ends[0]["kind"], ends[0]["close_code"], ends[0]["initiator"]), ("abnormal_end", 1006, "unknown"))
+
+
+class RestartSemantics(unittest.TestCase):
+    def test_flapping_incident_of_previous_boot_is_resolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = mk_collector(d, conn_flapping_enabled=True)
+            c.incidents = I.IncidentLog(d, c.boot_id)
+            c.incidents.raise_(f"conn_flapping:{c.conns[0].name}", "WARNING", {"x": 1}, latched=False)
+            c._flap_tick(1)
+            self.assertFalse([i for i in c.incidents.active() if i["key"].startswith("conn_flapping:")])
+
+
+class RealAiohttp(unittest.TestCase):
+    """aiohttp 3.14.3 behaviour against a real local server (no network, no market data)."""
+    def serve_and_run(self, handler, heartbeat=None):
+        from aiohttp import web
+        async def go():
+            app = web.Application(); app.router.add_get("/stream", handler)
+            runner = web.AppRunner(app); await runner.setup()
+            site = web.TCPSite(runner, "127.0.0.1", 0); await site.start()
+            port = site._server.sockets[0].getsockname()[1]
+            ends = []
+            async with T.aiohttp.ClientSession() as sess:
+                real = sess.ws_connect
+                def connect(url, **kw):
+                    if heartbeat is not None:
+                        kw["heartbeat"] = heartbeat
+                    return real(f"ws://127.0.0.1:{port}/stream", **kw)
+                c = T.WSConnection("conn0-book", ["btcusdt@bookTicker"], mock.Mock(ws_connect=connect),
+                                   lambda *a: None, lambda *a: None, lambda *a: None,
+                                   on_session_end=lambda cn, i: ends.append(i))
+                res = await asyncio.wait_for(c._session_once(), 10)
+            await runner.cleanup()
+            return res, ends
+        return asyncio.run(go())
+
+    def test_server_close_code_is_captured(self):
+        from aiohttp import web
+        async def h(req):
+            ws = web.WebSocketResponse(); await ws.prepare(req); await asyncio.sleep(0.2)
+            await ws.close(code=1008); return ws
+        res, ends = self.serve_and_run(h)
+        self.assertEqual(res, ("ended", None))
+        self.assertEqual((ends[0]["kind"], ends[0]["close_code"], ends[0]["initiator"]), ("remote_close", 1008, "remote"))
+
+    def test_abrupt_drop_is_not_confirmed_remote(self):
+        from aiohttp import web
+        async def h(req):
+            ws = web.WebSocketResponse(); await ws.prepare(req); await asyncio.sleep(0.2)
+            req.transport.close(); await asyncio.sleep(0.5); return ws
+        _, ends = self.serve_and_run(h)
+        self.assertNotEqual(ends[0]["kind"], "remote_close"); self.assertEqual(ends[0]["initiator"], "unknown")
+
+    def test_missing_pong_is_ping_timeout(self):
+        from aiohttp import web
+        async def h(req):
+            ws = web.WebSocketResponse(autoping=False); await ws.prepare(req)
+            await asyncio.sleep(5); return ws            # silent: never answers the client's PING
+        _, ends = self.serve_and_run(h, heartbeat=0.4)
+        self.assertEqual((ends[0]["kind"], ends[0]["exc_type"]), ("ping_timeout", "ServerTimeoutError"))
 
 
 if __name__ == "__main__":
