@@ -779,7 +779,48 @@ class Collector:
                             backoff=Backoff(), guard=self.rate, on_error=self.on_handler_error,
                             on_sub_sent=self.on_sub_sent, on_sub_result=self.on_subscribe_result,
                             on_recovery=self.on_conn_recovery, close_grace_s=self.cfg["ws_close_grace_s"],
-                            abort_wait_s=self.cfg["ws_abort_wait_s"])
+                            abort_wait_s=self.cfg["ws_abort_wait_s"],
+                            on_session_end=self.on_session_end if self._obs_enabled() else None)
+
+    # ---- P2F obs: session-end metadata and reconnect-flapping episodes (both off by default) ----
+    def _obs_enabled(self) -> bool:
+        return bool(self.cfg.get("ws_session_end_events") or self.cfg.get("conn_flapping_enabled"))
+
+    def _flap(self):
+        if not self.cfg.get("conn_flapping_enabled"):
+            return None
+        if getattr(self, "_flapper", None) is None:
+            from .flapping import FlapDetector
+            self._flapper = FlapDetector(self.cfg["conn_flapping_window_s"], self.cfg["conn_flapping_max"],
+                                         self.cfg["conn_flapping_clear_s"])
+        return self._flapper
+
+    def on_session_end(self, conn, info: dict) -> None:
+        """Metadata only (kind, initiator, close code, exception class, duration, generation): never payloads."""
+        m = now_ms()
+        if self.cfg.get("ws_session_end_events"):
+            self.lifecycle("ws_session_end", dict(info))
+        fd = self._flap()
+        if fd is not None and self.incidents is not None:
+            ev = fd.record(conn.name, m)
+            if ev is not None:
+                self.incidents.raise_(f"conn_flapping:{conn.name}", "WARNING", ev[1], latched=False)
+                self.lifecycle("conn_flapping_open", ev[1])
+
+    def _flap_tick(self, m: int) -> None:
+        fd = self._flap()
+        if fd is None or self.incidents is None:
+            return
+        for name in list(fd.open):
+            ev = fd.tick(name, m)
+            if ev is not None:
+                self.incidents.resolve(f"conn_flapping:{name}")
+                self.lifecycle("conn_flapping_resolved", ev[1])
+        for c in list(self.conns):                     # restart: a state-like episode of an earlier boot has no
+            key = f"conn_flapping:{c.name}"              # detector state here; resolve it (it reopens if it recurs)
+            if c.name not in fd.open and self.incidents._open_for(key) is not None:
+                self.incidents.resolve(key)
+                self.lifecycle("conn_flapping_resolved", {"conn": c.name, "previous_boot": True})
 
     def on_conn_recovery(self, conn, res: dict) -> None:
         """P2F 1.6.0: every bounded session end is recorded; a WEDGED session (still alive after graceful close,
@@ -1771,6 +1812,7 @@ class Collector:
                 self.lifecycle("data_stall_reconnect", {"conn": c.name, "last_data_ms": a.last_data_ms})
                 self._spawn(c.force_reconnect("data_stall"))
         self._conn_incidents(m)
+        self._flap_tick(m)
         if self.writer.ident is not None and not self.writer.is_alive() and not self.writer.finished:
             self.fatal("writer_thread_dead", EXIT_WRITER)
             return
