@@ -58,7 +58,7 @@
 ### A4. Fees, slippage and execution
 8. Is full-fill at the observed price, moved by half-spread + slippage (≥ 0.05 %), with 0.10 %/side fees acceptable at 500 USDT orders in liquid pairs? Should partial fills, `minNotional` and lot/tick sizes be modelled before any P&L is reported?
 9. #67 refuses below-model costs with a single floor. Should it require per-symbol a48 tiers?
-10. The production exit model (`shared/triple_barrier.py`: break-even after T1, 2.5 % trailing after T2, expiry) differs from #67's simpler exit plan (stop, targets, expiry). Which must lab accounts use so that comparisons with the production strategy are fair?
+10. The owner decided (2026-10-21) that the lab reuses the shared exit, entry and cost logic (`lab/ARCHITECTURE_ALIGNMENT.md`). Is versioned reuse of `step_barrier` decisions (break-even after T1, 2.5 % trailing after T2, timeframe expiry) with lab-side money and costs the right basis for fair comparison? Which break-even cost basis should be declared by default?
 
 ### A5. Prospective confirmation design
 11. Is the four-mode separation (backtest / shadow / forward Paper / confirmation) correct? When may Paper results inform an admission?
@@ -71,7 +71,7 @@
 
 ## Known unresolved issues (author)
 - No hypothesis registry and no R6 sensitivity tooling yet.
-- Exit-model divergence between #67 and `shared/triple_barrier.py` (A4 Q10).
+- Exit-model divergence between #67 and `shared/triple_barrier.py`: the alignment is proposed, not implemented (A4 Q10).
 - Binance Vision licence not cleared; no `DatasetPermission` record exists, so no non-synthetic run is permitted.
 
 ## Acceptance tests the reviewer should require or confirm
@@ -80,6 +80,28 @@
 - Same-symbol, two-account independence; accounting invariants under concurrency.
 - No post-freeze data mounted in a backtest; look counter unchanged by lab work.
 - R9: suspension and integrity block reject entries, predeclared exits run, alert-only at 8 losses, no automatic resumption, refill or reset.
+
+## Evidence the reviewer needs (exact versions)
+- `main` @ `3bd79a4`: `docs/lab/STRATEGY_LAB_ARCHITECTURE.md` (rev 4), `docs/strategy/S4_PHASE1_SCIENTIFIC_COMPARISON.md`, `docs/strategy/S4_MECHANISM_COMPARISON.md`, `research/mechanisms/`, `research/power/`, `docs/research_temporal_governance.md`, `research/governance/holdout_status.json`, `research/governance/contamination_registry.jsonl`, `docs/p2/OPS_RECORD_2026-10-21.md`.
+- Draft PR #67 (current head): `lab/account.py`, `lab/REVIEW.md`, `lab/ARCHITECTURE_ALIGNMENT.md`, `tests/test_lab_account.py`.
+- Draft PR #72: the 2026-10-10 outage operational summary (data-quality governance).
+- **Not provided, by design:** sealed forward-holdout data, Collector stream contents and post-freeze outcomes. The review is of methods and controls, not results.
+
+## Independence requirement
+- The reviewer must not be the author (the operating agent), and must not have contributed to the reviewed artifacts. State any relationship.
+- Agent self-checks, CI runs and the author's tests are **not** independent review and do not count toward this gate.
+
+## Expected deliverables
+1. A completed response template (below) at an **exact commit SHA**.
+2. A finding list. Each finding has an id, severity (BLOCKER / MAJOR / MINOR), statement, evidence (file:line or test), and a recommended correction.
+3. The acceptance tests the reviewer requires, marked "must pass before merge" or "before activation".
+4. An explicit verdict: GO / REVISE / NO-GO.
+
+## How findings are accepted or rejected (owner-side rule)
+- **Accepted:** a finding with reproducible evidence at the reviewed SHA. It is tracked to closure, by a fix PR or a documented owner risk acceptance.
+- **Rejected:** only with a written counter-evidence note (a test, code reference or data) attached to the finding. Disagreement alone is not rejection.
+- **Severity:** any open BLOCKER means NO-GO for merge or activation. A MAJOR needs a fix or an explicit owner risk acceptance. A MINOR may be deferred, but is recorded.
+- **Staleness:** a review is valid only for the reviewed SHA. Later changes to the reviewed files need a delta review.
 
 ## Response template
 ```

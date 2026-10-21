@@ -49,8 +49,12 @@
 5. Which DB design preserves I7/I8 under concurrency: one transaction per operation, unique keys on intent/order/exit ids, serializable isolation for cap checks, or something else?
 6. `BLOCKED_INTEGRITY` keeps executing predeclared exits on a ledger that just failed an invariant (owner rule: open positions keep their risk handling). Is that safe, or must exits be queued for review?
 
-### B4. Reuse versus duplication (open issue)
-7. #67 implements its own fee and fill arithmetic and a reduced exit plan (stop, targets, expiry). The production exit logic is `shared/triple_barrier.py` (break-even after T1, 2.5 % trailing after T2, expiry), and the design says shared functions are "reused, not copied". Should the lab core import `triple_barrier` and the a48 cost model, or is a separate core justified?
+### B4. Reuse versus duplication (owner direction decided 2026-10-21)
+7. The owner decided that the lab reuses the shared execution, cost and exit-policy logic, with no duplicated formulas, and no production connection or broad refactor. Review `lab/ARCHITECTURE_ALIGNMENT.md`:
+   - the adapter boundary (decisions only from `step_barrier` / `fills_between`; money booked by the lab once with `CostModel`);
+   - the versioned `exit_policy_id` / `cost_model_id` / `entry_fill_model` and the shared-blob pins;
+   - the stop-trigger option (an additive shared field vs. lab-side inversion);
+   - the parity tests P1–P7.
 
 ### B5. Resource governance
 8. Is the split budget (user `research.slice` plus system `tsblab.slice`) correct, given that Docker scopes live under `system.slice`? Is R2 = 5 vCPU, held by arithmetic only (ceiling not enforced; telegram, tracker and shared postgres uncapped), acceptable without S3?
@@ -66,7 +70,7 @@
 12. Is removing the lab guaranteed to leave production (`trading_signals`, Collector, images) byte-identical?
 
 ## Known unresolved issues (author)
-- B4 duplication versus the design's reuse principle (MAJOR, decision needed).
+- B4: the owner direction is decided (reuse). The alignment is designed, but **not implemented**; it is gated on this review and the parity tests.
 - No persistence, DB isolation tests or container implementation yet.
 - The installed research-runner R2 profile is still 600 % (owner budget 5 vCPU); the change is pending approval.
 - Research-runner admission is open since the Collector became HEALTHY; job start is still explicit only.
@@ -77,6 +81,36 @@
 - A write to the snapshot mount fails; no mount of `p2` or post-freeze paths.
 - CPU/memory burn contained in its slice with production PSI unchanged; admission refused under injected pressure.
 - §11.3 DB isolation tests 1–6 on a disposable cluster; pre-run snapshot hash mismatch blocks a run.
+
+## Evidence the reviewer needs (exact versions)
+- `main` @ `3bd79a4`:
+  - `docs/lab/STRATEGY_LAB_ARCHITECTURE.md` (rev 4);
+  - `shared/triple_barrier.py`, `shared/partial_exits.py`, `shared/entry_execution.py`, `shared/execution.py`, `shared/fees.py`;
+  - `trade_tracker/main.py` (the `evaluate_trade` path);
+  - `research/mechanisms/costs.py`;
+  - `ops/research/` (runner);
+  - `p2_forward/ops/` (ledger and gate patterns);
+  - `docs/ops/COMPOSE_OPERATIONS.md`, `docs/ops/BRANCH_RELEASE_POLICY.md`.
+- Draft PR #67 (current head): `lab/account.py`, `lab/REVIEW.md` (invariants I1–I14), `lab/ARCHITECTURE_ALIGNMENT.md` (adapter design, parity tests P1–P7), `tests/test_lab_account.py`.
+- Draft PR #71: the research runner's R2 envelope and the aggregate-budget gaps.
+- S0 read-only resource observation summary (author report). The raw samples are available on request; they contain no secrets.
+- **Not provided:** credentials, the production `.env`, and protected datasets.
+
+## Independence requirement
+- The reviewer must not be the author (the operating agent), and must not have contributed to the reviewed artifacts. State any relationship.
+- Agent self-checks, CI runs and the author's tests are **not** independent review and do not count toward this gate.
+
+## Expected deliverables
+1. A completed response template (below) at an **exact commit SHA**.
+2. A finding list. Each finding has an id, severity (BLOCKER / MAJOR / MINOR), statement, evidence (file:line or test), and a recommended correction.
+3. The acceptance tests the reviewer requires, marked "must pass before merge" or "before activation".
+4. An explicit verdict: GO / REVISE / NO-GO.
+
+## How findings are accepted or rejected (owner-side rule)
+- **Accepted:** a finding with reproducible evidence at the reviewed SHA. It is tracked to closure, by a fix PR or a documented owner risk acceptance.
+- **Rejected:** only with a written counter-evidence note (a test, code reference or data) attached to the finding. Disagreement alone is not rejection.
+- **Severity:** any open BLOCKER means NO-GO for merge or activation. A MAJOR needs a fix or an explicit owner risk acceptance. A MINOR may be deferred, but is recorded.
+- **Staleness:** a review is valid only for the reviewed SHA. Later changes to the reviewed files need a delta review.
 
 ## Response template
 ```
