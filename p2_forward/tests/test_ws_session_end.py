@@ -37,7 +37,7 @@ def run_session(connect, prep=None, cancel_after=None, cb_raises=False):
             ends.append(info)
             if cb_raises:
                 raise RuntimeError("observer failure")
-        c = T.WSConnection("conn0-book", ["btcusdt@bookTicker"], mock.Mock(ws_connect=connect),
+        c = T.WSConnection("conn0-book", ["test-stream-0"], mock.Mock(ws_connect=connect),
                            lambda *a: None, lambda *a: None, lambda *a: None, on_session_end=cb)
         if prep:
             prep(c)
@@ -172,7 +172,7 @@ class AppWiring(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             c = mk_collector(d)
             self.assertFalse(c._obs_enabled())
-            self.assertIsNone(c._new_conn("conn0-book", ["btcusdt@bookTicker"]).on_session_end)
+            self.assertIsNone(c._new_conn("conn0-book", ["test-stream-0"]).on_session_end)
 
     def test_config_validation(self):
         base = {**C.DEFAULTS, "enabled": True, "max_runtime_s": 60}
@@ -236,7 +236,7 @@ class RealAiohttp(unittest.TestCase):
                     if heartbeat is not None:
                         kw["heartbeat"] = heartbeat
                     return real(f"ws://127.0.0.1:{port}/stream", **kw)
-                c = T.WSConnection("conn0-book", ["btcusdt@bookTicker"], mock.Mock(ws_connect=connect),
+                c = T.WSConnection("conn0-book", ["test-stream-0"], mock.Mock(ws_connect=connect),
                                    lambda *a: None, lambda *a: None, lambda *a: None,
                                    on_session_end=lambda cn, i: ends.append(i))
                 res = await asyncio.wait_for(c._session_once(), 10)
