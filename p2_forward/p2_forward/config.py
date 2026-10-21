@@ -116,6 +116,11 @@ DEFAULTS = {
     "ws_abort_wait_s": 2.0,                  # session end: wait after abort, then after cancel (hard bound 7 s)
     "conn_outage_incident_s": 60,            # connection not data-live this long -> conn_outage incident (DEGRADED)
     "conn_recovery_fail_s": 600,             # outage this long, or a wedged session -> conn_recovery_failed (CRITICAL)
+    "ws_session_end_events": False,          # P2F obs: lifecycle ws_session_end per ended session (off by default)
+    "conn_flapping_enabled": False,          # P2F obs: conn_flapping:<conn> WARNING episodes (off by default)
+    "conn_flapping_window_s": 1800,          # candidate (10 ended sessions in 30 min): to be evaluated, not approved
+    "conn_flapping_max": 10,
+    "conn_flapping_clear_s": 1800,           # episode clears after this long without an ended session
     "tier0_loss_incident_s": 60,             # a tier-0 / market gap this long -> observation_loss:tier0 (WARNING)
 }
 
@@ -147,6 +152,16 @@ def _is_int(v) -> bool:
 def validate(cfg: dict) -> None:
     if not isinstance(cfg["enabled"], bool):
         raise ConfigError("enabled must be a JSON boolean")
+    for k in ("ws_session_end_events", "conn_flapping_enabled"):          # P2F obs flags
+        if not isinstance(cfg.get(k, False), bool):
+            raise ConfigError(f"{k} must be a JSON boolean")
+    for k in ("conn_flapping_window_s", "conn_flapping_clear_s"):
+        v = cfg.get(k, 1)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+            raise ConfigError(f"{k} must be a positive number")
+    v = cfg.get("conn_flapping_max", 2)
+    if isinstance(v, bool) or not isinstance(v, int) or v < 2:
+        raise ConfigError("conn_flapping_max must be an integer >= 2")
     if cfg["mode"] not in ("bounded", "continuous"):
         raise ConfigError("mode must be bounded or continuous")
     if not _is_int(cfg["max_runtime_s"]):

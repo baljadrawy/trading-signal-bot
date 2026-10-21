@@ -17,6 +17,28 @@ from . import config as C
 from .guards import Backoff, RateGuard
 
 
+
+def _close_code(ws):
+    try:
+        c = ws.close_code
+        return int(c) if c is not None else None
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
+def session_end_info(msg, ws) -> dict:
+    """Classify a terminating WS message without reading any payload. ERROR carries an exception (aiohttp sets
+    ServerTimeoutError when no PONG arrived for a heartbeat ping); CLOSE carries the peer's close code."""
+    if msg.type == aiohttp.WSMsgType.ERROR:
+        exc = msg.data if isinstance(msg.data, BaseException) else None
+        name = type(exc).__name__ if exc is not None else None
+        kind = "ping_timeout" if (name == "ServerTimeoutError" and "PONG" in str(exc)) else "transport_error"
+        return {"kind": kind, "exc_type": name, "close_code": _close_code(ws)}
+    if msg.type == aiohttp.WSMsgType.CLOSE:
+        code = msg.data if isinstance(msg.data, int) else _close_code(ws)
+        return {"kind": "remote_close", "close_code": code}
+    return {"kind": "closed", "close_code": _close_code(ws)}
+
 class EndpointNotAllowed(Exception):
     pass
 
@@ -116,11 +138,12 @@ class WSConnection:
     def __init__(self, name: str, streams: list, session, on_message, on_shutdown, on_state,
                  base: str = C.WS_BASE, backoff: Backoff | None = None, guard: RateGuard | None = None,
                  on_error=None, on_sub_sent=None, on_sub_result=None, on_recovery=None,
-                 close_grace_s: float = 3.0, abort_wait_s: float = 2.0):
+                 close_grace_s: float = 3.0, abort_wait_s: float = 2.0, on_session_end=None):
         self.name, self.streams, self.session = name, list(streams), session
         self.on_message, self.on_shutdown, self.on_state = on_message, on_shutdown, on_state
         self.on_error, self.on_sub_sent, self.on_sub_result = on_error, on_sub_sent, on_sub_result
         self.on_recovery = on_recovery
+        self.on_session_end = on_session_end    # P2F obs: metadata of every ended session (observability only)
         self.base, self.backoff, self.guard = base, backoff or Backoff(), guard
         self.close_grace_s, self.abort_wait_s = float(close_grace_s), float(abort_wait_s)
         self.connected = False
@@ -177,8 +200,13 @@ class WSConnection:
             await asyncio.sleep(self.backoff.next_delay())
 
     async def _session_once(self):
-        """One WebSocket session. Returns ("ended" | "banned", unexpected exception or None)."""
+        """One WebSocket session. Returns ("ended" | "banned", unexpected exception or None).
+
+        P2F obs: how the session ended is recorded in `end` and reported to `on_session_end` (if set) without
+        changing control flow, return values or exceptions."""
         err = None
+        end = {"kind": "unknown", "close_code": None, "exc_type": None, "handshake_status": None}
+        t_up = None
         try:
             async with self.session.ws_connect(self.url(), autoping=True, heartbeat=30.0, max_msg_size=8 * 2**20,
                                                timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
@@ -188,6 +216,7 @@ class WSConnection:
                     return "banned", None
                 self.gen += 1
                 gen = self.gen
+                t_up = time.monotonic()
                 self.connected = self._was_connected = True
                 self.on_state(self, "connected")
                 await self._subscribe(ws)
@@ -195,21 +224,48 @@ class WSConnection:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         self._handle_text(msg.data, gen)
                     elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE):
+                        end.update(session_end_info(msg, ws))
                         break
+                else:                                    # aiohttp ends iteration on CLOSE / CLOSING / CLOSED
+                    code = _close_code(ws)
+                    end.update(kind="remote_close" if code is not None else "stream_ended", close_code=code)
         except asyncio.CancelledError:
+            end["kind"] = "local_cancel"
             raise
         except aiohttp.WSServerHandshakeError as e:          # 418 / 429 at the handshake reach the guard (F23)
+            end.update(kind="handshake_rejected", handshake_status=getattr(e, "status", None))
             if self.guard is not None and e.status == 418:
                 self.guard.on_418(e.headers.get("Retry-After") if e.headers else None)
             elif self.guard is not None and e.status == 429:
                 self.guard.on_429(e.headers.get("Retry-After") if e.headers else None)
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
-            pass
+        except asyncio.TimeoutError as e:
+            end.update(kind="timeout", exc_type=type(e).__name__)
+        except (aiohttp.ClientError, OSError) as e:
+            end.update(kind="transport_failure", exc_type=type(e).__name__)
         except Exception as e:                                   # noqa: BLE001 - never die silently (F20)
+            end.update(kind="unexpected", exc_type=type(e).__name__)
             err = e
         finally:
             self.connected = False
+            self._report_session_end(end, t_up)
         return "ended", err
+
+    def _report_session_end(self, end: dict, t_up) -> None:
+        """Observability only: never raises, never changes state used by the session logic."""
+        if self.on_session_end is None:
+            return
+        try:
+            local = bool(self._ending is not None or self._closing or self.retired)
+            if end["kind"] in ("remote_close", "closed") and local:
+                end["kind"] = "local_end"                       # our bounded end (_end_session) closed it
+            info = {"conn": self.name, "gen": self.gen, "connected": t_up is not None,
+                    "duration_ms": None if t_up is None else round((time.monotonic() - t_up) * 1000),
+                    "initiator": "local" if (local or end["kind"] == "local_cancel") else
+                                 ("remote" if end["kind"] in ("remote_close", "ping_timeout", "stream_ended") else "unknown"),
+                    **end}
+            self.on_session_end(self, info)
+        except Exception:                                        # noqa: BLE001 - observability must never break a session
+            pass
 
     async def _close_bounded(self, ws) -> None:
         try:
