@@ -1,6 +1,6 @@
 # Release candidates 2026-10-22: Collector observability (#76), signal_engine telemetry (#74), runner R2 (#71)
 
-**Status: candidates built and validated in isolation. NOTHING IS DEPLOYED.**
+**Status (2026-10-22, end of day): Stage C applied; Stage A (Collector 1.6.1, O2a) DEPLOYED 17:45Z under owner authorization (`STAGE_A_DEPLOYMENT_RECORD.md`); Stage B on HOLD.** Sections 1–8 below are the candidate record as built and validated in isolation.
 
 No production container, image tag, configuration, database, incident or dataset was changed. A before/after identity
 capture of every running container (ID, image, start time, restart count) was identical. Each stage below needs its
@@ -12,11 +12,11 @@ own explicit owner approval, and the stages must not overlap.
 |---|---|
 | **Stage C** | **APPLIED and validated** (owner-authorized). Installed `config.py` `e7a557b7…` → `e380eae6…`; backup kept. See `STAGE_C_RECORD.md`. |
 | #77 (SCHEMA.md + VERSION 1.6.1) | **merged** as `72c0bee` after all gates; main CI green |
-| Stage A candidate | **Collector 1.6.1** `sha256:89232400…` replaces RC-A r2. See `STAGE_A_MANIFEST.md`. Not deployed. |
+| Stage A candidate | **Collector 1.6.1** `sha256:89232400…` replaces RC-A r2. See `STAGE_A_MANIFEST.md`. **Deployed 2026-10-22 17:45Z** (O2a); T+1 h passed; T+24 h / T+72 h pending. |
 | Stage A strategy | O2a recommended: one restart, lifecycle logging on, flapping off. See `STAGE_A_RELEASE_STRATEGY.md`. |
 | Collector 1.6.0 archive | already present (2026-10-20) and **verified**; the earlier "none exists" statement is corrected below |
 | Development | #80 admission budget I-1 (24 tests, mutation-checked); #78 + P1 corpus / P2 boundaries; #81 rotation flake fix |
-| Stage B | RC-B preserved, unchanged. Database-read request in `STAGE_B_DB_READ_REQUEST.md`. Not deployed. |
+| Stage B | RC-B preserved, unchanged. **HOLD**. R-B3 proven safe by invariance (`STAGE_B_GATE_DECISION.md`); awaits owner decision. Not deployed. |
 
 ## 1. Verified baseline (2026-10-22, read-only)
 

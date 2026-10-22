@@ -1,6 +1,6 @@
 # Stage A release strategy: activation without a second Collector restart
 
-**Status: recommendation only. Nothing is activated.** The Collector reads its configuration only at startup, so every
+**Status: owner chose O2a; deployed 2026-10-22 17:45Z (`STAGE_A_DEPLOYMENT_RECORD.md`). Flapping detection stays disabled.** The Collector reads its configuration only at startup, so every
 change of a #76 flag costs one restart and therefore one collection gap.
 
 ## Options

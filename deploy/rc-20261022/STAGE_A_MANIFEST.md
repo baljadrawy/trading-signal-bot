@@ -1,4 +1,6 @@
-# Stage A deployment manifest: Collector 1.6.1 (NOT AUTHORIZED, NOT DEPLOYED)
+# Stage A deployment manifest: Collector 1.6.1
+
+**Executed 2026-10-22 17:45Z under owner authorization (O2a). See `STAGE_A_DEPLOYMENT_RECORD.md` for what actually happened.** The text below is the manifest as prepared before execution.
 
 This manifest supersedes the r2/r3 wording of `RELEASE_CANDIDATES.md` §5 for Stage A. Execution needs a **separate
 explicit owner approval** naming the option of `STAGE_A_RELEASE_STRATEGY.md` (O2a recommended). Nothing below has
