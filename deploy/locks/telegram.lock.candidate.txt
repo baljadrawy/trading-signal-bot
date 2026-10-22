@@ -1,0 +1,117 @@
+# REVIEW-ONLY lock candidate, phase R-1 of docs/ops/CANONICAL_IMAGE_REMEDIATION_PLAN.md.
+# NOT used by any Dockerfile, build, or deployment. Do not install from this file. Not certified.
+# service: telegram
+# source image (running Paper container): tsb-a561-telegram:rel-ea8ae4f-r2
+# image id: sha256:51d62f4dfa512c54c29db8886cff171de7d48b356fde6f1874098df057f4d219
+# platform: linux/arm64 (aarch64), CPython 3.12.13, glibc 2.41, sysconfig linux-aarch64
+# extracted 2026-10-22 from the image itself: docker run --rm --network none --read-only (importlib.metadata
+#   dist-info WHEEL/RECORD/direct_url.json, cross-checked against pip inspect and pip freeze --all).
+# distributions: 20; equal to deploy/a561-rel-ea8ae4f/installed-packages/telegram.txt (name and version).
+# pip check inside the image: No broken requirements found.
+# Per-distribution comment lines:
+#   role:          direct (pinned in requirements.txt) | transitive | bootstrap (Dockerfile pip/wheel upgrade)
+#   wheel:         filename reconstructed from the installed WHEEL Tag lines (sorted tags); R-2 confirms upstream name
+#   hash:          wheel sha256 only where the image records it offline (direct_url.json archive_info);
+#                  otherwise TO-RESOLVE (R-2 wheelhouse). No network was used.
+#   record-sha256: sha256 of the installed dist-info RECORD file. Installed-file fingerprint, NOT a wheel hash.
+
+aiohappyeyeballs==2.7.1
+#   role: transitive
+#   wheel: aiohappyeyeballs-2.7.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 070db8fb424fe179cb1c2c417ab0c748cfdab6bff173dc7b491822c11bc2eb01
+aiohttp==3.14.3
+#   role: direct
+#   wheel: aiohttp-3.14.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (exact; from direct_url.json)
+#   hash: sha256:f631fe87a6f30df5fbe6d79640b25e4cffb38c31c7fb6f10871517b84b0f8c1a (from image direct_url.json; matches deploy/aiohttp-3.14.3/IMAGES.md)
+#   record-sha256: 189f90b9a8faa8deb123d0ed529d156ce4d053767b270ab3165d1462299cf85e
+aiosignal==1.4.0
+#   role: transitive
+#   wheel: aiosignal-1.4.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 609e54b94afb3ddb6c260ee79899e98aab339b7d1c39c42a9deae2ec2d5278cc
+anyio==4.14.2
+#   role: transitive
+#   wheel: anyio-4.14.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e37e9ee4007e9a4a74843d7e8c5153dd928f35dac5b3c56fb988792b1207965e
+asyncpg==0.29.0
+#   role: direct
+#   wheel: asyncpg-0.29.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 2bfa474e4bfc599b32474b1eb2fe59a26eac0c22b1c083856b7d511085d852d2
+attrs==26.1.0
+#   role: transitive
+#   wheel: attrs-26.1.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 4208eb11c81019fa747017a7751a6f589246758b623f2030841c2c522688c49b
+certifi==2026.7.22
+#   role: transitive
+#   wheel: certifi-2026.7.22-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e6c48519c08f2bbe98bb8ccb9c3aa9a157fd41de210173fe047e77b8e8d35421
+frozenlist==1.8.0
+#   role: transitive
+#   wheel: frozenlist-1.8.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 32f744099f281a97b54c31e0ddf0bc0e65728e7190faa109eff5cae1268a1f2d
+h11==0.16.0
+#   role: transitive
+#   wheel: h11-0.16.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3a11572d1a11c198b9ab7cc31a1fb685997c7596b566e5074983161f0f0cfec9
+httpcore==1.0.9
+#   role: transitive
+#   wheel: httpcore-1.0.9-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 491f4b59545289189a7adb8ad6e318069ac16e2d254dd8b66b0a6ebd5f2a262a
+httpx==0.28.1
+#   role: transitive
+#   wheel: httpx-0.28.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f43a9da7040b70f5fc7f9d34307310f2f51060ba874f945b78609f5d6031af08
+idna==3.19
+#   role: transitive
+#   wheel: idna-3.19-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 1f272cd644bbc82f421e10e47aed0bcd2787c39e4525432b9fefc5d0253fb606
+multidict==6.7.1
+#   role: transitive
+#   wheel: multidict-6.7.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: b8cf3f2f75c09d0077dd09a9e4d0bc9ec4ee9ae12d66781c29fe77c8a4cf2866
+packaging==26.3
+#   role: transitive
+#   wheel: packaging-26.3-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 8c69191044e577ab83c6b2990bc6fd7cfb441e6027ef5bb9e1c49c1dce2cedce
+pip==26.1.2
+#   role: bootstrap
+#   wheel: pip-26.1.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f99ce0b328b2b1aad93ac9967658393933a33e3abdcb543be97925061dc9158d
+propcache==0.5.2
+#   role: transitive
+#   wheel: propcache-0.5.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3a4e9df16a67e9c346c5415fa4304e5a41462d73ccfad6c0698d787b994d598a
+python-telegram-bot==21.11.1
+#   role: direct
+#   wheel: python_telegram_bot-21.11.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: b18dcfa889e0c7d1fc77cca8f2e52e66f2d80b2d9b9afb4c94fa75199db51255
+typing-extensions==4.16.0
+#   role: transitive
+#   wheel: typing_extensions-4.16.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: a346a921aa5be35b34ced3258614183d152887b954caaae5de2a94be72d5f2ec
+wheel==0.46.3
+#   role: bootstrap
+#   wheel: wheel-0.46.3-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: ef4b3b55246a474ed89c5902f0922224c0a40975feefe7fd47d67231596db34d
+yarl==1.24.5
+#   role: transitive
+#   wheel: yarl-1.24.5-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 9aa2ec982d30ed0c21cec681e4b7219511c6595342d0eee36fa34b82bdaef9fd
