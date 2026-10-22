@@ -1,0 +1,8 @@
+# Stage B RC: minimal overlay on the exact running signal_engine image (no dependency change).
+FROM tsb-a561-signal_engine:rel-ea8ae4f-r2
+COPY --chown=appuser:appuser --chmod=0664 f/research/null_a/recorder.py /app/research/null_a/recorder.py
+COPY --chown=appuser:appuser --chmod=0775 f/shared/config.py /app/shared/config.py
+COPY --chown=appuser:appuser --chmod=0775 f/signal_engine/signal_logic.py /app/signal_logic.py
+LABEL org.opencontainers.image.revision="37a7c2c7080e259f9550b957ce6cb1ac623ae19a" \
+      tsb.rc.base_image_id="sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418" \
+      tsb.rc.delta="PR#74 only (3 files); T1_CAP_POLICY/#59 excluded"
