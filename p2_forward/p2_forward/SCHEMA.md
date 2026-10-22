@@ -287,6 +287,17 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
   - `observation_loss:tier0`: WARNING, **latched**. Raised when a gap of `tier0_loss_incident_s` (60 s) or longer closes on a tier-0 bookTicker or depth stream, or on `!miniTicker@arr`, during running operation (irreplaceable gaps only; candle gaps are recoverable). It is not raised for gaps already explained by a stop or writer incident (`open_at_stop`, `never_ready`, `backpressure_or_rejected`, `disk_hard_stop`). The gap record itself is unchanged.
   - Transient per-stream staleness on a data-live connection raises no incident; its gap record and health reason are unchanged.
   - These are additive control-payload changes (lifecycle events, health fields, incident keys). Record envelopes and sampled-record semantics are unchanged, so `schema_version` stays 2, as for collector 1.1.0–1.5.0.
+- **Session-end metadata and reconnect flapping (collector ≥ 1.6.1). Both are off by default; with both off the dataset is identical to 1.6.0.**
+  - `ws_session_end_events` (config, default `false`): every ended WebSocket session writes one lifecycle `ws_session_end` with metadata only (never payloads): `{conn, gen, connected, duration_ms, kind, initiator, close_code, exc_type, handshake_status}`.
+  - `kind` is one of `remote_close`, `abnormal_end` (close code 1006, set locally, never received), `stream_ended` (iterator ended without a code), `local_end` (our bounded end, rotation or shutdown), `local_cancel`, `ping_timeout`, `transport_error`, `handshake_rejected`, `timeout`, `transport_failure`, `unexpected`, `closed` (a CLOSING/CLOSED message type; aiohttp 3.14 ends the iterator before delivering these) or `unknown` (no classified path ran).
+  - `initiator` is `remote` only with positive evidence (a peer close code other than 1006, or a missing PONG), `local` for our own ends, otherwise `unknown`.
+  - `conn_flapping_enabled` (config, default `false`): `conn_flapping:<conn>` WARNING, state-like, not latched. It opens when `conn_flapping_max` (10) sessions of one connection end within `conn_flapping_window_s` (1800 s), with lifecycle `conn_flapping_open` `{conn, events_in_window, window_s, first_ms}`.
+  - The episode resolves after `conn_flapping_clear_s` (1800 s) without an ended session, once the window count is below the threshold. It resolves with lifecycle `conn_flapping_resolved` `{conn, episode_events, since_ms, last_ms, duration_ms}`.
+  - An episode left open by an earlier boot is resolved at the next watchdog tick (lifecycle `conn_flapping_resolved` with `previous_boot: true`). A 1.6.0 collector does not resolve it, so after a rollback it stays a WARNING until it is acknowledged.
+  - Every ended session counts, including planned rotations (`local_end`, about one per connection per 23 h) and failed connects. A continuous outage stays below the default threshold (backoff 2–32 s, then 15 min cooldown: at most about 8 attempts per 30 min); `conn_recovery_failed` covers it.
+  - The threshold is a candidate value, not an approved production value.
+  - A 1.6.0 collector refuses a config file that contains these keys (`unknown config keys`). A rollback to 1.6.0 must restore the previous config file.
+  - These are additive control-payload changes. `schema_version` stays 2.
 
 **Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
 host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as
