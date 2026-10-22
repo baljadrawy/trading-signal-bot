@@ -46,8 +46,14 @@
 |---|---|
 | Immediate / T+2 min | Image ID `89232400…`, restart policy `no`, health `STARTING` → `DEGRADED` (that one stream) → **`HEALTHY` at 17:48Z**. All 257 streams `OBSERVING`. |
 | T+10 min (17:55Z) | Container healthy, 0 restarts, OOM false; version 1.6.1; `config_hash` `6546b479…`; writer and certifier alive with 0 failures; 0 open gaps; 0 drops / malformed / task failures; incidents unchanged (3 WARNING); monitor `WARNING` (the swap mismatch has cleared); every other container unchanged; CPU 29 %, memory 150 MiB / 768 MiB, 7 PIDs. **Health state at that instant `DEGRADED`** (`stale:` on the same low-activity depth stream). The flip rate is unchanged from before the deploy, so it is not attributable to the release and no rollback trigger fires. |
-| Session-end recording | Enabled in the run record. **0 `ws_session_end` so far**, because no session has ended since start. It is first expected at the next natural reconnect, or at the first rotation about 23 h after start (≈ 2026-10-23 16:45Z). |
-| T+1 h (≈ 18:45Z) | pending |
+| Session-end recording | Enabled in the run record. Confirmed in production at T+1 h (2 records, see below). |
+| T+1 h (18:45Z) | **Passed.**
+- `HEALTHY`; image `89232400…`; 0 restarts; OOM false; incidents unchanged (3 WARNING); writer and certifier alive with 0 failures; 0 open gaps, 0 drops / malformed / rejected / task failures.
+- **First production `ws_session_end` records: 2**, both `local_end` / initiator `local`, after 2 `data_stall_reconnect` (correctly classified).
+- DEGRADED flips: 4 in about 57 min, within the pre-deploy baseline of 1–7/h; monitor `WARNING`.
+- CPU (monitor `cpu_cores_60s`): mean 0.364 after vs 0.390 in the 6 h before (−7 %). Memory (cgroup, including cache): 182 MiB after vs about 760 MiB before (fresh process).
+- One isolated 60 s window with throttling 0.246 (18:06Z, CPU 0.26 cores) vs a pre-deploy max of 0.066: to watch, not a trigger.
+- Every other container unchanged. |
 | T+24 h (≈ 2026-10-23 17:45Z, incl. the 2026-10-22 seal with the downtime record) | pending |
 | T+72 h (≈ 2026-10-25 17:45Z) | pending |
 
