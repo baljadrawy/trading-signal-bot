@@ -54,6 +54,7 @@ def get_evidence_recorder():
             _evidence_recorder = EvidenceRecorder(
                 sink=JsonlSink(config.EVIDENCE_DIR), enabled=True, capture_filter=cap_filter,
                 telemetry_path=_tel_path, telemetry_history_size=config.EVIDENCE_TELEMETRY_HISTORY,
+                telemetry_min_interval_s=config.EVIDENCE_TELEMETRY_MIN_INTERVAL_S,
                 phase_id=config.EVIDENCE_PHASE_ID,
                 max_queue=config.EVIDENCE_MAX_QUEUE, batch_size=config.EVIDENCE_BATCH_SIZE,
                 flush_interval_s=config.EVIDENCE_FLUSH_INTERVAL_S,

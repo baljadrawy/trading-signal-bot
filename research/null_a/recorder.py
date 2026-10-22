@@ -62,13 +62,21 @@ class EvidenceRecorder:
                  batch_size: int = 100, flush_interval_s: float = 5.0,
                  flush_retry_count: int = 3, flush_backoff_ms: float = 50.0,
                  shutdown_flush_timeout_ms: float = 2000.0, capture_filter=None,
-                 telemetry_path=None, telemetry_history_size: int = 500, phase_id: str = ""):
+                 telemetry_path=None, telemetry_history_size: int = 500, phase_id: str = "",
+                 telemetry_min_interval_s: float = 0.0, clock=time.monotonic):
         self.sink = sink
         self.enabled = enabled
         self.capture_filter = capture_filter
         self.phase_id = phase_id                # tags records + telemetry (separates canary runs)
         self.telemetry_path = telemetry_path   # if set, flusher dumps telemetry history here
         self._tel_history = deque(maxlen=telemetry_history_size)   # ring buffer of snapshots
+        # Write amplification control (default 0 = previous behaviour: rewrite the file on every flush cycle).
+        # Snapshots are still appended every cycle (same ring-buffer window); only the file write is rate-limited.
+        self.telemetry_min_interval_s = float(telemetry_min_interval_s)
+        self._clock = clock
+        self._tel_written_at = None
+        self._tel_alarm_seen = None
+        self.telemetry_writes = 0
         self.filtered = 0                      # intentional exclusions (NOT technical drops)
         self.max_queue = max_queue
         self.batch_size = batch_size
@@ -165,16 +173,29 @@ class EvidenceRecorder:
         except Exception:
             logger.warning("evidence shutdown flush error", exc_info=True)
         self.pending_on_shutdown = len(self._q)
-        self.dump_telemetry()
+        self.dump_telemetry(force=True)
         return self.pending_on_shutdown
 
-    def dump_telemetry(self) -> None:
+    def _alarm_key(self) -> tuple:
+        return (self.dropped, self.flush_failures, self.capture_errors)
+
+    def dump_telemetry(self, force: bool = False) -> None:
         """Append a timestamped telemetry snapshot to the ring buffer and write the whole
         history to telemetry_path atomically (read by monitor_canary.py). Keeping a window
         of snapshots means a short spike (e.g. a one-cycle dropped/latency blip) is not lost
-        between reads. Off the hot path (flusher/shutdown only); failures are buried."""
+        between reads. Off the hot path (flusher/shutdown only); failures are buried.
+
+        With telemetry_min_interval_s > 0 the file is rewritten at most that often, except that it is written
+        at once when an alarm counter (dropped, flush failures, capture errors) changed, and always on force
+        (shutdown). Snapshots are never skipped, so the history and its schema are unchanged."""
         self._tel_history.append({"ts": time.time(), "phase_id": self.phase_id, **self.telemetry()})
         if not self.telemetry_path:
+            return
+        now = self._clock()
+        alarm = self._alarm_key()
+        due = (force or self.telemetry_min_interval_s <= 0 or self._tel_written_at is None
+               or now - self._tel_written_at >= self.telemetry_min_interval_s or alarm != self._tel_alarm_seen)
+        if not due:
             return
         try:
             os.makedirs(os.path.dirname(self.telemetry_path) or ".", exist_ok=True)
@@ -182,6 +203,8 @@ class EvidenceRecorder:
             with open(tmp, "w") as f:
                 json.dump(list(self._tel_history), f)
             os.replace(tmp, self.telemetry_path)      # atomic
+            self._tel_written_at, self._tel_alarm_seen = now, alarm
+            self.telemetry_writes += 1
         except Exception:
             logger.warning("telemetry dump failed", exc_info=True)
 
