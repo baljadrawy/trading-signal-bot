@@ -6,6 +6,17 @@ No production container, image tag, configuration, database, incident or dataset
 capture of every running container (ID, image, start time, restart count) was identical. Each stage below needs its
 own explicit owner approval, and the stages must not overlap.
 
+## Status update (2026-10-22, release gates round)
+
+| Item | State |
+|---|---|
+| **Stage C** | **APPLIED and validated** (owner-authorized). Installed `config.py` `e7a557b7…` → `e380eae6…`; backup kept. See `STAGE_C_RECORD.md`. |
+| #77 (SCHEMA.md + VERSION 1.6.1) | **merged** as `72c0bee` after all gates; main CI green |
+| Stage A candidate | **Collector 1.6.1** `sha256:89232400…` replaces RC-A r2. See `STAGE_A_MANIFEST.md`. Not deployed. |
+| Stage A strategy | O2a recommended: one restart, lifecycle logging on, flapping off. See `STAGE_A_RELEASE_STRATEGY.md`. |
+| Collector 1.6.0 archive | already present (2026-10-20) and **verified**; the earlier "none exists" statement is corrected below |
+| Stage B | RC-B preserved, unchanged. Database-read request in `STAGE_B_DB_READ_REQUEST.md`. Not deployed. |
+
 ## 1. Verified baseline (2026-10-22, read-only)
 
 | Item | Value |
@@ -153,7 +164,7 @@ Rules for every stage:
 | Procedure | `p2f_continuous_stop.sh <dataset> <compose>`, then `p2f_continuous_up.sh <rc tag> <rc image id> <dataset> <new config> <compose>` |
 | Expected benefit | Each disconnect is classified (peer close code, 1006 abnormal, local, ping timeout), which answers the open question of the 2026-10-21 episode (close codes were not recorded). A `conn_flapping` WARNING appears within about 30 min of an episode like 13:34–16:42Z (193 + 58 disconnects). |
 | Downtime / gap | One restart. The A36 image swap measured 33.6 s of data downtime; expect 30–60 s, worst case the 450 s stop grace. The gap is recorded as a `downtime` record, and the day seals PASS (A36, 2026-10-19). |
-| Preconditions | 1. Offline archive (`docker save`) and sha256 of the running 1.6.0 image (none exists today, per `IMAGES.md`). 2. No research run active: STOPPING/STOPPED refuses admission and freezes running work. 3. No active CRITICAL; the 3 WARNINGs unchanged. 4. Window away from the UTC day close, the 23:10/00:10 rotations and universe refresh. 5. Not within 72 h of a Stage B change. |
+| Preconditions | 1. Offline archive of the running 1.6.0 image: **exists and verified** (see `STAGE_A_MANIFEST.md`; the `IMAGES.md` gap of 10-18 was closed on 10-20). 2. No research run active: STOPPING/STOPPED refuses admission and freezes running work. 3. No active CRITICAL; the 3 WARNINGs unchanged. 4. Window away from the UTC day close, the 23:10/00:10 rotations and universe refresh. 5. Not within 72 h of a Stage B change. |
 | Acceptance | **T+10 min:** `HEALTHY`; run record `build.git_commit` = RC commit; image ID as approved; no new CRITICAL or DEGRADED. **T+24 h:** the deploy day seals PASS with the downtime record and 0 unexplained gaps; `ws_session_end` count is consistent with health reconnect counters; no `conn_flapping` without ≥ 10 ended sessions in 30 min. **T+72 h (monitoring window):** CPU and memory within ±10 % of the pre-deploy baseline; no seal failure. |
 | Rollback triggers | Startup refused; not `HEALTHY` 10 min after start (outside a corroborated exchange outage); any CRITICAL or DEGRADED attributable to the release; verifier or seal FAIL; write or emit errors; resources over limits. |
 | Rollback | **Soft:** the same RC with the original config (flags off) behaves like 1.6.0. **Full:** stop, then `p2f_continuous_up.sh` with `324d52c9…` **and the original `continuous-v1.json`**; 1.6.0 refuses the new keys. Open `conn_flapping` WARNINGs then stay open until owner disposition; they are never acknowledged automatically. |
@@ -212,7 +223,7 @@ Stage B can go before Stage A if write reduction is the priority. It must never 
 **Blockers:**
 1. Stage B Class B pre-gate needs an owner-approved database read.
 2. Activating the #76 flags is blocked on #77 and the r3 rebuild.
-3. No offline archive of the running Collector image exists; it is a Stage A precondition.
+3. ~~No offline archive of the running Collector image~~ **Corrected:** `~/backups/tsb-p2-forward-images/…T0652Z.tar` (sha256 `32a5eb05…`, created 2026-10-20) was already present; it was verified on 2026-10-22.
 4. The two mandatory independent external reviews are still outstanding; nothing here substitutes for them.
 
 ## 7. Operational risks
