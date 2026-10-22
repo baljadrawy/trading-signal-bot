@@ -15,6 +15,7 @@ own explicit owner approval, and the stages must not overlap.
 | Stage A candidate | **Collector 1.6.1** `sha256:89232400…` replaces RC-A r2. See `STAGE_A_MANIFEST.md`. Not deployed. |
 | Stage A strategy | O2a recommended: one restart, lifecycle logging on, flapping off. See `STAGE_A_RELEASE_STRATEGY.md`. |
 | Collector 1.6.0 archive | already present (2026-10-20) and **verified**; the earlier "none exists" statement is corrected below |
+| Development | #80 admission budget I-1 (24 tests, mutation-checked); #78 + P1 corpus / P2 boundaries; #81 rotation flake fix |
 | Stage B | RC-B preserved, unchanged. Database-read request in `STAGE_B_DB_READ_REQUEST.md`. Not deployed. |
 
 ## 1. Verified baseline (2026-10-22, read-only)
@@ -215,7 +216,7 @@ Stage B can go before Stage A if write reduction is the priority. It must never 
 | RC-B with interval 60 s | yes | yes (validated) | no | **yes**, plus the database read for the halt-state pre-gate |
 | Stage C runner file | yes | yes | no | **yes** |
 | Draft PR #77 (SCHEMA/VERSION) | – | – | CI | merge approval |
-| Rotation e2e flake (`market_component_stale`) | – | – | **yes**: the phase hypothesis was falsified (A/B 4 vs 4 runs, same 192–256 counts); root cause open | – |
+| Rotation e2e flake (`market_component_stale`) | – | – | fixed in Draft #81 (cause measured per overlap; see §8) | merge approval |
 | Draft PR #78 (lab P5/P6b guards, stacked on #67) | – | – | CI | merge approval, after the #67 review |
 | Canonical image plan | design only | – | – | each phase |
 | #59 T1 cap policy | **not released** | no (strategy boundary) | – | **yes**, separately |
@@ -246,7 +247,7 @@ Stage B can go before Stage A if write reduction is the priority. It must never 
 | Strategy Lab parity | Draft PR #78, stacked on #67: P5 shared-module blob pins + P6b production isolation. 42 tests pass, mutation-checked. It also records two spec path corrections. P1–P4, P7 and F1–F10 need the lab adapter, which is not written. | awaiting the #67 review |
 | Admission controller | `docs/ops/RESEARCH_ADMISSION_CONTROLLER_IMPLEMENTATION_PLAN.md`: `budget.py` with injected probes, integration seams, a 1:1 test map, rollout I-1…I-5 (shadow mode first) | plan only |
 | Canonical images | `docs/ops/CANONICAL_IMAGE_REMEDIATION_PLAN.md` | design only |
-| Rotation e2e flake | Failing runs have **0** stale market components; passing runs have 6–8 stale ticks. A shared-grid miniTicker phase change did not change the distribution (A/B), so it was not submitted. Next step: per-handoff instrumentation across about 20 runs to capture a failing case. | open |
+| Rotation e2e flake | **Correction:** the earlier per-run A/B was underpowered, and calling the fix "falsified" was wrong. Per-overlap instrumentation (12 runs × 3 overlaps): original 10/36 overlaps without a stale copy (one run 0/3 = the failure), fixed 0/36. Draft #81. | awaiting review |
 | Independent external reviews | Packages A/B were prepared earlier; still mandatory and outstanding | not substitutable |
 
 ## 9. Reproduce
