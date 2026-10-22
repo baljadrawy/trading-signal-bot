@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import tests.test_p2f_rotation_e2e as T
 from tests.test_p2cr_continuous import run_continuous, setup_calendar
 from p2_forward import tracks
+from p2_forward.app import MARKET
 
 SOCKS, STALE = [], []
 _orig_close = T.LagWS2.close
@@ -39,7 +40,7 @@ def main():
     d = os.path.join(tempfile.mkdtemp(), 'data'); setup_calendar()
     c, code, s = run_continuous(d, 100, sess=T.LagExchange())
     t0 = min(x.opened_at for x in SOCKS)
-    mk = [x for x in SOCKS if '!miniTicker@arr' in x.streams]
+    mk = [x for x in SOCKS if MARKET in x.streams]
     socks = [(round(x.opened_at - t0, 2), round((x.closed_at or time.time()) - t0, 2), x.lag) for x in mk]
     ov = []
     for i in range(len(socks) - 1):
