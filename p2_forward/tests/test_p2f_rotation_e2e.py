@@ -11,6 +11,7 @@ identical across sockets, so a trailing socket re-delivers OLDER ids). Then the 
 """
 import importlib.util
 import json
+import math
 import os
 import pathlib
 import shutil
@@ -38,6 +39,10 @@ class LagWS2(FakeWS2):
         super().__init__(url)
         self.lag = lag
         self.next_book = self.t + 0.03
+        # miniTicker on a shared 1 s wall-clock grid; a lagged socket emits 0.2 s after an unlagged one, so during
+        # every overlap its copy has an E 0.2 s OLDER than the copy just applied -> a stale component, whichever
+        # socket trails. (A per-socket phase made each overlap all-stale or none: 10 of 36 overlaps had none.)
+        self.next_mini = math.ceil(self.t) + (0.2 if lag > 0 else 0.0)
 
     @staticmethod
     def _id(s, t):
