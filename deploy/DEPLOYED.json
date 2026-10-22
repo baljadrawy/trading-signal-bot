@@ -92,28 +92,28 @@
    "container": "tsb-p2-forward-collector",
    "expected_state": "running",
    "observed": {
-    "config_hash": "6f62e5177564809bdf01d210a2c6d7bb9351c08772cc7b779cb912860711717c",
-    "container_id": "a2e2f3a6eeacfe76a64c93c0aa08ad97f639adc14d5339d3e97779257b7b9657",
-    "image_id": "sha256:324d52c9b37a2ecd9a1ddace7e93ad5d7728411d98e8503abcd618f87c8f59e8",
-    "image_ref": "tsb-p2-forward:p2f-160-1bfb5f6-20261014T0652Z",
+    "config_hash": "d12ba3b394f007ccde6c07d9cf7ac9288541fbe7baea16143dbce6905031a0fc",
+    "container_id": "4b860ea43f55b803d9ed8af833d64654e70c71cbf75ff3924aa243b2e65961b9",
+    "image_id": "sha256:89232400d5285b7a35d0fcba14965861c2b49e7c614c9bba7daa121504d68e5d",
+    "image_ref": "tsb-p2-forward:p2f-161-72c0bee-20261022T1558Z",
     "restart_count": 0,
-    "started_at": "2026-10-14T10:26:31.65417102Z",
+    "started_at": "2026-10-22T17:45:31.526552554Z",
     "state": "running"
    },
    "provenance": {
     "evidence": [
-     "p2_forward/PROVENANCE.json",
-     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json"
+     "deploy/rc-20261022/STAGE_A_MANIFEST.md",
+     "deploy/rc-20261022/STAGE_A_DEPLOYMENT_RECORD.md"
     ],
-    "notes": "18/18 files equal 1bfb5f6; baked P2F_GIT_COMMIT",
-    "source_commit": "1bfb5f680ea42af8d4a5a7947d314f787066dc4b",
+    "notes": "Stage A 2026-10-22: canonical build of p2_forward/Dockerfile at 72c0bee (1.6.1); /app package byte-identical to the source; dependency layer diff-ID identical to 1.6.0; config continuous-v1-obs-lifecycle.json (0db3f89d...)",
+    "source_commit": "72c0bee82b44bede5192373d18374724f11c6c3a",
     "source_kind": "commit"
    },
    "render_hash_note": "collector compose needs P2F_* values from p2f_continuous_up.sh; covered by D3 and D5",
    "reproducibility": {
     "canonical_rebuild": false,
     "level": "L1-content-verified",
-    "notes": "NO archive of the running image exists (gap P-05)"
+    "notes": "built from the canonical p2_forward/Dockerfile at 72c0bee (clean git archive) but no independent second rebuild yet (L2 not claimed); rollback image 1.6.0 archived and verified (~/backups/tsb-p2-forward-images/, sha256 32a5eb05...)"
    },
    "safety": {
     "paper_trading_required": false
