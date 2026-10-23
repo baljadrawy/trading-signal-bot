@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -96,6 +97,16 @@ class Probes(unittest.TestCase):
         pr = P.host_probes()
         self.assertIsInstance(pr, B.Probes)
         self.assertEqual(pr.pid_start_ticks(os.getpid()), P.pid_start_ticks(os.getpid()))
+
+    def test_host_probes_systemctl_timeout(self):
+        for kw, want in (({}, 10), ({"systemctl_timeout_s": 0.5}, 0.5)):
+            pr = P.host_probes(**kw)
+            with mock.patch.object(P.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="active\n")) as r:
+                self.assertTrue(pr.is_unit_active("rj-a.service"))
+                pr.lab_slice_pct(), pr.slice_quota_pct(), pr.live_job_units()
+            self.assertEqual([c.kwargs["timeout"] for c in r.call_args_list], [want] * 4, kw)
+        with mock.patch.object(P.subprocess, "run", side_effect=P.subprocess.TimeoutExpired("systemctl", 0.5)):
+            self.assertIsNone(P.host_probes(systemctl_timeout_s=0.5).is_unit_active("rj-a.service"))
 
 
 if __name__ == "__main__":

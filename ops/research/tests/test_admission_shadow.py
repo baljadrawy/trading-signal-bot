@@ -10,12 +10,13 @@ import datetime as dt
 import json
 import os
 import shutil
+import time
 import unittest
 from unittest import mock
 
 from _helpers import make_env
 
-from research_exec import admission, config
+from research_exec import admission, config, launcher
 from research_exec import budget as B
 
 QUIET_STEAL = {"interval_s": 1.0, "steal_vcpu": 0.05, "busy_vcpu": 0.5, "steal_ratio": 0.09}
@@ -217,6 +218,113 @@ class TestBudgetShadow(unittest.TestCase):
         self.assertTrue(d["budget_shadow"]["admit"], d["budget_shadow"])
         self.assertFalse(os.path.exists(cfg["budget"]["state_dir"]))
 
+
+    # --- review fixes: non-dict budget, time bound, error formatting -------------------------------------------
+    def test_non_dict_budget_is_ignored_like_main(self):
+        absent = copy.deepcopy(self.cfg)
+        del absent["budget"]
+        d_absent = self.ev(absent)
+        for v in ("x", [1], 5, None):
+            with self.subTest(budget=v):
+                c = copy.deepcopy(self.cfg)
+                c["budget"] = v
+                with mock.patch.object(admission, "budget_shadow", side_effect=AssertionError("must not run")):
+                    d = self.ev(c)
+                self.assertEqual(json.dumps(d), json.dumps(d_absent))
+                bs = admission.budget_shadow(c, self.prof, "job-x", self.fake.probes())   # direct call: ignored too
+                self.assertTrue(bs["admit"], bs)
+
+    def test_bad_deadline_value_fails_shadow_closed(self):
+        base = self.ev(self.cfg_with(False))
+        for v in ("x", 0, -1):
+            with self.subTest(shadow_deadline_s=v):
+                c = self.cfg_with(True)
+                c["budget"]["shadow_deadline_s"] = v
+                d = self.ev(c, budget_probes=self.fake.probes())
+                self.assertEqual(self.real(d), base)
+                self.assertFalse(d["budget_shadow"]["admit"])
+                self.assertTrue(any(e.startswith("shadow: ValueError") for e in d["budget_shadow"]["probe_errors"]))
+
+    def test_slow_probe_hits_deadline_fake_clock(self):
+        clock = [100.0]
+
+        def slow_lab():
+            clock[0] += 5.0                                     # probe "takes" 5 s on the fake clock
+            return 0
+        probes = self.fake.probes(lab_slice_pct=slow_lab,
+                                  marker_procs_outside_slice=lambda: self.fail("probe after the deadline ran"))
+        base = self.ev(self.cfg_with(False))
+        with mock.patch.object(admission, "_clock", lambda: clock[0]):
+            d = self.ev(self.cfg_with(True), budget_probes=probes)
+        self.assertEqual(self.real(d), base)
+        self.assertTrue(d["admit"])
+        bs = d["budget_shadow"]
+        self.assertFalse(bs["admit"])
+        self.assertEqual(bs["reasons"], ["shadow_deadline_exceeded", "probe_error"])
+        self.assertEqual(bs["probe_errors"], ["shadow: deadline exceeded (shadow_deadline_s=2)"])
+        self.assertEqual((bs["capacity_pct"], bs["held_pct"]), (None, None))
+
+    def test_slow_probe_real_clock_is_bounded(self):
+        c = self.cfg_with(True)
+        c["budget"]["shadow_deadline_s"] = 0.05
+        probes = self.fake.probes(lab_slice_pct=lambda: time.sleep(0.15) or 0)
+        t0 = time.monotonic()
+        bs = admission.budget_shadow(c, self.prof, "job-x", probes)
+        self.assertLess(time.monotonic() - t0, 1.0)
+        self.assertIn("shadow_deadline_exceeded", bs["reasons"])
+        self.assertFalse(bs["admit"])
+
+    def test_default_host_probes_get_short_systemctl_timeout(self):
+        with mock.patch("research_exec.budget_probes.host_probes", return_value=self.fake.probes()) as hp:
+            d = self.ev(self.cfg_with(True))
+        hp.assert_called_once_with(systemctl_timeout_s=admission.SHADOW_DEADLINE_S)
+        self.assertTrue(d["budget_shadow"]["admit"], d["budget_shadow"])
+
+    def test_empty_message_exception_is_recorded(self):
+        def silent():
+            raise RuntimeError()
+        d = self.ev(self.cfg_with(True), budget_probes=self.fake.probes(boot_id=silent))
+        self.assertEqual(d["budget_shadow"]["probe_errors"], ["boot_id: RuntimeError"])   # recorded once
+        self.write_state([lease("other", 100)])                 # reconcile probes the lease's unit (non-strict)
+        with mock.patch.object(B, "check", side_effect=RuntimeError()):
+            d = self.ev(self.cfg_with(True), budget_probes=self.fake.probes(is_unit_active=boom))
+        errs = d["budget_shadow"]["probe_errors"]
+        self.assertEqual(errs, ["is_unit_active: RuntimeError: probe exploded", "shadow: RuntimeError"])
+        self.assertTrue(d["admit"])
+        self.assertFalse(d["budget_shadow"]["admit"])
+
+    # --- launcher wiring (systemd-run, systemctl and host probes are all mocked) --------------------------------
+    def launch(self, cfg, job_id="job-l1"):
+        run = mock.Mock(return_value=mock.Mock(returncode=0, stderr="", stdout=""))
+        with mock.patch.object(launcher, "_run", run), \
+                mock.patch.object(launcher, "active_state", return_value="inactive"), \
+                mock.patch("research_exec.budget_probes.host_probes", return_value=self.fake.probes()), \
+                mock.patch.object(launcher.adm, "evaluate", wraps=admission.evaluate) as ev:
+            rc = launcher.launch(cfg, job_id=job_id, owner="agent:test", profile=self.prof, cmd=["/bin/true"],
+                                 steal_sample=QUIET_STEAL, log=lambda *a: None)
+        jd = os.path.join(cfg["state_dir"], "jobs", job_id)
+        with open(os.path.join(jd, "admission.json")) as fh:
+            adm_rec = json.load(fh)
+        return rc, adm_rec, ev, run, jd
+
+    def test_launcher_shadow_refusal_still_launches(self):
+        self.fake.units["rj-other.service"] = True
+        self.write_state([lease("other", 300)])                 # shadow: 300 + 200 > 400 refuses
+        rc, rec, ev, run, jd = self.launch(self.cfg_with(True))
+        self.assertEqual(ev.call_args.kwargs["job_id"], "job-l1")
+        self.assertEqual(rc, 0)
+        self.assertTrue(rec["admit"], rec["reasons"])
+        self.assertFalse(rec["budget_shadow"]["admit"])
+        self.assertTrue(any(r.startswith("budget_exceeded") for r in rec["budget_shadow"]["reasons"]))
+        self.assertTrue(any(a.args[0][0] == "systemd-run" for a in run.call_args_list), run.call_args_list)
+        self.assertFalse(os.path.exists(os.path.join(jd, "job_record.json")))
+
+    def test_launcher_non_dict_budget_does_not_crash(self):
+        c = copy.deepcopy(self.cfg)
+        c["budget"] = "x"
+        rc, rec, _ev, _run, _jd = self.launch(c, job_id="job-l2")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("budget_shadow", rec)
 
 if __name__ == "__main__":
     unittest.main()

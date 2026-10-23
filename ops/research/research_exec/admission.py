@@ -10,11 +10,15 @@ import copy
 import datetime as dt
 import fcntl
 import os
+import time
 
 from . import hostsignals as hs
 
 # Required probes: no fail-closed return value exists for them, so an exception aborts the shadow computation.
 _STRICT_PROBES = ("pid_start_ticks", "boot_id", "wall_utc", "mono_s")
+# Wall-clock bound on the budget shadow (config budget.shadow_deadline_s overrides); it must never delay a launch.
+SHADOW_DEADLINE_S = 2.0
+_clock = time.monotonic                    # module attribute so tests can inject a fake clock
 
 
 def lock_path(cfg: dict, lock_name: str) -> str:
@@ -35,29 +39,64 @@ def lock_is_free(path: str) -> bool:
         os.close(fd)
 
 
+class _ShadowDeadline(Exception):
+    """The shadow ran past `budget.shadow_deadline_s`: it is abandoned (fail closed), the real decision stands."""
+
+
+def _budget_cfg(cfg: dict):
+    """The `budget` block when it is a dict, else None (any other value is ignored, as before I-2)."""
+    b = cfg.get("budget")
+    return b if isinstance(b, dict) else None
+
+
+def _shadow_enabled(cfg: dict) -> bool:
+    b = _budget_cfg(cfg)
+    return b is not None and b.get("shadow") is True
+
+
+def _fmt(e: BaseException) -> str:
+    return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
 def budget_shadow(cfg: dict, profile: dict, job_id: str | None = None, probes=None) -> dict:
     """Phase I-2 (shadow only): the aggregate-budget decision `budget.check` WOULD make, computed on a reconciled
-    COPY of budget.json. Read-only: no reservation, no lock, no state write, no directory creation. Never raises;
-    any probe or state error is recorded in `probe_errors` and makes the shadow decision refuse (fail closed).
-    The result is informational: `evaluate` never lets it change the real `admit` / `reasons`."""
+    COPY of budget.json. Read-only: no reservation, no lock, no state write, no directory creation. Any Exception
+    (probe, state or config error) is recorded in `probe_errors` and makes the shadow decision refuse (fail closed);
+    BaseException (KeyboardInterrupt, SystemExit) propagates. Time-bounded: past `budget.shadow_deadline_s`
+    (default SHADOW_DEADLINE_S, checked around every probe; systemctl probes get the same timeout) it stops with
+    `shadow_deadline_exceeded`. The result is informational: `evaluate` never lets it change the real
+    `admit` / `reasons`."""
     out = {"admit": False, "reasons": [], "capacity_pct": None, "held_pct": None, "probe_errors": []}
-    errs = out["probe_errors"]
+    errs, seen = out["probe_errors"], []
     try:
         from . import budget as B
-        bcfg = {**B.DEFAULTS, **(cfg.get("budget") or {})}
+        bcfg = {**B.DEFAULTS, **(_budget_cfg(cfg) or {})}
+        limit = float(bcfg.get("shadow_deadline_s", SHADOW_DEADLINE_S))
+        if not limit > 0:
+            raise ValueError(f"shadow_deadline_s must be > 0, got {limit}")
+        deadline = _clock() + limit
+
+        def _tick():
+            if _clock() > deadline:
+                raise _ShadowDeadline(f"deadline exceeded (shadow_deadline_s={limit:g})")
+
         if probes is None:
             from . import budget_probes as BP
-            probes = BP.host_probes()
+            probes = BP.host_probes(systemctl_timeout_s=min(limit, 10.0))
 
         def _guard(name, fn):
             def call(*a):
+                _tick()
                 try:
-                    return fn(*a)
+                    r = fn(*a)
                 except Exception as e:  # noqa: BLE001 - shadow must never raise
-                    errs.append(f"{name}: {type(e).__name__}: {e}")
+                    errs.append(f"{name}: {_fmt(e)}")
                     if name in _STRICT_PROBES:
+                        seen.append(e)
                         raise
-                    return None                    # None = "cannot tell": budget refuses on it
+                    r = None                       # None = "cannot tell": budget refuses on it
+                _tick()
+                return r
             return call
 
         safe = copy.copy(probes)
@@ -70,15 +109,19 @@ def budget_shadow(cfg: dict, profile: dict, job_id: str | None = None, probes=No
         except B.BudgetStateError as e:
             out["reasons"] = [f"budget_state_unreadable: {e}"]
             return out
+        _tick()
         st, rec_reasons, _reclaimed = B.reconcile(copy.deepcopy(st), safe, bcfg)
         req = B.Request(job_id=job_id or "?", unit=f"rj-{job_id or '?'}.service",
                         profile=str(profile.get("name", "?")), pct=int(profile["cpu_quota_pct"]),
                         pid=os.getpid(), max_runtime_s=int(profile.get("max_runtime_s", 0)))
         d = B.check(st, req, safe, bcfg)
         out.update(reasons=rec_reasons + d.reasons, capacity_pct=d.capacity_pct, held_pct=d.held_pct)
+    except _ShadowDeadline as e:
+        out.update(reasons=["shadow_deadline_exceeded"], capacity_pct=None, held_pct=None)
+        errs.append(f"shadow: {e}")
     except Exception as e:  # noqa: BLE001 - shadow must never raise
-        if not errs or not errs[-1].endswith(str(e)):
-            errs.append(f"shadow: {type(e).__name__}: {e}")
+        if not any(e is x for x in seen):      # a strict probe error is already recorded under its probe name
+            errs.append(f"shadow: {_fmt(e)}")
     if errs and "probe_error" not in out["reasons"]:
         out["reasons"].append("probe_error")
     out["admit"] = not out["reasons"]
@@ -91,8 +134,9 @@ def evaluate(cfg: dict, profile: dict, *, now_utc: dt.datetime | None = None,
     """Return {"admit": bool, "reasons": [...], "inputs": {...}}. Never raises on probe errors:
     an unreadable input is itself a refusal reason (fail-closed).
 
-    With config `budget.shadow` true (default False) the decision also carries `budget_shadow` (see
-    `budget_shadow`); it never changes `admit` or `reasons`. With it off the output is unchanged."""
+    With config `budget` a dict whose `shadow` is literally True (default False) the decision also carries
+    `budget_shadow` (see `budget_shadow`); it never changes `admit` or `reasons`. With it off, or with a non-dict
+    `budget` value (ignored, as before I-2), the output is unchanged."""
     a = cfg["admission"]
     reasons, inputs = [], {}
 
@@ -165,6 +209,6 @@ def evaluate(cfg: dict, profile: dict, *, now_utc: dt.datetime | None = None,
 
     decision = {"admit": not reasons, "reasons": reasons, "inputs": inputs,
                 "evaluated_at": (now_utc or dt.datetime.now(dt.timezone.utc)).isoformat()}
-    if (cfg.get("budget") or {}).get("shadow") is True:
+    if _shadow_enabled(cfg):
         decision["budget_shadow"] = budget_shadow(cfg, profile, job_id, budget_probes)
     return decision

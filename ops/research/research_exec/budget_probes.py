@@ -27,9 +27,9 @@ from . import budget as B
 SystemctlRunner = Callable[[list], Optional[str]]
 
 
-def _systemctl(args: list) -> Optional[str]:
+def _systemctl(args: list, timeout: float = 10) -> Optional[str]:
     try:
-        r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode in (0, 3, 4) else None      # is-active: 3 = inactive, 4 = no such unit
@@ -140,8 +140,12 @@ def live_job_units(run: SystemctlRunner = _systemctl) -> Optional[list]:
     return units
 
 
-def host_probes() -> B.Probes:
-    return B.Probes(is_unit_active=is_unit_active, pid_start_ticks=pid_start_ticks, boot_id=boot_id,
-                    wall_utc=lambda: dt.datetime.now(dt.timezone.utc), mono_s=time.monotonic,
-                    lab_slice_pct=lab_slice_pct, marker_procs_outside_slice=marker_procs_outside_slice,
-                    slice_quota_pct=slice_quota_pct, live_job_units=live_job_units)
+def host_probes(systemctl_timeout_s: float = 10) -> B.Probes:
+    """Host probes; every systemctl call is bounded by `systemctl_timeout_s` (a timeout reads as None = refuse)."""
+    def run(args):
+        return _systemctl(args, timeout=systemctl_timeout_s)
+    return B.Probes(is_unit_active=lambda u: is_unit_active(u, run=run), pid_start_ticks=pid_start_ticks,
+                    boot_id=boot_id, wall_utc=lambda: dt.datetime.now(dt.timezone.utc), mono_s=time.monotonic,
+                    lab_slice_pct=lambda: lab_slice_pct(run=run),
+                    marker_procs_outside_slice=marker_procs_outside_slice,
+                    slice_quota_pct=lambda: slice_quota_pct(run=run), live_job_units=lambda: live_job_units(run=run))
