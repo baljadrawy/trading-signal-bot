@@ -5,8 +5,10 @@ import io
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 
 _PATH = os.path.join(os.path.dirname(__file__), "..", "ops", "monitoring", "pipeline_liveness.py")
@@ -27,14 +29,20 @@ def ok_cycle(t, eligible=40):
 
 
 def make_obs(hours=24.0, last_signal_ago=1.0, signal_every=2.0, eligible=40,
-             cycles_until=0.0, analyzer=True, engine=True, deliver=True, window=None):
-    """A healthy pipeline: a cycle every 5 min, analyzer + engine per cycle."""
+             cycles_until=0.0, analyzer=True, engine=True, deliver=True, window=None,
+             zero_eligible_last_h=0.0):
+    """A healthy pipeline: a cycle every 5 min, analyzer + engine per cycle.
+
+    ``zero_eligible_last_h`` turns the last hours into 0-eligible cycles (the
+    analyzer then has nothing to analyse): the eligible -> idle transition.
+    """
     start = NOW - hours * H
     obs = pl.Observations(now=NOW, window_start=NOW - (window or hours) * H)
     t = start
     while t <= NOW - cycles_until * H:
-        obs.scanner_cycles.append(ok_cycle(t, eligible))
-        if analyzer and eligible:
+        elig = 0 if t > NOW - zero_eligible_last_h * H else eligible
+        obs.scanner_cycles.append(ok_cycle(t, elig))
+        if analyzer and elig:
             obs.analyzer_cycles.append(t + 5)
         if engine:
             obs.engine_ticks.append(t + 30)
@@ -70,10 +78,76 @@ class ClassifierStates(unittest.TestCase):
         self.assertEqual(v.state, pl.IDLE_BY_DESIGN)
         self.assertIn("window_shorter_than_stall_horizon", v.reasons)
 
-    def test_zero_eligible_market_is_idle(self):
-        v = pl.classify(make_obs(hours=30, last_signal_ago=None, eligible=0))
+    def test_zero_eligible_market_is_idle_within_stall_horizon(self):
+        v = pl.classify(make_obs(hours=8, last_signal_ago=None, eligible=0))
         self.assertEqual(v.state, pl.IDLE_BY_DESIGN)
         self.assertIn("no_eligible_coins", v.reasons)
+
+    def test_zero_eligible_beyond_stall_horizon_is_outage(self):
+        v = pl.classify(make_obs(hours=30, last_signal_ago=None, eligible=0))
+        self.assertEqual(v.state, pl.UPSTREAM_OUTAGE, v.reasons)
+        self.assertIn("zero_eligible_beyond_stall_horizon", v.reasons)
+
+    def test_empty_market_data_is_outage(self):
+        obs = make_obs()
+        obs.scanner_cycles[-2:] = [pl.ScanCycle(c.ts, pl.OK, 0, 0) for c in obs.scanner_cycles[-2:]]
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.UPSTREAM_OUTAGE, v.reasons)
+        self.assertIn("scanner_market_data_empty", v.reasons)
+
+    def test_eligible_then_idle_is_not_analyzer_stall(self):
+        v = pl.classify(make_obs(hours=24, last_signal_ago=8, signal_every=40,
+                                 zero_eligible_last_h=3))
+        self.assertEqual(v.state, pl.IDLE_BY_DESIGN, v.reasons)
+        v = pl.classify(make_obs(hours=24, zero_eligible_last_h=3))
+        self.assertEqual(v.state, pl.PRODUCTIVE, v.reasons)
+
+    def test_new_eligible_cycle_after_idle_stretch_is_not_analyzer_stall(self):
+        obs = make_obs(hours=24, zero_eligible_last_h=3)
+        obs.scanner_cycles.append(ok_cycle(NOW - 60))   # analyzer has not answered yet
+        v = pl.classify(obs)
+        self.assertNotIn("analyzer_silent_while_scanner_eligible", v.reasons)
+        self.assertEqual(v.state, pl.PRODUCTIVE, v.reasons)
+
+    def test_analyzer_dies_after_idle_stretch_is_stalled(self):
+        obs = make_obs(hours=24, zero_eligible_last_h=3)
+        t = NOW - 2 * H
+        obs.scanner_cycles = [c for c in obs.scanner_cycles if c.ts < t]
+        while t <= NOW:
+            obs.scanner_cycles.append(ok_cycle(t))     # eligible again, analyzer silent
+            t += SCAN
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.STALLED)
+        self.assertIn("analyzer_silent_while_scanner_eligible", v.reasons)
+
+    def test_paused_then_incomplete_cycle_still_blocked(self):
+        obs = make_obs(hours=24, last_signal_ago=3)
+        obs.scanner_cycles = [c for c in obs.scanner_cycles if c.ts < NOW - 1200]
+        for k in (3, 2, 1):
+            obs.scanner_cycles.append(pl.ScanCycle(NOW - k * SCAN, pl.PAUSED))
+        obs.scanner_cycles.append(pl.ScanCycle(NOW - 5, pl.INCOMPLETE))
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.BLOCKED_RISK_CONTROL, v.reasons)
+        self.assertEqual(v.evidence["paused_cycles_consecutive"], 3)
+
+    def test_non_network_scanner_errors_are_stalled_not_outage(self):
+        obs = make_obs()
+        obs.scanner_cycles = [c for c in obs.scanner_cycles if c.ts < NOW - 3 * SCAN]
+        for k in (3, 2, 1):
+            obs.scanner_cycles.append(pl.ScanCycle(NOW - k * SCAN + 1, pl.FAILED))
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.STALLED, v.reasons)
+        self.assertIn("scanner_cycles_failing_non_network_error", v.reasons)
+
+    def test_future_dated_events_fail_safe(self):
+        obs = make_obs(cycles_until=1.0)              # scanner otherwise silent for 1 h
+        obs.scanner_cycles.append(ok_cycle(NOW + 2 * H))
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.STALLED)
+        self.assertEqual(v.reasons[0], "future_dated_log_lines")
+        obs = make_obs()
+        obs.future_events = 1
+        self.assertEqual(pl.classify(obs).reasons[0], "future_dated_log_lines")
 
     def test_pause_marker_blocks(self):
         obs = make_obs(hours=24, last_signal_ago=3)
@@ -113,6 +187,29 @@ class ClassifierStates(unittest.TestCase):
         last = obs.scanner_cycles[-2:]
         obs.scanner_cycles[-2:] = [pl.ScanCycle(c.ts, pl.OK, 0, 507, True) for c in last]
         self.assertEqual(pl.classify(obs).state, pl.UPSTREAM_OUTAGE)
+
+    def test_collector_non_healthy_states_are_not_healthy(self):
+        obs = make_obs()
+        for state in ("FAILED", "STOPPED_INCOMPLETE", "BANNED_418"):
+            obs.collector = {"state": state, "ts_ms": NOW * 1000}
+            v = pl.classify(obs)
+            self.assertEqual(v.state, pl.UPSTREAM_OUTAGE, state)
+            self.assertIn("collector_state_outage", v.reasons)
+        obs.collector = {"state": "SOMETHING_NEW", "ts_ms": NOW * 1000}
+        self.assertIn("collector_state_unknown", pl.classify(obs).reasons)
+        for bad in ({"state": "HEALTHY", "ts_ms": None}, {"state": None, "ts_ms": NOW * 1000}):
+            obs.collector = bad
+            v = pl.classify(obs)
+            self.assertEqual(v.state, pl.UPSTREAM_OUTAGE, bad)
+            self.assertIn("collector_health_unparseable", v.reasons)
+        obs.collector = {"state": "HEALTHY", "ts_ms": (NOW + H) * 1000}
+        self.assertIn("collector_health_future_dated", pl.classify(obs).reasons)
+        obs.collector = {"state": "STARTING", "ts_ms": NOW * 1000}
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.PRODUCTIVE)
+        self.assertIn("collector_degraded_advisory", v.reasons)
+        obs.collector = {"state": "HEALTHY", "ts_ms": NOW * 1000}
+        self.assertEqual(pl.classify(obs).reasons, ["signal_within_productive_horizon"])
 
     def test_collector_states(self):
         obs = make_obs()
@@ -178,6 +275,31 @@ class ClassifierStates(unittest.TestCase):
         v = pl.classify(obs)
         self.assertEqual(v.state, pl.STALLED)
         self.assertIn("delivery_expired_undelivered", v.reasons)
+
+    def test_gate_refusal_drains_backlog_and_blocks(self):
+        obs = make_obs()
+        for k in (5, 4, 3):                        # capacity full: every new save refused
+            obs.signals_saved.append(NOW - k * 600)
+            obs.delivery_refusals.append(NOW - k * 600 + 20)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.BLOCKED_RISK_CONTROL, v.reasons)
+        self.assertEqual(v.reasons, ["delivery_refused_by_risk_gate"])
+        self.assertIsNone(v.evidence["delivery_backlog_age_s"])
+        obs.signals_saved.append(NOW - 300)        # gate open again
+        obs.deliveries.append(NOW - 280)
+        self.assertEqual(pl.classify(obs).state, pl.PRODUCTIVE)
+
+    def test_approval_request_is_terminal(self):
+        obs = make_obs()
+        obs.signals_saved.append(NOW - 2 * H)
+        obs.approval_requests.append(NOW - 2 * H + 30)
+        self.assertEqual(pl.classify(obs).state, pl.PRODUCTIVE)
+
+    def test_expired_candidate_does_not_stall_forever(self):
+        obs = make_obs()
+        obs.signals_saved.append(NOW - 3 * H)
+        obs.delivery_failures.append(NOW - 3 * H + 600)
+        self.assertEqual(pl.classify(obs).state, pl.PRODUCTIVE)
 
     def test_after_pause_lifts_no_false_stall(self):
         obs = pl.Observations(now=NOW, window_start=NOW - 40 * H)
@@ -323,13 +445,115 @@ class Adapter(unittest.TestCase):
             "scanner": scanner_log(start, 4, 0),
             "signal_engine": [_app(start + 30, "signal_engine", "INFO", pl.ENGINE_NO_FRESH),
                               _app(start + 60, "signal_engine", "INFO", pl.ENGINE_SAVED + " ID: 1")],
-            "telegram": [_app(start + 99, "telegram", "ERROR", "candidate 1 for signal 1 "
-                              + pl.TG_EXPIRED + " after 2 deferral(s): x")],
+            "telegram": [
+                _app(start + 99, "telegram", "ERROR",
+                     "candidate 1 for signal 1 expired undelivered after 2 deferral(s): x"),
+                _app(start + 120, "telegram", "ERROR",
+                     "notification trade.closed 9 expired undelivered (TTL 24h)"),
+                _app(start + 130, "telegram", "INFO",
+                     pl.TG_REFUSED + " X إلى Telegram: " + SECRET_REASON),
+                _app(start + 140, "telegram", "INFO", pl.TG_APPROVAL + ": X"),
+            ],
         }, NOW, NOW - H)
         self.assertEqual(len(obs.scanner_cycles), 4)
         self.assertEqual(len(obs.engine_ticks), 2)
         self.assertEqual(len(obs.signals_saved), 1)
-        self.assertEqual(len(obs.delivery_failures), 1)
+        self.assertEqual(len(obs.delivery_failures), 1)    # notification expiry not counted
+        self.assertEqual(len(obs.delivery_refusals), 1)
+        self.assertEqual(len(obs.approval_requests), 1)
+        self.assertNotIn(SECRET_REASON, repr(obs))
+
+    def test_redact_cuts_refusal_reason(self):
+        line = "x | " + pl.TG_REFUSED + " SYM إلى Telegram: " + SECRET_REASON
+        cut = pl.redact(line)
+        self.assertTrue(cut.endswith(pl.TG_REFUSED))
+        self.assertNotIn(SECRET_REASON, cut)
+
+    def test_scanner_error_level_decides_network(self):
+        t = NOW - 2 * SCAN
+        lines = [_app(t, "scanner", "INFO", pl.SCAN_START + "..."),
+                 _app(t + 1, "scanner", "ERROR", pl.SCAN_FAIL + " (1): KeyError: 'x'"),
+                 _app(t + SCAN, "scanner", "INFO", pl.SCAN_START + "..."),
+                 _app(t + SCAN + 1, "scanner", "WARNING",
+                      pl.SCAN_FAIL + " (1): ClientConnectorError: x")]
+        cycles, errors = pl.parse_scanner(lines)
+        self.assertEqual([c.outcome for c in cycles], [pl.FAILED, pl.FAILED])
+        self.assertEqual([c.upstream_error for c in cycles], [False, True])
+        self.assertEqual(len(errors), 1)
+        stamp = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z "
+        for exc, net in (("TimeoutError", True), ("ValueError", False), ("", False)):
+            self.assertEqual(pl._is_network_failure(stamp + pl.SCAN_FAIL + f" (2): {exc}: x"), net)
+
+    def test_build_observations_clips_and_flags_future(self):
+        obs = pl.build_observations({
+            "analyzer": [_app(NOW - 2 * H, "analyzer", "INFO", pl.ANALYZER_CYCLE),   # before window
+                         _app(NOW - 60, "analyzer", "INFO", pl.ANALYZER_CYCLE),
+                         _app(NOW + 30, "analyzer", "INFO", pl.ANALYZER_CYCLE),     # within skew
+                         _app(NOW + H, "analyzer", "INFO", pl.ANALYZER_CYCLE)],     # future
+            "scanner": [_app(NOW + H, "scanner", "INFO", pl.SCAN_START + "...")],
+        }, NOW, NOW - H)
+        self.assertEqual(obs.analyzer_cycles, [NOW - 60, NOW])
+        self.assertEqual(obs.scanner_cycles, [])
+        self.assertEqual(obs.future_events, 2)
+        v = pl.classify(obs)
+        self.assertEqual((v.state, v.reasons[0]), (pl.STALLED, "future_dated_log_lines"))
+
+
+class CliFailSafe(unittest.TestCase):
+    def run_main(self, args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = pl.main(["--now", str(NOW)] + args)
+        return rc, json.loads(buf.getvalue())
+
+    def test_docker_failures_give_fixed_code_verdict(self):
+        for effect, code in ((FileNotFoundError("docker"), "docker_unavailable"),
+                             (subprocess.TimeoutExpired("docker", 1), "docker_logs_timeout"),
+                             (None, "docker_logs_failed")):
+            done = subprocess.CompletedProcess([], 1, stdout=b"Error: No such container: x")
+            with mock.patch.object(pl.subprocess, "run",
+                                   side_effect=effect, return_value=done) as run:
+                rc, out = self.run_main([])
+            self.assertNotEqual(rc, 0)
+            self.assertEqual(out["state"], pl.STALLED)
+            self.assertEqual(out["reasons"], ["log_source_unavailable"])
+            self.assertEqual(set(out["evidence"]["log_source_errors"].values()), {code})
+            self.assertNotIn("No such container", json.dumps(out))
+            self.assertIsNotNone(run.call_args.kwargs.get("timeout"))
+
+    def test_unreadable_log_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            args = []
+            for stage in pl.CONTAINERS:
+                args += ["--log-file", f"{stage}={os.path.join(d, stage + '.missing')}"]
+            rc, out = self.run_main(args)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out["evidence"]["log_source_errors"]["scanner"], "log_file_unreadable")
+
+    def test_invalid_state_file_is_no_prior_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "s.json")
+            for bad in ({"state": "HEALTHY_ISH", "since": 1.0},
+                        {"state": pl.PRODUCTIVE, "since": "x"}, ["not", "a", "dict"]):
+                with open(p, "w") as fh:
+                    json.dump(bad, fh)
+                self.assertEqual(pl._load_tracker_state(p), pl.TrackerState())
+            with open(p, "w") as fh:
+                json.dump({"state": pl.STALLED, "since": 5.0, "candidate": "BOGUS",
+                           "candidate_count": 4}, fh)
+            self.assertEqual(pl._load_tracker_state(p), pl.TrackerState(pl.STALLED, 5.0, None, 0))
+            with open(p, "w") as fh:
+                json.dump({"state": "BOGUS", "since": 1.0}, fh)
+            logs = []
+            for stage in pl.CONTAINERS:
+                f = os.path.join(d, stage + ".log")
+                open(f, "w").close()
+                logs += ["--log-file", f"{stage}={f}"]
+            rc, out = self.run_main(logs + ["--state-file", p])
+            self.assertEqual(rc, 0)
+            self.assertEqual(out["state"], out["raw_state"])   # first evaluation adopts raw
+            with open(p) as fh:
+                self.assertIn(json.load(fh)["state"], pl.STATES)
 
 
 class Derivation(unittest.TestCase):
