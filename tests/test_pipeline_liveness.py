@@ -82,6 +82,21 @@ class ClassifierStates(unittest.TestCase):
         v = pl.classify(make_obs(hours=8, last_signal_ago=None, eligible=0))
         self.assertEqual(v.state, pl.IDLE_BY_DESIGN)
         self.assertIn("no_eligible_coins", v.reasons)
+        self.assertIn("window_shorter_than_stall_horizon", v.reasons)   # rule cannot fire
+        v = pl.classify(make_obs(hours=30, window=30, last_signal_ago=None, eligible=0,
+                                 zero_eligible_last_h=0))
+        self.assertNotIn("window_shorter_than_stall_horizon", v.reasons)
+
+    def test_sparse_failed_cycles_do_not_reset_zero_eligible_clock(self):
+        obs = make_obs(hours=30, last_signal_ago=None, eligible=0)
+        last = obs.scanner_cycles[-1].ts
+        obs.scanner_cycles = [pl.ScanCycle(c.ts, pl.FAILED)
+                              if int(c.ts) % int(2 * H) == 0 and last - c.ts > 4 * SCAN else c
+                              for c in obs.scanner_cycles]
+        self.assertGreater(sum(c.outcome == pl.FAILED for c in obs.scanner_cycles), 5)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.UPSTREAM_OUTAGE, v.reasons)
+        self.assertIn("zero_eligible_beyond_stall_horizon", v.reasons)
 
     def test_zero_eligible_beyond_stall_horizon_is_outage(self):
         v = pl.classify(make_obs(hours=30, last_signal_ago=None, eligible=0))
@@ -293,13 +308,50 @@ class ClassifierStates(unittest.TestCase):
         obs = make_obs()
         obs.signals_saved.append(NOW - 2 * H)
         obs.approval_requests.append(NOW - 2 * H + 30)
-        self.assertEqual(pl.classify(obs).state, pl.PRODUCTIVE)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.PRODUCTIVE)     # a later delivery supersedes it
+        self.assertIsNone(v.evidence["delivery_backlog_age_s"])
+
+    def test_approvals_alone_are_never_productive(self):
+        obs = make_obs(last_signal_ago=None)
+        for k in (3, 1):
+            obs.signals_saved.append(NOW - k * H)
+            obs.approval_requests.append(NOW - k * H + 30)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.IDLE_BY_DESIGN, v.reasons)
+        self.assertEqual(v.reasons, ["awaiting_owner_approval"])
+        self.assertEqual(v.evidence["deliveries"], 0)
+
+    def test_all_signals_expiring_undelivered_is_stalled(self):
+        # telegram failing > 2 h: every candidate expires, none delivered
+        obs = make_obs(last_signal_ago=None)
+        for k in (5, 3):
+            obs.signals_saved.append(NOW - k * H)
+            obs.delivery_failures.append(NOW - k * H + 2 * H)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.STALLED, v.reasons)
+        self.assertIn("delivery_expired_undelivered", v.reasons)
+        self.assertNotIn("signal_saved_not_delivered", v.reasons)   # backlog drained
+        self.assertEqual(v.evidence["deliveries"], 0)
+
+    def test_fresh_signal_without_any_delivery_is_not_productive(self):
+        obs = make_obs(last_signal_ago=None)
+        obs.signals_saved.append(NOW - 600)            # pending, within normal lag
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.IDLE_BY_DESIGN, v.reasons)
+        self.assertEqual(v.reasons, ["signal_not_yet_delivered"])
 
     def test_expired_candidate_does_not_stall_forever(self):
-        obs = make_obs()
+        obs = make_obs(last_signal_ago=None)
         obs.signals_saved.append(NOW - 3 * H)
         obs.delivery_failures.append(NOW - 3 * H + 600)
-        self.assertEqual(pl.classify(obs).state, pl.PRODUCTIVE)
+        self.assertEqual(pl.classify(obs).state, pl.STALLED)      # no later delivery yet
+        obs.signals_saved.append(NOW - H)                          # telegram recovered
+        obs.deliveries.append(NOW - H + 60)
+        v = pl.classify(obs)
+        self.assertEqual(v.state, pl.PRODUCTIVE, v.reasons)
+        self.assertIsNone(v.evidence["delivery_backlog_age_s"])
+        self.assertEqual(v.evidence["deliveries"], 1)
 
     def test_after_pause_lifts_no_false_stall(self):
         obs = pl.Observations(now=NOW, window_start=NOW - 40 * H)
@@ -343,6 +395,19 @@ class Hysteresis(unittest.TestCase):
         s, _ = pl.step(pl.TrackerState(), self.v(pl.PRODUCTIVE), 0)
         s, out = pl.step(s, self.v(pl.IDLE_BY_DESIGN), 1)
         self.assertEqual(out.state, pl.IDLE_BY_DESIGN)
+
+    def test_timeline_future_events_only_at_real_now(self):
+        obs = make_obs(hours=12)
+        obs.future_events = 1
+        segs = pl.timeline(obs, 1800)
+        self.assertNotIn(pl.STALLED, [sg["state"] for sg in segs])   # earlier steps clean
+        self.assertEqual(segs[-1]["to"], pl._iso(NOW))                 # replay ends at now
+        segs = pl.timeline(obs, 1800, enter_confirm=1)
+        self.assertEqual(segs[-1]["state"], pl.STALLED)
+        self.assertEqual(segs[-1]["reasons"][0], "future_dated_log_lines")
+        self.assertEqual(segs[-1]["from"], pl._iso(NOW))
+        self.assertEqual(pl.classify(obs.until(NOW - H)).state, pl.PRODUCTIVE)
+        self.assertEqual(pl.classify(obs).state, pl.STALLED)        # single shot fail-safe
 
     def test_timeline_productive_then_blocked(self):
         obs = make_obs(hours=24, last_signal_ago=4, signal_every=1)
@@ -542,6 +607,26 @@ class CliFailSafe(unittest.TestCase):
                 json.dump({"state": pl.STALLED, "since": 5.0, "candidate": "BOGUS",
                            "candidate_count": 4}, fh)
             self.assertEqual(pl._load_tracker_state(p), pl.TrackerState(pl.STALLED, 5.0, None, 0))
+            for count, want in ((99, pl.EXIT_CONFIRM - 1), (-7, 0)):
+                with open(p, "w") as fh:
+                    json.dump({"state": pl.STALLED, "since": 5.0, "candidate": pl.PRODUCTIVE,
+                               "candidate_count": count}, fh)
+                st = pl._load_tracker_state(p)
+                self.assertEqual(st, pl.TrackerState(pl.STALLED, 5.0, pl.PRODUCTIVE, want))
+            with open(p, "w") as fh:
+                json.dump({"state": pl.PRODUCTIVE, "since": 5.0, "candidate": pl.STALLED,
+                           "candidate_count": 50}, fh)
+            st = pl._load_tracker_state(p)
+            self.assertEqual(st.candidate_count, pl.ENTER_CONFIRM - 1)
+            # a clamped count still needs one real confirmation, never zero
+            _, out = pl.step(pl.TrackerState(pl.STALLED, 5.0, pl.PRODUCTIVE, pl.EXIT_CONFIRM - 1),
+                             pl.Verdict(pl.IDLE_BY_DESIGN, ["x"], {}), 6.0)
+            self.assertEqual(out.state, pl.STALLED)
+            for bad in ("9", 2.5, True):
+                with open(p, "w") as fh:
+                    json.dump({"state": pl.STALLED, "since": 5.0, "candidate": pl.PRODUCTIVE,
+                               "candidate_count": bad}, fh)
+                self.assertEqual(pl._load_tracker_state(p), pl.TrackerState())
             with open(p, "w") as fh:
                 json.dump({"state": "BOGUS", "since": 1.0}, fh)
             logs = []

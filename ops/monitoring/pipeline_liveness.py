@@ -7,10 +7,14 @@ nothing (e.g. the scanner returning 0 coins every cycle because the risk
 control pause is active).  This module classifies end-to-end liveness from
 per-stage observations instead:
 
-    PRODUCTIVE            signals are being produced and delivered
+    PRODUCTIVE            signals are being produced and the latest acked
+                          candidate outcome is a delivery within the
+                          productive horizon
     IDLE_BY_DESIGN        stages alive, no signal yet but within the normal
                           low-signal horizon (or the market filter yields 0
-                          for less than the stall horizon)
+                          for less than the stall horizon), a fresh signal
+                          not yet delivered, or the latest candidate awaiting
+                          owner approval
     BLOCKED_RISK_CONTROL  the scanner reports the risk-control pause marker,
                           or the telegram gate refused the latest candidate
                           (pause / portfolio capacity)
@@ -21,8 +25,9 @@ per-stage observations instead:
     STALLED               scanner silent or failing with non-network errors,
                           a downstream stage silent while its upstream
                           produces, no signal / no delivery beyond the
-                          abnormal horizon, future-dated log lines, or a log
-                          source that cannot be read
+                          abnormal horizon, the latest candidate outcome an
+                          expiry without a later delivery, future-dated log
+                          lines, or a log source that cannot be read
 
 Privacy contract: the pause *reason* is PROTECTED.  The adapter detects only
 the pause marker character and discards everything after it; observations,
@@ -71,6 +76,14 @@ HEALTHY_STATES = (PRODUCTIVE, IDLE_BY_DESIGN)
 
 # Scanner cycle outcomes
 OK, PAUSED, FAILED, INCOMPLETE = "ok", "paused", "failed", "incomplete"
+
+# Telegram candidate outcomes, ordered from least to most alarming
+_DELIVERED, _APPROVAL, _REFUSED, _EXPIRED = 0, 1, 2, 3
+_OUTCOME_NAMES = {_DELIVERED: "delivered", _APPROVAL: "approval_requested",
+                  _REFUSED: "refused", _EXPIRED: "expired_undelivered"}
+
+# Hysteresis confirmations (see step())
+ENTER_CONFIRM, EXIT_CONFIRM = 2, 3
 
 
 # ----------------------------------------------------------------------------
@@ -198,7 +211,12 @@ class Observations:
                 + self.upstream_errors)
 
     def until(self, t: float, lookback_s: Optional[float] = None) -> "Observations":
-        """Observations as they would have been seen at time ``t``."""
+        """Observations as they would have been seen at time ``t``.
+
+        ``future_events`` counts lines dated beyond the *real* now; they are
+        only future relative to a step that is itself at the real now, so an
+        earlier replay step does not inherit them.
+        """
         lo = self.window_start if lookback_s is None else max(self.window_start, t - lookback_s)
         f = lambda xs: [x for x in xs if lo <= x <= t]
         return Observations(
@@ -210,7 +228,7 @@ class Observations:
             delivery_refusals=f(self.delivery_refusals),
             approval_requests=f(self.approval_requests),
             upstream_errors=f(self.upstream_errors), collector=self.collector,
-            future_events=self.future_events)
+            future_events=self.future_events if t >= self.now else 0)
 
 
 @dataclass
@@ -372,17 +390,30 @@ def classify(obs: Observations, th: Thresholds = DEFAULT_THRESHOLDS) -> Verdict:
     reasons: List[str] = []
     if degraded >= th.outage_cycles:
         reasons.append("scanner_cycles_failing_or_fetch_errors")
-    zero_run: List[ScanCycle] = []              # trailing ok cycles with 0 eligible coins
+    # Zero-eligible stretch: ok cycles with 0 eligible coins since the last
+    # eligible>0 (or paused) cycle.  A FAILED cycle neither counts nor resets
+    # the stretch, so sparse failures cannot keep it IDLE_BY_DESIGN forever.
+    stall_s = th.stall_no_signal_h * 3600
+    zero_run: List[ScanCycle] = []
+    zero_since: Optional[float] = None
+    zero_truncated = True                       # stretch reaches the window start
     for c in reversed(closed):
-        if c.outcome != OK or (c.eligible or 0) > 0:
+        if c.outcome == PAUSED or (c.outcome == OK and (c.eligible or 0) > 0):
+            zero_truncated = False
             break
-        zero_run.append(c)
+        if c.outcome == OK:
+            zero_run.append(c)
+        zero_since = c.ts
     ev["zero_eligible_cycles_consecutive"] = len(zero_run)
+    if zero_run:
+        ev["zero_eligible_for_s"] = round(now - zero_since, 1)
     if (len(zero_run) >= th.outage_cycles
             and all(c.total == 0 for c in zero_run[:th.outage_cycles])):
         reasons.append("scanner_market_data_empty")
-    elif zero_run and now - zero_run[-1].ts > th.stall_no_signal_h * 3600:
+    elif zero_run and now - zero_since > stall_s:
         reasons.append("zero_eligible_beyond_stall_horizon")
+    elif zero_run and zero_truncated and window_s < stall_s:
+        advisory.append("window_shorter_than_stall_horizon")
     if collector_outage:
         reasons.append(collector_outage)
     if reasons:
@@ -427,38 +458,59 @@ def classify(obs: Observations, th: Thresholds = DEFAULT_THRESHOLDS) -> Verdict:
 
     # Only signals saved in the current (unpaused) run count: the pause gate
     # legitimately holds delivery, so pre-pause leftovers are not a stall.
-    # Every acked outcome is terminal: delivered, refused by the risk gate,
-    # sent for manual approval, or expired undelivered.
+    # Every acked outcome drains the backlog: delivered, refused by the risk
+    # gate, sent for manual approval, or expired undelivered.  Draining is not
+    # health: only a delivery can make the verdict PRODUCTIVE.
+    run_from = run_start - th.delivery_skew_s
     terminal = sorted(obs.deliveries + obs.delivery_refusals + obs.approval_requests
                       + obs.delivery_failures)
     b_since = backlog_since([t for t in obs.signals_saved if t >= run_start],
-                            [t for t in terminal if t >= run_start - th.delivery_skew_s],
+                            [t for t in terminal if t >= run_from],
                             th.delivery_skew_s)
     ev["delivery_backlog_age_s"] = _age(now, b_since)
     if b_since is not None and now - b_since > th.delivery_stall_min * 60:
         stalled.append("signal_saved_not_delivered")
+    # Latest acked candidate outcome; on a timestamp tie the more alarming
+    # kind sorts last and wins.
+    outcomes = sorted([(t, _DELIVERED) for t in obs.deliveries]
+                      + [(t, _APPROVAL) for t in obs.approval_requests]
+                      + [(t, _REFUSED) for t in obs.delivery_refusals]
+                      + [(t, _EXPIRED) for t in obs.delivery_failures])
+    last_out = outcomes[-1] if outcomes else None
+    if last_out is not None:
+        ev["last_candidate_outcome"] = _OUTCOME_NAMES[last_out[1]]
+        ev["last_candidate_outcome_age_s"] = _age(now, last_out[0])
     recent_fail = [t for t in obs.delivery_failures
                    if t >= run_start and now - t <= th.delivery_stall_min * 60]
-    if recent_fail:
+    # An expiry drains the backlog but is a delivery failure: it stays STALLED
+    # until a later delivery (or other acked outcome) supersedes it.
+    expired_last = (last_out is not None and last_out[1] == _EXPIRED
+                    and last_out[0] >= run_from)
+    if recent_fail or expired_last:
         stalled.append("delivery_expired_undelivered")
     if stalled:
         return Verdict(STALLED, stalled + advisory, ev)
 
     # 5. Delivery gate refusing (pause or capacity): the latest acked
     # candidate outcome was a refusal, so signals cannot become trades.
-    outcomes = sorted([(t, 0) for t in obs.deliveries + obs.approval_requests]
-                      + [(t, 1) for t in obs.delivery_refusals])
-    if outcomes and outcomes[-1][1] == 1:
-        ev["last_refusal_age_s"] = _age(now, outcomes[-1][0])
+    if last_out is not None and last_out[1] == _REFUSED:
+        ev["last_refusal_age_s"] = _age(now, last_out[0])
         return Verdict(BLOCKED_RISK_CONTROL, ["delivery_refused_by_risk_gate"] + advisory, ev)
 
-    # 6. Healthy states
-    if last_signal is not None and now - last_signal <= th.productive_h * 3600:
-        return Verdict(PRODUCTIVE, ["signal_within_productive_horizon"] + advisory, ev)
+    # 6. Healthy states.  An approval request is not a trade: never PRODUCTIVE.
+    if last_out is not None and last_out[1] == _APPROVAL and last_out[0] >= run_from:
+        return Verdict(IDLE_BY_DESIGN, ["awaiting_owner_approval"] + advisory, ev)
+    productive_s = th.productive_h * 3600
+    if last_signal is not None and now - last_signal <= productive_s:
+        if (last_out is not None and last_out[1] == _DELIVERED
+                and now - last_out[0] <= productive_s):
+            return Verdict(PRODUCTIVE, ["signal_within_productive_horizon"] + advisory, ev)
+        return Verdict(IDLE_BY_DESIGN, ["signal_not_yet_delivered"] + advisory, ev)
     if not eligible_cycles:
         return Verdict(IDLE_BY_DESIGN, ["no_eligible_coins"] + advisory, ev)
     idle = ["no_signal_within_normal_low_signal_horizon"]
-    if window_truncated and window_s < th.stall_no_signal_h * 3600:
+    if (window_truncated and window_s < stall_s
+            and "window_shorter_than_stall_horizon" not in advisory):
         idle.append("window_shorter_than_stall_horizon")
     return Verdict(IDLE_BY_DESIGN, idle + advisory, ev)
 
@@ -474,8 +526,16 @@ class TrackerState:
     candidate_count: int = 0
 
 
+def _confirm_need(state: str, candidate: str, enter_confirm: int = ENTER_CONFIRM,
+                  exit_confirm: int = EXIT_CONFIRM) -> int:
+    if candidate not in HEALTHY_STATES and state in HEALTHY_STATES:
+        return enter_confirm
+    return exit_confirm
+
+
 def step(prev: TrackerState, raw: Verdict, now: float,
-         enter_confirm: int = 2, exit_confirm: int = 3) -> Tuple[TrackerState, Verdict]:
+         enter_confirm: int = ENTER_CONFIRM,
+         exit_confirm: int = EXIT_CONFIRM) -> Tuple[TrackerState, Verdict]:
     """Debounce raw verdicts.  A switch into an unhealthy state needs
     ``enter_confirm`` consecutive raw evaluations; a switch back to a healthy
     state (or between unhealthy states) needs ``exit_confirm``.  Moves between
@@ -488,8 +548,7 @@ def step(prev: TrackerState, raw: Verdict, now: float,
         return TrackerState(prev.state, prev.since, None, 0), raw
     if raw.state in HEALTHY_STATES and prev.state in HEALTHY_STATES:
         return TrackerState(raw.state, now, None, 0), raw
-    need = enter_confirm if (raw.state not in HEALTHY_STATES and prev.state in HEALTHY_STATES) \
-        else exit_confirm
+    need = _confirm_need(prev.state, raw.state, enter_confirm, exit_confirm)
     count = prev.candidate_count + 1 if prev.candidate == raw.state else 1
     if count >= need:
         return TrackerState(raw.state, now, None, 0), raw
@@ -505,15 +564,20 @@ def timeline(obs: Observations, step_s: float, th: Thresholds = DEFAULT_THRESHOL
              **kw) -> List[Dict[str, object]]:
     """Replay the window with hysteresis; return state segments."""
     t = start if start is not None else obs.window_start + th.silence_s
+    times: List[float] = []
+    while t <= obs.now + 1e-9:
+        times.append(t)
+        t += step_s
+    if not times or times[-1] < obs.now:   # always end at the real now
+        times.append(obs.now)
     tracker = TrackerState()
     segs: List[Dict[str, object]] = []
-    while t <= obs.now + 1e-9:
+    for t in times:
         tracker, v = step(tracker, classify(obs.until(t, lookback_s), th), t, **kw)
         if not segs or segs[-1]["state"] != v.state:
             segs.append({"state": v.state, "from": _iso(t), "to": _iso(t), "reasons": v.reasons})
         else:
             segs[-1]["to"] = _iso(t)
-        t += step_s
     return segs
 
 
@@ -765,18 +829,27 @@ def _file_lines(path: str) -> List[str]:
 
 
 def _load_tracker_state(path: str) -> TrackerState:
-    """Persisted hysteresis state; anything invalid means "no prior state"."""
+    """Persisted hysteresis state; anything invalid means "no prior state".
+
+    An out-of-range ``candidate_count`` is clamped to [0, need - 1] for that
+    transition, so a corrupt file can never skip the confirmation rounds.
+    """
     try:
         with open(path, encoding="utf-8") as fh:
             d = json.load(fh)
         state, since, cand = d.get("state"), d.get("since"), d.get("candidate")
-        count = int(d.get("candidate_count") or 0)
+        count = d.get("candidate_count", 0)
     except (OSError, ValueError, TypeError, AttributeError):
         return TrackerState()
     if state not in STATES or not isinstance(since, (int, float)) or isinstance(since, bool):
         return TrackerState()
-    if cand not in STATES or count < 0:
-        cand, count = None, 0
+    if count is None:
+        count = 0
+    if not isinstance(count, int) or isinstance(count, bool):
+        return TrackerState()
+    if cand not in STATES or cand == state:
+        return TrackerState(state, float(since), None, 0)
+    count = max(0, min(count, _confirm_need(state, cand) - 1))
     return TrackerState(state, float(since), cand, count)
 
 
