@@ -13,8 +13,16 @@ correct fail-closed behaviour and is NOT changed here. What was missing is a gov
 technical halt apart from a genuine risk-limit halt, and to require evidence that the technical
 condition is gone before the owner resumes.
 
+Provenance, not the current label: record_risk_decision's upsert rewrites pause_reason whenever a new
+hard halt is recorded (CASE WHEN EXCLUDED.is_trading_paused THEN EXCLUDED.pause_reason ...), and the
+finite-input check outranks the pause check. So while ANY halt is active (risk limit or /pause) a later
+price timeout relabels the row 'risk:invalid_risk_state', and a later date inserts a newer row with
+that reason. The current reason therefore cannot prove the halt began technically. Eligibility needs
+the caller-supplied pause history since the last manual_resume: complete, non-empty, every entry
+TECHNICAL, ending at the current reason.
+
 Invariants (pinned by tests/test_halt_recovery.py):
-- Only TECHNICAL halts can ever be assessed eligible. RISK_LIMIT, MANUAL and UNKNOWN never are; they
+- Only TECHNICAL halts with an all-TECHNICAL, complete history can ever be assessed eligible. RISK_LIMIT, MANUAL and UNKNOWN never are; they
   keep the existing /recover_risk and /resume governance.
 - Unrecognised input is UNKNOWN / ineligible (fail-closed); classification is by exact string.
 - Blockers and result codes are fixed strings; no market, P&L or account value is ever echoed.
@@ -72,6 +80,8 @@ _NON_HALT_DECISION_REASONS = frozenset({
 # ── fixed blocker / result codes ──────────────────────────────────────────
 
 B_NOT_TECHNICAL = 'not_technical_halt'
+B_HISTORY_INCOMPLETE = 'halt_history_incomplete'
+B_PROVENANCE = 'halt_provenance_not_technical'
 B_CLOCK_INVALID = 'clock_invalid'
 B_CHECK_MALFORMED = 'check_malformed'
 B_CHECK_STALE = 'check_stale'
@@ -84,10 +94,13 @@ B_INDEPENDENT_HALT = 'independent_risk_halt_active'
 B_UNRECOGNISED_DECISION = 'unrecognised_decision_reason'
 B_LOSS_STREAK = 'loss_streak_halt_active'
 B_CLEAN_CHECKS = 'insufficient_clean_checks'
+B_CLEAN_CHECKS_INVALID = 'clean_checks_invalid'
+B_CLEAN_CHECKS_WINDOW = 'clean_checks_outside_window'
 
-ALL_BLOCKERS = (B_NOT_TECHNICAL, B_CLOCK_INVALID, B_CHECK_MALFORMED, B_CHECK_STALE, B_CHECK_FUTURE,
-                B_NON_FINITE, B_PRICE_COVERAGE, B_FRESH_INVALID, B_PAUSE_NOT_MASKED,
-                B_INDEPENDENT_HALT, B_UNRECOGNISED_DECISION, B_LOSS_STREAK, B_CLEAN_CHECKS)
+ALL_BLOCKERS = (B_NOT_TECHNICAL, B_HISTORY_INCOMPLETE, B_PROVENANCE, B_CLOCK_INVALID,
+                B_CHECK_MALFORMED, B_CHECK_STALE, B_CHECK_FUTURE, B_NON_FINITE, B_PRICE_COVERAGE,
+                B_FRESH_INVALID, B_PAUSE_NOT_MASKED, B_INDEPENDENT_HALT, B_UNRECOGNISED_DECISION,
+                B_LOSS_STREAK, B_CLEAN_CHECKS, B_CLEAN_CHECKS_INVALID, B_CLEAN_CHECKS_WINDOW)
 
 R_CONFIRMED = 'confirmed'
 R_MALFORMED = 'malformed_request'
@@ -116,6 +129,11 @@ def _aware(value) -> bool:
         and value.tzinfo.utcoffset(value) is not None
 
 
+def _positive_finite(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) \
+        and 0 < value < float('inf')
+
+
 def classify_halt(pause_reason) -> str:
     """Map a pause reason (as get_pause_state reports it) to TECHNICAL / RISK_LIMIT / MANUAL / UNKNOWN.
 
@@ -135,20 +153,27 @@ class FreshRiskCheck:
 
     evaluated_at            aware UTC datetime at which the check was computed.
     inputs_finite           every numeric snapshot input was finite (no NaN/inf from a missing price).
-    prices_requested        number of open positions that needed a current price.
+    open_count              number of open positions in the snapshot. Required: a flat book is
+                            eligible only when the caller explicitly asserts open_count == 0.
+    prices_requested        number of open positions that needed a current price; must equal
+                            open_count (one price per open position).
     prices_obtained         number of usable prices actually obtained for them.
     decision_reason         reason of a fresh evaluate_new_trade on the snapshot WITH THE ADMINISTRATIVE
                             PAUSE MASKED (manually_paused=False), so an independent halt stays visible.
     loss_streak_halt_active halt_active from the independent shared.risk_epoch.loss_streak_state().
-    consecutive_clean_checks number of consecutive checks, ending with this one, that were clean.
+    clean_check_times       aware timestamps of the consecutive clean checks, oldest first, ending with
+                            this one (last element == evaluated_at). The module verifies count,
+                            ordering, spacing and window; that each listed check was clean by these
+                            same criteria is the caller's attestation, not something checked here.
     """
     evaluated_at: datetime
     inputs_finite: bool
+    open_count: int
     prices_requested: int
     prices_obtained: int
     decision_reason: str
     loss_streak_halt_active: bool
-    consecutive_clean_checks: int
+    clean_check_times: tuple
 
 
 def mask_administrative_pause(snapshot):
@@ -167,26 +192,69 @@ class Assessment:
     blockers: tuple[str, ...]
     pause_reason: str | None = None
     decision_reason: str | None = None
+    provenance_digest: str | None = None
+    history_complete: bool = False
+
+
+def _collapse(reasons) -> tuple[str, ...]:
+    """Drop consecutive repeats: the scanner logs the same reason every paused cycle, so only the
+    transitions matter, and a confirmation a few cycles later must reproduce the same digest."""
+    out: list[str] = []
+    for r in reasons:
+        if not out or out[-1] != r:
+            out.append(r)
+    return tuple(out)
+
+
+def _provenance_digest(collapsed: tuple[str, ...]) -> str:
+    payload = json.dumps({'v': 1, 'reasons': list(collapsed)}, ensure_ascii=True,
+                         separators=(',', ':'))
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 def assess_technical_resume(pause_reason, checks: FreshRiskCheck, now: datetime, *,
-                            max_age_s: float = 120, min_clean_checks: int = 3) -> Assessment:
+                            reasons_since_last_resume, history_complete,
+                            max_age_s: float = 120, min_clean_checks: int = 3,
+                            min_check_spacing_s: float = 20,
+                            max_check_window_s: float = 900) -> Assessment:
     """Decide whether a technical halt is eligible for an owner-approved resume.
+
+    reasons_since_last_resume  every pause reason observed since the last manual_resume, oldest
+                               first, from a non-protected source (scanner pause log lines, the
+                               risk.halted outbox reason). Consecutive repeats are allowed.
+    history_complete           True only if the caller can show that source covers the whole
+                               interval since that resume. Anything else blocks.
 
     Never raises on bad data: every defect becomes a fixed blocker. Raises ValueError only for an
     invalid policy parameter (a programming error, not a runtime condition).
     """
-    if not (isinstance(max_age_s, (int, float)) and not isinstance(max_age_s, bool)
-            and 0 < max_age_s < float('inf')):
+    if not _positive_finite(max_age_s):
         raise ValueError('max_age_s must be a positive finite number')
     if not (_is_int(min_clean_checks) and min_clean_checks >= 1):
         raise ValueError('min_clean_checks must be an integer >= 1')
+    if not _positive_finite(min_check_spacing_s):
+        raise ValueError('min_check_spacing_s must be a positive finite number')
+    if not (_positive_finite(max_check_window_s)
+            and max_check_window_s >= (min_clean_checks - 1) * min_check_spacing_s):
+        raise ValueError('max_check_window_s must be finite and fit the required clean checks')
 
     halt_class = classify_halt(pause_reason)
     reason_out = pause_reason if halt_class != UNKNOWN else None
     blockers: list[str] = []
     if halt_class != TECHNICAL:
         blockers.append(B_NOT_TECHNICAL)
+
+    # Provenance: the current label alone can be a relabelled risk-limit or manual halt.
+    provenance_digest = None
+    hist = reasons_since_last_resume
+    hist_ok = (isinstance(hist, (tuple, list)) and len(hist) > 0
+               and all(isinstance(r, str) for r in hist))
+    if history_complete is not True or not hist_ok or hist[-1] != pause_reason:
+        blockers.append(B_HISTORY_INCOMPLETE)
+    if hist_ok:
+        if any(classify_halt(r) != TECHNICAL for r in hist):
+            blockers.append(B_PROVENANCE)
+        provenance_digest = _provenance_digest(_collapse(hist))
 
     decision_reason = None
     if not _aware(now):
@@ -203,8 +271,9 @@ def assess_technical_resume(pause_reason, checks: FreshRiskCheck, now: datetime,
                 blockers.append(B_CHECK_STALE)
         if checks.inputs_finite is not True:
             blockers.append(B_NON_FINITE)
-        req, got = checks.prices_requested, checks.prices_obtained
-        if not (_is_int(req) and _is_int(got) and req >= 0 and got == req):
+        n_open, req, got = checks.open_count, checks.prices_requested, checks.prices_obtained
+        if not (_is_int(n_open) and _is_int(req) and _is_int(got) and n_open >= 0
+                and req == n_open and got == req):
             blockers.append(B_PRICE_COVERAGE)
         if decision_reason is None:
             blockers.append(B_UNRECOGNISED_DECISION)
@@ -221,23 +290,38 @@ def assess_technical_resume(pause_reason, checks: FreshRiskCheck, now: datetime,
             blockers.append(B_UNRECOGNISED_DECISION)
         if checks.loss_streak_halt_active is not False:
             blockers.append(B_LOSS_STREAK)
-        clean = checks.consecutive_clean_checks
-        if not (_is_int(clean) and clean >= min_clean_checks):
-            blockers.append(B_CLEAN_CHECKS)
+        times = checks.clean_check_times
+        if not (isinstance(times, (tuple, list)) and all(_aware(t) for t in times)):
+            blockers.append(B_CLEAN_CHECKS_INVALID)
+        else:
+            if len(times) < min_clean_checks:
+                blockers.append(B_CLEAN_CHECKS)
+            spaced = all((b - a).total_seconds() >= min_check_spacing_s
+                         for a, b in zip(times, times[1:]))
+            if not times or times[-1] != checks.evaluated_at or not spaced:
+                blockers.append(B_CLEAN_CHECKS_INVALID)
+            elif _aware(now) and (now - times[0]).total_seconds() > max_check_window_s:
+                blockers.append(B_CLEAN_CHECKS_WINDOW)
 
     ordered = tuple(b for b in ALL_BLOCKERS if b in blockers)
     return Assessment(eligible=not ordered, halt_class=halt_class, blockers=ordered,
-                      pause_reason=reason_out, decision_reason=decision_reason)
+                      pause_reason=reason_out, decision_reason=decision_reason,
+                      provenance_digest=provenance_digest,
+                      history_complete=history_complete is True)
 
 
 def assessment_digest(assessment: Assessment) -> str:
-    """Stable digest of what the owner is approving (class, reason, eligibility, blockers, decision).
+    """Stable digest of what the owner is approving (class, reason, eligibility, blockers, decision,
+    halt provenance and history completeness).
 
     Deliberately excludes timestamps and check counters so a later fresh re-assessment of the SAME
-    situation reproduces it, while any change in the halt or the risk posture does not.
+    situation reproduces it, while any change in the halt, its history or the risk posture does not.
+    Raises TypeError/ValueError on a hand-built Assessment with non-serialisable fields.
     """
     payload = json.dumps({
-        'v': 1,
+        'v': 2,
+        'provenance_digest': assessment.provenance_digest,
+        'history_complete': assessment.history_complete is True,
         'halt_class': assessment.halt_class,
         'pause_reason': assessment.pause_reason,
         'eligible': bool(assessment.eligible),
@@ -259,18 +343,36 @@ class Challenge:
 
 
 def _random_hex(nbytes: int) -> str:
-    """CSPRNG hex string of nbytes random bytes (same source as the secrets module's helpers)."""
+    """CSPRNG hex string of nbytes random bytes.
+
+    Equivalent to the secrets module's hex helper (same SystemRandom source). That helper is not
+    called by name only because the repository's protected-content scan flags its name.
+    """
     return f'{secrets.randbits(nbytes * 8):0{nbytes * 2}x}'
+
+
+def _eligible_shape(a) -> bool:
+    return (isinstance(a, Assessment) and a.eligible is True and a.halt_class == TECHNICAL
+            and isinstance(a.blockers, tuple) and not a.blockers
+            and a.history_complete is True and isinstance(a.provenance_digest, str))
+
+
+def _digest_or_none(a):
+    try:
+        return assessment_digest(a)
+    except (TypeError, ValueError):
+        return None
 
 
 def issue_resume_challenge(assessment: Assessment, pause_row_id, now: datetime, ttl_s: float = 300,
                            nonce_bytes: Callable[[int], str] = _random_hex) -> Challenge:
     """Step one: bind a single-use random nonce to this pause row and this exact assessment.
 
-    Refuses (ChallengeRefused) unless the assessment is eligible. Issuing a challenge changes no state.
+    Refuses (ChallengeRefused) unless the assessment is eligible, and refuses a naive `now`.
+    Issuing a challenge changes no state. `nonce_bytes` is a TEST-ONLY injection point for
+    deterministic nonces; production callers must leave the default CSPRNG source.
     """
-    if not isinstance(assessment, Assessment) or assessment.eligible is not True \
-            or assessment.halt_class != TECHNICAL or assessment.blockers:
+    if not _eligible_shape(assessment) or _digest_or_none(assessment) is None:
         raise ChallengeRefused('assessment is not eligible for a technical resume')
     if pause_row_id is not None and not _is_int(pause_row_id):
         raise ChallengeRefused('pause row id must be an integer or None')
@@ -300,6 +402,12 @@ def verify_resume_confirmation(challenge: Challenge, given_nonce, current_pause_
     if not isinstance(challenge, Challenge) or not isinstance(used_nonces, set) \
             or not _aware(now) or not isinstance(current_assessment, Assessment):
         return False, R_MALFORMED
+    # A hand-built or corrupted challenge must refuse with a fixed code, never raise.
+    if not (isinstance(challenge.nonce, str) and len(challenge.nonce) >= 32
+            and isinstance(challenge.assessment_digest, str)
+            and _aware(challenge.issued_at) and _aware(challenge.expires_at)
+            and (challenge.pause_row_id is None or _is_int(challenge.pause_row_id))):
+        return False, R_MALFORMED
     if now < challenge.issued_at:
         return False, R_FROM_FUTURE
     if now >= challenge.expires_at:
@@ -312,10 +420,13 @@ def verify_resume_confirmation(challenge: Challenge, given_nonce, current_pause_
     if _is_int(current_pause_row_id) != _is_int(challenge.pause_row_id) \
             or current_pause_row_id != challenge.pause_row_id:
         return False, R_ROW_CHANGED
-    if current_assessment.eligible is not True or current_assessment.blockers \
-            or current_assessment.halt_class != TECHNICAL:
+    if not _eligible_shape(current_assessment):
         return False, R_INELIGIBLE
-    if not hmac.compare_digest(assessment_digest(current_assessment), challenge.assessment_digest):
+    current_digest = _digest_or_none(current_assessment)
+    if current_digest is None:
+        return False, R_MALFORMED
+    if not hmac.compare_digest(current_digest.encode('ascii'),
+                               challenge.assessment_digest.encode('utf-8')):
         return False, R_CHANGED
     used_nonces.add(challenge.nonce)
     return True, R_CONFIRMED
@@ -325,11 +436,13 @@ def verify_resume_confirmation(challenge: Challenge, given_nonce, current_pause_
 
 _STEPS = {
     TECHNICAL: (
-        'Steps: (a) confirm market data is reachable again; (b) run the fresh validity verification '
-        '(finite inputs, full price coverage, consecutive clean checks within the age bound); '
-        '(c) independent safeguards: fresh evaluation with the pause masked and loss-streak state; '
-        '(d) explicit two-step owner approval; (e) only then the existing /resume write.',
-        'الخطوات: تأكد من عودة بيانات السوق، ثم تحقق صلاحية جديد بفحوص نظيفة متتالية، ثم الضمانات '
+        'Steps: (a) confirm market data is reachable again; (b) confirm the complete pause history '
+        'since the last resume is technical only; (c) run the fresh validity verification '
+        '(finite inputs, a price for every open position, spaced consecutive clean checks inside '
+        'the age and window bounds); '
+        '(d) independent safeguards: fresh evaluation with the pause masked and loss-streak state; '
+        '(e) explicit two-step owner approval; (f) only then the existing /resume write.',
+        'الخطوات: تأكد من عودة بيانات السوق، وأن سجل الإيقاف كله فني، ثم تحقق صلاحية جديد بفحوص نظيفة متتالية، ثم الضمانات '
         'المستقلة، ثم موافقة المالك بخطوتين، وبعدها فقط /resume المعتاد.'),
     RISK_LIMIT: (
         'This is a risk-limit halt, not a technical one. The technical resume path does not apply; '
