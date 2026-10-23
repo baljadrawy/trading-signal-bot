@@ -54,6 +54,7 @@ pause reasons.
 | A6 | 2026-10-23 | Dump TOC of an existing backup set, object-type counts only (schema metadata, no data) | Owner decision 1 (backup recovery) | object-type counts |
 | A7 | 2026-10-23, approximately 10:30Z | Scanner log: pause-line presence before the incident and reason identity since (booleans and counts of pause lines only) | Owner, "Controlled Backup Recovery and Safe Integration", B (non-protected) | last pause line before the incident (date and minute), the line count, "reason identical" |
 | A8 | 2026-10-23, approximately 10:33Z | P1-BG v3 supervised run: the full production dump was restored into a disposable `--network none` container and compared table-by-table; the container was removed | Owner, same message, A (backup repair) | table count, data-table count, server version, PASS (no row counts) |
+| A9 | 2026-10-23, approximately 13:20Z | Tracker log: presence and minute range of open-position tracking cycles and price-fetch error count since 2026-10-22; a synthetic risk evaluation of the deployed code with live public prices and a fake database (synthetic trades only) | Owner, "Post-Recovery Validation and Governance Continuation" (non-protected) | tracking cycles present until 2026-10-22 05:15Z then none (inferred: no open position to track), 0 price-fetch errors, synthetic decision reasons |
 
 **Not done.**
 - No `trade_results`, P&L, loss-streak or drawdown values were read.
