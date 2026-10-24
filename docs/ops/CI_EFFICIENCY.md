@@ -317,3 +317,29 @@ These are covered by the offline tests (`tests/test_ci_workflows.py`). Check the
 **Concurrency semantics:**
 - **observed:** the cancellation of a superseded non-`main` run;
 - **static, by test:** `main`'s unique group with `cancel-in-progress: false`.
+
+## 9. Independent audit, 2026-10-24: P2 findings and dispositions
+
+The external audit of head `ff8e8da` returned **PASS**, with no P0 or P1 findings and five non-blocking P2 findings. This revision changes only what those findings require.
+
+| id | finding | disposition |
+|---|---|---|
+| P2-1 | The PR title and description stated 24–27 % as if it were a saving | **Fixed** (PR metadata). The figure is an **estimate**, 14–25 % with a central value of about 20 % (§3). It is not a measured monthly saving. The only measured savings are the single-run observations in §8. |
+| P2-2 | Unused `ZERO` regex in `.github/ci/change_scope.py` (left over from the old `event.before` logic) | **Fixed**: removed. No behaviour change. The tests are unchanged and pass. |
+| P2-3 | Self-referential PR workflow: a pull-request run executes the PR's own `tests.yml` and `change_scope.py`, so a PR can weaken or skip its own checks | **Accepted, documented.** Branch protection (#90) does not remove it. With a single account, CODEOWNERS cannot enforce a second reviewer. Controls: (1) review of every `.github/` diff before merge (§8 of `BRANCH_RELEASE_POLICY.md`); (2) after a merge, every `main` push runs `main`'s workflow in full, with no skip on protected refs. |
+| P2-4 | Cache-save race: two `main` pushes that both miss the same key may both try `actions/cache/save` | **Accepted, documented.** The entries are identical, because the key covers image, arch, exact Python and the requirements hash. The second save cannot reserve an existing key. `actions/cache/save` reports that as a warning and does not fail the job (to be confirmed on the first concurrent `main` pushes, P2-5). The cost is one redundant upload attempt, about 11 s. There is no correctness impact. |
+| P2-5 | Post-merge verification is still outstanding | **Plan (owner, after merge):** |
+
+**P2-5 checks, after merge:**
+1. **First `main` push:**
+   - the full collector suite runs, `RUN (push to protected branch)`;
+   - the run is not cancelled;
+   - the venv cache is saved once.
+2. **First docs-only PR:**
+   - the collector reports success in about 10 s, with the skip summary;
+   - the cache is restored from `main`'s scope, and save is `skipped`;
+   - the r14 workflows do not start.
+3. **First PR touching `p2_forward/`:** the collector suite runs in full.
+4. **Superseded PR push:** the earlier run is cancelled.
+5. **Revert test for C4 (§8), over the first 20 default and PostgreSQL jobs:** if the mean setup time is not at least 15 s below 45–56 s, revert C4 to `setup-python` `cache: pip`.
+6. **Measured saving:** compare November's billable minutes per run type (docs-only, collector-change, `main` push) against §2. Only then can a measured monthly saving be stated.

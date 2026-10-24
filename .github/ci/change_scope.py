@@ -21,7 +21,6 @@ import subprocess
 import sys
 
 PROTECTED_REFS = ("refs/heads/main", "refs/heads/develop")
-ZERO = re.compile(r"^0+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 # Inputs that, when changed, always make the scope run. Kept deliberately wider than the component:
