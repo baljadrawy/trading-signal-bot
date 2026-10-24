@@ -1,467 +1,516 @@
-# Strategic profitability review and prioritized roadmap (2026-10-24)
+# Strategic profitability review and prioritized roadmap (2026-10-24, revision 2)
 
 **Status: PROPOSAL for owner review.** This document proposes; it authorizes nothing. It runs no research, admits no
-candidate, spends no alpha, declares no Paper window and changes no runtime state. Every initiative below that touches
-data, Paper behaviour, production or confirmatory science stops at its named authorization gate.
+candidate, spends no alpha, declares no Paper or shadow window and changes no runtime state. Every initiative that
+touches data, Paper behaviour, production, prospective observation or confirmatory science stops at its named gate.
 
-**No runtime effect. No runtime claim.** Written from repository documents and code at `main` `ef3d735`, and from
-the owner's memory notes (summaries of research already reported to the owner).
+**No runtime effect. No runtime claim.** Written from repository files (worktree based on `main` `ef3d735`) and from
+the owner's memory notes (historical record). No database, research-data directory, container or computation was used.
 
-**Governance in force (unchanged by this document):** `EXECUTION_MODE = PAPER_ONLY`; live trading and any automatic
-live transition are forbidden (owner directive 2026-09-27, four conditions). FORWARD_HOLDOUT (everything after the
-2026-08-19 freeze instant, `docs/research_temporal_governance.md`) stays sealed. No sealed outcome, count or timestamp
-was read or is quoted here; the current strategy's performance is referred to only qualitatively ("not accessible by
-design").
+**Governance in force (unchanged):** `EXECUTION_MODE = PAPER_ONLY`; live trading and any automatic live transition
+are forbidden (owner directive 2026-09-27). FORWARD_HOLDOUT (everything after the 2026-08-19 freeze instant) stays
+sealed. No sealed outcome, count or timestamp was read or is quoted; the current strategy's performance is referred
+to only qualitatively.
 
-## 0. How to read the evidence labels
+## 0. Evidence classes and completion states
 
-| Label | Meaning |
+Every claim and table row carries exactly one of four labels.
+
+| Label | Class | Meaning |
+|---|---|---|
+| **[HR]** | HISTORICAL RECORD | From the owner's memory notes or older audits as recorded. **Not re-verified in this revision.** Numbers are quoted as recorded. |
+| **[VRF]** | VERIFIED REPOSITORY FACT | Checked **now** (2026-10-24) in this worktree or via the GitHub PR list; the file/path is named. "(derived)" marks plain arithmetic on verified constants. |
+| **[ASM]** | ASSUMPTION | A judgement, interpretation or modelling choice of this review. May be wrong; stated so it can be challenged. |
+| **[PROP]** | PROPOSAL | Something this document recommends. Nothing is decided by writing it. |
+
+Facts verified in this revision [VRF]:
+
+| Fact | Path checked |
 |---|---|
-| **[REPO]** | Checked in this worktree (documents or code at `ef3d735`). |
-| **[HR]** | Historical record from the owner's memory notes, **not re-verified** in this task. Numbers are quoted as recorded. |
-| **[INF]** | Inferred by this review from the above (reasoning, arithmetic or literature already cited in the repository). |
-| **[PROP]** | A proposal of this document; nothing is decided by writing it. |
+| Fee model: stored `profit_usdt`/`profit_percent` are **gross**; net = gross − `FEE_ROUNDTRIP_PCT` at display; A38 economic label `net_after_modeled_cost_v1`; non-finite gross refused | `shared/fees.py` |
+| `FEE_ROUNDTRIP_PCT` default 0.3 (comment: 0.1 %/side fee + about 0.1 % slippage); `TRADE_AMOUNT_USDT` 50; `STOP_SLIPPAGE` 0.001; `MIN_ORDER_NOTIONAL_USDT` 5; `PAPER_TRADING` default true | `shared/config.py` |
+| `PAPER_ENTRY_FILL_MODEL` default `observed_price_v0` (`resting_limit_v1` is an owner-gated contract change); `SIGNAL_INTEGRITY_MODE` default `off`; `T1_CAP_POLICY` default `legacy_window_v1` | `shared/config.py`, `shared/entry_execution.py` |
+| Research cost model `s4-mech-v1`: fee 0.10 %/side, **refuses** any fee below it (no BNB/VIP discount); spread and slippage separate; cost = turnover × (fee + half-spread + slippage); tracker 0.30 % is reporting-only | `research/mechanisms/costs.py` |
+| Declared tiers: half-spread 0.01 % BTC/ETH, 0.04 % other top-20 (stress ×2); slippage 0.05 %/side (stress 0.10 %); benchmarks BTC, ETH, equal-weight B&H, cash; HAC Bartlett lag 7; Romano–Wolf; DSR over all logged variants; five failure criteria; power table A3 | `docs/strategy/S4_PHASE1_SCIENTIFIC_COMPARISON.md` §4, App. A |
+| Principle 5: negative results are evidence against the **tested implementations**, not proof that every alternative fails; cost baseline rule; evidence-class rule | `docs/governance/DEVELOPMENT_FIRST_POLICY.md` §1, §3 (still a Draft policy) |
+| Freeze knowledge cutoff date 2026-08-19; holdout status field reads `SEALED` (look count not reproduced here) | `research/governance/research_freeze.json`, `holdout_status.json` |
+| Contamination registry has 4 entries: 2017-08 → 2022, 2023 → 2025, 2026-07-01 → freeze, freeze → open; **2026-01 → 06 is not registered** | `research/governance/contamination_registry.jsonl` |
+| `validation_usage.jsonl` exists (look ledger); `hypotheses.jsonl` is empty (no hypothesis registered) | `research/governance/` |
+| Alpha per governed admission 1/240 (LATEST_DOCUMENTED); calibration level unvalidated (DR-2 unresolved) | `docs/strategy/EVIDENCE_LADDER_PARAMETERS.md` |
+| A46 minimum T1 for a net-non-negative T1 → break-even path 0.275 % at 0.30 % round trip | `docs/a46/A46_TRADE_GEOMETRY.md` |
+| A48 tracker parity 27/27 exact | `docs/a48/A48_REPLAY_FIDELITY.md` |
+| Lab benchmark: 8-year × 20-asset daily simulation 0.86 CPU-s, 15 MB | `docs/lab/STRATEGY_LAB_ARCHITECTURE.md` |
+| Open Draft PRs: #3, #15–#19, #29, #36, #48, #56, #67, #78, #84–#91. Merged: #59 (T1 cap), #80 (admission I-1), #81 (flake fix), #83 | `gh pr list` / `gh pr view` |
 
-Three completion states are kept strictly apart throughout:
-
-| State | Meaning | Who can declare it |
-|---|---|---|
-| **Engineering complete** | Code, tests, parity, CI, deployment mechanics work as specified. Says nothing about returns. | Reviewer + owner (merge/deploy) |
-| **Scientific success** | A **pre-registered** hypothesis passes its **prospective** test under the Evidence Ladder (or an owner-approved successor design). Exploratory or synthetic success never counts. | Owner, per protocol |
-| **Financial profitability** | Real net money after real costs. **Out of scope** under PAPER_ONLY; would require all four owner conditions (predeclared criteria, independent forward validation, verified execution and safety controls, explicit final approval) plus the data-licence question (A18/A19) to be resolved. | Owner only, separately |
+Three completion states stay apart: **engineering complete** (code/tests/parity; says nothing about returns),
+**scientific success** (a preregistered hypothesis passes its prospective test under governed alpha; exploratory or
+synthetic success never counts), **financial profitability** (real net money; out of scope under PAPER_ONLY).
 
 ---
 
-## 1. What has actually been demonstrated about NET profitability?
+## 1. Definitions: net profitability and three performance notions
 
-**Short answer: no net profitability has been demonstrated anywhere in the project, under any cost assumption, for
-any strategy family that is executable on Binance Spot long-only. The legacy 15m/4h/1d indicator family is losing
-before costs (gross profit factor about 0.73 to 0.81 across independent measurements). The current strategy version's
-performance is unknown by design (sealed holdout). Engineering correctness has been demonstrated extensively, and it
-is not evidence of an edge.**
+All definitions in §1 are **[PROP]** unless a row or bullet carries another label.
 
-### 1.1 Cost basis used in this review
+### 1.1 Net return per trade (Binance Spot, long-only)
 
-| Component | Value | Source |
+Let M_e, M_x be mid prices at entry and exit decision, h the half-spread, q the slippage per side and f the fee rate.
+
+- Effective prices: P_buy = M_e × (1 + h_e + q_e); P_sell = M_x × (1 − h_x − q_x).
+- Fees: Binance charges f on each fill (buy fee in the received asset, sell fee in quote), so
+  **r_net = (P_sell / P_buy) × (1 − f)² − 1 − c_round**, with f = 0.001 (0.10 %/side, no BNB/VIP discount) [VRF `costs.py`].
+- Additive approximation: r_net ≈ r_gross(mid) − 2f − (h_e + h_x) − (q_e + q_x) − c_round.
+- c_round: residual from rounding quantity down to the lot step and price to the tick; unsold dust valued at zero;
+  any order below the minimum notional (repo default 5 USDT [VRF `shared/config.py`]) is a non-trade, not a trade.
+- Stop exits: fill at the stop × (1 − 0.001) in the tracker [VRF `STOP_SLIPPAGE`]; a gap through the stop fills at
+  the first traded price beyond it (replay stop fills are optimistic otherwise [HR A47]).
+- Partial fills: return on the filled quantity; the unfilled remainder earns 0. Failed fills (resting orders that never
+  fill) are logged as intents with outcome "no fill" and included in non-fill-bias analysis, never dropped [PROP].
+- Not applicable / not counted: funding (spot, no leverage); borrow; withdrawal and deposit fees (positions stay on
+  the exchange); taxes; interest on idle cash (0, conservative) [ASM].
+
+### 1.2 Net return per period (portfolio)
+
+R_t = Σ_i w_{i,t−1} × r_{i,t} − Σ_i |Δw_{i,t}| × (f + h_i + q_i) − c_round,t, i.e. cost = turnover × per-side
+cost, with a full entry plus a full exit = turnover 2.0 [VRF `costs.py`]. Per-trade figures on a fixed notional are
+converted to portfolio returns with the declared capital and position count.
+
+### 1.3 Cost tiers (conservative range)
+
+| Liquidity tier (trailing 30-day median quote volume) | Half-spread h | Slippage q / side | Round trip base | Round trip stress | Class |
+|---|---|---|---|---|---|
+| A: BTC, ETH | 0.01 % | 0.05 % | 0.32 % | 0.44 % (h, q ×2) | [VRF S4 §4] (derived) |
+| B: other top-20 | 0.04 % | 0.05 % | 0.38 % | 0.56 % | [VRF S4 §4] (derived) |
+| C: rank 21–100 | 0.05–0.15 % | 0.10–0.30 % | 0.50–1.10 % | ×2 on h, q | [ASM] |
+| D: below about 5M USDT/day | excluded from primary analyses | — | — | — | [ASM] (micro-cap positives did not survive [HR 2026-06-25]) |
+
+The fee is never stressed downward. For orders above about 0.1 % of daily volume, add square-root impact
+q = k × σ_daily × √(order / ADV) with k declared in the spec [ASM]; at 50 USDT this is negligible [ASM]. The tracker
+label (flat 0.30 % round trip) is reported beside, never instead of, this model [VRF `shared/fees.py`, `costs.py`].
+Every reported result carries ×1.5 and ×2 sensitivity on h and q, flagged "fragile" if the sign changes [PROP].
+
+### 1.4 Three performance notions with distinct acceptance criteria [PROP]
+
+| Notion | Question | Acceptance (all at the preregistered alpha) |
 |---|---|---|
-| Exchange fee | 0.10 % per side, 0.20 % round trip, no BNB/VIP discount | owner baseline [REPO `DEVELOPMENT_FIRST_POLICY.md` §3; `research/mechanisms/costs.py` refuses discounts] |
-| Spread | separate; declared half-spread tiers 0.01 % (BTC/ETH), 0.04 % (other top-20), stress ×2 | S4 pre-registration draft [REPO `S4_PHASE1_SCIENTIFIC_COMPARISON.md` §4] |
-| Slippage | separate; 0.05 % per side, stress 0.10 % | same |
-| Realistic total, liquid top-20 | about **0.32 % to 0.38 % round trip** (0.16–0.19 % per side) | [INF] arithmetic of the three rows above |
-| Tracker accounting label | flat 0.30 % round trip (`FEE_ROUNDTRIP_PCT=0.3`), plus stop fills × (1 − 0.1 %) | [REPO `shared/config.py`, `shared/fees.py`]; reported beside, never instead of, the canonical model |
-| Many 2026-05..07 backtests | 0.6 % round trip | [HR]; harsher than the canonical model, see §1.4 |
+| **(a) Absolute net return** | Does it make money after costs? | mean net return per trade and per day > 0 with one-sided lower confidence bound > 0 (HAC Bartlett lag 7 on daily returns, or day-clustered per-trade), confirmed by a stationary bootstrap (mean block 20 d); total net over the window > 0; sign holds under ×1.5 and ×2 cost stress; removing the top 1 % of trades keeps the sign; ≤ 50 % of net P&L from 5 months or 1 coin |
+| **(b) Risk-adjusted net return** | Is the return worth its risk, given how many variants were tried? | annualized net Sharpe with Probabilistic Sharpe vs 0 ≥ 1 − α **and** Deflated Sharpe ≥ 0.95 with N = every logged variant of the family (incl. abandoned ones) and the series' skew/kurtosis; Sortino, Calmar, max drawdown and its duration reported; max drawdown within the preregistered limit and not worse than the benchmark's unless the Sharpe gain is itself significant |
+| **(c) Relative to buy-and-hold** | Does it beat simply holding? | daily active net return a_t = R_t − B_t > 0 with HAC lower bound > 0, vs (i) BTC B&H and (ii) the equal-weight B&H of the same point-in-time universe, same period; **benchmark costs** at the same tier model on the benchmark's own turnover (BTC: one entry and one exit; EW: monthly rebalance turnover); Romano–Wolf over hypotheses × benchmarks (Holm as check); information ratio and beta to BTC reported |
 
-Stored `profit_usdt` / `profit_percent` are **gross** on a fixed 50 USDT notional; net is derived at display time
-(`shared/fees.py`), and only the A38 tracker writes stored net labels (`label_policy = net_after_modeled_cost_v1`)
-[REPO; HR A58]. Any figure taken directly from stored P&L is therefore gross.
+Interpretation rules [ASM]: (a) without (c) in a rising window is market beta, not edge. (b) without (a) is
+impossible by construction. A long/cash strategy may legitimately aim at (b) relative to B&H (lower drawdown at
+similar return) without (c); the preregistration must name **one primary notion**; the others are secondary and
+reported, never claimed.
 
-### 1.2 Gross vs net, in-sample vs forward, by evidence stream
+---
 
-| Stream | Sample (as recorded) | Gross | Net | In-sample / forward | Class | Source |
+## 2. What has been demonstrated about net profitability
+
+**Summary [ASM, from HR rows below]:** for every **tested implementation** in the record, net profitability under the
+canonical cost model was **not demonstrated**; for the legacy 15m/4h/1d indicator family, gross results were negative
+in three independent routes, so net is negative under any non-negative cost. This is a failure to demonstrate for
+those implementations, parameter spaces and windows; it is **not** proof that no profitable strategy exists (§2.5).
+The current strategy version's performance is unknown by design (sealed). Engineering correctness is well
+demonstrated and is not evidence of an edge.
+
+### 2.1 Gross vs net by evidence stream (pre-freeze, unsealed)
+
+| Stream | Sample (as recorded) | Gross | Net | Kind | Power / limits | Class |
 |---|---|---|---|---|---|---|
-| Pre-freeze live Paper, all versions (H0) | 3,401 trades, 2026-04-09 → 08-19 | PF 0.729, total negative | PF 0.593 at tracker cost; net WR 31.3 % vs break-even WR 43.5 %; day-clustered net t = −2.69 | forward Paper (unsealed, mixed versions) | operational/observational | [HR A58] |
-| Same, cost share | — | costs ≈ 10.8 % of absolute gross | losses come mostly from **gross** geometry/entry, not fees | — | — | [HR A58] |
-| Live DB audit | 2,518 trades, 93 % in April 2026 | PF 0.735 | net −0.365 USDT/trade at 0.3 % | forward Paper, one regime-month dominates | observational | [HR audit 2026-06-23] |
-| Per-indicator analysis | 2,461 trades | PF 0.734; every indicator AUC 0.487–0.511; score **inverted** (higher score = worse) | negative | same data | observational | [HR 2026-06-07] |
-| 3-year historical replay of the indicators | 287 symbols, 1h/4h/1d, 2023–2025 | gross PF about 0.75–0.79 per standalone indicator, stable every year; 0 of 43 configs net PF > 1 | net PF about 0.42–0.47 at 0.6 % | historical, research-exposed | exploratory | [HR 2026-06-07] |
-| 9-year target-policy replay | 301 symbols, 2017–2026, about 110k trades per arm | PF 0.806 (current 1R target); **every arm × every year negative** | all arms negative | historical, research-exposed; optimistic intrabar assumption | exploratory | [HR 2026-06-24] |
-| Live-learning cohort | 479 trades, 2026-06-26 → 07-14 | PF 0.587 as recorded; **after measurement correction about break-even** (de-duplicated, stop-modelled) | negative at every fee level | forward Paper | observational, measurement-defective | [HR learning audit 2026-07-14] |
-| Reversion sub-cohort (the one "positive" claim) | in-sample n = 88 positive, not significant; OOS n = 96 | — | OOS significantly **negative** (p ≈ 0.0001); the claim inverted out of sample | forward Paper, OOS split | observational | [HR canary close + OOS re-audit] |
-| Current strategy (signal-aware stops + regime routing, live from about the freeze instant) | sealed | not accessible | not accessible | sealed FORWARD_HOLDOUT | — | [HR Research-1A; REPO governance] |
-| R2 Paper window (2026-10) | sealed period | not quoted | not quoted | sealed; operations evidence only (A17 F4) | operational | [HR A37/A17] |
+| Pre-freeze live Paper, all versions | 3,401 trades, 2026-04 → 08-19 | PF 0.729 | PF 0.593 at tracker cost; net WR 31.3 % vs break-even 43.5 %; day-clustered net t = −2.69 | forward Paper, mixed versions | large n; version mix; cost ≈ 10.8 % of absolute gross, so losses are mostly gross geometry/entry | [HR A58] |
+| Live DB audit | 2,518 trades, 93 % in April 2026 | PF 0.735 | net PF 0.598, −0.365 USDT/trade at 0.3 % | forward Paper | one regime-month dominates | [HR 2026-06-23; also VRF as quoted in S4 §1] |
+| Per-indicator analysis | 2,461 trades | PF 0.734; AUC 0.487–0.511; score inverted | negative | forward Paper | tests linear/threshold use of 15m/4h indicators only | [HR 2026-06-07] |
+| 3-year replay of indicators | 287 symbols, 2023–2025 | PF ≈ 0.75–0.79, stable yearly | 0/43 configs net PF > 1 at 0.6 % | historical, research-exposed | cost harsher than canonical; tested configs only | [HR 2026-06-07] |
+| 9-year target-policy replay | 301 symbols, 2017–2026 | PF 0.806; every arm × year negative | negative | historical, research-exposed | optimistic intrabar fills; exit-geometry variants of one entry family | [HR 2026-06-24] |
+| Live-learning cohort | 479 trades, 2026-06/07 | about break-even gross after measurement correction | negative at every fee level | forward Paper | measurement-defective (clones, stop-fill asymmetry) | [HR 2026-07-14] |
+| Reversion sub-cohort | in-sample n = 88 (n.s.); OOS n = 96 | — | OOS significantly negative | forward Paper | small n; post-hoc split | [HR canary close/OOS re-audit] |
+| Current strategy (post-freeze) | sealed | not accessible | not accessible | sealed FORWARD_HOLDOUT | not assessed by design | [VRF holdout status SEALED] |
 
-**Interpretation [INF].** Three independent routes (live Paper, a 3-year replay, a 9-year replay on different data)
-converge on a gross profit factor of roughly 0.73–0.81 for the legacy family. A gross-negative entry cannot be made
-net-positive by any cost reduction; the cost model only changes how negative it is. The measurement defects found on
-2026-07-14 (pseudo-replication, stop-fill asymmetry, fee-blind learner gate) inflated the recorded loss magnitude but
-did not create the sign: the corrected forward view is about break-even **gross**, which is still negative net.
+### 2.2 Exploratory positives that did not survive
 
-### 1.3 Exploratory positives that did not survive
-
-| Thread | What looked positive | Why it is not demonstrated profitability | Source |
+| Thread | What looked positive | Why not demonstrated (scope) | Class |
 |---|---|---|---|
-| Daily ML (XGBoost, 595 symbols incl. delisted) | positive net in all 6 walk-forward years at 0.6 %; shuffle control clean | positive **only in < 1M USDT micro-caps**; 6 months = 99 % of net; decaying about −1.1 %/yr; liquid tiers negative in 2026 | [HR 2026-06-25] |
-| Faithful LuxAlgo SMC, daily CHoCH-in-discount | the only gross PF > 1 setup (1.06), n ≈ 3,157 | CI crosses 0 net; liquid > 5M USDT negative; 2026 significantly negative; leans on few winners | [HR 2026-07-06] |
-| SMC demand-zone entry, tight stop / far target | large-n positive net | fat-tail lottery: excluding top 5 % trades turns it negative; decayed in 2025–2026; exits at supply (SMC as taught) are net negative | [HR 2026-07-06] |
-| Cross-sectional momentum long/short | strong OOS 2025 in a post-hoc grid | 94 % of P&L in the **short** leg (not executable on Spot); high window variance; time-concentrated | [HR 2026-06-07] |
-| Funding carry (spot long / perp short) | gross funding about +8.8 %/yr mechanism | fails all 4 pre-registered thresholds after costs; edge mostly 2021; uncontained liquidation tail; needs derivatives | [HR 2026-07-29] |
-| 20/50 MA uptrend | huge headline mean | regime beta: strongly negative in 2018, 2022, 2025, 2026; as a gate on live trades it made results worse | [HR 2026-08-12] |
-| Stop policy STOP-A | best per-trade in isolation, significant paired advantage | reverses to worst once the full production risk-halt chain is modelled (n < 100, underpowered) | [HR 2026-08-20] |
+| Daily ML (XGBoost, 595 symbols) | positive net in 6 walk-forward years at 0.6 % | only in < 1M USDT micro-caps; concentrated in 6 months; decaying; liquid tiers negative in 2026 | [HR 2026-06-25] |
+| Faithful LuxAlgo SMC, daily CHoCH-in-discount | gross PF 1.06, n ≈ 3,157 | net CI crosses 0; liquid tier negative; 2026 negative | [HR 2026-07-06] |
+| SMC demand-zone, tight stop / far target | large-n positive net | fat-tail dependent (top 5 % removal flips sign); decayed | [HR 2026-07-06] |
+| Cross-sectional momentum L/S | strong OOS 2025 in a post-hoc grid | 94 % of P&L in the short leg (not executable on Spot) | [HR 2026-06-07] |
+| Funding carry | gross funding mechanism real | failed all 4 preregistered thresholds after costs; needs derivatives | [HR 2026-07-29] |
+| 20/50 MA uptrend | large headline mean | regime beta; as a gate it worsened live results | [HR 2026-08-12] |
+| Stop policy STOP-A | significant paired advantage in isolation | reverses under the full risk-halt chain; n < 100 | [HR 2026-08-20] |
 
-### 1.4 What the older 0.6 % cost assumption does and does not change
+Most 2026-05..07 replays used 0.6 % round trip, about 1.6–1.9× the canonical tier A/B cost [VRF (derived) from §1.3
+vs HR]. Lower costs cannot turn the tested gross-negative family net-positive (arithmetic), but the two daily threads above were judged under a harsher cost
+than canonical; any re-qualification is exploratory only and logged as variants (R15) [ASM].
 
-Most 2026-05..07 replays used 0.6 % round trip, roughly 0.25 percentage points per trade harsher than the canonical
-0.32–0.38 % for liquid pairs [INF]. This does **not** rescue the legacy family (gross-negative). It does mean the two
-daily "whispers" (daily ML on liquid tiers, daily CHoCH-in-discount) were judged under a cost about 1.6–1.9× the
-canonical one. They remain research-exposed, decayed in the most recent years, and illiquid-concentrated, so a
-re-qualification under the canonical cost would be **exploratory only** (§2, row W6) and could never confirm.
+### 2.3 Engineering correctness (demonstrated, not an edge)
 
-### 1.5 Engineering correctness that IS demonstrated (and is not an edge)
+Tracker parity 27/27 [VRF A48]; cost ledger reconciles the 0.30 % label [HR A48]; economic net labels with
+non-finite refusal [VRF `shared/fees.py`]; signal integrity and T1 correction built behind default-off flags [VRF
+`shared/config.py`]; about 1,200+ default tests green at recent merges [HR].
 
-| Item | Status | Source |
-|---|---|---|
-| Replay vs real tracker parity, `tracker_event_v1` | 27/27 deterministic scenarios exact | [REPO `docs/a48/A48_REPLAY_FIDELITY.md`] |
-| Cost ledger `a48-cost-v1` (fee 0.10 %/side, spread separate, slippage once) reconciles the legacy 0.30 % label term by term | done | [REPO A48] |
-| Economic net labels at close, NaN/non-finite P&L refused | done (A38, A49) | [REPO `shared/fees.py`] |
-| Signal integrity (setup key, insert-once, stale refusal) | built behind `SIGNAL_INTEGRITY_MODE`, default `off` in production | [REPO `shared/config.py`] |
-| T1 cap correction | built behind `T1_CAP_POLICY`, default `legacy_window_v1` (byte-identical) | [REPO `shared/config.py`] |
-| Test suites, CI | about 1,200+ default tests green at recent merges | [HR] |
+### 2.4 Power of the negative evidence
 
-**Bottom line for question 1.** Gross vs net: gross negative for the tested family, so net is negative under every
-cost model. In-sample vs forward: forward Paper reproduces the historical gross-negative signature. Engineering vs
-edge: engineering quality is high and improving; no edge exists in the record. Financial profitability: not
-applicable (PAPER_ONLY) and not in prospect for the tested family.
+- **Strong for large effects in what was tested [ASM]:** gross PF ≈ 0.73–0.81 replicated across live Paper and two
+  replays on different data; a hidden net edge in **those** configurations would need an implausibly large
+  measurement error.
+- **Weak for small effects [VRF S4 App. A3; HR A17]:** 365 days of daily data gives an annualized-Sharpe MDE of
+  about 3.5 (governed, LRV 1) or 3.0 (exploratory); realistic edges (SR ≈ 0.5–1.5) are below what any single
+  window in the record could detect.
+- **Not deflatable [HR A19]:** the legacy search (50 backtest parts, hourly optimizer, many audits) has no valid
+  variant count, so historical positives cannot be credibly deflated and historical negatives are also not a
+  calibrated test of every neighbour configuration.
+
+### 2.5 What the evidence does NOT show
+
+1. It does **not** show that no profitable Spot strategy exists, nor that technical or price-based information is
+   useless in general. It shows that the specific implementations, parameter grids, horizons, universes and windows
+   in §2.1–2.2 did not demonstrate net profitability [VRF principle 5, `DEVELOPMENT_FIRST_POLICY.md`].
+2. It does **not** test daily/weekly trend or allocation strategies with literature-fixed parameters (W1–W3) under the
+   canonical cost model; those have no internal evidence either way [ASM].
+3. It does **not** cover maker/limit execution, size-dependent costs, non-price information (order flow, on-chain,
+   listings), other venues, or short exposure [ASM].
+4. It does **not** exclude small edges (SR well below 2): the record lacks the power to detect them (§2.4).
+5. It does **not** say anything about the post-freeze strategy version (sealed) [VRF].
+6. Measurement defects (pseudo-replication, stop-fill asymmetry) inflated recorded loss magnitudes in some streams
+   [HR 2026-07-14]; magnitudes are uncertain even where signs replicate.
+7. It does **not** show that the legacy family is worthless as a **baseline arm** or as infrastructure test load.
 
 ---
 
-## 2. Strategies and directions: failed / inconclusive / warrant investigation
+## 3. Directions by status (scoped to tested implementations)
 
-Confidence is the confidence in the **verdict** for the tested implementation (principle 5 of the Development-First
-policy: negative results are evidence against the tested implementations, not proof that every alternative fails).
+### 3.1 Not supported as tested — no further profitability allocation recommended for these implementations
 
-### 2.1 Failed (do not reinvest)
-
-| # | Direction (as tested) | Evidence | Confidence |
-|---|---|---|---|
-| F1 | 15m/4h/1h mean-reversion indicator scoring (RSI, Bollinger, Stoch-RSI, divergence, Fibonacci, order book) | live AUC ≈ 0.50; gross PF ≈ 0.73 live, ≈ 0.77–0.81 in 3-yr and 9-yr replays; every year negative [HR 06-07, 06-23, 06-24] | **High** |
-| F2 | Indicator weight tuning, min-score thresholds | 48 weight sets flat; score inverted; live max score below thresholds tested [HR 05-25, 07-29] | High |
-| F3 | Target/exit geometry redesign of F1 (mean-anchored T1, 0.5R, wide R:R, partial TP at T1) | every arm × year negative; partial TP net negative at every fraction [HR 06-24] | High |
-| F4 | Momentum arm of the live-learning engine (15m/4h) | significantly negative net, forward [HR 07-06, 07-14] | High |
-| F5 | Momentum → reversion preference flip (4f84717) | refuted out of sample; neutralized 2026-07-29 [HR] | High |
-| F6 | SMC/ICT (crude features, faithful LuxAlgo port, demand→supply round trip) | 0/14 setups significant net; demand→supply significantly negative [HR 07-06; tr-ict research] | High |
-| F7 | Market structure + falling wedge | random-entry null not rejected on any asset; survivorship mirage removed [HR 06-28] | High (low n, underpowered) |
-| F8 | Volume + RSI multi-timeframe (user strategy) | negative per trade, CI crosses 0 only on the daily exit arm [HR 05-30] | Medium-high |
-| F9 | ML on stored score details | purged walk-forward AUC < 0.5 [HR 06-23] | High |
-| F10 | Funding carry (delta-neutral) | NO-GO on all pre-registered thresholds [HR 07-29] | Medium-high (mechanism real, post-cost edge absent) |
-| F11 | Pairs / cointegration | fee-fragile, sign flips on removing 4 of 357, needs shorting [HR 07-29] | Medium |
-| F12 | 20/50 MA uptrend as edge or as gate | regime beta; gate worsens live results [HR 08-12] | Medium-high |
-| F13 | Learner as an edge source (`learned_gates`) | separates "very bad" from "bad", never from profitable; throttling benefit not significant [HR 07-14] | High |
-
-### 2.2 Inconclusive (evidence weak, exposed or not executable)
-
-| # | Direction | What is known | Why inconclusive | Confidence in "no tradeable edge as tested" |
+| # | Direction (as tested) | Evidence | Confidence in the verdict for this implementation | Class |
 |---|---|---|---|---|
-| I1 | Daily ML "accumulation at discount" | real historical signal 2021–2024; illiquid only; decaying [HR 06-25] | research-exposed; capacity; decay | Medium-high |
-| I2 | Daily CHoCH-in-discount (SMC) | only gross PF > 1 setup; fee-fragile [HR 07-06] | judged at 0.6 %; 2026 negative | Medium |
-| I3 | Cross-sectional momentum long/short | real factor-like behaviour, regime-conditional [HR 06-07] | short leg not executable on Spot | Medium (for Spot long-only: high) |
-| I4 | Stoch > 0 gate, spread gate | loss reducers, not edges [HR 06-23] | effect small, not significant | High that it is not an edge |
-| I5 | STOP-A stop policy | isolated advantage, portfolio-level reversal [HR 08-20] | n < 100 at portfolio level | Medium |
-| I6 | Current strategy (signal-aware stops + regime routing) | sealed | not accessible; mechanism test fails (A46 cost/R arithmetic) [REPO S5-PWR-1 register] | Not assessed (by design) |
+| F1 | 15m/4h/1h indicator scoring (RSI, Bollinger, Stoch-RSI, divergence, Fibonacci, order book) | AUC ≈ 0.50; gross PF ≈ 0.73 live, 0.77–0.81 replays | High | [HR] |
+| F2 | Weight tuning, min-score thresholds of F1 | 48 weight sets flat; score inverted | High | [HR] |
+| F3 | Exit geometry redesign of F1 (mean-anchored T1, 0.5R, wide R:R, partial TP) | every arm × year negative | High | [HR] |
+| F4 | Momentum arm of the live learner (15m/4h) | significantly negative net, forward | High | [HR] |
+| F5 | Momentum → reversion preference flip | refuted OOS | High | [HR] |
+| F6 | SMC/ICT as ported (14 setups, demand → supply) | 0/14 significant net | High for these 14 | [HR] |
+| F7 | Market structure + falling wedge | random-entry null not rejected | Low n, underpowered | [HR] |
+| F8 | Volume + RSI MTF (owner strategy) | negative per trade | Medium-high | [HR] |
+| F9 | ML on stored score details | purged AUC < 0.5 | High for these features | [HR] |
+| F10 | Funding carry | failed preregistered thresholds | Medium-high (mechanism real) | [HR] |
+| F11 | Pairs/cointegration | fee-fragile; needs shorting | Medium | [HR] |
+| F12 | 20/50 MA uptrend as edge or gate | regime beta | Medium-high | [HR] |
+| F13 | Learner as an edge source | separates very bad from bad, not from profitable | High | [HR] |
 
-### 2.3 Warrant investigation (mechanism-first, low prior, exploratory before any claim)
+### 3.2 Inconclusive
 
-| # | Direction | Mechanism argument | Expected outcome [INF] | Main risk | Evidence route | Source |
-|---|---|---|---|---|---|---|
-| W1 | **Daily TSMOM long/cash, liquid top-20, literature-fixed 14-day lookback, ± volatility scaling** | trend-chasing/under-reaction at 1–2 weeks (Liu–Tsyvinski 2021; Dobrynskaya) | at best a **risk-adjusted improvement over buy-and-hold** (timed beta), not alpha | Huang et al. 2020 challenge; crashes; one-coin dominance | licence-cleared pre-freeze qualification, then prospective forward | [REPO S4 Phase 1, rank 1] |
-| W2 | Cross-sectional momentum, long-only top-k weekly | relative under-reaction | weak (long-only ≈ market beta plus small tilt) | turnover cost; short leg missing | as W1 | [REPO S4 Phase 1, rank 2] |
-| W3 | Volatility-managed market exposure (overlay) | Moreira–Muir; contested real-time (Cederburg 2020) | risk endpoint (drawdown/variance), no alpha | real-time failure | variance/non-inferiority endpoint | [REPO S4 M4] |
-| W4 | Correlated-exposure (BTC-beta) cap | ~80 % common BTC component (Makarov–Schoar) | risk reduction | none economic | risk endpoint | [REPO A42 C2] |
-| W5 | Execution-cost reduction: resting limit entries (`resting_limit_v1`), cost-coverage gate, spread gate | spread capture; avoid cost-dominated setups | lowers cost drag; cannot create gross edge | adverse selection; non-fill bias | shadow measurement of fill and non-fill rates | [REPO A38, A42 C1, S3] |
-| W6 | Re-qualification of I1/I2 daily threads under the canonical cost model | daily horizon amortizes costs | probably still decayed/illiquid | research-exposed; garden of forking paths | exploratory only, logged as variants | [INF] |
-| W7 | Funding/crowding **veto** as a filter on long entries (not carry) | crowded longs mean-revert | small, episode-bound n | licence; data contract | deferred | [REPO A42 C3] |
-| W8 | New information sources (listings/events, on-chain, order-flow imbalance) | non-price information | unknown; data-heavy | licence, cost, capacity | literature + data-contract first | [HR 05-25 recommendation] |
+| # | Direction | Why inconclusive | Class |
+|---|---|---|---|
+| I1 | Daily ML "accumulation at discount" | research-exposed; illiquid; decaying | [HR] |
+| I2 | Daily CHoCH-in-discount | judged at 0.6 %; 2026 negative | [HR] |
+| I3 | Cross-sectional momentum | short leg not executable on Spot | [HR] |
+| I4 | Stoch > 0 gate, spread gate | loss reducers; not significant | [HR] |
+| I5 | STOP-A | portfolio-level n < 100 | [HR] |
+| I6 | Current strategy | sealed | [VRF] |
 
-**Not recommended as a profitability direction:** further refinement of the 15m/4h family (H2 extension cap, G3
-entry offset, ranking v2). These are second-order gates on a gross-negative entry; their documented effect sizes sit
-at or below the prospective MDE [REPO A45-G, S5-PWR-1 register]. Keep that family as the **baseline arm** only.
+### 3.3 Warrant investigation (mechanism-first, low prior; exploratory before any claim)
+
+| # | Direction | Mechanism / literature | Expected best case | Main risk | Class |
+|---|---|---|---|---|---|
+| W1 | Daily TSMOM long/cash, top-20, 14-day lookback, ± vol scaling | Liu–Tsyvinski 2021; Kim–Tse–Wald 2016 | notion (b) vs B&H: timed beta, lower drawdown | Huang et al. 2020; crashes | [VRF S4 §2–§4] / expectation [ASM] |
+| W2 | XS momentum long-only top-5 weekly | relative under-reaction | small tilt over EW B&H | turnover cost | [VRF S4] / [ASM] |
+| W3 | Volatility-managed exposure overlay | Moreira–Muir; Cederburg 2020 contra | notion (b): variance/drawdown | real-time failure | [VRF S4] / [ASM] |
+| W4 | BTC-beta exposure cap | common BTC factor | risk reduction | none economic | [HR A42] |
+| W5 | Execution-cost reduction (`resting_limit_v1`, cost gate, spread gate) | spread capture | lower drag; no gross edge | adverse selection; non-fill bias | [VRF config] / [ASM] |
+| W6 | Re-qualification of I1/I2 under canonical cost | daily horizon amortizes cost | probably still decayed | forking paths | [ASM] |
+| W7 | Funding/crowding veto on longs | crowded longs mean-revert | small, episodic | data licence | [HR A42] |
+| W8 | Non-price information (listings, on-chain, order-flow) | new information | unknown | data, licence, capacity | [HR] |
+
+Further 15m/4h refinements (H2 cap, G3 offset, ranking v2) are second-order gates on an entry with no demonstrated
+gross edge; documented effects sit at or below the prospective MDE [HR A45; VRF `S5_PWR_1_OWNER_DECISIONS.md`].
+Recommendation: keep that family as the **baseline arm** only [PROP].
 
 ---
 
-## 3. The most significant obstacles to a genuine edge
+## 4. Obstacles to credible evidence of an edge
 
-| # | Obstacle | Evidence | Consequence |
-|---|---|---|---|
-| O1 | **Cost wall vs move size at short horizons** | A46: 15m fee burden 0.22–0.43 R per trade; minimum T1 for a net-non-negative T1→break-even path 0.275 % (20 bps), 0.319 % (+5 bps spread), 0.376 % (30 bps); after T1, about 75 % of exits are at net break-even [REPO A46; HR A42] | at 15m an entry needs a very large gross edge just to pay costs; the daily and weekly horizons amortize costs over larger moves |
-| O2 | **T1-capture geometry** | T1-only path needs 81–96 % hit rates; T3 path 40–66 %; legacy bearish T1-touch about 25 %; T1 cap self-referential for momentum (uses the breakout bar's high) [REPO A46; HR 06-24, A45 W3] | the 25/50/25 + break-even ladder is economically incoherent at small R; fixing it is a correction, not an edge |
-| O3 | **No information in the tested entries** | AUC ≈ 0.50 for every indicator; gross-negative entries [HR] | geometry, selection and learning cannot amplify a zero signal |
-| O4 | **Statistical power / MDE for forward confirmation** | 365-day daily-HAC annualized Sharpe MDE ≈ 3.5–7.0 (dependence 1–3); A17: 120-day contract feasible only for in-sample SR ≥ ~8.7; per-trade MDE 0.40 R at N = 100 (σ = 1 R), 0.1 R needs ≈ 1,600–4,900 trades [REPO S4 Phase 1 A3, `research/power`; HR A17, post-A56] | **no realistic strategy (SR well below 2) can be confirmed in one 365-day window**; this binds every family equally |
-| O5 | **Multiple testing and adaptive search** | 50 backtest parts, hourly optimizer, many audits; "no valid N" for the legacy search [HR A19] | historical significance claims cannot be deflated honestly; only prospective tests with fixed alpha are clean |
-| O6 | **Holdout scarcity and exposure** | every pre-W3 interval known-exposed for directional families; only prospective days from 2026-10-06 qualify as untouched; FORWARD_HOLDOUT sealed [HR A18, A19] | history can qualify or falsify, never confirm; forward time is the scarcest resource in the project |
-| O7 | **Data licence** | Binance Vision terms (CC BY-NC-SA, §4.2 no live proprietary trading execution) published after our downloads; licence inquiry drafted, not sent [HR A18, A19, A22] | D1 exploratory research is blocked (no dataset has a `DatasetPermission`); any future live use needs counsel |
-| O8 | **Regime non-stationarity and decay** | every exploratory positive decayed in 2025–2026; edges concentrated in a few months; 2021 regime beta [HR] | require per-year and remove-top-N robustness; expect decay haircuts; prefer mechanisms with economic rationale |
-| O9 | **Execution realism** | replay stop fills optimistic by overshoot; Paper fills at observed price, no queue/partial fills, no tick/lot rounding; level-3 calibration (real cadence, queue, spread) not established [REPO A47, A48] | counterfactual numbers that involve stop exits are optimistic; small effects are inside model error |
-| O10 | **Measurement-layer defects** | pseudo-replication (~31 % clones), same-candle re-fires, duplicate executions; fixed only under `SIGNAL_INTEGRITY_MODE=enforce`, which is off [HR 07-14, A43; REPO config] | Paper counts overstate independent n until enforce runs |
-| O11 | **Spot long-only constraint** | most published crypto factor returns are long/short; internal XS momentum 94 % short leg [HR] | the executable opportunity set is mostly market beta plus timing |
-| O12 | **Cross-asset dependence** | ~80 % common component in crypto returns (Makarov–Schoar) [REPO A45-B] | many simultaneous positions are one bet; effective n ≪ trade count |
-
-**The binding pair [INF]:** O3 (no information in what has been tested) and O4 (no feasible confirmation design for
-realistic effect sizes). Every other obstacle is secondary to these two. Engineering cannot fix O3; only a different
-mechanism can. O4 is a design decision (OD-DF-2) and a calendar constraint: forward evidence accrues at one day per
-day, so starting pre-registered forward observation early is the single most time-sensitive action available.
-
-### 3.1 Illustrative sample-size arithmetic (no data used)
-
-One-sided test, α = 0.05, power 0.8 (z sum ≈ 2.49); per-trade net return mean μ, standard deviation σ, design
-effect DEFF (clustering of simultaneous/correlated trades):
-
-N_required ≈ DEFF × (2.49 × σ / μ)²
-
-| σ / μ (per trade) | DEFF 1 | DEFF 2 | DEFF 4 |
-|---|---|---|---|
-| 5 (e.g. μ = 0.4 %, σ = 2 %) | 155 | 310 | 620 |
-| 10 (μ = 0.2 %, σ = 2 %) | 620 | 1,240 | 2,480 |
-| 20 (μ = 0.15 %, σ = 3 %) | 2,480 | 4,960 | 9,920 |
-
-At the Evidence Ladder's α = 1/240 the multiplier rises from 2.49 to about 3.48, roughly doubling N [INF from
-`research/power` scenarios]. At one to five independent signals per day, a realistic edge (σ/μ ≥ 10) needs
-**one to several years** of forward data. This arithmetic is illustrative and is not a protocol.
-
----
-
-## 4. Engineering tasks that directly improve research, signal quality, execution quality and risk-adjusted performance
-
-| # | Task | Improves | Why it matters for profitability research | State |
+| # | Obstacle | Evidence | Consequence | Class |
 |---|---|---|---|---|
-| E1 | Certified, licence-cleared, point-in-time, delisted-inclusive pre-freeze dataset (content-addressed snapshot, `DatasetPermission`) | research | unblocks every exploratory qualification; fixes the leveraged-product survivorship gap | blocked on OD-DF-1 + licence |
-| E2 | Lab engine (`LAB_MODE`), per-strategy virtual accounts, target-position order path, `tsb_lab` DB | research, risk-adjusted | the only way to run ≤ 3–5 daily strategies forward in Paper without touching production; R0–R10 owner-decided | design approved in part; #67/#78 Draft |
-| E3 | Shadow intents (Mode 2) for pre-registered daily strategies | research | starts the forward clock with zero P&L risk and zero production change | not started |
-| E4 | Cost-model calibration: measured spread/depth tiers replacing declared tiers; ×1.5/×2 sensitivity on every result (lab rule R6) | execution, research | small effects live inside cost-model error (O9) | `a48-cost-v1` exists; tiers assumed |
-| E5 | Resting-limit entry model (`resting_limit_v1`) with non-fill and adverse-selection measurement in shadow | execution | spread and slippage are roughly 40–50 % of the canonical round trip for alts; this is the only cost lever left after the fixed 0.20 % fee | built (A38), not activated |
-| E6 | `SIGNAL_INTEGRITY_MODE=enforce` for the Paper baseline | signal quality | removes same-candle re-fires and duplicates; makes the baseline arm's n honest | built (A44), off |
-| E7 | `T1_CAP_POLICY=independent_swing_v1` as a declared correction version | signal quality | removes a self-referential cap (W3) | built (#59 merged), default legacy |
-| E8 | S3 selection in shadow (cost coverage, finite-spread guard, de-dup per setup key) | signal quality | prevents cost-negative T1 paths being selected | built, unwired |
-| E9 | Variant/trial ledger with logged N per family; Deflated Sharpe and Romano–Wolf over the logged family | research | makes multiple-testing correction possible (O5) | partial (registries exist) |
-| E10 | Per-candidate power/admissibility screen before any admission (`research/power`) | research | stops alpha being spent on underpowered tests | exists (S5-PWR-1) |
-| E11 | Memory-bounded / streaming research loader (the naive table was ~10–13 GB) | research | makes multi-year daily and intraday qualification runnable on this host | open (A23/A26) |
-| E12 | BTC-beta exposure cap and volatility targeting as risk modules in the lab path | risk-adjusted | reduces drawdown of beta-heavy long-only strategies (W3/W4) | specs only |
-| E13 | Net-label consistency: one cost model in every report and learner (`a48-cost-v1` primary, tracker 0.30 % beside) | research hygiene | prevents gross/net confusion that already mis-stated results by ~60 % once | partial |
+| O1 | Cost wall at short horizons | min T1 0.275 % at 0.30 % round trip; 15m fee burden 0.22–0.43 R | short-horizon entries need large gross edge | [VRF A46] / [HR A42] |
+| O2 | T1-capture geometry | T1-only path needs 81–96 % hits | ladder incoherent at small R | [HR A46/A45] |
+| O3 | No measurable information in the tested entries | AUC ≈ 0.50 | geometry/selection cannot amplify a signal indistinguishable from zero **in those entries** | [HR] |
+| O4 | Power / MDE | SR MDE ≈ 3.5 at 365 d, 1.76 at 4 y, 1.25 at 8 y (governed, LRV 1) | one-year confirmation infeasible for realistic SR | [VRF S4 A3] |
+| O5 | Multiple testing, adaptive search | no valid N for legacy search | historical significance not deflatable | [HR A19] |
+| O6 | Holdout scarcity | pre-freeze history research-exposed; FORWARD_HOLDOUT sealed | history can qualify or falsify, not confirm | [VRF registry] / [HR A18] |
+| O7 | Data licence | Binance Vision terms; inquiry drafted, not sent | exploratory dataset use blocked | [HR A18/A22] |
+| O8 | Regime non-stationarity, decay | positives decayed 2025–2026 | per-year and remove-top-N robustness required | [HR] |
+| O9 | Execution realism | Paper fills at observed price; no queue/partials | small effects inside model error | [VRF config `observed_price_v0`] / [HR A47] |
+| O10 | Measurement defects | clones, same-candle re-fires; fixed only under `enforce` (off) | Paper n overstated | [VRF config] / [HR A43] |
+| O11 | Spot long-only | literature factors mostly L/S | opportunity set ≈ beta + timing | [ASM] |
+| O12 | Cross-asset dependence | large common BTC component | effective n ≪ trade count | [HR A45] |
+
+Binding pair [ASM]: O3 for the tested entries (needs a different mechanism, not more engineering) and O4 (needs a
+multi-year design, OD-DF-2). Sample-size rule for per-trade endpoints [ASM, standard normal approximation]:
+N ≈ DEFF × ((z_α + z_power) × σ/μ)²; at α = 0.05, power 0.8, σ/μ = 10, DEFF 2 this is about 1,240 trades; at the
+ladder's α = 1/240 roughly double. Illustrative, not a protocol.
 
 ---
 
-## 5. Low strategic value activities currently consuming effort
+## 5. Holdout integrity and multiple-testing controls (binding on every item below) [PROP]
 
-Estimated from the record [INF]; not a judgement on the quality of the work, which is high.
+1. **No item reads sealed or forward-holdout periods.** FORWARD_HOLDOUT (after the 2026-08-19 freeze instant;
+   status `SEALED` [VRF]) is not read, queried, summarized or used for tuning, selection or "sanity checks" by any
+   initiative. All exploratory work ends strictly before the freeze instant [VRF S4 §4 data rule].
+2. **Prospective data is a separate, owner-defined partition.** Any forward shadow necessarily consumes post-freeze
+   market data. Before it starts, the owner records how its prospective window relates to FORWARD_HOLDOUT (e.g. a new
+   prospective partition beginning at authorization, with the existing sealed interval untouched and its outcomes
+   still unread). Without that record, no forward item starts.
+3. **Exploratory never touches holdout and never spends confirmatory alpha.** Exploratory results can only admit a
+   candidate to a preregistered prospective test; they are labelled EXPLORATORY and never reported as profitability.
+4. **Variant / alpha ledger.** Every run appends dataset hash, config hash, git SHA, cost label and variant ID
+   **before** results are read (R2); `validation_usage.jsonl` records one look per hypothesis [VRF file exists].
+   - Exploratory family: family-wise α = 0.05 split across the family (S4 uses 0.05/3 for H1–H3), Romano–Wolf
+     stepdown (Holm check), Deflated Sharpe with N = all logged variants including abandoned ones [VRF S4 §4, A5].
+   - Governed admissions: fixed α = 1/240 per admission from a fixed program budget; one final look (or a
+     preregistered group-sequential rule with non-binding futility); no re-use of a spent look [VRF
+     `EVIDENCE_LADDER_PARAMETERS.md`; calibration level still unvalidated, DR-2].
+5. **Exposure registry.** Any interval used for research is registered before use; the 2026-01 → 06 gap is closed
+   first (R4) [VRF gap].
 
-| # | Activity | Why the strategic value is low now | Recommendation |
-|---|---|---|---|
-| L1 | Successive refinements of confirmatory statistics without an admissible candidate (A25–A34 econ-rejection bound, HAC/skew remediation, envelope calibration, reserve rules) | no candidate exists to confirm; each cycle found new failure modes in synthetic worlds | **pause** after recording the current state; resume only when a candidate passes exploratory qualification. Use a simple conservative test set (Bonferroni/Holm + HAC t + stationary bootstrap + DSR with logged N) in the interim |
-| L2 | Second-order refinements of the 15m/4h family (H2, G3, ranking v2, C1 gate) | cannot create an edge on a gross-negative entry; effects ≤ MDE | stop as profitability work; keep only corrections (E6, E7) |
-| L3 | Release ceremony for changes with no profitability or safety impact (multi-stage soaks, per-PR provenance packets) | effort spent on mechanics of an edgeless strategy | keep for deployable service code and safety; simplify for docs/research (as `DEVELOPMENT_FIRST_POLICY.md` §4 proposes) |
-| L4 | Collector feature hardening beyond minimal upkeep (flapping detectors, per-stream classifications) | collector data sits in the sealed holdout partition and has no admitted research use yet | **minimal upkeep only** until a research use is declared (cost calibration E4 is the strongest candidate, needs an owner ruling) |
-| L5 | Monitoring Paper P&L of the legacy family for edge signals | sealed by design; known no-edge family; operations evidence only (A17 F4) | monitor liveness and integrity, not P&L |
-| L6 | New indicators, timeframes or parameter sweeps on price-only directional TA | 40+ studies negative | stop |
-| L7 | Repeated read-only audits that restate the same no-edge verdict | marginal information | one consolidated verdict (this document + A58) is enough until new evidence |
+## 6. Prospective-research admission rule [PROP]
 
----
+No prospective shadow or forward research item (R14 forward shadow, R16 integrity-window outcome analysis, R19
+resting-limit research, R21 selection shadow, any lab Mode 2/3 run) may start until **both** are recorded:
 
-## 6. Infrastructure, data, compute and methods that could accelerate credible progress
+- **Explicit scientific authorization** by the owner for that item; and
+- **Preregistration** committed with hash: frozen spec (code SHA, universe, signal, sizing, cost model and tier
+  table), hypotheses, primary notion (a/b/c) and secondary metrics, minimum sample size from a power calculation,
+  stopping rule (final look or group-sequential with non-binding futility), the multiple-testing budget and alpha
+  drawn from the ledger, the prospective-partition record (§5.2), and failure criteria.
 
-| # | Accelerator | Effect | Dependency |
-|---|---|---|---|
-| X1 | **Send the licence inquiry (LIC-1)** and record a decision on dataset permission | unblocks all D1 exploratory work in one step | owner action |
-| X2 | **Pre-registered forward shadow from day one** for 2–3 daily candidates (W1, W2, W3 overlay) | forward time is the binding resource; each day not observed is lost permanently | lab Mode 2 (E3) or a minimal standalone shadow logger |
-| X3 | Validation design for realistic effects (OD-DF-2): long licence-cleared history for qualification, plus a multi-year prospective window with fixed alpha and non-binding futility | turns "never confirmable" into "confirmable for annualized SR ≈ 1.8 in about 4 years, ≈ 1.25 in about 8 years" (S4 Phase 1 A3, governed critical value, LRV 1; LRV 2 raises these by ~1.4×). Realistic SR ≈ 1 remains very hard to confirm; that is a fact to plan around, not a reason to loosen alpha | owner decision |
-| X4 | Daily-horizon focus | daily runs cost about 1 CPU-second per 8-year × 20-asset simulation (measured, synthetic) | none; compute is not the constraint |
-| X5 | Measured cost data (public REST book snapshots for the lab universe, or collector-derived tiers) | shrinks cost-model error on small effects | owner ruling if collector (holdout partition) data is used |
-| X6 | Streaming loader + research admission budget (#80, #85) | safe multi-worker qualification on the shared host | review, then install approval |
-| X7 | Simple, well-understood inference stack (HAC t, stationary bootstrap, Romano–Wolf, DSR with logged N, PBO/CSCV) | credible results without new methodology research | none (literature in S4 Phase 1) |
-| X8 | Point-in-time universe service shared by research and lab | consistent survivorship handling across replay, shadow and forward | E1 |
-
-Compute is **not** a bottleneck for daily strategies [REPO lab architecture §10: 0.86 CPU-s / 15 MB for an 8-year,
-20-asset daily simulation]. The bottlenecks are data permission, forward calendar time and governance decisions.
-
----
-
-## 7. Resource allocation recommendation
-
-### 7.1 Current allocation (estimated from the record, 2026-08-19 → 2026-10-24) [INF]
-
-| Area | Approx. share |
-|---|---|
-| Scientific validation methodology (A17–A34, ladder, power) | 30–35 % |
-| Operational reliability (collector, backups, releases, soaks, incidents) | 35–40 % |
-| Platform (CI, lab design, runner, release tooling) | 15–20 % |
-| Profitability research (new mechanisms, signal/execution quality) | 10–15 % |
-
-### 7.2 Recommended allocation [PROP]
-
-| Area | Next 4–6 weeks | Steady state after P0 closes | What it buys |
-|---|---|---|---|
-| **Profitability research** (mechanism specs, licensed exploratory qualification, forward shadow, cost/execution research) | 35 % | 45 % | the only route to O3 |
-| **Scientific validation** (pre-registration, OD-DF-2 design, variant ledger, independent check of critical values) | 20 % | 20 % | credible claims; avoids spending alpha badly |
-| **Operational reliability** (backups off-host, liveness, halt recovery, least privilege, minimal collector upkeep) | 30 % (P0 front-loaded) | 15 % | continuity and safety; protects evidence |
-| **Platform** (lab engine, streaming loader, admission budget, CI) | 15 % | 20 % | enables forward multi-strategy Paper |
-
-The shift is from validation methodology and operations toward mechanism research and forward observation, with
-reliability work concentrated in P0 and then reduced to upkeep.
+Shadow trading is **paper/simulated only**: intents and simulated fills are recorded; no exchange order, signing key
+or live path is created, consistent with PAPER_ONLY [VRF `PAPER_TRADING` default true]. Building shadow software and
+testing it on synthetic data is development, not shadow trading, and does not start any window.
 
 ---
 
-## 8. Roadmap
+## 7. Ranking rubric and ranked initiatives
 
-Each initiative lists: **contribution** (what it changes), **dependencies**, **acceptance** (measurable),
-**evidence** (what proves acceptance), **gate** (who/what approves). "D0" means safe development under the standing
-Development-First authorization (code, tests, synthetic data, docs, Draft PRs) — **if the owner merges
-`DEVELOPMENT_FIRST_POLICY.md`; until then existing records govern**.
+### 7.1 Rubric [PROP; all scores ASM]
 
-### P0 — Safety and continuity
+Ranked by expected contribution to **credible profitability evidence**, not by engineering complexity.
 
-| ID | Initiative | Contribution | Dependencies | Acceptance criteria | Required evidence | Gate |
+- **IV — information value (1–5):** how much the item changes what can credibly be claimed about net profitability,
+  including by making evidence admissible (a valid negative counts).
+- **P — probability of success (1–5):** probability the item delivers its intended evidence or control, conditional
+  on its listed dependencies. Success = credible evidence delivered, of either sign.
+- **T — time-to-evidence (1–5):** 5 = within about 2 weeks after its gate; 3 = 1–3 months; 1 = more than a year.
+- **C — engineering complexity (1–5):** cost term only.
+- **Score = IV × P × T − C.**
+
+Calendar note [ASM]: forward days cannot be recovered, which the score does not capture. The owner may choose to
+authorize R14 early as an explicit override; it would still require §6 in full.
+
+P0 safety/continuity items (§8.1) are an unranked precondition track. Pure platform/ops items (admission budget,
+retention, CI, dashboard, docs) are unranked (§8.4).
+
+### 7.2 Scores and order
+
+| Rank | ID (old ID) | Initiative | IV | P | T | C | Score | Class |
+|---|---|---|---|---|---|---|---|---|
+| 1 | R1 (P1a-2) | Freeze W1/W2 preregistration (spec, variants, notion, costs, failure criteria) | 4 | 5 | 5 | 1 | 99 | [PROP] |
+| 2 | R2 (P1b-2) | Variant/alpha ledger + DSR/PSR, Romano–Wolf utilities | 4 | 5 | 5 | 2 | 98 | [PROP] |
+| 3 | R3 (P0-7) | Holdout-seal integrity check (status, look count, no post-freeze mounts) | 3 | 5 | 5 | 1 | 74 | [PROP] |
+| 4 | R4 (P1b-3) | Close the 2026-01 → 06 exposure-registry gap | 3 | 5 | 5 | 1 | 74 | [PROP] |
+| 5 | R5 (P1b-1) | Validation design for realistic effects (OD-DF-2) incl. §5–§6 rules | 4 | 4 | 4 | 2 | 62 | [PROP] |
+| 6 | R6 (P1b-5) | Mandatory admissibility/power screen per candidate (`research/power`) | 3 | 5 | 4 | 1 | 59 | [PROP] |
+| 7 | R7 (P1b-7 + E13) | Evidence-class and cost-label enforcement in every report | 2 | 5 | 5 | 1 | 49 | [PROP] |
+| 8 | R8 (P1a-3) | One exploratory qualification run per frozen spec (W1, W2) | 4 | 4 | 3 | 3 | 45 | [PROP] |
+| 9 | R9 (P1a-1) | Licence inquiry + `DatasetPermission` + certified pre-freeze dataset | 5 | 3 | 3 | 2 | 43 | [PROP] |
+| 10 | R10 (P1a-5) | Cost-model calibration (measured tiers, ×1.5/×2 sensitivity) | 3 | 4 | 3 | 2 | 34 | [PROP] |
+| 11 | R11 (P1b-4) | Independent critical-value validation (minimal scope) | 3 | 4 | 3 | 3 | 33 | [PROP] |
+| 12 | R12 (P2-3) | Streaming research loader | 2 | 4 | 4 | 3 | 29 | [PROP] |
+| 13 | R13 (P2-4) | Content-addressed results registry | 2 | 4 | 3 | 2 | 22 | [PROP] |
+| 14 | R14 (P1a-4) | Forward **paper** shadow of frozen specs | 5 | 4 | 1 | 3 | 17 | [PROP] |
+| 15 | R15 (W6) | Re-qualification of I1/I2 under canonical cost (exploratory) | 2 | 3 | 3 | 2 | 16 | [PROP] |
+| 16 | R16 (P1a-7) | Paper baseline integrity-enforce window | 2 | 4 | 2 | 2 | 14 | [PROP] |
+| 17 | R17 (P2-1) | Lab engine (`LAB_MODE`, accounts, `tsb_lab`; #67, #78) | 3 | 3 | 2 | 5 | 13 | [PROP] |
+| 18 | R18 (P1a-10) | Risk overlays W3/W4 as lab modules | 2 | 3 | 2 | 2 | 10 | [PROP] |
+| 19 | R19 (P1a-6) | Resting-limit execution research | 2 | 3 | 2 | 3 | 9 | [PROP] |
+| 20 | R20 (P1a-8) | T1-cap correction version | 1 | 4 | 2 | 1 | 7 | [PROP] |
+| 21 | R21 (P1a-9) | S3 selection shadow | 1 | 3 | 2 | 2 | 4 | [PROP] |
+
+Rank sets priority; execution order still respects dependencies (e.g. R8 needs R9, R1, R2, R12) [ASM].
+The former P1a-11 ("retire the 15m/4h family") is a resource decision, not an evidence item; it moves to RD-6.
+
+---
+
+## 8. Roadmap (reordered by rank)
+
+"D0" = safe development under the Development-First policy (code, tests, synthetic data, docs, Draft PRs) — **only
+if the owner merges `DEVELOPMENT_FIRST_POLICY.md`** [VRF: still Draft]; until then existing records govern.
+
+### 8.1 Precondition track P0 — safety and continuity (unranked; runs in parallel)
+
+| ID | Initiative | Acceptance | Gate | Class |
+|---|---|---|---|---|
+| P0-1 | Repair nightly bot backup; off-host encrypted copy | 7 consecutive successful nightly runs; restore drill PASS | owner (Class B; off-host) | [PROP]; failing since 2026-10-10 [HR] |
+| P0-2 | Pipeline-liveness monitor (#87) | alert within 2 scanner cycles in synthetic test; 0 false alerts over 7 days | owner | [PROP]; Draft [VRF] |
+| P0-3 | Technical-halt recovery (#89) + audit log (#88) | tests cover technical-halt class; risk controls byte-identical | owner | [PROP]; Draft [VRF] |
+| P0-4 | Least-privilege roles (#36) + credential rotation plan | role suites pass on schema-11 test DB; runbook reviewed | owner (after P0-1) | [PROP]; Draft [VRF] |
+| P0-5 | PAPER_ONLY invariant tests + branch protection (#90) | CI fails on any live path or `PAPER_TRADING` default change | owner | [PROP]; Draft [VRF] |
+| P0-6 | Dependency locks (#86) | lock per service; differences listed | owner | [PROP]; Draft [VRF] |
+
+### 8.2 Tier A — ranks 1–8 (highest evidence contribution)
+
+All rows **[PROP]**.
+
+| Rank | ID | Contribution | Dependencies | Acceptance criteria | Gate | Notion |
 |---|---|---|---|---|---|---|
-| P0-1 | Repair the nightly bot backup and add an off-host encrypted copy (CP-6 after CP-7 key escrow) | protects evidence, DB and recovery points; last good p1bg set predates 2026-10-10 [HR] | OD-DF-4 backup model; R1.3 | 7 consecutive successful nightly runs; one off-host copy verified by restore; one restore drill of `trading_signals` and evidence to a disposable instance | run logs, SHA256SUMS, restore-test transcript | owner (Class B host change; off-host transfer) |
-| P0-2 | Pipeline-liveness monitor (#87) | detects an idle pipeline that healthchecks miss [HR ops 10-22] | review | alert within 2 scanner cycles of zero-candidate operation in a synthetic test; zero false alerts over a 7-day observation | test report; alert log | owner (merge, then install) |
-| P0-3 | Technical-halt recovery workflow (#89) + append-only audit log (#88) | separates technical halts from outcome halts without reading protected outcomes; actor recorded on pause/resume (SEC-5) | review | recovery path covers the technical halt class in tests; risk controls byte-identical; every pause/resume has an actor | tests, mutation results | owner (merge; activation separate) |
-| P0-4 | Least-privilege DB roles for schema 11 (#36) and a credential rotation plan (SEC-1/SEC-3) | removes the shared superuser role and the committed credential literal risk | P0-1 (fresh verified backup); inventory of all clients on the shared cluster | role suites pass on schema 11 test DB; every service starts under its own role in a disposable stack; rotation runbook reviewed | test logs; runbook | owner (Class B rollout; history rewrite is a separate decision) |
-| P0-5 | PAPER_ONLY invariants as tests and branch protection (#90) | guarantees no live path appears by accident | review | a CI test fails if any live execution path, exchange signing or `PAPER_TRADING=false` default appears; main protected | CI run; branch settings | owner |
-| P0-6 | Dependency locks (#86) | reproducible images; removes version drift between services | review | lock files for every service; image rebuild reproduces the running dependency set or lists each difference | diff report | owner (merge; builds separate) |
-| P0-7 | Holdout seal integrity check | protects the only untouched forward evidence | none (D0) | automated check: seal SEALED, look count unchanged, no lab/research mount of post-freeze paths | check output in CI or ops | D0 to build; owner to install |
+| 1 | R1 | immutable spec before any data | none to draft | spec hash committed; all variants enumerated; primary notion named; costs per §1.3; S4 failure criteria fixed | **owner accepts preregistration** | names one of (a)/(b)/(c) |
+| 2 | R2 | honest deflation; look accounting | none (D0) | 0 orphan runs in an audit of runs vs ledger; DSR/PSR/Romano–Wolf reproduce published examples in tests | D0; owner makes mandatory | (b) via DSR |
+| 3 | R3 | protects untouched evidence | none (D0) | automated check: status SEALED, look count unchanged, no research/lab mount of post-freeze paths | D0 build; owner install | — |
+| 4 | R4 | correct exposure class for 2026-01 → 06 | none | registry entry with source records | owner (governance record) | — |
+| 5 | R5 | makes confirmation possible in principle | R2 | horizon, fixed alpha, look rule, endpoint per notion, prospective-partition rule, power ≥ 0.8 table at the declared effect range | **owner** | all three, per §1.4 |
+| 6 | R6 | stops alpha spent on underpowered tests | R5 | screen attached to every admission request; underpowered → not admitted | D0; owner decides | — |
+| 7 | R7 | prevents exploratory or gross figures read as net profitability | none (D0) | generator refuses output without class label and cost label; tests | D0 | — |
+| 8 | R8 | first credible exploratory read on W1/W2 | R9, R1, R2, R12, R4 | exactly one run per spec; all variants logged; ends before the freeze instant; PM-1 evaluated | **owner (dataset use)**; never confirmatory | (c) primary, (a)(b) reported |
 
-### P1a — Profitability research and signal/execution quality
+### 8.3 Tier B/C — ranks 9–21
 
-| ID | Initiative | Contribution | Dependencies | Acceptance criteria | Required evidence | Gate |
-|---|---|---|---|---|---|---|
-| P1a-1 | **Dataset permission + certified pre-freeze dataset** (E1) | unblocks all exploratory qualification | X1 licence inquiry; OD-DF-1 | `DatasetPermission` recorded; content-addressed snapshot ending before the freeze; PIT universe incl. delisted; survivorship gaps listed | permission record; dataset manifest hash; verify-dataset PASS | **owner** (licence + permission) |
-| P1a-2 | **Freeze the W1/W2 pre-registration** (TSMOM long/cash 14-day ± vol scaling; XS long-only top-5 weekly; benchmarks; canonical costs; failure criteria) | converts the S4 Phase 1 draft into an immutable spec before any data is touched | P1a-1 can run in parallel; spec must be frozen first | spec committed with hash; every variant enumerated; failure criteria fixed; cost stress ×2 declared | committed spec + hash | **owner** (accept pre-registration) |
-| P1a-3 | One exploratory qualification run per frozen spec | first credible read on W1/W2 under canonical costs | P1a-1, P1a-2, P2-3 | runs exactly once per spec; all variants logged; report states class EXPLORATORY; predeclared failure criteria evaluated | run manifest, variant ledger, report | owner (dataset use); results never confirmatory |
-| P1a-4 | Forward **shadow** of the frozen specs (no P&L, intents only) | starts forward clock immediately (X2) | P1a-2; a minimal shadow logger or lab Mode 2 | intents logged daily with decision-time inputs, hash-chained; ≥ 99 % daily completeness; no post-freeze data used for anything but the forward record | shadow ledger; completeness report | owner (declare shadow window) |
-| P1a-5 | Cost-model calibration (E4) | measured spread/depth tiers for the lab universe | source decision (public snapshots vs collector data) | tiers measured on ≥ 30 days; ×1.5/×2 sensitivity attached to every result; discount fees refused | calibration report | owner ruling if collector data used; D0 for code |
-| P1a-6 | Resting-limit entry research (E5) in shadow | quantifies spread capture vs non-fill/adverse selection | P1a-4 or Paper shadow | non-fill rate and post-fill drift measured per tier with CIs; net cost saving vs market entry estimated | shadow report | owner (activation = new strategy version) |
-| P1a-7 | Paper baseline integrity: `SIGNAL_INTEGRITY_MODE=enforce` as a declared window (E6) | honest baseline n; removes duplicates | A44 image validation; fresh recovery point | re-fire and duplicate execution rate 0 in the window; no lost signals | integrity counters (non-outcome) | owner (declared Paper window) |
-| P1a-8 | T1 cap correction version (E7) | removes self-referential T1 cap | P1a-7 window boundary | flag switch recorded as a version boundary; byte-identity at default retained | version record | owner (flag switch) |
-| P1a-9 | Selection shadow S3 (E8) | cost-aware selection data without behaviour change | sidecar approval | shadow decisions recorded for ≥ 30 days; agreement/disagreement with live selector reported (no P&L) | shadow records | owner (shadow wiring) |
-| P1a-10 | Risk overlays W3/W4 as lab modules | lower drawdown of beta-heavy candidates | P2-1 | variance / max-drawdown endpoint spec frozen; synthetic tests | spec + tests | D0 to build; owner to activate |
-| P1a-11 | Formal decision: retire the 15m/4h family as a profitability candidate, keep as baseline arm | stops L2 effort | none | owner decision recorded | decision note | **owner** |
+All rows **[PROP]**; contributions as in §7.2.
 
-### P1b — Scientific evidence and validation
+| Rank | ID | Dependencies | Acceptance criteria | Gate | Notion |
+|---|---|---|---|---|---|
+| 9 | R9 | owner sends LIC-1 | `DatasetPermission` recorded; content-addressed snapshot ending before the freeze; PIT universe incl. delisted | **owner** | — |
+| 10 | R10 | source decision (public snapshots vs collector data) | measured tiers on ≥ 30 days; sensitivity on every result | owner ruling if collector data | (a) cost input |
+| 11 | R11 | R5 | test size within declared tolerance under AR(0.3) and skewed returns, independent harness, one immutable run | owner (compute) | — |
+| 12 | R12 | none (D0) | peak RSS ≤ 4 GiB on a synthetic 9-year, 600-symbol table; byte-identical to in-memory path on fixtures | D0 | — |
+| 13 | R13 | R2 | rerun with same inputs gives byte-identical artifacts | D0 | — |
+| 14 | R14 | R1, R5, §6 in full, minimal shadow logger or lab Mode 2 | intents logged daily with decision-time inputs, hash-chained; ≥ 99 % daily completeness; paper/simulated only | **owner: scientific authorization + preregistration + partition record** | per R1 |
+| 15 | R15 | R9, R2 | runs logged as variants; labelled EXPLORATORY; liquid tiers only | owner (dataset use) | (a)(c) |
+| 16 | R16 | A44 image validation; fresh recovery point | re-fire and duplicate execution rate 0 (non-outcome counters); any outcome analysis requires §6 | owner (declared Paper window) | — |
+| 17 | R17 | architecture review | production outputs byte-identical with `LAB_MODE` unset; isolation tests pass | owner (merge, DB, deploy separate) | — |
+| 18 | R18 | R17 | variance / drawdown endpoint spec frozen; synthetic tests | D0 build; owner activation | (b) |
+| 19 | R19 | R14 or Paper shadow under §6 | non-fill rate and post-fill drift per tier with CIs | owner + §6 | (a) cost |
+| 20 | R20 | R16 boundary | flag switch recorded as a version boundary | owner | — |
+| 21 | R21 | sidecar approval + §6 | shadow selection decisions recorded ≥ 30 days; no P&L | owner + §6 | — |
 
-| ID | Initiative | Contribution | Dependencies | Acceptance criteria | Required evidence | Gate |
-|---|---|---|---|---|---|---|
-| P1b-1 | **Validation design for realistic effects (OD-DF-2)** | makes confirmation feasible in principle for SR ≈ 1.5–2 over multi-year windows (§6 X3) | none to draft | design states horizon (multi-year), fixed alpha, final-look or group-sequential rule with non-binding futility, endpoint (daily net active return vs B&H, HAC), and a power table showing ≥ 0.8 at the declared effect range | design doc + `research/power` output | **owner** |
-| P1b-2 | Variant/trial ledger and multiplicity reporting (E9) | honest deflation of every result | none (D0) | every run appends variant, dataset hash, config hash, git SHA before results are read; DSR and Romano–Wolf computed over logged N | ledger + tests | D0; owner to make mandatory |
-| P1b-3 | Close the contamination-registry gap (2026-01..06 researched but unregistered) | correct exposure classification | none | registry entry added with source records | registry diff | owner (governance record) |
-| P1b-4 | Independent validation of critical values (OD-5) — **minimal scope** | needed before any admission | P1b-1 | the chosen test set's size verified at the declared alpha under AR(0.3) and skewed returns in an independent harness; one run, results immutable | validation report | owner (compute approval) |
-| P1b-5 | Per-candidate admissibility screen before admission (E10) | prevents underpowered admissions | P1b-1 | screen output attached to every admission request; underpowered → not admitted | screen report | D0; owner decides admission |
-| P1b-6 | A48 replay design review (input route, A_OBS_IN_BAR, conditional intervals) | resolves counterfactual-evaluation policy | none | three decisions recorded | decision note | owner |
-| P1b-7 | Evidence-class label enforced in every report | prevents exploratory success being read as profitability | none (D0) | report generator refuses output without class label; tests | tests | D0 |
-| P1b-8 | First governed admission (only if a candidate passes P1a-3 and P1b-5) | the first possible scientific success | P1a-3, P1b-1, P1b-4, P1b-5 | admission spec frozen with alpha, horizon, endpoint, stop rules | admission record | **owner — scientific authorization gate** |
+### 8.4 Unranked platform and ops
 
-### P2 — Performance and research infrastructure
-
-| ID | Initiative | Contribution | Dependencies | Acceptance criteria | Required evidence | Gate |
-|---|---|---|---|---|---|---|
-| P2-1 | Lab engine `LAB_MODE` + accounts + target-position path + `tsb_lab` (E2; #67, #78) | multi-strategy forward Paper without production change | architecture review; isolation tests (lab §11.3) | production tracker outputs byte-identical with `LAB_MODE` unset; accounting invariants and RLS isolation tests pass on a disposable cluster | test reports | owner (merge; DB creation; deploy separate) |
-| P2-2 | Research admission budget (#80, #85) | safe concurrency on the shared host | review | I-1/I-2 tests pass; shadow decisions logged for 14 days with no unexplained refusal | logs | owner (install, enforce) |
-| P2-3 | Streaming / month-chunked research loader (E11) | multi-year runs within memory budget | none (D0) | peak RSS ≤ 4 GiB on a synthetic 9-year, 600-symbol daily+4h table; outputs byte-identical to the in-memory path on small fixtures | benchmark + parity tests | D0 |
-| P2-4 | Content-addressed results and experiment registry (lab G5) | reproducibility | P1b-2 | rerun with same inputs gives byte-identical artifacts | reproducibility test | D0 |
-| P2-5 | Evidence/outbox retention policy (DB-5) and telemetry write reduction applied | disk and backup stability | P0-1 | retention documented; no unbounded growth over 30 days | growth metrics | owner (install) |
-| P2-6 | CI hardening: flaky collector e2e tests fixed (#81), DB suite in CI | trustworthy green | review | 20 consecutive green runs on main | CI history | owner (merge) |
-
-### P3 — Noncritical platform
-
-| ID | Initiative | Contribution | Dependencies | Acceptance criteria | Required evidence | Gate |
-|---|---|---|---|---|---|---|
-| P3-1 | Telegram-gated dashboard (A59) | convenience | P0-4 read-only role; loopback binding | read-only role only; no holdout data displayed | security review | owner |
-| P3-2 | Documentation consolidation (stale headers, Git guide conflicts) | lower onboarding cost | none (D0) | conflicts listed in the reconciliation register resolved | docs PR | owner (merge) |
-| P3-3 | Collector feature work beyond upkeep | low until a research use is declared | P1a-5 decision | — | — | owner |
-| P3-4 | Runtime ↔ GitHub parity automation (#56) | drift visibility | none | parity report generated on demand | report | owner |
+Admission budget shadow mode (#85; I-1 #80 merged [VRF]) — owner install; evidence/outbox retention (DB-5); CI
+hardening (DB suite in CI; #81 flake fix merged [VRF]; target 20 consecutive green runs); Telegram dashboard (A59,
+read-only role, no holdout data); documentation consolidation; runtime ↔ GitHub parity (#56). Collector: minimal
+upkeep until a research use is declared [PROP].
 
 ---
 
 ## 9. Measurable milestones
 
-### 9.1 Profitability milestones (scientific → financial; each later milestone requires the earlier ones)
+### 9.1 Profitability milestones (each requires the previous ones)
 
-| ID | Milestone | Measurable criterion | Class |
-|---|---|---|---|
-| PM-0 | Mechanism spec frozen | P1a-2 spec hash committed before any data access; every variant enumerated | engineering/governance |
-| PM-1 | Exploratory qualification pass | on the licence-cleared pre-freeze dataset: mean daily **net active** return vs equal-weight B&H > 0 with HAC t ≥ 2 (Bartlett lag 7) **and** stationary-bootstrap 95 % CI excluding 0; DSR > 0.95 with N = all logged variants; none of the 5 predeclared failure criteria triggered (incl. sign stable under ×2 cost stress, ≤ 50 % P&L from 5 months or 1 coin) | **exploratory** (never confirmation) |
-| PM-2 | Forward observation sufficiency | pre-registered forward sample reaches its pre-computed N: for per-trade endpoints N ≥ DEFF × (z × σ/μ)² with σ, μ_MDE and DEFF declared in the spec (§3.1); for daily portfolio endpoints, the horizon from the OD-DF-2 power table | prospective observation |
-| PM-3 | Forward net expectancy | on that pre-registered forward sample: **net expectancy per trade (or per day) after 0.20 % fees + modelled spread and slippage (`a48-cost-v1`) with a one-sided lower confidence bound > 0 at the declared alpha**, robust to ×1.5 cost stress and to removing the top 1 % of trades; DEFF-adjusted or day-clustered inference | prospective observation; becomes **scientific success** only under PM-4 |
-| PM-4 | Scientific success | the governed admission (P1b-8) ends PROSPECTIVELY_SUPPORTED (or the OD-DF-2 successor equivalent) at the final look | **confirmatory** |
-| PM-5 | Financial profitability | not a roadmap milestone. Requires the four owner conditions, licence clearance for any Vision-qualified strategy, and an explicit owner decision | **out of scope (PAPER_ONLY)** |
+| ID | Milestone | Notion tested | Measurable criterion | Class |
+|---|---|---|---|---|
+| PM-0 | Spec frozen | none | R1 hash committed before any data access; variants enumerated; primary notion named | governance |
+| PM-1 | Exploratory qualification pass | **(c) primary**; (a), (b) secondary | on the licence-cleared pre-freeze dataset: active net return vs EW B&H > 0 with HAC t ≥ 2 (lag 7) and bootstrap 95 % CI excluding 0; DSR ≥ 0.95 with N = all logged variants; (a) mean net > 0 under ×2 cost stress; none of the five S4 failure criteria triggered | **exploratory** — never confirmation |
+| PM-2 | Prospective authorization | none | owner scientific authorization + preregistration hash + prospective-partition record (§5–§6) | governance |
+| PM-3 | Forward sample sufficiency | none | preregistered forward sample reaches its precomputed N or horizon (R5 power table) | prospective observation |
+| PM-4a | Forward absolute net | **(a)** | §1.4(a) at the preregistered alpha on the forward sample | prospective |
+| PM-4b | Forward risk-adjusted | **(b)** | §1.4(b): PSR ≥ 1 − α, DSR ≥ 0.95 with full variant count; drawdown within limit | prospective |
+| PM-4c | Forward vs buy-and-hold | **(c)** | §1.4(c) vs BTC and EW B&H, benchmark costs included, Romano–Wolf | prospective |
+| PM-5 | Scientific success | the preregistered primary notion only | the governed admission ends supported at the final look; secondary notions reported, not claimed | **confirmatory** |
+| PM-6 | Financial profitability | — | not a roadmap milestone; needs the four owner conditions, licence clearance and an explicit owner decision | **out of scope (PAPER_ONLY)** |
 
 ### 9.2 Evidence-quality milestones
 
-| ID | Milestone | Measurable criterion |
-|---|---|---|
-| EQ-1 | Dataset permission | ≥ 1 `DatasetPermission` recorded with licence basis; snapshot verify PASS |
-| EQ-2 | Exposure registry complete | contamination registry covers every researched interval; 2026-01..06 gap closed |
-| EQ-3 | Variant accounting | 100 % of research runs in the ledger before results are read (audit of runs vs ledger = 0 orphans) |
-| EQ-4 | Evidence-class labels | 100 % of reports carry a class label; generator refuses unlabeled output |
-| EQ-5 | Cost-model calibration | measured spread tiers for the lab universe; every result carries ×1.5/×2 sensitivity and a "fragile" flag on sign change |
-| EQ-6 | Replay fidelity maintained | `tracker_event_v1` parity 27/27 on every change; Mode 3 assumptions named in every use |
-| EQ-7 | Honest Paper n | under integrity enforce: same-candle re-fire rate = 0, duplicate executions = 0 (non-outcome counters) |
-| EQ-8 | Critical values validated | independent size check within declared tolerance at the declared alpha (P1b-4) |
-| EQ-9 | Holdout integrity | seal state and look count unchanged at every milestone review |
+All rows **[PROP]**.
+
+| ID | Criterion |
+|---|---|
+| EQ-1 | ≥ 1 `DatasetPermission` with licence basis; snapshot verify PASS |
+| EQ-2 | Registry covers every researched interval; 2026-01 → 06 gap closed |
+| EQ-3 | 100 % of research runs in the ledger before results are read (0 orphans) |
+| EQ-4 | 100 % of reports carry class and cost labels |
+| EQ-5 | Measured cost tiers; ×1.5/×2 sensitivity and "fragile" flag on every result |
+| EQ-6 | Tracker parity 27/27 on every replay change |
+| EQ-7 | Under integrity enforce: same-candle re-fires = 0, duplicate executions = 0 |
+| EQ-8 | Independent size check within tolerance at the declared alpha |
+| EQ-9 | Seal status and look count unchanged at every milestone review |
 
 ### 9.3 Reliability milestones
 
-| ID | Milestone | Measurable criterion |
-|---|---|---|
-| RM-1 | Backups | 7 consecutive successful nightly bot backups; off-host copy exists; restore drill PASS within 30 days |
-| RM-2 | Liveness | idle-pipeline alert fires in ≤ 2 cycles in a synthetic test; 0 undetected idle periods > 1 hour over 30 days |
-| RM-3 | Signal delivery | 0 lost signals; genuine dead letters alerted within 1 hour |
-| RM-4 | Least privilege | no service uses a superuser role; 0 credential literals in tracked files at HEAD |
-| RM-5 | Halt handling | technical halts recoverable via the reviewed workflow with recorded actor; outcome halts unchanged |
-| RM-6 | CI | 20 consecutive green runs on main; flaky tests quarantined with issues |
-| RM-7 | Collector (upkeep only) | daily seals complete; reboot recovery documented; no research job blocked > 24 h by collector state without an alert |
+RM-1 backups (7 consecutive nightly, off-host copy, restore drill ≤ 30 days old); RM-2 liveness (≤ 2 cycles in
+synthetic test; 0 undetected idle periods > 1 hour over 30 days); RM-3 0 lost signals; RM-4 no superuser service
+role, 0 credential literals at HEAD; RM-5 technical halts recoverable with recorded actor; RM-6 20 consecutive green
+CI runs; RM-7 collector daily seals complete, reboot recovery documented [all PROP].
 
 ---
 
-## 10. Safe work that can start immediately (no scientific authorization)
+## 10. Resource allocation [ASM estimate / PROP]
 
-All of the following are **D0** (code, tests, synthetic data, docs, Draft PRs) and touch no data, Paper behaviour,
-holdout or production:
+| Area | Estimated 2026-08-19 → 10-24 [ASM] | Proposed next 4–6 weeks [PROP] | Steady state [PROP] |
+|---|---|---|---|
+| Evidence controls + validation design (R1–R7, R11) | 30–35 % (mostly A17–A34 statistics) | 30 % | 20 % |
+| Profitability research (R8–R10, R14–R15, R18–R19) | 10–15 % | 25 % | 40 % |
+| Operational reliability (P0) | 35–40 % | 30 % (front-loaded) | 15 % |
+| Platform (R12–R13, R17, §8.4) | 15–20 % | 15 % | 25 % |
 
-1. Draft the immutable W1/W2 pre-registration file (P1a-2) from S4 Phase 1 §4, with variant enumeration and hash —
-   **for owner acceptance; not frozen until accepted**.
-2. Minimal forward **shadow logger** design and synthetic tests (P1a-4), standalone or as lab Mode 2.
-3. Lab engine pure modules and tests (P2-1 parts): accounting invariants, reservations, R9 states, target-position path,
-   production byte-identity tests.
-4. Streaming research loader with synthetic benchmarks (P2-3).
-5. Variant/trial ledger, DSR and Romano–Wolf utilities with synthetic tests (P1b-2).
-6. Evidence-class label enforcement in report generators (P1b-7).
-7. Cost-model calibration code and sensitivity harness on synthetic book data (P1a-5 code only).
-8. OD-DF-2 design draft with `research/power` tables (P1b-1 draft).
-9. PAPER_ONLY invariant tests and holdout-seal check (P0-5, P0-7).
-10. Review fixes on existing Drafts: #87 liveness, #89 halt recovery, #88 audit log, #86 locks, #36 roles, #85 admission
-    shadow, #67/#78 lab guards.
+Pause further development of the confirmatory-statistics line (A34-VS1) until a candidate passes PM-1, using the
+simple stack in §5.4 meanwhile [PROP].
 
-Not D0 (needs the owner even though "small"): any DB read, any dataset use, any Paper flag or window, any merge,
-any install on the host, any collector action, any use of post-freeze data.
+## 11. Safe work that can start now (D0; no data, no window, no authorization)
 
-## 11. Owner decisions needed (in recommended order)
+1. Draft R1 preregistration files from S4 §4 — **for owner acceptance; not frozen until accepted**.
+2. R2 ledger, DSR/PSR, Romano–Wolf utilities with synthetic tests.
+3. R3 seal check code; R7 label enforcement; R12 loader; R13 registry.
+4. R5 OD-DF-2 draft with `research/power` tables (outcome-free).
+5. Shadow-logger and lab pure-module code with **synthetic** tests only — this starts **no** shadow window (§6).
+6. Cost-calibration code on synthetic book data (R10 code only).
+7. Review fixes on Drafts #36, #67, #78, #85–#90.
+
+Not D0: any DB read, dataset use, Paper flag or window, shadow window, merge, host install, collector action or use
+of post-freeze data.
+
+## 12. Owner decisions needed (recommended order)
 
 | # | Decision | Unblocks | Recommendation [PROP] |
 |---|---|---|---|
-| RD-1 | Merge or amend `DEVELOPMENT_FIRST_POLICY.md` (D0 standing authorization) | §10 safe work at full speed | merge (with amendments as desired) |
-| RD-2 | Send the licence inquiry (LIC-1) and decide dataset permission (OD-DF-1) | P1a-1, P1a-3, all exploratory research | send now; decide on reply or on counsel |
-| RD-3 | Accept (or amend) the W1/W2 pre-registration | P1a-3, P1a-4 | accept before any data is touched |
-| RD-4 | Declare a forward **shadow** window for the frozen specs | starts the forward clock (X2) | declare as soon as RD-3 is accepted |
-| RD-5 | Validation design for realistic effects (OD-DF-2) | P1b-4, P1b-8 | multi-year prospective, fixed alpha, non-binding futility; historical = qualification only |
-| RD-6 | Retire the 15m/4h family as a profitability candidate; keep as baseline arm | stops L2 | yes |
-| RD-7 | Pause further confirmatory-statistics development (A34-VS1 line) until a candidate passes PM-1 | frees capacity (L1) | yes; keep records immutable |
-| RD-8 | Backup model (OD-DF-4) and off-host copy | P0-1 | approve |
-| RD-9 | Least-privilege rollout and credential rotation plan | P0-4 | approve plan; schedule after P0-1 |
-| RD-10 | Paper baseline: integrity enforce window and T1 correction version; resume or keep the current administrative pause | P1a-7, P1a-8 | owner's call; neither affects profitability research |
-| RD-11 | Collector purpose: minimal upkeep vs declared research use (e.g. cost calibration from holdout-partition data) | P1a-5 source, L4 | minimal upkeep unless a use is declared |
-| RD-12 | Lab architecture final approval and `tsb_lab` creation | P2-1, lab Mode 3 | approve after isolation tests |
-| RD-13 | Resource allocation (§7.2) | all | adopt for the next 4–6 weeks, then review |
+| RD-1 | Merge or amend `DEVELOPMENT_FIRST_POLICY.md` | §11 at full speed | merge, with amendments as desired |
+| RD-2 | Accept (or amend) R1 preregistration | R8, R14 | accept before any data is touched |
+| RD-3 | Make the R2 ledger and R6 screen mandatory | all research | yes |
+| RD-4 | Validation design OD-DF-2 incl. prospective-partition rule (R5) | R11, R14, PM-2 | multi-year, fixed alpha, final look or non-binding futility |
+| RD-5 | Send LIC-1; decide dataset permission (OD-DF-1) | R8, R9, R15 | send now |
+| RD-6 | Stop profitability allocation to further 15m/4h refinements; keep as baseline arm | frees capacity | yes — scoped to those implementations, reversible on new evidence |
+| RD-7 | Scientific authorization for R14 (only after RD-2, RD-4 and §6 are complete) | forward clock | decide explicitly; early authorization is an override of the rank order (§7.1) |
+| RD-8 | Backup model and off-host copy | P0-1 | approve |
+| RD-9 | Least-privilege rollout and rotation plan | P0-4 | approve; schedule after P0-1 |
+| RD-10 | Paper baseline integrity window and T1 correction version | R16, R20 | owner's call |
+| RD-11 | Collector purpose (upkeep vs declared research use) | R10 source | minimal upkeep unless declared |
+| RD-12 | Lab architecture approval and `tsb_lab` creation | R17 | after isolation tests |
+| RD-13 | Resource allocation (§10) | all | adopt for 4–6 weeks, then review |
 
-## 12. Scientific authorization gate
+## 13. Scientific authorization gate
 
-This document stops here. It does **not**:
-- authorize any dataset use, backtest, simulation, research job or confirmatory experiment;
-- freeze any pre-registration, declare any Paper or shadow window, or admit any candidate;
-- change any HOLD (A34-VS1, MI Stage B, B2, P2-D1, Paper R2, D1–D5) or any owner decision OD-1..OD-7;
-- read, quote or rely on any sealed-holdout outcome;
-- propose, enable or prepare live trading.
+This document does **not**: authorize any dataset use, backtest, simulation, research job or confirmatory
+experiment; freeze any preregistration; declare any Paper or shadow window; admit any candidate; change any HOLD
+(A34-VS1, MI Stage B, B2, P2-D1, Paper R2, D1–D5) or owner decision OD-1..OD-7; read, quote or rely on any
+sealed-holdout outcome; or propose, enable or prepare live trading.
 
-Every item above marked owner, RD-* or "gate" requires an explicit owner decision recorded in the normal way.
+## Appendix A. Sources
 
-## Appendix A. Source map
-
-Repository (`main` `ef3d735`): `docs/governance/DEVELOPMENT_FIRST_POLICY.md`; `docs/lab/STRATEGY_LAB_ARCHITECTURE.md`;
-`docs/strategy/STRATEGY_EVOLUTION_ROADMAP.md`, `S4_MECHANISM_COMPARISON.md`, `S4_PHASE1_SCIENTIFIC_COMPARISON.md`,
-`S5_PWR_1_OWNER_DECISIONS.md`, `EVIDENCE_LADDER_PARAMETERS.md`; `docs/a45/`, `docs/a46/`, `docs/a47/`, `docs/a48/`;
-`docs/ops/RESEARCH_ADMISSION_CONTROLLER_IMPLEMENTATION_PLAN.md`; `docs/edge_research_foundation.md`;
-`shared/fees.py`; `shared/config.py`; `research/power/`; `research/mechanisms/`; open Draft PRs #3, #15–#19, #29,
-#36, #48, #56, #67, #78, #84–#90.
+Repository, checked in this revision [VRF]: the files listed in §0. Repository documents cited but **not**
+re-checked line by line in this revision (treated as [HR] where quoted): `docs/a42/`–`docs/a47/` beyond the A46
+line cited, `docs/strategy/STRATEGY_EVOLUTION_ROADMAP.md`, `S4_MECHANISM_COMPARISON.md`, lab §11 isolation tests.
 
 Owner memory notes (historical record, not re-verified): edge leaderboard; research conclusion 2026-05-25; indicator
-deep analysis 2026-06-07; cycle 19 verdict 2026-06-12; live-DB audit 2026-06-23; T1-capture audit 2026-06-24;
-target-policy 9-year backtest 2026-06-24; ML daily edge 2026-06-25; falling wedge 2026-06-28; live-learning review
-and SMC faithful test 2026-07-06; canary close and OOS re-audit; learning deep audit 2026-07-14 with 07-29 and
-08-12 updates (funding carry, 20/50 MA); stop-policy validation 2026-08-20; Research-1A/1B 2026-09-27; governance
-PAPER_ONLY; A17–A34; A37–A49; S3 selection; A58 profitability; A60 audit; post-A56 critical path; Paper performance
-audit 2026-10-20; Development-First phase; lab alignment; release RC, Stage A and ops assessment 2026-10-22.
+deep analysis 2026-06-07; live-DB audit 2026-06-23; T1-capture audit and 9-year replay 2026-06-24; ML daily edge
+2026-06-25; falling wedge 2026-06-28; SMC faithful test and live-learning review 2026-07-06; canary close and OOS
+re-audit; learning audit 2026-07-14 (with 07-29 and 08-12 updates); stop-policy validation 2026-08-20; A17–A34;
+A37–A49; A58; post-A56 critical path; ops assessment 2026-10-22.
+
+## Changelog (revision 2, owner corrections)
+
+| # | Correction | Where addressed |
+|---|---|---|
+| 1 | Failure to demonstrate for tested implementations ≠ proof no profitable strategy exists; reworded "no edge", "dead", "do not reinvest"; power and limits; "does NOT show" | §2 summary, §2.4, **§2.5**, §3.1 heading and confidence column, §3.3 note, §4 O3, RD-6 |
+| 2 | Four evidence classes [HR]/[VRF]/[ASM]/[PROP] on every row; key repository facts re-verified with paths | §0 (label table + verified-facts table), class columns throughout, Appendix A |
+| 3 | Precise net-profitability definition with formula, fees 0.10 %/side, spread, slippage tiers, rounding, partial/failed fills, n/a items | **§1.1–§1.3** |
+| 4 | Three notions (absolute, risk-adjusted, relative to B&H) with distinct acceptance criteria; milestones name their notion | **§1.4**, §9.1 (PM-1, PM-4a/b/c, PM-5), notion column in §8.2–§8.3 |
+| 5 | Every prospective shadow/forward item needs scientific authorization + preregistration; shadow paper/simulated only | **§6**, R14/R16/R19/R21 gates, PM-2, RD-7, §11 item 5 |
+| 6 | Sealed holdout integrity and multiple-testing controls explicit (no holdout reads; prospective partition; ledger; DSR; family-wise and per-admission alpha) | **§5**, R2–R4, EQ-3, EQ-9 |
+| 7 | Re-ranked by contribution to credible profitability evidence with an explicit rubric and score table; roadmap reordered | **§7**, §8.2–§8.3 |
