@@ -13,15 +13,17 @@ on:
 permissions:
   contents: read
 
+# Superseded runs of the same pull request (or non-protected branch) are cancelled. Runs on main and develop
+# get a unique group (the run id), so they are never cancelled nor replaced while pending (CI_EFFICIENCY.md).
 concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.run_id || 'superseded' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
 jobs:
   unit:
     name: default suite (no database)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +37,7 @@ jobs:
   database:
     name: disposable-PostgreSQL matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16.15-alpine
@@ -107,16 +109,35 @@ jobs:
   collector:
     name: P2 forward collector suite (p2_forward/tests)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0                             # test_p2f_recovery_a34 archives the pre-fix tree cd2935e
           persist-credentials: false
+      # The job always runs and reports, so the required check name is unchanged. Its work is skipped only when
+      # .github/ci/change_scope.py proves no collector input changed (pull requests and non-protected pushes;
+      # main, develop and manual runs are always full; any doubt runs). See docs/ops/CI_EFFICIENCY.md.
+      - name: change scope (collector inputs)
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          out=$(python3 .github/ci/change_scope.py collector) || out=run=true
+          [ "$out" = "run=false" ] || out=run=true
+          echo "$out" >> "$GITHUB_OUTPUT"
       - name: presence check
         id: present
+        env:
+          IN_SCOPE: ${{ steps.scope.outputs.run }}
         run: |
-          if [ -d p2_forward/tests ]; then echo "run=true" >> "$GITHUB_OUTPUT"
+          if [ "$IN_SCOPE" = "false" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no collector input changed: collector suite not needed for this diff (change_scope.py)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ -d p2_forward/tests ]; then echo "run=true" >> "$GITHUB_OUTPUT"
           else echo "run=false" >> "$GITHUB_OUTPUT"; echo "p2_forward/tests not present on this tree"; fi
       - uses: actions/setup-python@v5
         if: steps.present.outputs.run == 'true'
