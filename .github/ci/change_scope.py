@@ -7,8 +7,11 @@ SHAs, git error, empty diff, any changed path matching the scope's inputs) gives
 pull_request, or a push to a non-protected branch, whose complete diff touches none of the scope's inputs
 gives `run=false`. The job itself always runs and reports its status, so required-check names are unchanged.
 
-usage: change_scope.py SCOPE        environment: EVENT, REF, BASE_SHA, HEAD_SHA
-       (pull_request: BASE_SHA/HEAD_SHA = pull_request base/head SHA; push: BASE_SHA = event.before)
+usage: change_scope.py SCOPE        environment: EVENT, REF, BASE_SHA, HEAD_SHA [, MAIN_REF]
+       (pull_request: BASE_SHA/HEAD_SHA = pull_request base/head SHA. push: BASE_SHA is IGNORED; the range is
+       the branch's complete change since its merge-base with MAIN_REF, default refs/remotes/origin/main.
+       event.before is deliberately not used: the run that tested `before` may have been cancelled by
+       concurrency or failed, so a diff from `before` could skip a collector change nobody tested.)
 
 See docs/ops/CI_EFFICIENCY.md.
 """
@@ -74,13 +77,14 @@ def changed_files(event, ref, base, head):
     elif event == "push":
         if ref in PROTECTED_REFS:
             return None, f"push to protected branch {ref}: always full"
-        if not SHA.match(head or "") or not base or ZERO.match(base) or not SHA.match(base):
-            return None, "push without a usable before SHA (new branch)"
-        if not (_commit_exists(base) and _commit_exists(head)):
-            return None, "before/head commit not present"
-        if subprocess.run(["git", "merge-base", "--is-ancestor", base, head], capture_output=True).returncode:
-            return None, "before is not an ancestor of head (force push)"
-        rng = f"{base}..{head}"
+        if not SHA.match(head or "") or not _commit_exists(head):
+            return None, "push without a usable head commit"
+        main_ref = os.environ.get("MAIN_REF") or "refs/remotes/origin/main"
+        mb = subprocess.run(["git", "merge-base", main_ref, head], capture_output=True, text=True)
+        base = mb.stdout.strip()
+        if mb.returncode or not SHA.match(base):
+            return None, f"no merge-base with {main_ref} (ref not fetched or unrelated history)"
+        rng = f"{base}..{head}"                     # the branch's complete change since it left main
     else:
         return None, f"event {event!r}: always full"
     for sha in (base, head):

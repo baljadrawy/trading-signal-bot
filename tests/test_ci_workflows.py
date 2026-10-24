@@ -168,8 +168,8 @@ def _commit(repo, rel, content):
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _run(repo, event, ref, base, head):
-    env = dict(os.environ, EVENT=event, REF=ref, BASE_SHA=base, HEAD_SHA=head)
+def _run(repo, event, ref, base, head, main_ref="refs/heads/main"):
+    env = dict(os.environ, EVENT=event, REF=ref, BASE_SHA=base, HEAD_SHA=head, MAIN_REF=main_ref)
     p = subprocess.run(["python3", str(ROOT / ".github" / "ci" / "change_scope.py"), "collector"], cwd=repo, env=env,
                        capture_output=True, text=True)
     assert p.returncode == 0
@@ -198,15 +198,32 @@ def test_e2e_fail_safe_cases(repo):
     assert _run(repo, "push", "refs/heads/main", base, head) == "run=true"
     assert _run(repo, "push", "refs/heads/develop", base, head) == "run=true"
     assert _run(repo, "workflow_dispatch", "refs/heads/main", "", head) == "run=true"
-    assert _run(repo, "push", "refs/heads/integration/x", "0" * 40, head) == "run=true"
-    assert _run(repo, "push", "refs/heads/integration/x", "f" * 40, head) == "run=true"   # unknown commit
+    assert _run(repo, "push", "refs/heads/integration/x", base, "f" * 40) == "run=true"   # unknown head
     assert _run(repo, "pull_request", "refs/pull/1/merge", "", head) == "run=true"
     assert _run(repo, "pull_request", "refs/pull/1/merge", head, head) == "run=true"      # empty diff
-    assert _run(repo, "push", "refs/heads/integration/x", base, head) == "run=false"
-    # force push: before is not an ancestor of head
-    _git(repo, "checkout", "-q", "-b", "other", base)
-    other = _commit(repo, "docs/d.md", "d\n")
-    assert _run(repo, "push", "refs/heads/integration/x", head, other) == "run=true"
+    # a push whose head is on main itself has an empty branch diff: run
+    assert _run(repo, "push", "refs/heads/integration/x", base, head) == "run=true"
+    # main ref not fetched: run
+    _git(repo, "checkout", "-q", "-b", "feat", base)
+    feat = _commit(repo, "docs/d.md", "d\n")
+    assert _run(repo, "push", "refs/heads/integration/x", base, feat, main_ref="refs/remotes/none/main") == "run=true"
+
+
+def test_e2e_push_uses_branch_diff_since_main_not_event_before(repo):
+    """Regression (PR #92 scenario run): a push diffed from event.before could skip a collector change whose own
+    run was cancelled by concurrency. The push range is the branch's whole change since its merge-base with main."""
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "feat")
+    docs = _commit(repo, "docs/b.md", "b\n")
+    assert _run(repo, "push", "refs/heads/integration/x", "0" * 40, docs) == "run=false"   # new branch, docs only
+    a = _commit(repo, "p2_forward/a.py", "x = 3\n")                                       # A: collector change
+    b = _commit(repo, "docs/c.md", "c\n")                                                 # B supersedes A
+    assert _run(repo, "push", "refs/heads/integration/x", a, b) == "run=true"              # A's change still counts
+    # a force push that drops the collector change goes back to docs-only relative to main
+    _git(repo, "reset", "-q", "--hard", docs)
+    d = _commit(repo, "docs/e.md", "e\n")
+    assert _run(repo, "push", "refs/heads/integration/x", b, d) == "run=false"
+    assert base != d
 
 
 def test_virtualenv_cache_key_covers_python_image_and_requirements():
@@ -218,3 +235,15 @@ def test_virtualenv_cache_key_covers_python_image_and_requirements():
                      "hashFiles('.github/ci/requirements-test.txt')"):
             assert part in key, (jid, part)
         assert "~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt" in body, jid
+
+
+def test_virtualenv_cache_saved_only_from_main_push():
+    """PR runs restore main's entry but never save their own (cache scope/eviction, CI_EFFICIENCY.md)."""
+    j = jobs(TESTS.read_text())
+    for jid in ("unit", "database"):
+        body = "\n".join(j[jid])
+        assert "uses: actions/cache@v4" not in body, jid            # no implicit post-job save
+        assert "uses: actions/cache/restore@v4" in body and "uses: actions/cache/save@v4" in body, jid
+        save = body.split("uses: actions/cache/save@v4", 1)[1]
+        assert "github.event_name == 'push'" in body and "github.ref == 'refs/heads/main'" in body, jid
+        assert "steps.venv.outputs.cache-hit != 'true'" in body, jid

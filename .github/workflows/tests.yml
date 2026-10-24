@@ -36,7 +36,11 @@ jobs:
       - name: runner image id (part of the virtualenv cache key)
         id: img
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      # Restore on every event; save only from a push to main on a miss. A pull-request run can read main's
+      # entry but never writes its own (each entry is about 620 MiB and the repository cache is capped, so
+      # per-PR entries would evict main's and turn hits into misses), and a PR can never write a cache main uses.
+      - uses: actions/cache/restore@v4
+        id: venv
         with:
           path: ~/ci-venv
           key: ci-venv-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.id }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.github/ci/requirements-test.txt') }}
@@ -45,6 +49,11 @@ jobs:
           [ -x ~/ci-venv/bin/python ] || python -m venv ~/ci-venv
           ~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt
           echo "$HOME/ci-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.venv.outputs.cache-hit != 'true'
+        with:
+          path: ~/ci-venv
+          key: ${{ steps.venv.outputs.cache-primary-key }}
       - run: python -m pytest -q -p no:cacheprovider -rs tests
 
   database:
@@ -75,7 +84,11 @@ jobs:
       - name: runner image id (part of the virtualenv cache key)
         id: img
         run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      # Restore on every event; save only from a push to main on a miss. A pull-request run can read main's
+      # entry but never writes its own (each entry is about 620 MiB and the repository cache is capped, so
+      # per-PR entries would evict main's and turn hits into misses), and a PR can never write a cache main uses.
+      - uses: actions/cache/restore@v4
+        id: venv
         with:
           path: ~/ci-venv
           key: ci-venv-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.id }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.github/ci/requirements-test.txt') }}
@@ -84,6 +97,11 @@ jobs:
           [ -x ~/ci-venv/bin/python ] || python -m venv ~/ci-venv
           ~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt
           echo "$HOME/ci-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.venv.outputs.cache-hit != 'true'
+        with:
+          path: ~/ci-venv
+          key: ${{ steps.venv.outputs.cache-primary-key }}
       - name: reference trees (read-only checkouts of reviewed commits)
         run: |
           git worktree add -q ../ref-cr1 f973cac        # develop at CR-1 (P1-R parity "before")

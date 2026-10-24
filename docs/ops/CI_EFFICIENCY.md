@@ -133,11 +133,11 @@ so superseded pushes were cut short. Their residual cost is the 94 min above.
 | C1 | `tests.yml` concurrency: main runs get a unique group (the run id) and `cancel-in-progress: false`, so they are never cancelled or replaced while pending. PRs, develop and integration branches still cancel superseded runs | -6 (one main run cancelled at 15 min would have finished at about 21) | 0 to -21 per extra superseded main merge |
 | C2 | collector job: a change-scope step skips the suite's work when nothing it depends on changed | 398 (13.9 %) | 300-450 (10-16 %) |
 | C3 | r14-lock-review and r14-build-readiness: pull_request `paths:` filters on their inputs, plus per-PR concurrency | 114 (4.0 %) | 90-120 (3-4 %) |
-| C4 | default and PostgreSQL jobs: cached virtualenv of the pinned test set instead of the pip download cache | 226 (7.9 %) at 35 s saved per job | 170-274 (5.9-9.5 %) for 25-45 s |
+| C4 | default and PostgreSQL jobs: cached virtualenv of the pinned test set instead of the pip download cache; **restored on every event, saved only from a push to main on a miss** (rev 2) | **revised after measurement (§8): about 130** | **50-210 (1.7-7.3 %)** |
 | C5 | timeouts 30/45/40 → 15/20/25 (default/PostgreSQL/collector), still 2-5x the October maximum | 0 (no runaway in October) | caps a hung job at 15-25 min |
 | T | `tests/test_ci_workflows.py`: offline guards (§5) | n/a | n/a |
 
-**Implemented total: 682-786 min of 2,870 (about 24-27 %). Allowing for a different PR mix, 20-30 %.**
+**Implemented total (revised 2026-10-24 after the GitHub measurements in §8): about 440-770 min of 2,870 (15-27 %), central estimate about 630 (22 %).** The first estimate (24-27 %) assumed a 25-45 s cache saving on every job; measured hits save 25-40 s, misses cost extra, and per-minute rounding converts only part of a sub-minute saving into billed minutes.
 
 ### C2 details: change detection inside the required collector job
 
@@ -150,12 +150,17 @@ so superseded pushes were cut short. Their residual cost is the 94 min above.
   script included), `tests/`, `shared/`, any `requirements*` / `constraints*` / `*.lock`, any `conftest.py`, or
   root `pytest.ini`, `pyproject.toml`, `setup.cfg`, `tox.ini` or `.python-version`. Pytest looks in parent
   directories for its rootdir configuration, which is why the root files are on the list.
-- **It always runs fully for** pushes to `main` or `develop`, `workflow_dispatch`, a missing or all-zero `before`
-  (a new branch), an unreachable commit, a force push (before is not an ancestor), an empty diff, any git error,
-  and any script output other than exactly `run=false`.
-- The diff is the PR's own changes (`base...head`, from the event's base and head SHAs) or `before..after` for a
-  non-protected push. It uses `--no-renames`, so a file renamed out of `p2_forward/` still counts as a
-  `p2_forward/` change.
+- **It always runs fully for** pushes to `main` or `develop`, `workflow_dispatch`, an unreachable head, a missing
+  `origin/main` (no merge-base), an empty diff, any git error, and any script output other than exactly `run=false`.
+- The diff is the PR's own changes (`base...head`, from the event's base and head SHAs) or, for a push to a
+  non-protected branch, the **branch's complete change since its merge-base with `origin/main`**. It uses
+  `--no-renames`, so a file renamed out of `p2_forward/` still counts as a `p2_forward/` change.
+- **Correction (rev 2, found in the GitHub scenario runs, §8):** the first version diffed a push from
+  `event.before`. When concurrency cancels the run of the previous push, a later docs-only push would then skip a
+  collector change that no run ever tested. A regression test now pins the merge-base semantics.
+- The PR diff covers the PR's own changes, while the tests run on GitHub's merge commit. The merged tree's
+  collector code equals `main`'s plus the PR's changes, and `main`'s collector code is fully tested on every
+  `main` push.
 - Why the input set is sound: `p2_forward/tests` imports only `p2_forward/` (package, `ops/`, `verifier/`,
   `tests/`). It reads git history only at the fixed commit `cd2935e`, and installs `p2_forward/requirements.txt`
   plus the pytest pin from `.github/ci/requirements-test.txt`. `tests/` and `shared/` are not dependencies.
@@ -216,13 +221,26 @@ without any CI change.
   commit (`ci: cache the pinned test virtualenv ...`) so it can be dropped independently.
 - C5: an abnormally slow runner could hit the tighter timeouts (collector 25 min against an 11.8 min maximum).
 - C3: the 300-file path-filter limit described above.
+- C4 (rev 2): a pull-request run never writes a cache entry. It restores `main`'s entry, so until the first `main`
+  push after the merge saves one, PR jobs miss and pay the uncached install (about 60 s against the old 36-46 s
+  pip-cached install). Every runner image version gets its own entry, and one run was observed with jobs on two
+  image versions, so expect one miss per image rollout on `main`. Entries are about 617 MiB, and the repository
+  cache is limited to 10 GB with LRU eviction.
+- **Required checks are not enforced by GitHub today.** `main` has no branch protection or ruleset, so the three
+  required checks exist only in `BRANCH_RELEASE_POLICY.md` and can be bypassed by merging. Enforcement needs the
+  separate, owner-approved PR #90. Independently of protection, a PR can edit its own workflow or
+  `change_scope.py`, and its run uses the PR's version. Review of any `.github/` change is the control.
+- Pre-existing flaky test (not caused by this PR): `tests/test_evidence_v2_pit.py::test_pit_block_is_purely_additive`
+  builds klines anchored to the wall clock, so a run that crosses a 15-minute boundary compares different windows.
+  It failed once in the scenario runs (06:15Z boundary) and passed on re-running only the failed job. Fixing it
+  (a frozen clock) belongs in a separate test PR.
 
 ## 7. Validation done and not possible
 
 Done (offline):
 - `yaml.safe_load` on all 8 workflows passes. `actionlint` 1.7.12 (via `actionlint-py`) reports no findings,
   with shellcheck not installed.
-- `tests/test_ci_workflows.py` (30 tests) checks that:
+- `tests/test_ci_workflows.py` (32 tests in rev 2) checks that:
   - the three required names each exist exactly once;
   - required jobs have no job-level `if`/`needs`;
   - `tests.yml` has pull_request and push triggers and no workflow path filters;
@@ -238,7 +256,7 @@ Done (offline):
 - Local default suite (no database) on this branch: 1,358 passed, 848 skipped, 1 failed. The failure is
   `test_aiohttp_314_compat::test_version`, environmental: the local virtualenv has aiohttp 3.13.5, CI pins 3.14.3.
 
-**Could not be verified, because Actions is billing-blocked since 2026-10-23:**
+**Could not be verified when first written (Actions billing-blocked since 2026-10-23). §8 records what has since been measured on GitHub:**
 - **None of the workflow changes has run on GitHub.** That covers whether
   `github.event.pull_request.base.sha`/`head.sha` are present in the `fetch-depth: 0` checkout, as expected, and
   the step output wiring.
@@ -251,3 +269,44 @@ Done (offline):
 Suggested first check once billing is restored: one doc-only PR (expect collector `success` in about 1 min with the
 skip summary line), one PR touching `p2_forward/` (expect the full suite), then the merge push to main (expect the
 full suite, not cancelled). Compare the default and PostgreSQL job durations with §2.2.
+
+## 8. Measured verification on GitHub (2026-10-24, billing restored)
+
+**Method:** read-only API reads of job and step timings and job logs. Scenario runs used a scratch branch,
+`integration/ci-scenarios-92`, which is never merged. Every billed figure below rounds each job up to the minute.
+
+| run | event / change | collector decision | jobs (conclusion, duration) | billable |
+|---|---|---|---|---:|
+| 40047646992 (PR #92 head `0d19140`) | pull_request, `.github/` changed | RUN (`.github/ci/change_scope.py` matches `^\.github/`) | default success 178 s, PostgreSQL success 296 s, collector success 701 s, parity success 12 s | 21 |
+| 40068345141 (scratch, new branch at `0d19140`) | push, new branch | RUN (fail-safe: no usable `before`) | default 158 s, PostgreSQL 299 s, collector 710 s, parity 12 s; both caches **miss** and saved | 21 |
+| 40069182684 (scratch, docs-only commit) | push, one file under `docs/` | **SKIP**: collector job success in **7 s** | default 125 s; PostgreSQL 298 s **failure** (pre-existing clock flake, §6) then re-run of the failed job only: success 247 s; parity 9 s; both caches **hit** | 10 (+5 re-run) |
+| 40069915688 (scratch, collector probe A) | push | n/a: **cancelled** when B was pushed | parity success 10 s; default, PostgreSQL and collector **cancelled** after about 90 s | 7 |
+| 40069968792 (scratch, collector probe B) | push, `p2_forward/` file changed | **RUN** (matches `^p2_forward/`) | default 110 s, PostgreSQL 246 s, collector 699 s, parity 12 s, all success; caches **hit** | 20 |
+
+**Every required job reported a conclusion in every scenario.** A skipped collector reports `success`.
+
+**Environment setup per job (measured, step level):**
+
+| case | steps | seconds |
+|---|---|---:|
+| old pip cache (6 `main` runs before this PR) | setup-python 7-12 + `pip install` 36-46 | 45-56 |
+| virtualenv cache hit | setup-python about 0 + restore 10-18 + no-op install 2-5 + post 0-1 | 13-24 |
+| virtualenv cache miss (first version, PR scope saved) | install 57-60 + save 11 | 68-71 |
+| virtualenv cache miss (rev 2, PR: no save) | install 57-60 | 57-60 |
+
+**Observed savings against a full run (21-22 billable min on main before this PR):**
+- a docs-only change costs **10 min**, about 52 % less;
+- a collector change with cache hits costs **20 min**, 1-2 min less.
+
+These are single observations, not an average. The October-wide saving in §3 remains an estimate.
+
+**Not verifiable without merging or changing `main`:**
+- live `main` behaviour (never cancelled, full collector run);
+- `main`'s cache save;
+- the r14 path filters skipping on a real PR, since any PR against `main` carries this PR's own `.github/` changes.
+
+These are covered by the offline tests (`tests/test_ci_workflows.py`). Check them on the first PRs after the merge.
+
+**Concurrency semantics:**
+- **observed:** the cancellation of a superseded non-`main` run;
+- **static, by test:** `main`'s unique group with `cancel-in-progress: false`.
