@@ -209,3 +209,14 @@ def test_e2e_fail_safe_cases(repo):
     _git(repo, "checkout", "-q", "-b", "other", base)
     other = _commit(repo, "docs/d.md", "d\n")
     assert _run(repo, "push", "refs/heads/integration/x", head, other) == "run=true"
+
+
+def test_virtualenv_cache_key_covers_python_image_and_requirements():
+    j = jobs(TESTS.read_text())
+    for jid in ("unit", "database"):
+        body = "\n".join(j[jid])
+        key = re.search(r"key: (ci-venv-.+)", body).group(1)
+        for part in ("steps.py.outputs.python-version", "steps.img.outputs.id", "runner.arch",
+                     "hashFiles('.github/ci/requirements-test.txt')"):
+            assert part in key, (jid, part)
+        assert "~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt" in body, jid
