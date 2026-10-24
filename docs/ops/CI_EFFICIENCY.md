@@ -133,11 +133,11 @@ so superseded pushes were cut short. Their residual cost is the 94 min above.
 | C1 | `tests.yml` concurrency: main runs get a unique group (the run id) and `cancel-in-progress: false`, so they are never cancelled or replaced while pending. PRs, develop and integration branches still cancel superseded runs | -6 (one main run cancelled at 15 min would have finished at about 21) | 0 to -21 per extra superseded main merge |
 | C2 | collector job: a change-scope step skips the suite's work when nothing it depends on changed | 398 (13.9 %) | 300-450 (10-16 %) |
 | C3 | r14-lock-review and r14-build-readiness: pull_request `paths:` filters on their inputs, plus per-PR concurrency | 114 (4.0 %) | 90-120 (3-4 %) |
-| C4 | default and PostgreSQL jobs: cached virtualenv of the pinned test set instead of the pip download cache; **restored on every event, saved only from a push to main on a miss** (rev 2) | **revised after measurement (§8): about 130** | **50-210 (1.7-7.3 %)** |
+| C4 | default and PostgreSQL jobs: cached virtualenv of the pinned test set instead of the pip download cache; **restored on every event, saved only from a push to main on a miss** (rev 2) | **revised after measurement (§8): about 90; low confidence** | **30-160 (1-5.6 %)** |
 | C5 | timeouts 30/45/40 → 15/20/25 (default/PostgreSQL/collector), still 2-5x the October maximum | 0 (no runaway in October) | caps a hung job at 15-25 min |
 | T | `tests/test_ci_workflows.py`: offline guards (§5) | n/a | n/a |
 
-**Implemented total (revised 2026-10-24 after the GitHub measurements in §8): about 440-770 min of 2,870 (15-27 %), central estimate about 630 (22 %).** The first estimate (24-27 %) assumed a 25-45 s cache saving on every job; measured hits save 25-40 s, misses cost extra, and per-minute rounding converts only part of a sub-minute saving into billed minutes.
+**Implemented total (revised 2026-10-24 after the GitHub measurements in §8): about 410-720 min of 2,870 (14-25 %), central estimate about 590 (about 20 %).** C2, the collector skip, carries most of it and was demonstrated on GitHub. C4 is small and uncertain. The first estimate (24-27 %) assumed a 25-45 s cache saving on every job; measured hits save 25-40 s, misses cost extra, and per-minute rounding converts only part of a sub-minute saving into billed minutes.
 
 ### C2 details: change detection inside the required collector job
 
@@ -290,7 +290,7 @@ full suite, not cancelled). Compare the default and PostgreSQL job durations wit
 | case | steps | seconds |
 |---|---|---:|
 | old pip cache (6 `main` runs before this PR) | setup-python 7-12 + `pip install` 36-46 | 45-56 |
-| virtualenv cache hit | setup-python about 0 + restore 10-18 + no-op install 2-5 + post 0-1 | 13-24 |
+| virtualenv cache hit | setup-python about 0 + restore 10-18 (one outlier at 57) + no-op install 2-5 + post 0-1 | 13-24 typical, 60 worst seen |
 | virtualenv cache miss (first version, PR scope saved) | install 57-60 + save 11 | 68-71 |
 | virtualenv cache miss (rev 2, PR: no save) | install 57-60 | 57-60 |
 
@@ -299,6 +299,13 @@ full suite, not cancelled). Compare the default and PostgreSQL job durations wit
 - a collector change with cache hits costs **20 min**, 1-2 min less.
 
 These are single observations, not an average. The October-wide saving in §3 remains an estimate.
+
+**Rev 2 PR run** (run 40071011034, head `0351e9c`):
+- all four jobs succeeded and the collector ran;
+- the cache was restored from this PR's earlier entry, and **`actions/cache/save` was skipped**, as designed;
+- restore took 17 s in PostgreSQL and **57 s** in default. One restore of the about 617 MiB entry was as slow as the old install.
+
+**C4 revert criterion.** C4 is in separate commits and can be dropped without touching C1–C3. Over the first 20 default and PostgreSQL jobs after the merge, compute the mean setup time: restore plus install, plus save where one happens. If it is not at least 15 s below the old 45–56 s, revert C4 to `setup-python` `cache: pip`. Measured so far, hits average about 26 s, about 20 s better than before. That is a modest saving, not yet a proven one.
 
 **Not verifiable without merging or changing `main`:**
 - live `main` behaviour (never cancelled, full collector run);
