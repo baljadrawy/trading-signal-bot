@@ -13,11 +13,12 @@ on:
 permissions:
   contents: read
 
-# Superseded runs of the same pull request (or non-protected branch) are cancelled. Runs on main and develop
-# get a unique group (the run id), so they are never cancelled nor replaced while pending (CI_EFFICIENCY.md).
+# Superseded runs of the same pull request or branch are cancelled (merge trains on develop keep testing only the
+# newest merge). Runs on main get a unique group (the run id), so they are never cancelled nor replaced while
+# pending (CI_EFFICIENCY.md).
 concurrency:
-  group: tests-${{ github.ref }}-${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.run_id || 'superseded' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
+  group: tests-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'superseded' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   unit:

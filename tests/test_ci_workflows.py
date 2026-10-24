@@ -71,16 +71,14 @@ def test_tests_triggers_cover_pull_requests_and_main_without_path_filters():
     assert "paths:" not in on and "paths-ignore:" not in on
 
 
-def test_concurrency_never_cancels_main_or_develop():
+def test_concurrency_never_cancels_main():
     text = TESTS.read_text()
     conc = "\n".join(top_block(text, "concurrency"))
     group = re.search(r"group: (.+)", conc).group(1)
     cancel = re.search(r"cancel-in-progress: (.+)", conc).group(1)
     assert "cancel-in-progress: true" not in conc
-    for ref in ("refs/heads/main", "refs/heads/develop"):
-        assert f"github.ref != '{ref}'" in cancel
-        assert f"github.ref == '{ref}'" in group
-    assert "github.run_id" in group                  # unique group: never replaced while pending either
+    assert cancel.strip() == "${{ github.ref != 'refs/heads/main' }}"
+    assert "github.ref == 'refs/heads/main' && github.run_id" in group   # unique group: never replaced while pending
     for name in ("r14-lock-review.yml", "r14-build-readiness.yml"):
         conc = "\n".join(top_block((WF / name).read_text(), "concurrency"))
         assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in conc, name
