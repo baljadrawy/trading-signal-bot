@@ -24,7 +24,8 @@ changes no runtime behaviour. Activation is a separate, owner-authorized operati
 | Admission, locked re-check, pause persistence, evidence | `trade_tracker/main.py` |
 | Operator state `LOSS_STREAK_OBSERVED` | `shared/risk_epoch.py` (`operational_state`) |
 | `/status`, `/resume` texts | `shared/telegram_messages.py`, `telegram/main.py` |
-| Tests | `tests/test_paper_economic_observation.py` |
+| Alert delivery (`risk.observed` outbox notice) | `trade_tracker/main.py` (`_enqueue_observation_alert`), `shared/telegram_messages.py`, `telegram/main.py` |
+| Tests | `tests/test_paper_economic_observation.py`, `tests/test_paper_economic_alerts.py` |
 
 `shared/risk_management.py` (`evaluate_new_trade`) is **byte-identical**: its hash is pinned in
 `research/governance/contracts/*`, and it remains the only implementation of the risk
@@ -34,7 +35,7 @@ arithmetic. The policy module wraps it.
 
 | Class | Reasons | enforce | Paper observe |
 |---|---|---|---|
-| Economic hard stop | `daily_loss_limit`, `weekly_loss_limit`, `max_drawdown_limit`, `loss_streak_halt` | blocks + persists pause (`risk:<reason>`) + `risk.halted` outbox | **does not block**; recorded as observation; no pause row, no `risk.halted` |
+| Economic hard stop | `daily_loss_limit`, `weekly_loss_limit`, `max_drawdown_limit`, `loss_streak_halt` | blocks + persists pause (`risk:<reason>`) + `risk.halted` outbox | **does not block**; recorded as observation; no pause row, no `risk.halted`; one `risk.observed` notice per transition |
 | Technical hard stop | `invalid_risk_state` (any non-finite/invalid input, e.g. missing price) | blocks + persists pause | blocks + persists pause (unchanged) |
 | Administrative / state integrity | any persisted pause: `manual_pause`, `trading_paused`, `risk_state_missing`, `risk_state_inconsistent`, `risk:<x>` rows, operator reasons | blocks | blocks (unchanged) |
 | Portfolio construction | `gross_exposure_limit`, `symbol_concentration_limit`, `strategy_concentration_limit`, `regime_concentration_limit`, `max_open_trades` | blocks | blocks (unchanged) |
@@ -65,8 +66,8 @@ unreachable (sizing thresholds untouched):
 `record_risk_decision` still writes `daily_pnl_percent` and `consecutive_losses` to today's
 `risk_management` row exactly as now, but only `invalid_risk_state` sets
 `is_trading_paused=true`. The economic state is recorded as an append-only evidence event
-`risk.observed` (emitted on change of observed state; evidence v2 only, no outbox event, so no
-consumer change) and as a tracker log warning. The locked re-check
+`risk.observed` (emitted on change of observed state), as a tracker log warning, and as one
+operator notification per transition (`risk.observed` outbox event, see *Alert delivery* below). The locked re-check
 (`_loss_streak_under_lock`) does not block; an admitted trade's `admission.decision` carries
 `observed_under_admission_lock: "loss_streak_halt"`.
 
@@ -78,6 +79,41 @@ instead of "halt active" (an administrative pause still shows as paused and outr
 Paper, or any unknown value, resolves to `enforce` with a one-time warning (the restrictive
 direction). Research runners (`research/p0r.py`, `research/foundation/runner.py`) call
 `evaluate_new_trade` directly and are unaffected by the flag.
+
+## Alert delivery (observe mode only)
+
+Owner contract section 3 requires economic observations to be recorded, **alerted on** and
+analysed. In observe mode `record_risk_decision` enqueues one outbox event `risk.observed`
+(aggregate type `risk_observation`) inside its existing transaction, exactly like `risk.halted`,
+whenever the observed economic state changes:
+
+| Transition | Meaning | Telegram text (fixed, codes only) |
+|---|---|---|
+| `observed` | no economic stop -> one or more | `economic stop observed: <codes> — Paper observe mode, collection continues` (+ Arabic line) |
+| `changed` | the set of breached codes changed (e.g. drawdown joins a loss streak) | same, with the new code list |
+| `cleared` | all economic stops cleared | `economic stop observation cleared — Paper observe mode, collection continues` (+ Arabic line) |
+
+- **State compared:** the tuple of breached economic hard-stop codes (`economic_flags`, legacy
+  order: `daily_loss_limit`, `weekly_loss_limit`, `max_drawdown_limit`, `loss_streak_halt`). It
+  is computed from the decision values, so it is independent of an administrative pause.
+- **Dedup / restart safety (no schema change):** the baseline is the newest persisted
+  `risk.observed` outbox row; the new row's `aggregate_id` is that row's `id` (0 for the first
+  ever). The existing `UNIQUE(event_type, aggregate_type, aggregate_id)` + `ON CONFLICT DO
+  NOTHING` therefore makes each transition one row: repeated identical decisions (every admission,
+  every post-close refresh) enqueue nothing; a restarted tracker reads the same rows and does not
+  re-alert; two concurrent writers that read the same predecessor collapse to one row. Expired or
+  dead-lettered notices stay in the table and remain a valid baseline.
+- **Technical halt:** `invalid_risk_state` never computes the economic values, so it is treated
+  as *unknown*, not as *cleared*: no observation event (the technical halt keeps its
+  `risk.halted` notice and pause).
+- **Message content:** codes only. `shared/telegram_messages.risk_observed_message` builds the
+  text from the code list alone; unknown codes become `unknown_economic_stop`; the payload carries
+  no P&L, counts or drawdown values. Consumed by `telegram/main.py` (`LIFECYCLE_EVENT_TYPES`),
+  with the same TTL/defer/dead-letter semantics as the other lifecycle notices.
+- **Flapping:** a value oscillating around a threshold (for example drawdown including unrealized
+  P&L) produces one notice per real crossing; there is no hysteresis. A notice is never repeated
+  without a state change.
+- **enforce:** the block is skipped before any statement is issued: no extra query, no event.
 
 ## Evidence / version boundary
 
@@ -116,7 +152,9 @@ direction). Research runners (`research/p0r.py`, `research/foundation/runner.py`
    before/after, image digests and runtime file hashes. If single-file overlays are used, the
    overlay set must include the new `shared/economic_halt_policy.py` and the changed
    `shared/config.py`, `shared/risk_epoch.py`, `shared/telegram_messages.py` and service
-   `main.py` files, or the service will fail to import.
+   `main.py` files, or the service will fail to import. `risk.observed` notices enqueued before
+   `telegram` runs the new code stay pending and are delivered once it does (or are acked
+   `notification_expired` after `NOTIFICATION_TTL_HOURS`; the row still serves as dedup baseline).
 6. Smoke checks: tracker log has no "ignored: PAPER_TRADING" warning; `/status` renders;
    first `admission.decision` / `risk.state` evidence shows `risk_policy_version=econ-observe-v1`.
 7. Record the prospective-window boundary: UTC activation time, commit SHA, image digests,

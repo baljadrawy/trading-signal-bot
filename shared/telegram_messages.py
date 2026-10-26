@@ -1,6 +1,7 @@
 """Pure, mobile-first Telegram lifecycle formatting."""
 from datetime import datetime, timezone
 
+from shared.economic_halt_policy import ECONOMIC_HARD_STOP_ORDER
 from shared.fees import fee_usdt, net_pct, net_usdt
 
 
@@ -215,4 +216,29 @@ def observed_loss_streak_resume_note(consecutive_losses: int, threshold: int) ->
     return (
         f"\n\n👁️ سلسلة الخسائر ({int(consecutive_losses)}/{int(threshold)}): {OBSERVED_LABEL}"
         f"\nلا تمنع القبول؛ تُسجَّل كملاحظة فقط"
+    )
+
+
+# Codes a `risk.observed` notice may name. Anything else is shown as one fixed placeholder,
+# so the text can only ever contain these fixed codes (no P&L, counts or drawdown values).
+OBSERVED_ECONOMIC_CODES = ECONOMIC_HARD_STOP_ORDER      # single source: economic_halt_policy
+UNKNOWN_ECONOMIC_CODE = 'unknown_economic_stop'
+
+
+def risk_observed_message(event: dict) -> str:
+    """Fixed-text notice for one `risk.observed` transition (Paper observe mode only)."""
+    codes = []
+    for code in (event or {}).get('codes') or ():
+        code = code if code in OBSERVED_ECONOMIC_CODES else UNKNOWN_ECONOMIC_CODE
+        if code not in codes:
+            codes.append(code)
+    if codes:
+        joined = ', '.join(codes)
+        return (
+            f"👁️ رُصد توقف اقتصادي: {joined} — وضع المراقبة في Paper، الجمع مستمر\n"
+            f"👁️ economic stop observed: {joined} — Paper observe mode, collection continues"
+        )
+    return (
+        "👁️ زال التوقف الاقتصادي المرصود — وضع المراقبة في Paper، الجمع مستمر\n"
+        "👁️ economic stop observation cleared — Paper observe mode, collection continues"
     )

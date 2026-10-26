@@ -351,7 +351,10 @@ async def test_tracker_observe_admits_and_never_pauses_for_economics(monkeypatch
     _daily, streak, paused, reason = rm[0][2]
     assert streak == 7, 'the counter is still recorded exactly as before'
     assert paused is False and reason is None
-    assert not any(w[0] == 'outbox' for w in db.writes), 'no risk.halted transition'
+    outbox = [w for w in db.writes if w[0] == 'outbox']
+    assert not any('risk.halted' in w[2] for w in outbox), 'no risk.halted transition'
+    # The only outbox row is the observation notice (tests/test_paper_economic_alerts.py).
+    assert [w[2][:2] for w in outbox] == [('risk.observed', 'risk_observation')]
     assert db.profits == before, 'loss history untouched'
     # Only the pre-existing statement shape is written (no new columns/tables).
     enforce_db = wire(monkeypatch, 'enforce', [LOSS_NET] * 7)

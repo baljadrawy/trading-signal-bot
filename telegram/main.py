@@ -25,7 +25,7 @@ from shared.delivery_policy import (
     classify_failure, backoff_seconds, bounded_delay, PERMANENT, RATE_LIMITED,
 )
 from shared.telegram_messages import (
-    opened_message, target_message, closed_message, risk_halted_message,
+    opened_message, target_message, closed_message, risk_halted_message, risk_observed_message,
     runtime_status_message, OBSERVED_STATUS_LINE, observed_loss_streak_resume_note,
     observed_loss_streak_status_lines,
 )
@@ -385,6 +385,8 @@ async def can_deliver_candidate() -> tuple[bool, str]:
 LIFECYCLE_EVENT_TYPES = (
     'risk.halted', 'price_stream.down', 'price_stream.restored',
     'tracker.recovered', 'trade.opened', 'trade.target_hit', 'trade.closed',
+    # Paper observe mode only (trade_tracker never enqueues it in enforce mode).
+    'risk.observed',
 )
 # ── A38: notification failure semantics ─────────────────────────────────────────────────────────
 # Lifecycle messages are NOTIFICATIONS. The trade is already recorded when they are enqueued, so a
@@ -467,6 +469,8 @@ async def deliver_trade_lifecycle_events(bot: Bot, owner: str) -> int:
                     message = runtime_status_message(event_type, payload)
                 elif event_type == 'risk.halted':
                     message = risk_halted_message(payload)
+                elif event_type == 'risk.observed':
+                    message = risk_observed_message(payload)
                 elif event_type == 'trade.opened':
                     trade = await Database.fetchrow("""
                         SELECT at.*, s.trade_type

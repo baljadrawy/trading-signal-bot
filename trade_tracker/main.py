@@ -32,7 +32,8 @@ from shared.partial_exits import aggregate_close, fills_between
 from shared.signal_stop import candle_invalidated
 from shared.risk_management import RiskLimits, RiskSnapshot
 from shared.economic_halt_policy import (
-    economic_halt_blocks, economic_halt_mode, evaluate_with_policy, persisted_halt_reasons,
+    OBSERVED_OUTBOX_AGGREGATE, OBSERVED_OUTBOX_EVENT, economic_halt_blocks, economic_halt_mode,
+    evaluate_with_policy, observation_transition, observed_codes, persisted_halt_reasons,
 )
 from shared.risk_epoch import (
     acquire_risk_admission_lock, effective_risk_start, loss_streak_halt_active,
@@ -433,7 +434,8 @@ def _v2_risk_state(decision, paused: bool, was_paused: bool) -> None:
                              payload, state={'halted': True, 'reason': decision.reason}, transition=True)
         if not economic_halt_blocks(economic_halt_mode()):
             # Paper observe mode only: the economic state is recorded once per change
-            # (append-only evidence; no pause row, no outbox notification).
+            # (append-only evidence; no pause row). The operator notification is the
+            # separate `risk.observed` outbox event (_enqueue_observation_alert).
             evidence_v2.emit('trade_tracker', 'risk.observed', {'stream': 'trade_tracker.risk'},
                              payload, state={
                                  'observed': getattr(decision, 'observed_economic_stop', None),
@@ -1009,7 +1011,8 @@ async def record_risk_decision(decision):
     # enforce: the legacy set (economic hard stops + invalid_risk_state). Paper observe:
     # only technical halts persist a pause; daily_pnl_percent/consecutive_losses are
     # still recorded exactly as before.
-    hard_halts = persisted_halt_reasons(economic_halt_mode())
+    mode = economic_halt_mode()
+    hard_halts = persisted_halt_reasons(mode)
     paused = decision.reason in hard_halts
     async with Database.acquire() as conn:
         async with conn.transaction():
@@ -1052,7 +1055,44 @@ async def record_risk_decision(decision):
                                   'consecutive_losses': decision.consecutive_losses,
                                   'loss_halt_limit': config.STOP_ON_CONSECUTIVE_LOSSES,
                               })
+            if not economic_halt_blocks(mode):
+                # Paper observe mode only (enforce issues no extra statement at all).
+                await _enqueue_observation_alert(conn, decision, risk_id)
     _v2_risk_state(decision, paused, was_paused)
+
+
+async def _enqueue_observation_alert(conn, decision, risk_id):
+    """Queue ONE `risk.observed` notification when the observed economic state changes.
+
+    Owner contract section 3: economic observations are recorded, alerted on and analysed.
+    The baseline is the last persisted `risk.observed` outbox row (restart-safe), and the
+    dedup key is that row's id (shared.economic_halt_policy): repeated identical decisions,
+    per-admission and per-cycle calls add nothing. Codes only -- no P&L, counts or drawdown.
+    Runs inside record_risk_decision's transaction.
+    """
+    codes = observed_codes(decision)
+    if codes is None:                 # technical halt: economic state unknown, not cleared
+        return None
+    last = await conn.fetchrow("""
+        SELECT id, payload FROM outbox_events
+        WHERE event_type=$1 AND aggregate_type=$2
+        ORDER BY aggregate_id DESC LIMIT 1
+    """, OBSERVED_OUTBOX_EVENT, OBSERVED_OUTBOX_AGGREGATE)
+    previous = ()
+    if last:
+        payload = last['payload']
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        previous = tuple((payload or {}).get('codes') or ())
+    transition = observation_transition(previous, codes)
+    if transition is None:
+        return None
+    return await enqueue(conn, OBSERVED_OUTBOX_EVENT, OBSERVED_OUTBOX_AGGREGATE,
+                         int(last['id']) if last else 0, {
+                             'codes': list(codes), 'previous_codes': list(previous),
+                             'transition': transition, 'risk_management_id': risk_id,
+                             'risk_policy_version': config.RISK_POLICY_VERSION,
+                         })
 
 
 async def track_open_trades():

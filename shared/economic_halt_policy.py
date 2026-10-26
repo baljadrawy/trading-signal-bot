@@ -201,6 +201,38 @@ def evaluate_with_policy(snapshot: RiskSnapshot, limits: RiskLimits,
                      observed_economic_stop=base.reason, risk_policy_version=version)
 
 
+# ---- alert delivery (observe mode only) -------------------------------------------------
+# One outbox notification per change of the observed economic state. The outbox's own
+# UNIQUE(event_type, aggregate_type, aggregate_id) is the dedup mechanism: aggregate_id is
+# the outbox id of the previous observation event of this type (0 for the first), so it
+# names the transition, is derived from persisted rows (restart-safe) and two concurrent
+# writers reading the same predecessor collapse to one row. No schema change.
+OBSERVED_OUTBOX_EVENT = 'risk.observed'
+OBSERVED_OUTBOX_AGGREGATE = 'risk_observation'
+
+
+def observed_codes(decision) -> tuple | None:
+    """Breached economic hard-stop codes (legacy order), or None if they are unknown.
+
+    None for a technical halt: evaluate_new_trade never computed the economic values,
+    so the absence of flags there means "unknown", not "cleared".
+    """
+    if getattr(decision, 'reason', None) in TECHNICAL_HARD_STOPS:
+        return None
+    return tuple(c for c in (getattr(decision, 'economic_flags', ()) or ())
+                 if c in ECONOMIC_HARD_STOPS)
+
+
+def observation_transition(previous: tuple, current: tuple) -> str | None:
+    """'observed' | 'changed' | 'cleared', or None when the state did not change."""
+    previous, current = tuple(previous or ()), tuple(current or ())
+    if previous == current:
+        return None
+    if not previous:
+        return 'observed'
+    return 'changed' if current else 'cleared'
+
+
 def loss_streak_status_label(mode: str) -> str:
     """Status wording for an active loss-streak condition."""
     if mode == OBSERVE:
