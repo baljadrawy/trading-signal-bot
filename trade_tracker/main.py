@@ -30,7 +30,10 @@ from shared.execution import rebase_long_bracket
 from shared.entry_execution import decide_long_entry, resolve_entry_fill, FILL_MODELS
 from shared.partial_exits import aggregate_close, fills_between
 from shared.signal_stop import candle_invalidated
-from shared.risk_management import RiskLimits, RiskSnapshot, evaluate_new_trade
+from shared.risk_management import RiskLimits, RiskSnapshot
+from shared.economic_halt_policy import (
+    economic_halt_blocks, economic_halt_mode, evaluate_with_policy, persisted_halt_reasons,
+)
 from shared.risk_epoch import (
     acquire_risk_admission_lock, effective_risk_start, loss_streak_halt_active,
     tail_loss_streak,
@@ -283,7 +286,7 @@ def _v2_signal_subject(sig) -> dict:
 def _v2_risk_payload(decision) -> dict:
     ctx = dict(_LAST_RISK_CONTEXT)
     out = {'risk_epoch_start': ctx.get('risk_epoch_start'), 'risk_snapshot': ctx.get('snapshot'),
-           'risk_limits': ctx.get('limits')}
+           'risk_limits': ctx.get('limits'), 'risk_policy_version': config.RISK_POLICY_VERSION}
     if decision is not None:
         out['risk_decision'] = (dataclasses.asdict(decision) if dataclasses.is_dataclass(decision)
                                 else {'allowed': getattr(decision, 'allowed', None),
@@ -309,7 +312,10 @@ def _v2_admission(sig, outcome: str, reason=None, decision=None, **extra) -> Non
         return
     try:
         subject = _v2_signal_subject(sig)
-        payload = {**extra}
+        # Every admission record names the economic-halt policy it was decided under, so
+        # observe-mode collection is separable (prospective-window boundary). Payload only:
+        # the dedup state (and so event identity) is unchanged.
+        payload = {**extra, 'risk_policy_version': config.RISK_POLICY_VERSION}
         if isinstance(reason, BaseException):
             reason = f"{type(reason).__name__}: {reason}"[:200]
         if reason is None and outcome == 'risk_rejected':
@@ -425,6 +431,14 @@ def _v2_risk_state(decision, paused: bool, was_paused: bool) -> None:
         if paused and not was_paused:
             evidence_v2.emit('trade_tracker', 'risk.transition', {'stream': 'trade_tracker.risk'},
                              payload, state={'halted': True, 'reason': decision.reason}, transition=True)
+        if not economic_halt_blocks(economic_halt_mode()):
+            # Paper observe mode only: the economic state is recorded once per change
+            # (append-only evidence; no pause row, no outbox notification).
+            evidence_v2.emit('trade_tracker', 'risk.observed', {'stream': 'trade_tracker.risk'},
+                             payload, state={
+                                 'observed': getattr(decision, 'observed_economic_stop', None),
+                                 'flags': list(getattr(decision, 'economic_flags', ()) or ())},
+                             dedup_key='risk.observed', transition=True)
     except Exception as exc:
         evidence_v2.hook_error('trade_tracker', exc)
 
@@ -803,6 +817,11 @@ async def register_new_signals():
         risk_decision = await assess_new_trade_risk(
             sig['symbol'], trade_type=trade_type, regime=macro_state)
         await record_risk_decision(risk_decision)
+        if risk_decision.allowed and getattr(risk_decision, 'observed_economic_stop', None):
+            logger.warning(
+                f"{sig['symbol']}: economic stop {risk_decision.observed_economic_stop} "
+                f"observed (Paper observe mode, not blocking; "
+                f"flags={','.join(risk_decision.economic_flags)})")
         if not risk_decision.allowed:
             _v2_admission(sig, 'risk_rejected', None, risk_decision, observed_price=observed_price)
             logger.warning(
@@ -830,7 +849,8 @@ async def register_new_signals():
                 # recovery can never be acknowledged on a flat-book assumption
                 # that this insert is about to invalidate.
                 await acquire_risk_admission_lock(conn)
-                if await loss_streak_halt_active(conn):
+                streak_blocks, streak_observed = await _loss_streak_under_lock(conn)
+                if streak_blocks:
                     # A recovery/halt transition landed between the risk check
                     # above and this lock; re-verify rather than trust the
                     # earlier read.
@@ -868,7 +888,9 @@ async def register_new_signals():
                     await enqueue(conn, 'trade.opened', 'active_trade', trade_id,
                                   {'active_trade_id': trade_id})
         if trade_id:
-            _v2_admission(sig, 'admitted', None, risk_decision, active_trade_id=trade_id)
+            _v2_admission(sig, 'admitted', None, risk_decision, active_trade_id=trade_id,
+                          **({'observed_under_admission_lock': streak_observed}
+                             if streak_observed else {}))
             _v2_trade_opened(sig, trade_id, bracket, fill_entry, entry_decision, risk_decision,
                              min_notional, (expiry_h, t1_expiry_h, no_t1_expiry_h))
         else:
@@ -878,6 +900,21 @@ async def register_new_signals():
             logger.info(
                 f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {fill_entry} "
                 f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
+
+
+async def _loss_streak_under_lock(conn) -> tuple[bool, str | None]:
+    """Locked loss-streak re-check: (blocks, observed_reason).
+
+    enforce: identical to the legacy check (an active halt blocks). Paper observe: an
+    active halt does not block; it is returned as an observation for the admission
+    evidence. Must be called while holding acquire_risk_admission_lock.
+    """
+    if not await loss_streak_halt_active(conn):
+        return False, None
+    if economic_halt_blocks(economic_halt_mode()):
+        return True, None
+    logger.warning("loss_streak_halt active under admission lock: observed (Paper observe mode, not blocking)")
+    return False, 'loss_streak_halt'
 
 
 async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
@@ -964,15 +1001,15 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
         manual_pause_reason=pause_reason,
     )
     _v2_note_risk_context(risk_start, snapshot, limits)
-    return evaluate_new_trade(snapshot, limits)
+    return evaluate_with_policy(snapshot, limits, economic_halt_mode())
 
 
 async def record_risk_decision(decision):
     """Expose the evaluated state to existing scanner/Telegram controls."""
-    hard_halts = {
-        'daily_loss_limit', 'weekly_loss_limit', 'max_drawdown_limit',
-        'loss_streak_halt', 'invalid_risk_state',
-    }
+    # enforce: the legacy set (economic hard stops + invalid_risk_state). Paper observe:
+    # only technical halts persist a pause; daily_pnl_percent/consecutive_losses are
+    # still recorded exactly as before.
+    hard_halts = persisted_halt_reasons(economic_halt_mode())
     paused = decision.reason in hard_halts
     async with Database.acquire() as conn:
         async with conn.transaction():

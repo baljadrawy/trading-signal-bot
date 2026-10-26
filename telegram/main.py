@@ -26,7 +26,8 @@ from shared.delivery_policy import (
 )
 from shared.telegram_messages import (
     opened_message, target_message, closed_message, risk_halted_message,
-    runtime_status_message,
+    runtime_status_message, OBSERVED_STATUS_LINE, observed_loss_streak_resume_note,
+    observed_loss_streak_status_lines,
 )
 from shared.trading_state import get_pause_state
 from shared.signal_readiness import (
@@ -35,7 +36,7 @@ from shared.signal_readiness import (
     is_ready_row,
 )
 from shared.risk_epoch import (
-    LOSS_STREAK_HALTED, LOSS_STREAK_RECOVERY_REQUIRED, TRADING_PAUSED,
+    LOSS_STREAK_HALTED, LOSS_STREAK_OBSERVED, LOSS_STREAK_RECOVERY_REQUIRED, TRADING_PAUSED,
     RecoveryRejected, loss_streak_state, operational_state, record_recovery,
 )
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
@@ -728,16 +729,21 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # حالة المخاطر تسبق حالة الإيقاف في العرض: رفع الإيقاف وحده يترك القبول
     # مرفوضاً، وهذا بالضبط اللبس الذي يجب ألا يتكرر.
     streak = await loss_streak_state()
-    op_state = operational_state(streak, paused)
+    econ_mode = config.ECONOMIC_HALT_MODE
+    op_state = operational_state(streak, paused, econ_mode)
     status = {
         LOSS_STREAK_RECOVERY_REQUIRED:
             "🛑 قاطع سلسلة الخسائر — لا يُقبل أي دخول (يحتاج إقراراً يدوياً)",
         LOSS_STREAK_HALTED:
             "🛑 قاطع سلسلة الخسائر — لا يُقبل أي دخول",
+        LOSS_STREAK_OBSERVED: OBSERVED_STATUS_LINE,
         TRADING_PAUSED: "⏸️ موقوف",
     }.get(op_state, "✅ يبحث ويراقب")
     reason_line = f"\n🧯 سبب الإيقاف: {pause_reason}" if paused else ""
-    if streak.halt_active:
+    if streak.halt_active and econ_mode == 'observe':
+        reason_line += observed_loss_streak_status_lines(
+            streak.consecutive_losses, streak.halt_threshold)
+    elif streak.halt_active:
         reason_line += (
             f"\n🔢 الخسائر المتتالية: {streak.consecutive_losses}/{streak.halt_threshold}"
             f"\n⚠️ الماسح قد يعمل ويولّد إشارات، لكن كل دخول جديد مرفوض"
@@ -861,6 +867,11 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """)
     # لا يجوز أن يبدو النظام سليماً بينما القاطع ما زال يرفض كل دخول.
     streak = await loss_streak_state()
+    if streak.halt_active and config.ECONOMIC_HALT_MODE == 'observe':
+        await update.message.reply_text(
+            "▶️ تم استئناف البحث والسماح لحارس المخاطر بقبول صفقات جديدة"
+            + observed_loss_streak_resume_note(streak.consecutive_losses, streak.halt_threshold))
+        return
     if streak.halt_active:
         extra = (
             f"\n\n🛑 لكن قاطع سلسلة الخسائر ما زال نشطاً "

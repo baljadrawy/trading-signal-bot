@@ -122,6 +122,13 @@ class Config:
     # (the decision bar's own high can cap T1). 'independent_swing_v1' = A46 G1. Changes signal
     # geometry, so switching it is an owner-approved, declared strategy-version boundary.
     T1_CAP_POLICY: str = os.getenv('T1_CAP_POLICY', 'legacy_window_v1')
+    # Owner decision 2026-10-26 (shared/economic_halt_policy.py). 'enforce' = exact current
+    # behaviour: daily/weekly loss, drawdown and loss-streak hard stops block admission and
+    # persist a pause. 'observe' = in PAPER only, those economic stops are recorded as
+    # observations and do not block; technical/admin/portfolio stops stay fail-closed.
+    # 'observe' without PAPER_TRADING (or any unknown value) resolves to 'enforce'. Switching
+    # it is an owner-authorized, declared prospective-window boundary (RISK_POLICY_VERSION).
+    PAPER_ECONOMIC_HALT_MODE: str = os.getenv('PAPER_ECONOMIC_HALT_MODE', 'enforce')
     PRICE_STREAM_ENABLED: bool = os.getenv('PRICE_STREAM_ENABLED', 'true').lower() == 'true'
     PRICE_STREAM_REFRESH_SECONDS: int = int(os.getenv('PRICE_STREAM_REFRESH_SECONDS', '5'))
     PRICE_BACKUP_CHECK_SECONDS: int = int(os.getenv('PRICE_BACKUP_CHECK_SECONDS', '30'))
@@ -169,6 +176,18 @@ class Config:
     MIN_PRICE_CHANGE_PERCENT: float = 1.0  # حركة سعرية أدنى 1% (خُفّض من 2% في 2026-05-17: السوق الهابط/الهادئ ينتج 4-9 عملات فقط من 430)
     CANDLES_TO_FETCH: int = 200  # عدد الشموع المغلقة للتحليل (تُسقط الشمعة الجارية)
     MAX_SPREAD_PCT: float = float(os.getenv('MAX_SPREAD_PCT', '0.15'))  # حدّ السبريد % لقبول الإشارة (واقعية تنفيذ — تدقيق 2026-06-23؛ توزيع حيّ 0.0002–0.36%)
+
+    @property
+    def ECONOMIC_HALT_MODE(self) -> str:
+        """Effective economic-halt mode ('enforce' unless Paper observe is honoured)."""
+        from shared.economic_halt_policy import economic_halt_mode
+        return economic_halt_mode(self)
+
+    @property
+    def RISK_POLICY_VERSION(self) -> str:
+        """Policy label stamped on admission evidence: econ-enforce-v1 / econ-observe-v1."""
+        from shared.economic_halt_policy import risk_policy_version
+        return risk_policy_version(self)
 
     @property
     def postgres_dsn(self) -> str:

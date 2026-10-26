@@ -192,3 +192,27 @@ def runtime_status_message(event_type: str, payload: dict) -> str:
         f"✅ عادت مراقبة WebSocket اللحظية\n"
         f"🛡️ الصفقات المفتوحة تحت المتابعة الفورية"
     )
+
+
+# ---- Paper economic-loss observation (owner decision 2026-10-26) ------------------------
+# Used only when the effective PAPER_ECONOMIC_HALT_MODE is 'observe'; enforce-mode texts in
+# telegram/main.py are unchanged.
+OBSERVED_LABEL = 'observed (Paper observe mode, not blocking)'
+OBSERVED_STATUS_LINE = f"✅ يبحث ويراقب — سلسلة الخسائر: {OBSERVED_LABEL}"
+
+
+def observed_loss_streak_status_lines(consecutive_losses: int, threshold: int) -> str:
+    """/status detail for an active loss streak that does not block (observe mode)."""
+    return (
+        f"\n🔢 الخسائر المتتالية: {int(consecutive_losses)}/{int(threshold)} — {OBSERVED_LABEL}"
+        f"\n👁️ ملاحظة فقط: الخسارة الاقتصادية تُسجَّل ولا تمنع الدخول في وضع Paper"
+        f"\n🛡️ الضمانات التقنية والإيقاف اليدوي وحدود المحفظة ما زالت مانعة"
+    )
+
+
+def observed_loss_streak_resume_note(consecutive_losses: int, threshold: int) -> str:
+    """/resume note for an active loss streak that does not block (observe mode)."""
+    return (
+        f"\n\n👁️ سلسلة الخسائر ({int(consecutive_losses)}/{int(threshold)}): {OBSERVED_LABEL}"
+        f"\nلا تمنع القبول؛ تُسجَّل كملاحظة فقط"
+    )

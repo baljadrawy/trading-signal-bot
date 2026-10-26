@@ -29,6 +29,9 @@ TRADING_ACTIVE = 'TRADING_ACTIVE'
 TRADING_PAUSED = 'TRADING_PAUSED'
 LOSS_STREAK_HALTED = 'LOSS_STREAK_HALTED'
 LOSS_STREAK_RECOVERY_REQUIRED = 'LOSS_STREAK_RECOVERY_REQUIRED'
+# Paper observe mode only (shared/economic_halt_policy.py): the streak threshold is
+# reached but, by owner decision 2026-10-26, it is an observation and does not block.
+LOSS_STREAK_OBSERVED = 'LOSS_STREAK_OBSERVED'
 
 
 # Transaction-scoped advisory lock shared by the two paths that must never
@@ -158,13 +161,19 @@ async def loss_streak_state() -> LossStreakState:
     )
 
 
-def operational_state(state: LossStreakState, is_paused: bool) -> str:
+def operational_state(state: LossStreakState, is_paused: bool,
+                      economic_halt_mode: str = 'enforce') -> str:
     """Classify what an operator is actually looking at.
 
     Risk halt outranks pause in the display because clearing the pause alone
     leaves admissions refused -- the exact confusion this classification exists
     to prevent.
+
+    In Paper observe mode an active streak does not refuse admission, so the
+    (still blocking) administrative pause outranks it instead.
     """
+    if economic_halt_mode == 'observe' and state.halt_active:
+        return TRADING_PAUSED if is_paused else LOSS_STREAK_OBSERVED
     if state.manual_recovery_required:
         return LOSS_STREAK_RECOVERY_REQUIRED
     if state.halt_active:
