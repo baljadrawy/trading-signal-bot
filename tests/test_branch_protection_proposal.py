@@ -59,3 +59,23 @@ def test_script_defaults_to_check_and_refuses_apply_without_confirmation():
     assert r.returncode == 3 and "REFUSED" in r.stdout
     calls = open(log).read()
     assert "-X PUT" not in calls and "-X PATCH" not in calls
+
+
+def test_required_checks_come_only_from_the_unfiltered_tests_workflow():
+    """A required check from a path-filtered workflow (r14-*) would never report on most PRs: a merge lockout."""
+    wfdir = os.path.join(ROOT, ".github", "workflows")
+    for fn in sorted(os.listdir(wfdir)):
+        text = open(os.path.join(wfdir, fn)).read()
+        names = {n.strip("'\"") for n in re.findall(r"^\s+name:\s*(.+?)\s*$", text, re.M)}
+        if fn == "tests.yml":
+            on = text.split("\njobs:", 1)[0]
+            assert "paths:" not in on and "paths-ignore:" not in on
+        else:
+            assert not REQUIRED & names, (fn, REQUIRED & names)
+
+
+def test_rollback_and_emergency_procedure_documented():
+    doc = open(os.path.join(ROOT, "docs", "ops", "MAIN_BRANCH_PROTECTION_PROPOSAL.md")).read()
+    assert "-X DELETE repos/baljadrawy/trading-signal-bot/branches/main/protection" in doc
+    assert "branches/main/protection/required_status_checks" in doc         # emergency: lift checks only
+    assert "Validation against main cce58c3" in doc
