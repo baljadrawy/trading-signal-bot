@@ -13,29 +13,53 @@ on:
 permissions:
   contents: read
 
+# Superseded runs of the same pull request or branch are cancelled (merge trains on develop keep testing only the
+# newest merge). Runs on main get a unique group (the run id), so they are never cancelled nor replaced while
+# pending (CI_EFFICIENCY.md).
 concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: tests-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'superseded' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   unit:
     name: default suite (no database)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: py
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: .github/ci/requirements-test.txt
-      - run: python -m pip install -r .github/ci/requirements-test.txt
+      # Cached virtualenv of the pinned test set (CI_EFFICIENCY.md): keyed on the runner image, the exact Python
+      # and the requirements hash; pip install still runs against it and is a no-op when everything is satisfied.
+      - name: runner image id (part of the virtualenv cache key)
+        id: img
+        run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+      # Restore on every event; save only from a push to main on a miss. A pull-request run can read main's
+      # entry but never writes its own (each entry is about 620 MiB and the repository cache is capped, so
+      # per-PR entries would evict main's and turn hits into misses), and a PR can never write a cache main uses.
+      - uses: actions/cache/restore@v4
+        id: venv
+        with:
+          path: ~/ci-venv
+          key: ci-venv-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.id }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.github/ci/requirements-test.txt') }}
+      - name: install the pinned test set into the virtualenv
+        run: |
+          [ -x ~/ci-venv/bin/python ] || python -m venv ~/ci-venv
+          ~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt
+          echo "$HOME/ci-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.venv.outputs.cache-hit != 'true'
+        with:
+          path: ~/ci-venv
+          key: ${{ steps.venv.outputs.cache-primary-key }}
       - run: python -m pytest -q -p no:cacheprovider -rs tests
 
   database:
     name: disposable-PostgreSQL matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16.15-alpine
@@ -52,11 +76,32 @@ jobs:
         with:
           fetch-depth: 0                             # reference trees below are older commits
       - uses: actions/setup-python@v5
+        id: py
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: .github/ci/requirements-test.txt
-      - run: python -m pip install -r .github/ci/requirements-test.txt
+      # Cached virtualenv of the pinned test set (CI_EFFICIENCY.md): keyed on the runner image, the exact Python
+      # and the requirements hash; pip install still runs against it and is a no-op when everything is satisfied.
+      - name: runner image id (part of the virtualenv cache key)
+        id: img
+        run: echo "id=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+      # Restore on every event; save only from a push to main on a miss. A pull-request run can read main's
+      # entry but never writes its own (each entry is about 620 MiB and the repository cache is capped, so
+      # per-PR entries would evict main's and turn hits into misses), and a PR can never write a cache main uses.
+      - uses: actions/cache/restore@v4
+        id: venv
+        with:
+          path: ~/ci-venv
+          key: ci-venv-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.id }}-py${{ steps.py.outputs.python-version }}-${{ hashFiles('.github/ci/requirements-test.txt') }}
+      - name: install the pinned test set into the virtualenv
+        run: |
+          [ -x ~/ci-venv/bin/python ] || python -m venv ~/ci-venv
+          ~/ci-venv/bin/python -m pip install -r .github/ci/requirements-test.txt
+          echo "$HOME/ci-venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.venv.outputs.cache-hit != 'true'
+        with:
+          path: ~/ci-venv
+          key: ${{ steps.venv.outputs.cache-primary-key }}
       - name: reference trees (read-only checkouts of reviewed commits)
         run: |
           git worktree add -q ../ref-cr1 f973cac        # develop at CR-1 (P1-R parity "before")
@@ -107,16 +152,35 @@ jobs:
   collector:
     name: P2 forward collector suite (p2_forward/tests)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0                             # test_p2f_recovery_a34 archives the pre-fix tree cd2935e
           persist-credentials: false
+      # The job always runs and reports, so the required check name is unchanged. Its work is skipped only when
+      # .github/ci/change_scope.py proves no collector input changed (pull requests and non-protected pushes;
+      # main, develop and manual runs are always full; any doubt runs). See docs/ops/CI_EFFICIENCY.md.
+      - name: change scope (collector inputs)
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          out=$(python3 .github/ci/change_scope.py collector) || out=run=true
+          [ "$out" = "run=false" ] || out=run=true
+          echo "$out" >> "$GITHUB_OUTPUT"
       - name: presence check
         id: present
+        env:
+          IN_SCOPE: ${{ steps.scope.outputs.run }}
         run: |
-          if [ -d p2_forward/tests ]; then echo "run=true" >> "$GITHUB_OUTPUT"
+          if [ "$IN_SCOPE" = "false" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no collector input changed: collector suite not needed for this diff (change_scope.py)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ -d p2_forward/tests ]; then echo "run=true" >> "$GITHUB_OUTPUT"
           else echo "run=false" >> "$GITHUB_OUTPUT"; echo "p2_forward/tests not present on this tree"; fi
       - uses: actions/setup-python@v5
         if: steps.present.outputs.run == 'true'
