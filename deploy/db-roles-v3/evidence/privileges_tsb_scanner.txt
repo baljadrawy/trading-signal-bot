@@ -1,0 +1,11 @@
+SELECT ON analysis_results
+UPDATE ON analysis_results
+SELECT ON risk_management
+SELECT ON scan_candidates
+INSERT ON scan_candidates
+DELETE ON scan_candidates
+SELECT ON schema_migrations
+SELECT ON service_heartbeats
+INSERT ON service_heartbeats
+UPDATE ON service_heartbeats
+SELECT ON symbol_blacklist

@@ -1,0 +1,154 @@
+........................................................s.s.....ss....ss [ 61%]
+.ss.....ss.....ss....sssssss.......s..........                           [100%]
+==================================== PASSES ====================================
+_______________ test_every_statement_is_permitted[tsb_analyzer] ________________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_analyzer] statements=9 permitted=9 non_executable=0 denied_by_design=0 denied_unexpected=0
+________________ test_every_statement_is_permitted[tsb_learner] ________________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_learner] statements=33 permitted=33 non_executable=0 denied_by_design=0 denied_unexpected=0
+________________ test_every_statement_is_permitted[tsb_scanner] ________________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_scanner] statements=10 permitted=10 non_executable=0 denied_by_design=0 denied_unexpected=0
+_____________ test_every_statement_is_permitted[tsb_signal_engine] _____________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_signal_engine] statements=33 permitted=33 non_executable=0 denied_by_design=0 denied_unexpected=0
+_______________ test_every_statement_is_permitted[tsb_telegram] ________________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_telegram] statements=68 permitted=68 non_executable=0 denied_by_design=0 denied_unexpected=0
+________________ test_every_statement_is_permitted[tsb_tracker] ________________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_tracker] statements=60 permitted=59 non_executable=0 denied_by_design=1 denied_unexpected=0
+_____________ test_every_granted_privilege_is_needed[tsb_analyzer] _____________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_analyzer] privileges=10 unneeded=[]
+_____________ test_every_granted_privilege_is_needed[tsb_learner] ______________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_learner] privileges=18 unneeded=[]
+_____________ test_every_granted_privilege_is_needed[tsb_scanner] ______________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_scanner] privileges=11 unneeded=[]
+__________ test_every_granted_privilege_is_needed[tsb_signal_engine] ___________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_signal_engine] privileges=22 unneeded=[]
+_____________ test_every_granted_privilege_is_needed[tsb_telegram] _____________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_telegram] privileges=30 unneeded=[]
+_____________ test_every_granted_privilege_is_needed[tsb_tracker] ______________
+----------------------------- Captured stdout call -----------------------------
+
+[tsb_tracker] privileges=25 unneeded=[]
+=========================== short test summary info ============================
+PASSED ../t/test_roles_v3.py::test_role_attributes_and_memberships
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_every_statement_is_permitted[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_non_executable_fragments_are_not_statements[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_exceptions_justified
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_every_granted_privilege_is_needed[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_write_authority_matrix
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_backup]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_dashboard_ro]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_migrator]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_owner]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_research_ro]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_sequence_usage_matches_code[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_nextval_exactly_where_granted[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_b3_gate_under_role[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_b3_gate_under_role[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_b3_gate_under_role[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_b3_role_without_grant_fails_closed_and_visibly
+PASSED ../t/test_roles_v3.py::test_outbox_enqueue_claim_ack_defer_retry_deadletter[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_outbox_enqueue_claim_ack_defer_retry_deadletter[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_outbox_enqueue_claim_ack_defer_retry_deadletter[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_heartbeat_upsert[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_tracker_admission_lock_and_streak
+PASSED ../t/test_roles_v3.py::test_telegram_pause_resume_and_recovery
+PASSED ../t/test_roles_v3.py::test_telegram_symbol_list_upserts
+PASSED ../t/test_roles_v3.py::test_signal_engine_idempotent_signal_transaction
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_least_privilege_denials[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_cannot_grant_privileges_onward[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_cannot_grant_privileges_onward[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_cannot_grant_privileges_onward[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_cannot_grant_privileges_onward[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_cannot_grant_privileges_onward[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[xsch-tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[xsch-tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[xsch-tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[xsch-tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[xsch-tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[wishlist-tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[wishlist-tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[wishlist-tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[wishlist-tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[wishlist-tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[prod_ref-tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[prod_ref-tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[prod_ref-tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[prod_ref-tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_cannot_reach_other_databases[prod_ref-tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_nologin_roles_cannot_log_in[tsb_dashboard_ro]
+PASSED ../t/test_roles_v3.py::test_nologin_roles_cannot_log_in[tsb_learner]
+PASSED ../t/test_roles_v3.py::test_nologin_roles_cannot_log_in[tsb_research_ro]
+PASSED ../t/test_roles_v3.py::test_research_role_reads_nothing
+PASSED ../t/test_roles_v3.py::test_d6c_prototype_filters_holdout_and_is_not_left_applied
+PASSED ../t/test_roles_v3.py::test_dashboard_allowlist_only
+PASSED ../t/test_roles_v3.py::test_only_dashboard_role_reads_dashboard_views
+PASSED ../t/test_roles_v3.py::test_future_tables_deny_by_default_except_backup
+PASSED ../t/test_roles_v3.py::test_runtime_roles_are_separate_from_admin_backup_and_migration
+PASSED ../t/test_roles_v3.py::test_pool_plus_healthcheck_fit_connection_limit[tsb_analyzer]
+PASSED ../t/test_roles_v3.py::test_pool_plus_healthcheck_fit_connection_limit[tsb_scanner]
+PASSED ../t/test_roles_v3.py::test_pool_plus_healthcheck_fit_connection_limit[tsb_signal_engine]
+PASSED ../t/test_roles_v3.py::test_pool_plus_healthcheck_fit_connection_limit[tsb_telegram]
+PASSED ../t/test_roles_v3.py::test_pool_plus_healthcheck_fit_connection_limit[tsb_tracker]
+PASSED ../t/test_roles_v3.py::test_connection_limit_is_enforced
+PASSED ../t/test_roles_v3.py::test_denied_statement_rolls_back_the_whole_transaction
+PASSED ../t/test_roles_v3.py::test_session_timeouts_apply_to_roles
+SKIPPED [7] ../t/test_roles_v3.py:59: tsb_backup network login is rejected by pg_hba by design (covered by test_hba_v3)
+SKIPPED [7] ../t/test_roles_v3.py:59: tsb_migrator network login is rejected by pg_hba by design (covered by test_hba_v3)
+SKIPPED [6] ../t/test_roles_v3.py:649: the role's own database
+98 passed, 20 skipped in 31.44s

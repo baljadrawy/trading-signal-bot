@@ -1,0 +1,1 @@
+DENIED	('shared/risk_epoch.py', 221, 'static', 'INSERT INTO risk_recovery_events (epoch_started_at, acknowledged_by, reason, halt_reason, consecutive_losses_b', 'permission denied for table risk_recovery_events')

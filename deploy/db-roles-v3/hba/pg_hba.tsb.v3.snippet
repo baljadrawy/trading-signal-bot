@@ -1,0 +1,6 @@
+# --- Trading Signal Bot least-privilege login scoping (v3) ---
+# Network logins: runtime roles (members of tsb_net_group) may reach trading_signals only.
+# Every other tsb_* role (backup, migrator, research) is rejected on the network; local-socket rules above still apply.
+host    trading_signals    +tsb_net_group      all    scram-sha-256
+host    all                +tsb_login_group    all    reject
+# --- end tsb ---

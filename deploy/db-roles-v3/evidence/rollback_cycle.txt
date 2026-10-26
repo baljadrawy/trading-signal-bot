@@ -1,0 +1,6 @@
+R-01 rollback while a tsb_tracker session is connected: rc=3 (tsb_* sessions are still connected); tsb roles=13
+R-02 tsb roles=0 (expect 0); owner_stage owners=trading_signal_bot
+R-03 non-owner ACL entries=0 (expect 0); default ACLs=0; dashboard schemas=0; PUBLIC TEMP=t
+R-04 re-applied: tsb roles=13
+R-04 role suite after re-apply (pg_hba active): 98 passed, 20 skipped in 31.44s
+R-04 tracker parity after re-apply: PASS
