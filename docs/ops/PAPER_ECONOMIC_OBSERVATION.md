@@ -25,7 +25,7 @@ changes no runtime behaviour. Activation is a separate, owner-authorized operati
 | Operator state `LOSS_STREAK_OBSERVED` | `shared/risk_epoch.py` (`operational_state`) |
 | `/status`, `/resume` texts | `shared/telegram_messages.py`, `telegram/main.py` |
 | Alert delivery (`risk.observed` outbox notice) | `trade_tracker/main.py` (`_enqueue_observation_alert`), `shared/telegram_messages.py`, `telegram/main.py` |
-| Tests | `tests/test_paper_economic_observation.py`, `tests/test_paper_economic_alerts.py` |
+| Tests | `tests/test_paper_economic_observation.py`, `tests/test_paper_economic_alerts.py`, `tests/test_paper_observe_capacity.py` |
 
 `shared/risk_management.py` (`evaluate_new_trade`) is **byte-identical**: its hash is pinned in
 `research/governance/contracts/*`, and it remains the only implementation of the risk
@@ -44,8 +44,8 @@ arithmetic. The policy module wraps it.
 Sizing is sizing, not stopping, and is deliberately unchanged in both modes. Note that the
 multiplier still lowers `max_positions`, so in observe mode a deep loss streak (>= 5) limits
 capacity to one open position (the capacity block is labelled with the sizing reason, e.g.
-`loss_streak_minimum`, exactly as today). With the current canary capacity of 1 this makes no
-difference.
+`loss_streak_minimum`, exactly as today). With the runtime canary capacity of 2 this throttles
+collection to one open position; see *Collection capacity in observe mode*.
 
 ## Behaviour per mode
 
@@ -79,6 +79,36 @@ instead of "halt active" (an administrative pause still shows as paused and outr
 Paper, or any unknown value, resolves to `enforce` with a one-time warning (the restrictive
 direction). Research runners (`research/p0r.py`, `research/foundation/runner.py`) call
 `evaluate_new_trade` directly and are unaffected by the flag.
+
+## Collection capacity in observe mode
+
+Runtime configuration (container env, non-secret, as read for owner item 3):
+`RISK_CANARY_MAX_OPEN_TRADES=2`, `MAX_OPEN_TRADES` unset (default 10), `TRADE_AMOUNT_USDT=50`,
+`RISK_CAPITAL_USDT=500`, `MAX_GROSS_EXPOSURE_PERCENT=80`, `MAX_SYMBOL_EXPOSURE_PERCENT=10`,
+`STOP_ON_CONSECUTIVE_LOSSES=7`.
+
+- Trade notional is always `TRADE_AMOUNT_USDT`: the tracker never reads `size_multiplier`, so a
+  minimum-notional floor cannot turn sizing into a stop.
+- `base_max = min(min(MAX_OPEN_TRADES, CANARY) = 2, floor(500 * 0.8 / 50) = 8) = 2`;
+  `effective_max = max(1, floor(base_max * multiplier))`, so capacity is 2 at multiplier 1.0 and
+  **1** at any multiplier <= 0.5 (drawdown caution/warning, weekly reduce/minimum, loss streak
+  reduce/minimum). It is never below 1.
+
+Regression tests (`tests/test_paper_observe_capacity.py`, limits built by the tracker itself from
+this configuration; a 160-state grid spanning every economic hard stop and every sizing label):
+
+| Book | Result in observe mode |
+|---|---|
+| flat (`open_count=0`), any economic stop and any multiplier | **admitted**; capacity 1 or 2, never 0 -- collection never stops |
+| one open position on another symbol, multiplier <= 0.5 | blocked by a sizing-labelled capacity block (`drawdown_*`, `weekly_*`, `loss_streak_*`; the `max_open_trades` class) -- **throttling 2 -> 1, not stopping** |
+| one open position on another symbol, multiplier 1.0 | admitted (capacity 2) |
+| two open positions | blocked (capacity 2) |
+| one open position on the **same** symbol | blocked `symbol_concentration_limit` (10% cap = exactly one 50 USDT position per symbol) |
+
+A long-held position can occupy the only slot while a multiplier <= 0.5 applies (for example a
+loss streak of 5 or more), so collection then waits for that position to close. That is a
+portfolio-capacity question for the owner (canary capacity / sizing policy); it is deliberately
+not changed here, and it behaves identically in enforce mode.
 
 ## Alert delivery (observe mode only)
 
