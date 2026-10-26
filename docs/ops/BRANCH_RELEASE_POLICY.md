@@ -2,6 +2,8 @@
 
 > **Owner supersession notice (2026-10-26):** For R&D development workflow, the approved [Owner Operating Contract](../governance/OWNER_OPERATING_CONTRACT.md) supersedes older mandatory PR-per-task, branch-per-concern, merge-commit-only and per-PR owner-approval language below. PR-on-Demand and minimal branches govern ordinary low-risk source work. This does NOT relax live-host deployment, Paper strategy/halt activation, evidence security, rollback, or scientific admission gates. Older text remains historical context and must not be implemented as an unconditional development blocker.
 
+> **2026-10-26 reconciliation (dated note; text below unchanged).** Under the owner directive at the top of `docs/governance/DEVELOPMENT_FIRST_POLICY.md`, these parts are **procedurally superseded for D0 work**: §2.1–2.3 (branch per concern; use `main` plus at most one shared `integration/**` branch); §3 "Review" row (owner approval per PR, Draft never merged; D0 may reach `main` without a PR when CI is green); §8 "a pull request is required", "merge commit only" and the per-PR owner merge authorization (replaced by the revised proposal `docs/ops/MAIN_BRANCH_PROTECTION_PROPOSAL.md`, revision 2: required `tests.yml` checks on the exact SHA, no PR requirement, no force push or deletion); §10 "no push or merge without the owner's approval" (D0). **Retained:** §1 (merge never deploys), §2.4 (protected research branches), §3 Tests/Security/Holdout/Provenance gates, §4–§7 and §9.
+
 
 **Status: PROPOSED (Draft PR, 2026-10-18; revision 2, same day: legacy-release exception and environment-template rules).** This policy takes effect only when the owner approves and merges this PR. Until then, existing records govern.
 

@@ -1,4 +1,5 @@
-"""The proposed GitHub branch protection matches BRANCH_RELEASE_POLICY.md section 8 (offline; nothing is applied)."""
+"""The proposed GitHub branch protection (PR-on-Demand revision, 2026-10-26) is internally consistent (offline; nothing
+is applied): no PR required, the three tests.yml checks required on the exact commit, no force push or deletion."""
 import json
 import os
 import re
@@ -30,10 +31,19 @@ def test_no_bypass_no_force_push_no_deletion_conversations_resolved():
     assert PROT["required_conversation_resolution"] is True
 
 
-def test_pull_request_required_with_zero_approvals_while_single_account():
-    r = PROT["required_pull_request_reviews"]
-    assert r["required_approving_review_count"] == 0          # single account: the author cannot approve own PR
-    assert r["dismiss_stale_reviews"] is True
+def test_no_pull_request_required_so_d0_can_be_integrated_directly():
+    # Owner directive 2026-10-26 (PR-on-Demand): low-risk D0 reaches main by fast-forward when CI is green.
+    assert "required_pull_request_reviews" in PROT and PROT["required_pull_request_reviews"] is None
+    assert PROT["restrictions"] is None and PROT["lock_branch"] is False
+    assert PROT["required_linear_history"] is False                 # merge commits stay allowed
+
+
+def test_integration_branches_trigger_the_required_workflow():
+    """The direct flow pushes the candidate to integration/** first; without that trigger it could never get checks."""
+    on = open(os.path.join(ROOT, ".github", "workflows", "tests.yml")).read().split("\njobs:", 1)[0]
+    push = on.split("push:", 1)[1].split("pull_request:", 1)[0]
+    assert "'integration/**'" in push or '"integration/**"' in push or "integration/**" in push
+    assert "main" in push
 
 
 def test_merge_commit_only():
@@ -79,3 +89,4 @@ def test_rollback_and_emergency_procedure_documented():
     assert "-X DELETE repos/baljadrawy/trading-signal-bot/branches/main/protection" in doc
     assert "branches/main/protection/required_status_checks" in doc         # emergency: lift checks only
     assert "Validation against main cce58c3" in doc
+    assert "GH006" in doc and "integration/bp-smoke" in doc                   # smoke test confirms push semantics

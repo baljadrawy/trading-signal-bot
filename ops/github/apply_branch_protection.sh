@@ -1,5 +1,5 @@
 #!/bin/bash
-# Proposed main branch protection (BRANCH_RELEASE_POLICY.md section 8). NOT APPLIED: owner review first.
+# Proposed main branch protection (PR-on-Demand revision 2026-10-26; docs/ops/MAIN_BRANCH_PROTECTION_PROPOSAL.md). NOT APPLIED: owner review first.
 # usage: apply_branch_protection.sh [--branch main] [--check | --apply]
 #   --check (default): read-only. Prints the current protection and merge settings next to the proposal.
 #   --apply: changes repository settings. Refused unless APPLY_CONFIRM="<branch>@<first 12 hex of the sha256 of
