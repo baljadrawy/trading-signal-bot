@@ -19,7 +19,8 @@ finite-input check outranks the pause check. So while ANY halt is active (risk l
 price timeout relabels the row 'risk:invalid_risk_state', and a later date inserts a newer row with
 that reason. The current reason therefore cannot prove the halt began technically. Eligibility needs
 the caller-supplied pause history since the last manual_resume: complete, non-empty, every entry
-TECHNICAL, ending at the current reason.
+TECHNICAL, ending at the current reason. provenance_from_scanner_lines derives that history and its
+completeness from the scanner's per-cycle pause log lines (pure parsing; the caller supplies the lines).
 
 Invariants (pinned by tests/test_halt_recovery.py):
 - Only TECHNICAL halts with an all-TECHNICAL, complete history can ever be assessed eligible. RISK_LIMIT, MANUAL and UNKNOWN never are; they
@@ -210,6 +211,204 @@ def _provenance_digest(collapsed: tuple[str, ...]) -> str:
     payload = json.dumps({'v': 1, 'reasons': list(collapsed)}, ensure_ascii=True,
                          separators=(',', ':'))
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
+# ── provenance from scanner log lines ─────────────────────────────────────
+#
+# Source format (shared/logger.py): 'YYYY-MM-DD HH:MM:SS | <logger> | <LEVEL> | <message>', the time in
+# the container's local zone at whole-second precision. Per cycle, scanner/main.py (logger 'scanner')
+# logs the cycle start; on a paused cycle scanner/scanner_logic.py (logger 'scanner_logic') then logs
+# the pause line with the exact get_pause_state reason (or a fixed Arabic placeholder if it is empty).
+
+_LOG_SEP = ' | '
+_LOG_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
+_LOG_TIME_LEN = 19
+_SCANNER_LOGGERS = frozenset({'scanner', 'scanner_logic'})
+_CYCLE_LOGGER = 'scanner'
+_CYCLE_START = '\U0001f50d بدء دورة المسح'
+_PAUSE_LOGGER = 'scanner_logic'
+_PAUSE_LEVEL = 'WARNING'
+_PAUSE_MARKER = 'التداول موقوف'
+_PAUSE_PREFIX = '⏸️ التداول موقوف - السبب: '
+_REASON_CHARS = frozenset('abcdefghijklmnopqrstuvwxyz0123456789_:')
+_REASON_MAX_LEN = 64
+_MIN_FINAL_REASON_LINES = 2
+
+P_INPUT_INVALID = 'provenance_input_invalid'
+P_CLOCK_INVALID = 'provenance_clock_invalid'
+P_OUT_OF_ORDER = 'scanner_log_out_of_order'
+P_FROM_FUTURE = 'scanner_log_from_future'
+P_TRUNCATED = 'scanner_log_truncated'
+P_GAP = 'scanner_log_gap'
+P_STALE = 'scanner_log_stale'
+P_TOO_FEW_LINES = 'scanner_log_too_few_lines'
+P_NO_CYCLES = 'scanner_cycles_unobserved'
+P_CYCLE_WITHOUT_REASON = 'paused_cycle_without_reason'
+P_REASON_UNPARSEABLE = 'pause_reason_unparseable'
+P_NO_PAUSE = 'no_pause_observed'
+P_FINAL_UNCONFIRMED = 'final_reason_unconfirmed'
+
+ALL_PROVENANCE_BLOCKERS = (P_INPUT_INVALID, P_CLOCK_INVALID, P_OUT_OF_ORDER, P_FROM_FUTURE,
+                           P_TRUNCATED, P_GAP, P_STALE, P_TOO_FEW_LINES, P_NO_CYCLES,
+                           P_CYCLE_WITHOUT_REASON, P_REASON_UNPARSEABLE, P_NO_PAUSE,
+                           P_FINAL_UNCONFIRMED)
+
+
+@dataclass(frozen=True)
+class Provenance:
+    """Pause history reconstructed from scanner log lines, codes only.
+
+    reasons_since_last_resume  collapsed reason codes (consecutive repeats dropped), oldest first.
+                               Reported even when incomplete, but then they prove nothing.
+    history_complete           True only when no blocker fired.
+    blockers                   fixed provenance blocker codes (ALL_PROVENANCE_BLOCKERS order).
+    """
+    reasons_since_last_resume: tuple[str, ...]
+    history_complete: bool
+    blockers: tuple[str, ...]
+
+
+def _parse_scanner_line(line, log_tz):
+    """(ts, logger, level, message) for a well-formed log line, else None."""
+    parts = line.split(_LOG_SEP, 3)
+    if len(parts) != 4 or len(parts[0]) != _LOG_TIME_LEN:
+        return None
+    try:
+        ts = datetime.strptime(parts[0], _LOG_TIME_FORMAT).replace(tzinfo=log_tz)
+    except ValueError:
+        return None
+    return ts, parts[1], parts[2], parts[3]
+
+
+def _pause_reason_of(logger_name, level, message):
+    """The reason code of a strict pause line, or None if the line is not one."""
+    if logger_name != _PAUSE_LOGGER or level != _PAUSE_LEVEL \
+            or not message.startswith(_PAUSE_PREFIX):
+        return None
+    reason = message[len(_PAUSE_PREFIX):]
+    if not (0 < len(reason) <= _REASON_MAX_LEN and all(c in _REASON_CHARS for c in reason)):
+        return None
+    return reason
+
+
+def provenance_from_scanner_lines(lines, *, since: datetime, now: datetime, cycle_s: float = 300,
+                                  max_gap_cycles: int = 3, log_tz=timezone.utc) -> Provenance:
+    """Reconstruct the pause history since the last manual_resume from scanner log lines.
+
+    lines           the scanner container's combined log (both 'scanner' and 'scanner_logic'
+                    loggers) in emission order, as a list or tuple of str (one line each; a trailing
+                    newline is allowed). Other loggers and lines without a log header are ignored.
+    since           aware instant of the last manual_resume. Obtaining it (and the lines) is the
+                    wiring step's job; this function performs no I/O.
+    now             aware current instant.
+    cycle_s         scanner cycle (config SCAN_INTERVAL_SECONDS).
+    max_gap_cycles  longest tolerated silence between consecutive scanner lines, in cycles.
+    log_tz          fixed-offset zone of the naive log timestamps (the container's local zone;
+                    UTC unless the container sets another TZ).
+
+    history_complete is True only if: the input is well formed; lines are in order and none is
+    dated after now; the first line at or after since is at most one cycle after it (no truncation);
+    no two consecutive scanner lines, nor the last line and now, are more than max_gap_cycles cycles
+    apart; at least two scanner lines and at least one cycle start are in the window; once the first
+    pause line is seen, every later completed cycle logged a pause line (a cycle without one is an
+    unobserved reason or an unrecorded resume); every line carrying the pause marker is a strict pause
+    line with a well-formed reason code; and the final reason is seen on at least two consecutive
+    pause lines (a single line is never trusted). A reason seen on only one line is still reported;
+    dropping it would be fail-open.
+
+    Lines stamped in the same whole second as since are included (the stamp is truncated, so they may
+    be just after it); a pre-resume line included this way can only add a reason, never hide one.
+
+    Never raises on bad data. Raises ValueError only for an invalid policy parameter.
+    """
+    if not _positive_finite(cycle_s):
+        raise ValueError('cycle_s must be a positive finite number')
+    if not (_is_int(max_gap_cycles) and max_gap_cycles >= 1):
+        raise ValueError('max_gap_cycles must be an integer >= 1')
+    if not isinstance(log_tz, timezone):
+        raise ValueError('log_tz must be a fixed-offset datetime.timezone')
+
+    blockers: set[str] = set()
+
+    def done(reasons=()):
+        ordered = tuple(b for b in ALL_PROVENANCE_BLOCKERS if b in blockers)
+        return Provenance(reasons_since_last_resume=_collapse(reasons),
+                          history_complete=not ordered, blockers=ordered)
+
+    if not isinstance(lines, (list, tuple)) or not all(isinstance(x, str) for x in lines):
+        blockers.add(P_INPUT_INVALID)
+        return done()
+    if not (_aware(since) and _aware(now)) or since > now:
+        blockers.add(P_CLOCK_INVALID)
+        return done()
+
+    since_floor = since.replace(microsecond=0)
+    max_gap = max_gap_cycles * cycle_s
+    window: list[tuple[datetime, str | None, bool]] = []    # (ts, pause reason, is cycle start)
+    prev_ts = None
+    for raw in lines:
+        line = raw.rstrip('\r\n')
+        if '\n' in line or '\r' in line:
+            blockers.add(P_INPUT_INVALID)
+            continue
+        parsed = _parse_scanner_line(line, log_tz)
+        if parsed is None:
+            if _PAUSE_MARKER in line:                      # a pause line that cannot be placed
+                blockers.add(P_REASON_UNPARSEABLE)
+            continue
+        ts, logger_name, level, message = parsed
+        if logger_name not in _SCANNER_LOGGERS:
+            if _PAUSE_MARKER in message:
+                blockers.add(P_REASON_UNPARSEABLE)
+            continue
+        if prev_ts is not None and ts < prev_ts:
+            blockers.add(P_OUT_OF_ORDER)
+        prev_ts = ts
+        if ts > now:
+            blockers.add(P_FROM_FUTURE)
+        if ts < since_floor:
+            continue
+        reason = _pause_reason_of(logger_name, level, message)
+        if reason is None and _PAUSE_MARKER in message:
+            blockers.add(P_REASON_UNPARSEABLE)
+        is_cycle = logger_name == _CYCLE_LOGGER and message.startswith(_CYCLE_START)
+        window.append((ts, reason, is_cycle))
+
+    if len(window) < 2:
+        blockers.add(P_TOO_FEW_LINES)
+    if not window or (window[0][0] - since).total_seconds() > cycle_s:
+        blockers.add(P_TRUNCATED)
+    if window and (now - window[-1][0]).total_seconds() > max_gap:
+        blockers.add(P_STALE)
+    if any((b[0] - a[0]).total_seconds() > max_gap for a, b in zip(window, window[1:])):
+        blockers.add(P_GAP)
+
+    reasons: list[str] = []
+    cycles = 0
+    open_cycle = cycle_has_reason = False
+    for _ts, reason, is_cycle in window:
+        if is_cycle:
+            if reasons and open_cycle and not cycle_has_reason:
+                blockers.add(P_CYCLE_WITHOUT_REASON)
+            cycles += 1
+            open_cycle, cycle_has_reason = True, False
+        elif reason is not None:
+            reasons.append(reason)
+            cycle_has_reason = True
+    # The last cycle may still be running (its pause line not yet written); it is tolerated.
+    if cycles == 0:
+        blockers.add(P_NO_CYCLES)
+    if not reasons:
+        blockers.add(P_NO_PAUSE)
+    else:
+        tail = 0
+        for r in reversed(reasons):
+            if r != reasons[-1]:
+                break
+            tail += 1
+        if tail < _MIN_FINAL_REASON_LINES:
+            blockers.add(P_FINAL_UNCONFIRMED)
+    return done(reasons)
 
 
 def assess_technical_resume(pause_reason, checks: FreshRiskCheck, now: datetime, *,

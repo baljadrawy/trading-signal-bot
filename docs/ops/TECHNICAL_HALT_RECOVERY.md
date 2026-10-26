@@ -123,6 +123,8 @@ pause row observed ──► alert ──► classify ──► fresh validity v
    list or tuple of strings ending at the current reason, and **every** entry classifies `TECHNICAL`.
    Otherwise `halt_history_incomplete` or `halt_provenance_not_technical`. Consecutive repeats are
    collapsed and the resulting transition sequence is bound into the assessment digest.
+   Both inputs come from `provenance_from_scanner_lines` (section 2a); the caller passes its
+   `reasons_since_last_resume` and `history_complete` through unchanged.
 3. **Fresh validity verification** (`FreshRiskCheck`, computed now by the future caller):
    finite inputs; price coverage with `prices_requested == open_count` and
    `prices_obtained == prices_requested` (`open_count` is a required field, so a flat book is eligible
@@ -166,6 +168,61 @@ pause row observed ──► alert ──► classify ──► fresh validity v
 6. **Existing `/resume` write.** On `confirmed`, the caller runs the unchanged `cmd_resume` statement.
    The module never writes pause state and never resumes.
 
+### 2a. Provenance from the scanner log (`provenance_from_scanner_lines`)
+
+```
+provenance_from_scanner_lines(lines, *, since, now, cycle_s=300, max_gap_cycles=3,
+                              log_tz=timezone.utc)
+    -> Provenance(reasons_since_last_resume: tuple[str, ...], history_complete: bool,
+                  blockers: tuple[str, ...])
+```
+
+Pure parsing, no I/O. Input: the scanner container's **combined** log in emission order (both the
+`scanner` and `scanner_logic` loggers, e.g. its stdout stream), as a list or tuple of strings. Line
+format from `shared/logger.py`: `YYYY-MM-DD HH:MM:SS | <logger> | <LEVEL> | <message>`, naive local
+time at whole-second precision (`log_tz` names the container zone; UTC by default). Per cycle,
+`scanner/main.py` logs the cycle start (`🔍 بدء دورة المسح...`, logger `scanner`); on a paused cycle
+`scanner/scanner_logic.py` then logs `⏸️ التداول موقوف - السبب: <reason>` (logger `scanner_logic`,
+level `WARNING`). `since` is the instant of the last `manual_resume`; `cycle_s` is
+`SCAN_INTERVAL_SECONDS`.
+
+Reasons are the strict pause lines at or after `since` (lines in `since`'s own truncated second are
+included: a pre-resume line can only add a reason, never hide one), oldest first, consecutive repeats
+collapsed. A reason seen on a single line is still reported; dropping it would be fail-open. Output is
+codes only: a reason must match `[a-z0-9_:]{1,64}`, so no symbol or value can pass through, and
+blockers are fixed strings.
+
+`history_complete` is `True` only if no blocker fires:
+
+| blocker | fires when |
+|---|---|
+| `provenance_input_invalid` | `lines` is not a list/tuple of strings, or one element holds an embedded newline |
+| `provenance_clock_invalid` | `since` or `now` is naive, or `since > now` |
+| `scanner_log_out_of_order` | a scanner line is older than the one before it |
+| `scanner_log_from_future` | a scanner line is dated after `now` |
+| `scanner_log_truncated` | the first in-window line is more than one cycle after `since` (or there is none) |
+| `scanner_log_gap` | two consecutive in-window scanner lines are more than `max_gap_cycles × cycle_s` apart |
+| `scanner_log_stale` | the last line is more than `max_gap_cycles × cycle_s` before `now` |
+| `scanner_log_too_few_lines` | fewer than two in-window scanner lines (a single line is never trusted) |
+| `scanner_cycles_unobserved` | no cycle-start line in the window (e.g. a grep of pause lines only) |
+| `paused_cycle_without_reason` | after the first pause line, a completed cycle logged no pause line (an unrecorded resume, i.e. a wrong `since`, or a failed pause gate); the last, still-running cycle is tolerated |
+| `pause_reason_unparseable` | any line carrying the pause marker that is not a strict pause line (wrong logger or level, no header, the empty-reason placeholder `غير محدد`, a non-code reason) |
+| `no_pause_observed` | no pause line in the window |
+| `final_reason_unconfirmed` | the final reason is not seen on at least two consecutive pause lines |
+
+Lines from other loggers and lines without a log header are ignored unless they carry the pause
+marker. Invalid policy parameters (`cycle_s`, `max_gap_cycles`, `log_tz`) raise `ValueError`; bad data
+never raises.
+
+**Residual gap, stated plainly.** The log is a per-cycle sample of `get_pause_state`. A reason that
+exists for less than one sampling interval is invisible: e.g. a `/pause` overwritten by a price timeout
+before the next cycle reads the row. Cycle accounting means every cycle that ran after the halt began
+contributed a sample, and the gap rule bounds the longest unsampled interval to
+`max_gap_cycles × cycle_s` (default 15 minutes; normally about one cycle, 5 minutes). Lowering
+`max_gap_cycles` narrows that bound at the cost of more incomplete verdicts after a scanner restart.
+The bound does not close the gap: the owner, who issued any `/pause`, must not approve a technical
+resume after one.
+
 ---
 
 ## 3. Deliberately NOT changed
@@ -198,19 +255,26 @@ pause row observed ──► alert ──► classify ──► fresh validity v
   - Challenge and used-nonce store kept in process memory (lost on restart, which only forces a new
     challenge: fail-closed).
 - **Where the provenance comes from** (both non-protected; the caller reads reasons only):
-  - Scanner log: `scanner/scanner_logic.py` logs `⏸️ التداول موقوف - السبب: <reason>` on **every**
-    paused cycle, with the exact `get_pause_state` reason (or `غير محدد` if empty, which classifies
-    `UNKNOWN` and blocks). The caller collects these lines since the last `manual_resume`.
+  - Scanner log, via `provenance_from_scanner_lines` (section 2a). The wiring step's job, not the
+    module's: (1) obtain `since`, the instant of the last `manual_resume`, from a non-protected source
+    (for example the `/resume` audit line or the decision row's write time), never guessed; if it
+    cannot be obtained, do not call the assessment eligible; (2) read the scanner container's
+    combined stdout from shortly before `since` to now, in emission order (merging the two per-logger
+    files by timestamp is not equivalent: same-second lines may reorder and then fail closed);
+    (3) pass the container zone as `log_tz` and `SCAN_INTERVAL_SECONDS` as `cycle_s`; (4) pass the
+    result's `reasons_since_last_resume` and `history_complete` unchanged to
+    `assess_technical_resume`, and show the provenance blocker codes to the owner when incomplete.
+    Log rotation or a container recreate that drops lines appears as `scanner_log_truncated` or
+    `scanner_log_gap`, which block.
   - `risk.halted` outbox event: `trade_tracker.main.record_risk_decision` enqueues it only on a
     running-to-halted transition of a tracker hard halt; its payload `reason` is the bare reason
     (classified like the prefixed one). It is **not** emitted for `/pause` (`cmd_pause` writes the row
     and logs nothing), nor for a relabel while already paused, so it can confirm the origin of a
     tracker halt but never prove the absence of a later overwrite. Its other payload fields are
     protected values and must not be read for this purpose.
-  - `history_complete` may be `True` only if the scanner log covers the whole interval since the
-    last resume with no gap longer than one scan cycle. Residual risk, stated plainly: the log is a
-    per-cycle sample, so a `/pause` immediately overwritten by a timeout within one cycle would not
-    appear; the owner, who issued any `/pause`, must not approve a technical resume after one.
+  - `history_complete` comes only from the parser: `True` only if the scanner log covers the whole
+    interval since the last resume with every post-halt cycle sampled and no silence longer than
+    `max_gap_cycles × cycle_s`. The residual sampling gap and its bound are in section 2a.
 - **Where the fresh check is computed:** a read-only helper in the tracker that reuses
   `assess_new_trade_risk`'s snapshot construction with the pause masked, counts requested vs usable
   prices against the open-position count, and records the timestamps of consecutive clean results
@@ -221,7 +285,9 @@ pause row observed ──► alert ──► classify ──► fresh validity v
 - **Test plan for the wiring:** handler tests with fakes for every result code; a fake-DB test that
   `/confirm_resume` writes exactly the existing `manual_resume` statement once and nothing on any
   refusal; a race test where the reason changes between challenge and confirm; restart test
-  (challenge lost, refusal); tracker test that the fresh-check helper never writes `risk_management`;
+  (challenge lost, refusal); a log-collection test (fakes) that `since` comes from the last resume and
+  an unavailable `since` or log read yields an incomplete history, never an eligible one; tracker test
+  that the fresh-check helper never writes `risk_management`;
   regression run of `tests/test_risk_recovery_command.py`, `tests/test_risk_epoch.py`,
   `tests/test_a49_risk_guard_nonfinite.py` and this suite.
 

@@ -691,3 +691,303 @@ async def test_fault_d_relabel_on_real_path_emits_no_outbox_event(monkeypatch, o
     _, (_, sql, args), enq = await drive_record(monkeypatch, d.reason, prior_paused=True)
     assert args[2] is True and args[3] == TECH
     assert enq.await_count == 0
+
+
+# ── provenance from scanner log lines (fixtures only; no real log is read) ──
+
+from shared.halt_recovery import Provenance, provenance_from_scanner_lines  # noqa: E402
+
+SINCE = datetime(2026, 10, 21, 20, 0, tzinfo=UTC)
+CYCLE = 300
+# Written independently of the module constants so a drift on either side fails a test.
+PAUSE_PREFIX = '⏸️ التداول موقوف - السبب: '
+CYCLE_START = '\U0001f50d بدء دورة المسح...'
+
+
+def log(ts, logger, level, msg):
+    return f'{ts:%Y-%m-%d %H:%M:%S} | {logger} | {level} | {msg}'
+
+
+def pause_line(ts, reason, level='WARNING', logger='scanner_logic'):
+    return log(ts, logger, level, PAUSE_PREFIX + reason)
+
+
+def cycle_lines(ts, reason=None):
+    """One scanner cycle as scanner/main.py + scanner_logic.py log it; reason None = unpaused."""
+    out = [log(ts, 'scanner', 'INFO', CYCLE_START)]
+    if reason is None:
+        out.append(log(ts + timedelta(seconds=1), 'scanner_logic', 'INFO', '📊 إجمالي العملات: 400'))
+    else:
+        out.append(pause_line(ts, reason))
+    out.append(log(ts + timedelta(seconds=2), 'scanner', 'INFO', '✅ وجدنا 0 عملة مؤهلة للتحليل'))
+    return out
+
+
+def history(spec, start=None, cycle=CYCLE):
+    """spec: one entry per cycle (reason, None for unpaused, or SKIP for a missed cycle).
+    Returns (lines, now) with now shortly after the last cycle."""
+    t = start or SINCE + timedelta(seconds=30)
+    lines, last = [], t
+    for entry in spec:
+        if entry is not SKIP:
+            lines += cycle_lines(t, entry)
+            last = t
+        t += timedelta(seconds=cycle)
+    return lines, last + timedelta(seconds=60)
+
+
+SKIP = object()
+
+
+def P(lines, now, since=SINCE, **kw):
+    return provenance_from_scanner_lines(lines, since=since, now=now, **kw)
+
+
+def test_clean_single_reason_history_is_complete():
+    lines, now = history([None, None, TECH, TECH, TECH])
+    p = P(lines, now)
+    assert p == Provenance(reasons_since_last_resume=(TECH,), history_complete=True, blockers=())
+
+
+def test_reason_change_mid_window_reports_both_in_order():
+    lines, now = history([None, 'risk:loss_streak_halt', 'risk:loss_streak_halt', TECH, TECH, TECH])
+    p = P(lines, now)
+    assert p.history_complete is True
+    assert p.reasons_since_last_resume == ('risk:loss_streak_halt', TECH)
+
+
+def test_reason_seen_once_is_still_reported():
+    lines, now = history([None, 'manual_pause', TECH, TECH])
+    assert P(lines, now).reasons_since_last_resume == ('manual_pause', TECH)
+
+
+def test_gap_bound_inclusive_then_exceeded():
+    lines, now = history([None, TECH, SKIP, SKIP, TECH, TECH])     # silence just under 3 cycles
+    assert P(lines, now).history_complete is True
+    lines, now = history([None, TECH, SKIP, SKIP, SKIP, TECH, TECH])
+    p = P(lines, now)
+    assert not p.history_complete and p.blockers == (hr.P_GAP,)
+    assert P(lines, now, max_gap_cycles=4).history_complete is True
+
+
+def test_truncated_start_is_incomplete():
+    lines, now = history([TECH, TECH, TECH], start=SINCE + timedelta(seconds=CYCLE + 1))
+    p = P(lines, now)
+    assert not p.history_complete and p.blockers == (hr.P_TRUNCATED,)
+    lines, now = history([TECH, TECH, TECH], start=SINCE + timedelta(seconds=CYCLE))
+    assert P(lines, now).history_complete is True
+
+
+def test_future_dated_line_is_incomplete():
+    lines, now = history([None, TECH, TECH, TECH])
+    p = P(lines, now - timedelta(seconds=90))
+    assert not p.history_complete and hr.P_FROM_FUTURE in p.blockers
+
+
+def test_out_of_order_lines_are_incomplete():
+    lines, now = history([None, TECH, TECH, TECH])
+    swapped = lines[:3] + lines[6:9] + lines[3:6] + lines[9:]
+    p = P(swapped, now)
+    assert not p.history_complete and hr.P_OUT_OF_ORDER in p.blockers
+
+
+def test_stale_tail_is_incomplete():
+    lines, now = history([None, TECH, TECH])
+    p = P(lines, now + timedelta(seconds=3 * CYCLE))
+    assert not p.history_complete and p.blockers == (hr.P_STALE,)
+
+
+def test_garbage_lines_are_ignored():
+    lines, now = history([None, TECH, TECH, TECH])
+    noisy = []
+    for i, ln in enumerate(lines):
+        noisy.append(ln)
+        if i % 3 == 1:
+            noisy += ['Traceback (most recent call last):', '', 'random noise | x',
+                      log(SINCE + timedelta(seconds=40), 'database', 'INFO', 'pool ready')]
+    p = P(noisy, now)
+    assert p.history_complete is True and p.reasons_since_last_resume == (TECH,)
+
+
+@pytest.mark.parametrize('bad', [
+    'غير محدد',                       # the scanner's empty-reason placeholder
+    'BTCUSDT',                        # never a symbol
+    'risk:invalid_risk_state extra',  # trailing content
+    '',
+    'x' * 65,
+])
+def test_unparseable_pause_reason_is_incomplete(bad):
+    lines, now = history([None, TECH, TECH, TECH])
+    lines.insert(5, pause_line(SINCE + timedelta(seconds=30 + CYCLE + 1), bad))
+    p = P(lines, now)
+    assert not p.history_complete and hr.P_REASON_UNPARSEABLE in p.blockers
+    assert p.reasons_since_last_resume == (TECH,), 'the unparseable value is never echoed'
+
+
+@pytest.mark.parametrize('mangle', [
+    lambda ts: pause_line(ts, TECH, level='INFO'),
+    lambda ts: pause_line(ts, TECH, logger='scanner'),
+    lambda ts: pause_line(ts, TECH, logger='other_service'),
+    lambda ts: PAUSE_PREFIX + TECH,                                   # no header: cannot be placed
+    lambda ts: log(ts, 'scanner_logic', 'WARNING', 'التداول موقوف ' + TECH),
+])
+def test_pause_marker_outside_strict_shape_is_incomplete(mangle):
+    lines, now = history([None, TECH, TECH, TECH])
+    lines.insert(5, mangle(SINCE + timedelta(seconds=30 + CYCLE + 1)))
+    p = P(lines, now)
+    assert not p.history_complete and hr.P_REASON_UNPARSEABLE in p.blockers
+
+
+def test_single_line_is_never_trusted():
+    p = P([pause_line(SINCE + timedelta(seconds=30), TECH)], SINCE + timedelta(seconds=60))
+    assert not p.history_complete
+    assert {hr.P_TOO_FEW_LINES, hr.P_NO_CYCLES, hr.P_FINAL_UNCONFIRMED} <= set(p.blockers)
+    lines, now = history([None, TECH])                               # one paused cycle only
+    p = P(lines, now)
+    assert not p.history_complete and p.blockers == (hr.P_FINAL_UNCONFIRMED,)
+
+
+def test_final_reason_must_repeat():
+    lines, now = history([None, TECH, TECH, 'manual_pause'])
+    p = P(lines, now)
+    assert p.reasons_since_last_resume == (TECH, 'manual_pause')
+    assert p.blockers == (hr.P_FINAL_UNCONFIRMED,)
+
+
+def test_unpaused_cycle_after_pause_is_incomplete():
+    """A cycle with no pause line after the halt began: an unrecorded resume or a failed gate."""
+    lines, now = history([None, TECH, TECH, None, TECH, TECH])
+    p = P(lines, now)
+    assert not p.history_complete and p.blockers == (hr.P_CYCLE_WITHOUT_REASON,)
+
+
+def test_trailing_cycle_in_progress_is_tolerated():
+    lines, now = history([None, TECH, TECH])
+    lines.append(log(now - timedelta(seconds=1), 'scanner', 'INFO', CYCLE_START))
+    assert P(lines, now).history_complete is True
+
+
+def test_no_pause_observed_is_incomplete():
+    lines, now = history([None, None, None])
+    p = P(lines, now)
+    assert p.reasons_since_last_resume == () and p.blockers == (hr.P_NO_PAUSE,)
+
+
+def test_pause_lines_without_cycle_markers_are_incomplete():
+    """A grep of pause lines alone cannot show that every cycle was observed."""
+    lines, now = history([None, TECH, TECH, TECH])
+    only = [ln for ln in lines if PAUSE_PREFIX in ln]
+    p = P(only, now)
+    assert not p.history_complete and hr.P_NO_CYCLES in p.blockers
+
+
+def test_lines_before_since_are_excluded_same_second_included():
+    pre, _ = history(['manual_pause', 'manual_pause'], start=SINCE - timedelta(seconds=2 * CYCLE))
+    lines, now = history([None, TECH, TECH, TECH])
+    p = P(pre + lines, now)
+    assert p.history_complete is True and p.reasons_since_last_resume == (TECH,)
+    # A line stamped in the resume's own (truncated) second may be pre-resume: included, fail-closed.
+    same = [pause_line(SINCE, 'manual_pause')]
+    p = P(same + lines, now, since=SINCE + timedelta(microseconds=400000))
+    assert p.reasons_since_last_resume == ('manual_pause', TECH)
+
+
+def test_log_timezone_is_applied():
+    plus3 = timezone(timedelta(hours=3))
+    lines, now = history([None, TECH, TECH, TECH], start=(SINCE + timedelta(seconds=30)).astimezone(plus3))
+    assert P(lines, now, log_tz=plus3).history_complete is True
+    p = P(lines, now)                                  # read as UTC: three hours in the future
+    assert not p.history_complete and hr.P_FROM_FUTURE in p.blockers
+
+
+@pytest.mark.parametrize('lines,since,now,blocker', [
+    ('one string', SINCE, SINCE + timedelta(hours=1), 'provenance_input_invalid'),
+    (None, SINCE, SINCE + timedelta(hours=1), 'provenance_input_invalid'),
+    ([b'bytes'], SINCE, SINCE + timedelta(hours=1), 'provenance_input_invalid'),
+    (['a\nb'], SINCE, SINCE + timedelta(hours=1), 'provenance_input_invalid'),
+    ([], SINCE.replace(tzinfo=None), SINCE + timedelta(hours=1), 'provenance_clock_invalid'),
+    ([], SINCE, None, 'provenance_clock_invalid'),
+    ([], SINCE + timedelta(hours=2), SINCE + timedelta(hours=1), 'provenance_clock_invalid'),
+])
+def test_bad_input_never_raises_and_is_incomplete(lines, since, now, blocker):
+    p = provenance_from_scanner_lines(lines, since=since, now=now)
+    assert p.history_complete is False and blocker in p.blockers
+
+
+@pytest.mark.parametrize('kw', [dict(cycle_s=0), dict(cycle_s=float('inf')), dict(cycle_s=True),
+                                dict(max_gap_cycles=0), dict(max_gap_cycles=1.5),
+                                dict(log_tz='UTC'), dict(log_tz=None)])
+def test_invalid_policy_parameters_raise(kw):
+    with pytest.raises(ValueError):
+        provenance_from_scanner_lines([], since=SINCE, now=SINCE, **kw)
+
+
+def test_output_is_codes_only():
+    lines, now = history([None, 'risk:daily_loss_limit', 'risk:daily_loss_limit', TECH, TECH])
+    lines.insert(5, pause_line(SINCE + timedelta(seconds=331), 'ETHUSDT'))
+    p = P(lines, now)
+    assert set(p.blockers) <= set(hr.ALL_PROVENANCE_BLOCKERS)
+    assert all(set(r) <= set('abcdefghijklmnopqrstuvwxyz0123456789_:')
+               for r in p.reasons_since_last_resume)
+    assert 'ETHUSDT' not in repr(p)
+
+
+def test_parser_matches_the_real_log_sources():
+    """Drift guard against the code that produces the lines (source text, not logs)."""
+    import pathlib
+    root = pathlib.Path(hr.__file__).resolve().parents[1]
+    logic = (root / 'scanner' / 'scanner_logic.py').read_text(encoding='utf-8')
+    main = (root / 'scanner' / 'main.py').read_text(encoding='utf-8')
+    fmt = (root / 'shared' / 'logger.py').read_text(encoding='utf-8')
+    assert hr._PAUSE_PREFIX == PAUSE_PREFIX
+    assert f'logger.warning(f"{PAUSE_PREFIX}{{pause_reason or ' in logic
+    assert "setup_logger('scanner_logic')" in logic and "setup_logger('scanner')" in main
+    assert f'logger.info("{CYCLE_START}")' in main and CYCLE_START.startswith(hr._CYCLE_START)
+    assert "fmt='%(asctime)s | %(name)s | %(levelname)s | %(message)s'" in fmt
+    assert f"datefmt='{hr._LOG_TIME_FORMAT}'" in fmt
+    cfg = (root / 'shared' / 'config.py').read_text(encoding='utf-8')
+    assert "os.getenv('SCAN_INTERVAL_SECONDS', '300')" in cfg
+
+
+# ── end to end: parser output into assess_technical_resume ───────────────
+
+def E2E(spec, **kw):
+    lines, now = history(spec, **kw)
+    p = P(lines, now)
+    current = p.reasons_since_last_resume[-1] if p.reasons_since_last_resume else TECH
+    return p, assess_technical_resume(
+        current, clean(evaluated_at=now - timedelta(seconds=5)), now,
+        reasons_since_last_resume=p.reasons_since_last_resume, history_complete=p.history_complete)
+
+
+def test_e2e_all_technical_complete_history_is_eligible():
+    p, a = E2E([None, TECH, TECH, TECH])
+    assert p.history_complete and a.eligible and a.blockers == ()
+
+
+@pytest.mark.parametrize('spec,blockers', [
+    ([None, 'risk:loss_streak_halt', 'risk:loss_streak_halt', TECH, TECH],
+     ('halt_provenance_not_technical',)),
+    ([None, 'manual_pause', TECH, TECH], ('halt_provenance_not_technical',)),
+    ([None, 'risk_state_missing', 'risk_state_missing', TECH, TECH], ()),
+    ([None, TECH, SKIP, SKIP, SKIP, TECH, TECH], ('halt_history_incomplete',)),
+    ([None, TECH, TECH, None, TECH, TECH], ('halt_history_incomplete',)),
+    ([None, TECH], ('halt_history_incomplete',)),
+])
+def test_e2e_only_all_technical_complete_history_is_eligible(spec, blockers):
+    p, a = E2E(spec)
+    assert a.blockers == blockers
+    assert a.eligible is (blockers == ())
+
+
+def test_e2e_truncated_history_is_ineligible():
+    p, a = E2E([TECH, TECH, TECH], start=SINCE + timedelta(seconds=CYCLE + 1))
+    assert not a.eligible and a.blockers == ('halt_history_incomplete',)
+
+
+def test_e2e_digest_stable_across_more_cycles_of_the_same_halt():
+    _, a1 = E2E([None, TECH, TECH, TECH])
+    _, a2 = E2E([None, TECH, TECH, TECH, TECH, TECH])
+    assert hr.assessment_digest(a1) == hr.assessment_digest(a2)
+    _, a3 = E2E([None, 'risk_state_missing', 'risk_state_missing', TECH, TECH])
+    assert a3.eligible and hr.assessment_digest(a3) != hr.assessment_digest(a1)
