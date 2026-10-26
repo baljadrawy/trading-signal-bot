@@ -1,0 +1,54 @@
+{
+  "schema": "tsb.holdout_guard",
+  "schema_version": 1,
+  "recorded_at": "2026-10-01",
+  "authority": "owner decision, P2-G0 package",
+  "holdout": {
+    "name": "W3",
+    "status": "SEALED",
+    "freeze_timestamp_utc": "2026-08-19T09:33:46Z",
+    "freeze_git_sha": "63da7d3",
+    "scope": "all strategy outcomes and post-decision labels for decisions after the freeze timestamp (signals, trades, trade_results, target fills, evidence outcome events, derived labels)"
+  },
+  "prohibited_uses_before_opening": [
+    "feature_selection",
+    "parameter_tuning",
+    "strategy_selection",
+    "model_selection",
+    "profitability_evaluation",
+    "falsification_decisions",
+    "iterative_research_feedback"
+  ],
+  "permitted_operations_before_opening": [
+    "schema_inspection",
+    "aggregate_row_counts",
+    "timestamp_coverage",
+    "mechanical_integrity_checks_that_do_not_reveal_outcomes"
+  ],
+  "walk_forward_automatic_access": "disabled",
+  "walk_forward_disabled_at_utc": "2026-10-01T22:33:09Z (P2-G0; crontab entry commented, definition preserved)",
+  "holdout_opening_requires_owner_authorization": true,
+  "holdout_opening_protocol": "a later, explicitly authorized, registered protocol (predeclared hypotheses, metrics and single-look rules) is required",
+  "contamination": [
+    {
+      "id": "P2-DESIGN-2026-10-01-WFA-TAIL",
+      "classification": "LIMITED SUMMARY-LEVEL CONTAMINATION",
+      "date_utc": "2026-10-01",
+      "source": "research/walk_forward_audit.log (tail displayed during P2-DESIGN read-only discovery)",
+      "description": "One aggregate summary verdict line produced by the automated 2026-10-01 10:30 UTC walk-forward run was unintentionally displayed. No individual trade rows were intentionally inspected. The verdict and metrics are deliberately not reproduced here.",
+      "whole_w3_opened": false,
+      "mitigation": "automatic walk-forward access disabled in P2-G0",
+      "must_be_disclosed_in_future_w3_evaluation": true
+    },
+    {
+      "id": "PRE-EXISTING-WFA-CRON",
+      "classification": "AUTOMATED AGGREGATE ACCESS (pre-existing)",
+      "description": "From the freeze until P2-G0 the 12-hourly walk_forward_audit cron computed aggregate post-freeze outcome summaries into its log (last scheduled run 2026-10-01 22:30 UTC). Its log content was not read in P2-G0. Already-known earlier exposures are recorded in the Research-1A disclosure (checkpoints, Research-0, 2026-09-27 loss forensics).",
+      "must_be_disclosed_in_future_w3_evaluation": true
+    }
+  ],
+  "related": {
+    "existing_status_file": "research/governance/holdout_status.json (status SEALED)",
+    "contamination_registry": "research/governance/contamination_registry.jsonl (CLEAN_FORWARD_ONLY from 2026-08-19T09:33:46.000001Z)"
+  }
+}
