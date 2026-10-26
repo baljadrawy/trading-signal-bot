@@ -53,3 +53,27 @@ others unchanged. R-B3's invariance proof is the stronger guarantee.
 
 Accept R-B3 for RC-B with the conditions above, then a separate Stage B deployment approval. Until both are given,
 Stage B stays on HOLD.
+
+## Runtime-safety validation (2026-10-22, owner request; read-only source and image inspection)
+
+R-B3 is approved **for design only**. This section validates it against runtime behaviour. RC-B (`11e81d5d…`) differs from the running signal_engine in exactly 3 files. The running trade_tracker's `main.py`, `risk_epoch.py`, `trading_state.py` and `risk_management.py` equal the release source (md5), so the line numbers below hold for production.
+
+| Aspect | Verdict | Evidence |
+|---|---|---|
+| Pending messages / delivery | SAFE | `save_signal` inserts the signal, upserts `risk_management.signals_sent` and enqueues `signal.ready` in **one transaction**. telegram claims `signal.ready`, checks the pause, marks the signal sent and enqueues `signal.delivered`; it never writes `active_trades`. The **only** INSERT into `active_trades` is in trade_tracker admission. Outbox leases are re-claimable after 300 s, and ack/defer/fail are owner-guarded. |
+| Startup / reconnection / SIGTERM | SAFE | Startup is connect → `require_schema` → integrity mode → Binance client. Any failure exits before anything is emitted. There is no backfill: the loop reads only analysis rows from the last 30 min, and saves at most one signal per 60 s cycle. With no SIGTERM handler, `init: true` forwards the signal and Postgres rolls back any open transaction; at most buffered evidence is lost (RC-B forces a telemetry write only on a clean shutdown path). |
+| Idempotency / duplicates | SAFE for positions; low risk for messages | A kill between commit and the `signal_generated` UPDATE can re-emit **one** duplicate signal row or Telegram message for a symbol. It cannot open a second position: the tracker takes one row per symbol, refuses when the symbol has an open trade, allows one trade per (symbol, timeframe) per candle, uses `ON CONFLICT(signal_id)`, and enforces `MAX_OPEN_TRADES`. `SIGNAL_INTEGRITY_MODE` is off, and the 2 h symbol cooldown is DB-backed. |
+| Admission enforcement | SAFE | `assess_new_trade_risk` runs for every candidate. Pause is fail-closed (`get_pause_state`), the loss-streak halt is re-checked under `pg_advisory_xact_lock`, and `evaluate_new_trade` fails closed on non-finite values. |
+| DB writes / side effects | SAFE | signal_engine writes `signals`, `risk_management.signals_sent` (date upsert of that column only), `outbox_events`, `analysis_results` and `service_heartbeats`. None of these is a halt or pause input. |
+| Config / secrets | SAFE | The only addition is `EVIDENCE_TELEMETRY_MIN_INTERVAL_S` (default 0). The getenv dataclass ignores unknown variables, so a leftover variable is harmless after a rollback. A non-numeric value crashes RC-B at import, which fails safe. Cmd, user and workdir are identical. |
+| Rollback | SAFE | No schema or DB change; the telemetry file format is unchanged. The production compose file pins `rel-ea8ae4f-r2`, so the deployment must change the `image:` line through a reviewed PR, and a plain `compose up` would revert to the running image. |
+| Health / limits | SAFE | Healthcheck `python -m shared.health` every 60 s (max age 180 s). 512 MiB memory, 1.0 CPU, `unless-stopped`, read-only, `cap_drop ALL`, `init: true`. RC-B changes none of these. |
+
+**Synthetic tests:** release-branch CI on `37a7c2c` passed the default suite and the disposable-PostgreSQL matrix (run 39742463015). In isolation, the RC-B image passed 35/35 recorder tests and the telemetry harness (`RELEASE_CANDIDATES.md` §4).
+
+**Residual risks (none lets signal_engine bypass the halt):**
+1. The live `risk_management` column default (`is_trading_paused DEFAULT false`) and the `UNIQUE(date)` constraint are taken from `database/init.sql` and unverified on the live DB. A **schema-only** read (`information_schema.columns` / `pg_constraint`, no row data and no outcome) would close this, but it needs owner approval.
+2. One duplicate signal row or Telegram message is possible on a hard kill (no position impact).
+3. Pre-existing, independent of signal_engine: the tracker re-checks the halt, but not the pause, under the advisory lock. The DB role is shared and over-privileged (A60; R-5 not applied), so the guarantee rests on code, not on DB permissions.
+
+**Verdict:** proven from source. Recreating only signal_engine (RC-B, or a rollback) cannot bypass or alter Paper halt or pause enforcement. **Stage B remains NOT authorized for deployment.**
