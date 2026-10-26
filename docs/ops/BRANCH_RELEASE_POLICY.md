@@ -1,5 +1,8 @@
 # Trading Signal Bot: Main-First Branch, Release and Deployment Policy
 
+> **Owner supersession notice (2026-10-26):** For R&D development workflow, the approved [Owner Operating Contract](../governance/OWNER_OPERATING_CONTRACT.md) supersedes older mandatory PR-per-task, branch-per-concern, merge-commit-only and per-PR owner-approval language below. PR-on-Demand and minimal branches govern ordinary low-risk source work. This does NOT relax live-host deployment, Paper strategy/halt activation, evidence security, rollback, or scientific admission gates. Older text remains historical context and must not be implemented as an unconditional development blocker.
+
+
 **Status: PROPOSED (Draft PR, 2026-10-18; revision 2, same day: legacy-release exception and environment-template rules).** This policy takes effect only when the owner approves and merges this PR. Until then, existing records govern.
 
 > **Dated note (2026-10-20):** merged into `main` by PR #42 (2026-10-18), so this policy is **in effect**; the status line above is historical. `docs/governance/DEVELOPMENT_FIRST_POLICY.md` (proposed) narrows §10 (development branches and Draft PRs under a standing owner authorization) and the scope of §3 provenance and §8 independent review for docs-only and research-only PRs. Merge, release and deployment gates are unchanged.
