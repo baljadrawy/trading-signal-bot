@@ -1,0 +1,262 @@
+# REVIEW-ONLY lock candidate, phase R-1 of docs/ops/CANONICAL_IMAGE_REMEDIATION_PLAN.md.
+# NOT used by any Dockerfile, build, or deployment. Do not install from this file. Not certified.
+# service: signal_engine
+# source image (running Paper container): tsb-a561-signal_engine:rel-ea8ae4f-r2
+# image id: sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418
+# platform: linux/arm64 (aarch64), CPython 3.12.13, glibc 2.41, sysconfig linux-aarch64
+# extracted 2026-10-22 from the image itself: docker run --rm --network none --read-only (importlib.metadata
+#   dist-info WHEEL/RECORD/direct_url.json, cross-checked against pip inspect and pip freeze --all).
+# distributions: 49; equal to deploy/a561-rel-ea8ae4f/installed-packages/signal_engine.txt (name and version).
+# pip check inside the image: No broken requirements found.
+# Per-distribution comment lines:
+#   role:          direct (pinned in requirements.txt) | transitive | bootstrap (Dockerfile pip/wheel upgrade)
+#   wheel:         filename reconstructed from the installed WHEEL Tag lines (sorted tags); R-2 confirms upstream name
+#   hash:          wheel sha256 only where the image records it offline (direct_url.json archive_info);
+#                  otherwise TO-RESOLVE (R-2 wheelhouse). No network was used.
+#   record-sha256: sha256 of the installed dist-info RECORD file. Installed-file fingerprint, NOT a wheel hash.
+
+aiohappyeyeballs==2.7.1
+#   role: transitive
+#   wheel: aiohappyeyeballs-2.7.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 070db8fb424fe179cb1c2c417ab0c748cfdab6bff173dc7b491822c11bc2eb01
+aiohttp==3.14.3
+#   role: direct
+#   wheel: aiohttp-3.14.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (exact; from direct_url.json)
+#   hash: sha256:f631fe87a6f30df5fbe6d79640b25e4cffb38c31c7fb6f10871517b84b0f8c1a (from image direct_url.json; matches deploy/aiohttp-3.14.3/IMAGES.md)
+#   record-sha256: 189f90b9a8faa8deb123d0ed529d156ce4d053767b270ab3165d1462299cf85e
+aiosignal==1.4.0
+#   role: transitive
+#   wheel: aiosignal-1.4.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 609e54b94afb3ddb6c260ee79899e98aab339b7d1c39c42a9deae2ec2d5278cc
+annotated-types==0.8.0
+#   role: transitive
+#   wheel: annotated_types-0.8.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3999aa3e7cd1afa1ae67b55bf5b04bbc3ca55fdd6c7dcfe571b1aad05da849af
+anthropic==0.25.0
+#   role: direct
+#   wheel: anthropic-0.25.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 9ce095f4c68295a489b912f4facaba3698ef47d707489fc9233073e4a7ca2a14
+anyio==4.14.2
+#   role: transitive
+#   wheel: anyio-4.14.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e37e9ee4007e9a4a74843d7e8c5153dd928f35dac5b3c56fb988792b1207965e
+asyncpg==0.29.0
+#   role: direct
+#   wheel: asyncpg-0.29.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 2bfa474e4bfc599b32474b1eb2fe59a26eac0c22b1c083856b7d511085d852d2
+attrs==26.1.0
+#   role: transitive
+#   wheel: attrs-26.1.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 4208eb11c81019fa747017a7751a6f589246758b623f2030841c2c522688c49b
+certifi==2026.7.22
+#   role: transitive
+#   wheel: certifi-2026.7.22-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e6c48519c08f2bbe98bb8ccb9c3aa9a157fd41de210173fe047e77b8e8d35421
+charset-normalizer==3.5.1
+#   role: transitive
+#   wheel: charset_normalizer-3.5.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 12fe97f927027a1939b903a01361bb4bacfb65774d08e3f3d37e87e3d35aae89
+click==8.4.2
+#   role: transitive
+#   wheel: click-8.4.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: a617e43057d4ec5f0330fc49a4bd1a634812dcd4f07166c88434c679beb032e5
+dateparser==1.4.2
+#   role: transitive
+#   wheel: dateparser-1.4.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f94bd5fe88534d1afdc304800fc87a0d365380e7e40976ab8080e15e64ca9a3d
+distro==1.9.0
+#   role: transitive
+#   wheel: distro-1.9.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: d7dfca61740068c176eebb72be02cb3b77b3e54af1cbff84388259d0a85f2897
+filelock==3.32.3
+#   role: transitive
+#   wheel: filelock-3.32.3-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 87ac3bb931372412ee7857b9d364a57cc4367af40e5c79e2e8118afe7f72a211
+frozenlist==1.8.0
+#   role: transitive
+#   wheel: frozenlist-1.8.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 32f744099f281a97b54c31e0ddf0bc0e65728e7190faa109eff5cae1268a1f2d
+fsspec==2026.7.0
+#   role: transitive
+#   wheel: fsspec-2026.7.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f7db5d785b40f1eee22ab117eef127fb213aa3230d3a5273ce326dde47e087c2
+h11==0.16.0
+#   role: transitive
+#   wheel: h11-0.16.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3a11572d1a11c198b9ab7cc31a1fb685997c7596b566e5074983161f0f0cfec9
+hf-xet==1.6.0
+#   role: transitive
+#   wheel: hf_xet-1.6.0-cp38-abi3-manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: a6334fce8702845573269edaa8eaeaeb710e1905a026a5c6e93090ff876a8f79
+httpcore==1.0.9
+#   role: transitive
+#   wheel: httpcore-1.0.9-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 491f4b59545289189a7adb8ad6e318069ac16e2d254dd8b66b0a6ebd5f2a262a
+httpx==0.28.1
+#   role: transitive
+#   wheel: httpx-0.28.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f43a9da7040b70f5fc7f9d34307310f2f51060ba874f945b78609f5d6031af08
+huggingface-hub==1.27.0
+#   role: transitive
+#   wheel: huggingface_hub-1.27.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 50dd0be29a7019539a634a8a3f2f4c77de9e19ae989cf97b102f2da522ad4398
+idna==3.18
+#   role: transitive
+#   wheel: idna-3.18-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e34b63d65eb63ed41ad93ae5c2b41b6a829e480c77e3a03e35465f1b4e9589f7
+multidict==6.7.1
+#   role: transitive
+#   wheel: multidict-6.7.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: b8cf3f2f75c09d0077dd09a9e4d0bc9ec4ee9ae12d66781c29fe77c8a4cf2866
+numpy==2.5.2
+#   role: transitive
+#   wheel: numpy-2.5.2-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 88f1a4a1737a2a7042ecb09644d5e834c5859e762564300038d65a5a13886f2f
+packaging==26.3
+#   role: transitive
+#   wheel: packaging-26.3-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 8c69191044e577ab83c6b2990bc6fd7cfb441e6027ef5bb9e1c49c1dce2cedce
+pandas==3.0.3
+#   role: direct
+#   wheel: pandas-3.0.3-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: d2a7c06753b6e4d4d60a96701a99b81b7649b5c296112357c70d4aabbfca5061
+pip==26.1.2
+#   role: bootstrap
+#   wheel: pip-26.1.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f99ce0b328b2b1aad93ac9967658393933a33e3abdcb543be97925061dc9158d
+propcache==0.5.2
+#   role: transitive
+#   wheel: propcache-0.5.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3a4e9df16a67e9c346c5415fa4304e5a41462d73ccfad6c0698d787b994d598a
+pycryptodome==3.23.0
+#   role: transitive
+#   wheel: pycryptodome-3.23.0-cp37-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: e5e0ce357ca1ebddf030b7c3199d62b96defd6719e17bab18b0f80d2172825a8
+pydantic==2.13.4
+#   role: transitive
+#   wheel: pydantic-2.13.4-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 961389739a4b3e924d2da2248f92dcf035b3a0cb45168a1b2790be21dba19e6d
+pydantic-core==2.46.4
+#   role: transitive
+#   wheel: pydantic_core-2.46.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 7b44e1e44fd73a63e2fe75546fc253126c681626de7bba0b9cda2e0b57e9f7aa
+python-binance==1.0.19
+#   role: direct
+#   wheel: python_binance-1.0.19-py2.py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 978ee03ff9c45bb51979e957907d11a63f93ba24353cf0d6819e5877def33eee
+python-dateutil==2.9.0.post0
+#   role: transitive
+#   wheel: python_dateutil-2.9.0.post0-py2.py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3a5a516e7d1224330a241cfe307142e35faa14b3738c62cac931c71b4ba8dd9d
+pytz==2026.3.post1
+#   role: transitive
+#   wheel: pytz-2026.3.post1-py2.py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 5fb1d7ce0f4898f5475aae544a4929331245c789bff86073507b912aa436ca47
+pyyaml==6.0.3
+#   role: transitive
+#   wheel: pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 3551ff75f0a93db0a224eacad5edf5ffc90569af2653cfa96d4a7e8f5ea1a3a6
+regex==2026.7.19
+#   role: transitive
+#   wheel: regex-2026.7.19-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: a2745530fa728d03c87725de7854dc0599a5f7d6f1dca645c23856301fce6c48
+requests==2.34.2
+#   role: transitive
+#   wheel: requests-2.34.2-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: f6bd62ddca64dc9176c0085893fe2f153f553bef4869e9d53416a7c81be5532b
+six==1.17.0
+#   role: transitive
+#   wheel: six-1.17.0-py2.py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: bca2421b394ae3f68e3d1e382607bf181b14f891ad1626aeedb9fc98f9525f4e
+sniffio==1.3.1
+#   role: transitive
+#   wheel: sniffio-1.3.1-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 72b4ca07dc9af2f0f1c02f284c23e96c67a5520f88df4c9091841c557c82db5a
+tokenizers==0.23.1  # distribution name, not a secret
+#   role: transitive
+#   wheel: tokenizers-0.23.1-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl  # distribution name, not a secret
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 5dd19d095e479f072c72fb16a43903c38558e1dc584ed41c4ebf64eba9fbb65f
+tqdm==4.70.0
+#   role: transitive
+#   wheel: tqdm-4.70.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 25222e84112206a6d12c807cc525bf47511fff59852e1e35560e44748fccf085
+typing-extensions==4.16.0
+#   role: transitive
+#   wheel: typing_extensions-4.16.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: a346a921aa5be35b34ced3258614183d152887b954caaae5de2a94be72d5f2ec
+typing-inspection==0.4.4
+#   role: transitive
+#   wheel: typing_inspection-0.4.4-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 06f60204c0b7d67df21f09681e2db4781ef463cad5fb7dfc7a749b232a0ec8ae
+tzlocal==5.4.4
+#   role: transitive
+#   wheel: tzlocal-5.4.4-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 4ad1bc8d7d48afadc32bf4577e52554fde71d076454c1f3e415579c74db410fc
+ujson==5.13.0
+#   role: transitive
+#   wheel: ujson-5.13.0-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 4f3b03f1fd5105a59b099005970f2e60d395fe2f29bd66b1bc89f4eef4caaf8e
+urllib3==2.7.0
+#   role: transitive
+#   wheel: urllib3-2.7.0-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 95702432bf1a78ed9de032042479b92d01dcf79aa352f6768a5ce1de001fbbc0
+websockets==17.0.1
+#   role: transitive
+#   wheel: websockets-17.0.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: eafe2792003d475f719abe5f09567bf771aee32280989467dfb54c9943973791
+wheel==0.46.3
+#   role: bootstrap
+#   wheel: wheel-0.46.3-py3-none-any.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: ef4b3b55246a474ed89c5902f0922224c0a40975feefe7fd47d67231596db34d
+yarl==1.24.5
+#   role: transitive
+#   wheel: yarl-1.24.5-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
+#   hash: TO-RESOLVE (R-2 wheelhouse)
+#   record-sha256: 9aa2ec982d30ed0c21cec681e4b7219511c6595342d0eee36fa34b82bdaef9fd
