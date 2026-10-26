@@ -32,7 +32,7 @@ The three required checks are the jobs of `.github/workflows/tests.yml` (`defaul
 local: commit(s) on top of current origin/main          (fast-forward or a local merge commit)
    |  run proportionate tests + protected_scan.py
    v
-git push origin HEAD:refs/heads/integration/<name>      (tests.yml runs on push to integration/**)
+git push origin HEAD:refs/heads/integration/rnd      (the ONE shared lane; tests.yml runs on push to integration/**)
    |  wait: the 3 required checks are "success" on that exact SHA (app 15368)
    v
 git push origin <sha>:refs/heads/main                   (fast-forward only; no force)
@@ -48,6 +48,13 @@ tests.yml runs again on main (full collector suite)     -> record Integrated = <
 - A PR is still allowed when wanted (review, discussion, larger or riskier change); it merges through the same checks.
 - Merging to `main` deploys nothing (`BRANCH_RELEASE_POLICY.md` §1.3). Owner gates for deploy, Paper strategy, halt,
   DB writes and protected data are not affected by this file.
+
+**Contract alignment (2026-10-26).** The owner contract prefers "no branch for ordinary low-risk changes"; required status
+checks make GitHub refuse a SHA on `main` that has no green checks. The two are reconciled by the directive's allowance
+of "at most one shared, short-lived integration branch": `integration/rnd` is that single CI staging lane for every
+change (no per-task branches, no routine PRs). PRs remain on demand (owner request, or `.github/**` changes that change
+CI itself). If the owner prefers zero branches, the alternative is to drop required status checks and rely on
+post-push CI on `main` (detects, does not prevent) — recorded here as the explicit trade-off.
 
 ## GitHub semantics relied on, and uncertainty
 
