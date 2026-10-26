@@ -966,7 +966,7 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
 
     unrealized = 0.0
     for trade in open_trades:
-        price = await get_current_price(trade['symbol'])
+        price = await _risk_price(trade['symbol'])
         if not price:
             unrealized = float('nan')  # Missing market state must fail closed.
             break
@@ -1004,6 +1004,38 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
     )
     _v2_note_risk_context(risk_start, snapshot, limits)
     return evaluate_with_policy(snapshot, limits, economic_halt_mode())
+
+
+RISK_PRICE_FETCH_MAX_RETRIES = 3
+
+
+def _risk_price_retries() -> int:
+    try:
+        retries = int(config.RISK_PRICE_FETCH_RETRIES)
+    except (TypeError, ValueError):
+        return 0
+    return min(max(retries, 0), RISK_PRICE_FETCH_MAX_RETRIES)
+
+
+async def _risk_price(symbol: str):
+    """Price for the admission risk snapshot only (technical-halt prevention option).
+
+    RISK_PRICE_FETCH_RETRIES=0 (default): exactly one get_current_price call, the legacy
+    behaviour. N>0: up to N more fresh fetches after a failed one, sleeping
+    backoff * attempt between them. Still None when every attempt fails, so the caller's
+    NaN -> invalid_risk_state fail-closed path is unchanged; nothing is cached or reused.
+    """
+    retries = _risk_price_retries()
+    price = await get_current_price(symbol)
+    for attempt in range(1, retries + 1):
+        if price:
+            break
+        backoff = min(max(0.0, float(config.RISK_PRICE_FETCH_BACKOFF_SECONDS)), 5.0)
+        await asyncio.sleep(backoff * attempt)
+        price = await get_current_price(symbol)
+        if price:
+            logger.warning(f"risk price for {symbol} recovered on retry {attempt}/{retries}")
+    return price
 
 
 async def record_risk_decision(decision):

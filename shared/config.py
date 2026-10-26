@@ -149,6 +149,13 @@ class Config:
     MAX_REGIME_EXPOSURE_PERCENT: float = float(os.getenv('MAX_REGIME_EXPOSURE_PERCENT', '50'))
     RISK_CANARY_MAX_OPEN_TRADES: int = int(os.getenv('RISK_CANARY_MAX_OPEN_TRADES', '1'))
     STOP_ON_CONSECUTIVE_LOSSES: int = int(os.getenv('STOP_ON_CONSECUTIVE_LOSSES', '7'))
+    # Technical-halt prevention option (default OFF = 0 = one attempt, the exact current
+    # behaviour). Extra attempts for the risk-evaluation price fetch ONLY (assess_new_trade_risk),
+    # with RISK_PRICE_FETCH_BACKOFF_SECONDS * attempt between them; clamped to 0..3. If every
+    # attempt fails the price stays missing -> NaN -> invalid_risk_state (fail-closed); a stale
+    # or substituted price is never used.
+    RISK_PRICE_FETCH_RETRIES: int = int(os.getenv('RISK_PRICE_FETCH_RETRIES', '0'))
+    RISK_PRICE_FETCH_BACKOFF_SECONDS: float = float(os.getenv('RISK_PRICE_FETCH_BACKOFF_SECONDS', '0.5'))
     MAX_OPEN_TRADES: int = int(os.getenv('MAX_OPEN_TRADES', '10'))  # 0 = بلا حد
     # Cooldown عام بعد ضربة SL حقيقية (ساعات). 0 = معطّل.
     # عُطّل 2026-06-20 (paper trading) لزيادة عدد الإشارات وإزالة تحيّز انتقاء البيانات.

@@ -197,3 +197,26 @@ Set `PAPER_ECONOMIC_HALT_MODE=enforce` (or remove it) and Class B redeploy the s
 No data migration is involved. Behaviour returns to the legacy halts on the next evaluation:
 an economic breach then blocks and persists a pause again. Record the rollback time as a
 window boundary (`econ-enforce-v1`).
+
+## Technical-halt prevention option (default off)
+
+Incident 2026-10-21: one REST price fetch inside `assess_new_trade_risk` timed out (aiohttp
+total 5 s), the missing price became NaN, the decision was `invalid_risk_state`, and the
+technical halt persisted a sticky pause. That is correct fail-closed behaviour; the option below
+only reduces the chance that a single transient fetch failure causes it.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `RISK_PRICE_FETCH_RETRIES` | `0` | extra fresh fetch attempts for the **risk-evaluation price only**; `0` = exactly one attempt (current behaviour); clamped to `0..3`; invalid value = `0` |
+| `RISK_PRICE_FETCH_BACKOFF_SECONDS` | `0.5` | sleep `backoff * attempt` before each retry (0.5 s, 1.0 s, 1.5 s); clamped to `0..5` |
+
+- Scope: `trade_tracker/main.py` `_risk_price`, called only from `assess_new_trade_risk`. Trade
+  tracking, entry fills and blacklist closes keep their single fetch.
+- If every attempt fails the price is still missing, so the snapshot is NaN and the decision is
+  `invalid_risk_state` with its pause, exactly as now (both enforce and observe). No stale,
+  cached or substituted price is ever used.
+- Worst-case added latency per open position with `RETRIES=2`: two extra 5 s timeouts plus 1.5 s
+  of backoff.
+- Activation (any value > 0) is an owner-authorized configuration change with a Class B redeploy
+  of `trade_tracker`; it is not part of the economic-observation activation. Adding the fields
+  moves the evidence `config_hash` once. Tests: `tests/test_risk_price_retry.py`.
