@@ -2,9 +2,26 @@ name: r14-lock-review
 on:
   pull_request:
     branches: [main]
+    # Not a required check. Runs only when one of its inputs changes (docs/ops/CI_EFFICIENCY.md);
+    # its pytest file also runs in the required "default suite (no database)" on every PR.
+    paths:
+      - '.github/**'
+      - 'ops/provenance/**'
+      - 'tests/test_r14_*'
+      - '**/conftest.py'
+      - '**/requirements*'
+      - '**/constraints*'
+      - '**/*.lock'
+      - '**/pytest.ini'
+      - '**/pyproject.toml'
+      - '**/setup.cfg'
+      - '**/tox.ini'
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: r14-lock-review-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
     runs-on: ubuntu-24.04
