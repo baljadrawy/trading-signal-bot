@@ -2,11 +2,13 @@
 
 بوت توليد إشارات على Binance يعمل **Paper Trading فقط** (لا تداول حقيقي). الوضع الحالي: **التعلّم الحي** — يجمع صفقات حيّة بمؤشرات بسيطة + سياق ماكرو (BTC/ETH/USDT.D) ويتعلّم باستمرار من الدورة الحالية.
 
+> **مرجع إلزامي قبل كل مهمة:** اقرأ [OWNER_OPERATING_CONTRACT.md](docs/governance/OWNER_OPERATING_CONTRACT.md) ثم الوثائق المتخصصة. يضم قرارات المالك المعتمدة بتاريخ 2026-10-26: Continuous Development + PR-on-Demand، استمرارية Paper عند الخسائر الاقتصادية، Claude Code للتنفيذ، GitHub/runtime parity، وحدود النشر والسلامة. هذا لا يعني أن تعديل كود Paper أو نشره قد حدث. عند تعارض تعليمات سير العمل القديمة، قدّم قرار المالك الأحدث دون تجاوز قيود التشغيل/الأدلة/الحماية.
+
 > اقرأ الملف المرتبط ذا الصلة قبل أي تعديل.
 
-## Development-First policy (proposed, Draft PR-A, 2026-10-20)
+## Development-First policy (owner workflow directive effective 2026-10-26)
 
-- [docs/governance/DEVELOPMENT_FIRST_POLICY.md](docs/governance/DEVELOPMENT_FIRST_POLICY.md): which rules apply to which kind of work (D0 development … D5 live). Development is the default; production operations, the sealed holdout, secrets and PAPER_ONLY rules are unchanged. Governing only after the owner merges it.
+- [docs/governance/DEVELOPMENT_FIRST_POLICY.md](docs/governance/DEVELOPMENT_FIRST_POLICY.md): which rules apply to which kind of work (D0 development … D5 live). Development is the default; production operations, the sealed holdout, secrets and PAPER_ONLY rules are unchanged. Owner's dated 2026-10-26 workflow directive is effective; older proposed text is historical and does not override production safety.
 
 ## R1.3 recovery governance (merged in PR #46, 2026-10-18)
 
