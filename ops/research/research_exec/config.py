@@ -84,6 +84,11 @@ DEFAULTS = {
         "memavail_margin_gib": 6.0,
         "disk_free_gb_min": 150.0,
     },
+    # Aggregate CPU budget (research_exec.budget, admission controller). Phase I-2: shadow only, OFF by default.
+    # shadow=True adds a read-only `budget_shadow` block to admission.json; it never refuses a job.
+    # Budget thresholds (r1_pct, r2_pct, lab_pct, grace_s, ...) default to budget.DEFAULTS and the shadow time
+    # bound (shadow_deadline_s) to admission.SHADOW_DEADLINE_S; set them here only to override.
+    "budget": {"state_dir": None, "shadow": False},
     "watchdog": {
         "interval_s": 2.0,
         "health_age_s_freeze": 30,

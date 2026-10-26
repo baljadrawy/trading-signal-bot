@@ -128,7 +128,7 @@ def launch(cfg, *, job_id, owner, profile, cmd, cwd=None, setenv=None, config_pa
         launch_rec["mi"] = mi
     atomic_write_json(os.path.join(job_dir, "launch.json"), launch_rec)
 
-    decision = adm.evaluate(cfg, profile, steal_sample=steal_sample)
+    decision = adm.evaluate(cfg, profile, steal_sample=steal_sample, job_id=job_id)
     atomic_write_json(os.path.join(job_dir, "admission.json"), decision)
     if not decision["admit"]:
         log(f"ADMISSION REFUSED for {job_id}: {'; '.join(decision['reasons'])}")
