@@ -246,7 +246,7 @@ services:
   # ==================== Telegram ====================
   telegram:
     <<: *hardened-runtime
-    image: tsb-a561-telegram:rel-ea8ae4f-r2   # A56.1 release ea8ae4f; rollback = tsb-p1d-telegram:p1d-59297305-20261001T2045Z
+    image: tsb-obs-telegram:bb7825f-20261027-r2   # Paper observe bb7825f (sha256:d665388a9092…); rollback = tsb-a561-telegram:rel-ea8ae4f-r2
     pull_policy: never
     container_name: trading_telegram
     restart: unless-stopped
@@ -256,6 +256,7 @@ services:
       EVIDENCE_V2_ENABLED: "true"   # P1-ACT: forward instrumentation ON (owner-authorized); rollback = "false"
       SERVICE_NAME: telegram
       HEALTH_MAX_AGE_SECONDS: "120"
+      PAPER_ECONOMIC_HALT_MODE: "observe"   # owner-authorized Paper economic observation (econ-observe-v1); rollback = "enforce"
     volumes:
       # P1-D evidence v2: one shared host dir; each service writes only its own <service>/ subdir
       - ./data/evidence_v2:/app/data/evidence_v2
