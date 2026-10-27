@@ -137,3 +137,33 @@ def test_retry_applies_to_the_risk_evaluation_fetch_only():
     # Other price consumers (tracking, fills, blacklist closes) keep the single fetch.
     for fn in (tracker.track_open_trades, tracker.close_blacklisted_trades):
         assert '_risk_price' not in inspect.getsource(fn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('retries,prices,counted', [
+    (None, [101.0], 0),               # default: one attempt, never counted
+    (2, [101.0], 0),                  # first attempt succeeds: nothing to count
+    (2, [None, 101.0], 1),            # recovered on a retry
+    (2, [None, None, 101.0], 1),      # one recovery, however many attempts it took
+    (2, [None, None, None], 0),       # every attempt failed: fail-closed, not a recovery
+])
+async def test_retry_recoveries_are_counted(monkeypatch, retries, prices, counted):
+    _db, _fetch, _sleep = wire(monkeypatch, retries, prices)
+    before = tracker._risk_price_retry_recoveries
+    await tracker.assess_new_trade_risk('BTCUSDT')
+    assert tracker._risk_price_retry_recoveries - before == counted
+
+
+def test_admission_never_uses_a_fill_price_older_than_a_risk_retry():
+    """The fill price is observed before the risk check. If that check needed a retry, the
+    admission is deferred (non-terminal) instead of opening on the old price."""
+    src = inspect.getsource(tracker.register_new_signals)
+    fill = src.index('fill_entry = await get_current_price(')
+    before = src.index('retry_recoveries_before = _risk_price_retry_recoveries')
+    risk = src.index('risk_decision = await assess_new_trade_risk(')
+    guard = src.index('if _risk_price_retry_recoveries != retry_recoveries_before:')
+    bracket = src.index('bracket = rebase_long_bracket(')
+    assert fill < before < risk < guard < bracket
+    deferral = src[guard:bracket]
+    assert "_v2_admission(sig, 'no_price', 'fill_price_stale_after_risk_retry')" in deferral
+    assert 'continue' in deferral and 'telegram_sent' not in deferral   # not terminal

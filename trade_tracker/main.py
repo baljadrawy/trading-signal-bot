@@ -816,6 +816,7 @@ async def register_new_signals():
             sig['id'])
         trade_type = await Database.fetchval(
             "SELECT trade_type FROM signals WHERE id=$1", sig['id'])
+        retry_recoveries_before = _risk_price_retry_recoveries
         risk_decision = await assess_new_trade_risk(
             sig['symbol'], trade_type=trade_type, regime=macro_state)
         await record_risk_decision(risk_decision)
@@ -831,6 +832,15 @@ async def register_new_signals():
                 f"{risk_decision.reason} (daily={risk_decision.daily_pnl_pct:.2f}%, "
                 f"weekly={risk_decision.weekly_pnl_pct:.2f}%, "
                 f"drawdown={risk_decision.drawdown_pct:.2f}%)")
+            continue
+        if _risk_price_retry_recoveries != retry_recoveries_before:
+            # RISK_PRICE_FETCH_RETRIES > 0 only: a retry recovered an open position's price, so
+            # fill_entry is at least one fetch timeout old. Never admit on it. Not terminal (like
+            # a missing fill price): the next cycle observes a fresh fill price and re-checks risk.
+            # A concurrent post-close refresh can also count here; that only delays an admission.
+            _v2_admission(sig, 'no_price', 'fill_price_stale_after_risk_retry')
+            logger.warning(f"{sig['symbol']}: admission deferred to the next cycle "
+                           f"(risk price needed a retry; fill price no longer fresh)")
             continue
         try:
             bracket = rebase_long_bracket(
@@ -1007,6 +1017,10 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
 
 
 RISK_PRICE_FETCH_MAX_RETRIES = 3
+# Number of risk-evaluation prices recovered by a retry since start. register_new_signals compares
+# it around an admission's risk check: a retry means the fill price observed before that check is
+# at least one fetch timeout old, so that admission waits for the next cycle's fresh price.
+_risk_price_retry_recoveries = 0
 
 
 def _risk_price_retries() -> int:
@@ -1025,6 +1039,7 @@ async def _risk_price(symbol: str):
     backoff * attempt between them. Still None when every attempt fails, so the caller's
     NaN -> invalid_risk_state fail-closed path is unchanged; nothing is cached or reused.
     """
+    global _risk_price_retry_recoveries
     retries = _risk_price_retries()
     price = await get_current_price(symbol)
     for attempt in range(1, retries + 1):
@@ -1034,6 +1049,7 @@ async def _risk_price(symbol: str):
         await asyncio.sleep(backoff * attempt)
         price = await get_current_price(symbol)
         if price:
+            _risk_price_retry_recoveries += 1
             logger.warning(f"risk price for {symbol} recovered on retry {attempt}/{retries}")
     return price
 
