@@ -24,6 +24,18 @@ Timing used by the presets: decision at the daily close t from closes ≤ t, **e
 register: "executed at the next close", `execution_lag=1`). `execution_lag=0` (trade at the signal close, ≈ the t + 1
 open on a 24/7 venue) is an optimistic sensitivity only.
 
+**Done since (D0, synthetic, 2026-10-27):** items 1–3 below and a labelled result summary are implemented and
+tested on synthetic panels only: `research/strategies/pit_universe.py` (`hr04-pit-v1`: PIT top-N by trailing quote
+volume from data ≤ t, ragged panel with listings/delistings, delisting = forced exit at the last close with full
+costs, optional −100 % stress haircut, monthly-rebalanced PIT EW benchmark with its own turnover costs),
+`research/stats/inference.py` (Newey–West HAC, register lag 7, lag 0 = classical SE; seeded Politis–Romano
+stationary bootstrap CIs for mean and Sharpe), `research/strategies/result_summary.py` (`hr04-summary-v1`: per-day
+and per-trade net expectancy, turnover, MDD, PSR/DSR with the full family N, HAC t, bootstrap CIs, active vs
+benchmark; refuses any label other than SYNTHETIC without a non-synthetic `DatasetPermission` and an
+`authorization_ref`; CONFIRMATORY always refused). Tests: `tests/test_hr04_pit_inference.py`. The event-sourced
+`research/data_governance/universe.py` (datetime listing states) was not reused directly; an adapter from its events
+to `AssetSeries` first/last days is a later step. Items 4–5 remain open.
+
 **Engineering still needed before any data (D0, synthetic, no gate):**
 
 1. Time-varying point-in-time universe in the accountant (assets entering/leaving the top 20; a forced exit when an
@@ -52,6 +64,7 @@ open on a 24/7 venue) is an optimistic sensitivity only.
 
 ## 3. Licence status: NOT CLEARED
 
+- LIC-1 draft for this step: `docs/strategy/LIC-1_DATA_LICENCE_INQUIRY.md` (2026-10-27, **not sent**; reuses A22 §4).
 - Binance Vision terms: **licence HOLD** (A18/A19). The licence inquiry is drafted and **not sent** (profitability
   roadmap O7, `PROFITABILITY_ROADMAP_2026-10-24.md`, PR #91 — **Draft, not merged**).
 - The roadmap's owner decision **RD-5: "Send LIC-1; decide dataset permission (OD-DF-1)"**, with roadmap item R9
