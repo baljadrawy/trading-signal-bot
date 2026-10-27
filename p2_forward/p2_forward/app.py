@@ -33,6 +33,7 @@ import aiohttp
 
 from . import cal
 from . import config as C
+from . import healthview as HV
 from . import provenance as P
 from . import record as R
 from . import universe as U
@@ -250,6 +251,9 @@ class Collector:
         self.run_record = None
         self.run_record_sha = None
         self.config_hash = C.config_hash(cfg)
+        self.coverage_policy = (HV.CoveragePolicy(C.opt(cfg, "health_coverage_max_streams"),     # optional, OFF
+                                                  C.opt(cfg, "health_coverage_max_age_s"))
+                                if C.opt(cfg, "health_coverage_tiering") else None)
         self.session_factory = None            # tests: offline fake session; production: aiohttp.ClientSession
         self.task_restart_delay_s = 1.0
         self.stats["emit_failed"] = collections.Counter()
@@ -2128,12 +2132,40 @@ class Collector:
                                    recv_ts_ns=time.time_ns()))
         self.health_record_last_mono = time.monotonic()
 
+    def health_view(self, h: dict) -> dict:
+        """Live-file view of health(). Both optional flags off (default): returns `h` itself, unchanged. Otherwise a copy
+        with additive keys (healthview.py). The `health` raw records always use the unfiltered `h`."""
+        split = C.opt(self.cfg, "health_state_split")
+        if not split and self.coverage_policy is None:
+            return h
+        v = dict(h)
+        cov = None
+        if self.coverage_policy is not None:
+            by_name = {t.name: t for t in self.all_tracks()}
+
+            def info(name):
+                t = by_name.get(name)
+                return None if t is None else {"tier": t.tier, "kind": t.kind, "last_ms": t.last_recv_ms(),
+                                               "stale_ms": t.stale_ms,
+                                               "gap_first_ms": None if getattr(t, "gap", None) is None else t.gap["first"]}
+            res = self.coverage_policy.apply(h["state"], h["reasons"], h["startup_reasons"], h["warnings"], h["ts_ms"], info)
+            v.update(state=res["state"], reasons=res["reasons"], warnings=res["warnings"], coverage_policy=res["detail"])
+            cov = res["coverage_state"]
+        if split:
+            if HV.evaluated(h["state"], h["startup_reasons"]):
+                integ, cov0 = HV.split_states(h["reasons"], h["startup_reasons"], h.get("duplicates_dropped", 0))
+                v.update(integrity_state=integ, coverage_state=cov or cov0)
+            else:
+                v.update(integrity_state="NOT_EVALUATED", coverage_state="NOT_EVALUATED")
+        return v
+
     def write_health(self, record: bool | None = None) -> dict:
         h = self.health()
+        view = self.health_view(h)                                    # `view is h` unless an optional flag is on
         d = os.path.join(self.base, "health"); os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "collector_health.json"); tmp = p + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(h, fh, sort_keys=True, default=str)
+            json.dump(view, fh, sort_keys=True, default=str)
         os.replace(tmp, p)
         due = (self.health_record_last_mono is None or
                time.monotonic() - self.health_record_last_mono >= self.cfg["health_record_interval_s"])

@@ -125,6 +125,23 @@ DEFAULTS = {
 }
 
 
+# ---- Optional health-view keys (development candidate after 1.6.1; all OFF; see healthview.py / SCHEMA.md 7) ----
+# Deliberately NOT in DEFAULTS: an absent key (or one set to exactly its default) never enters the effective config, so
+# config_hash, the run record and every health byte stay identical to a config without these keys. The candidate
+# values of K and T are placeholders that need owner approval; nothing enables these keys.
+OPTIONAL_DEFAULTS = {
+    "health_state_split": False,             # live health file gains integrity_state / coverage_state (additive keys)
+    "health_coverage_tiering": False,        # live health file: tolerate brief Tier-1/2 quiet-book staleness (WARNING)
+    "health_coverage_max_streams": 2,        # K (candidate): tolerated only while fewer than K streams are affected
+    "health_coverage_max_age_s": 120,        # T (candidate): tolerated only while every affected stream is < T s old
+}
+
+
+def opt(cfg: dict, key: str):
+    """Value of an optional key: the configured one, else its default (the default reproduces 1.6.1 exactly)."""
+    return cfg.get(key, OPTIONAL_DEFAULTS[key])
+
+
 class ConfigError(ValueError):
     pass
 
@@ -134,11 +151,14 @@ def load(path: str | None) -> dict:
     if path:
         with open(path, encoding="utf-8") as fh:
             user = json.load(fh)
-        unknown = set(user) - set(DEFAULTS)
+        unknown = set(user) - set(DEFAULTS) - set(OPTIONAL_DEFAULTS)
         if unknown:
             raise ConfigError(f"unknown config keys: {sorted(unknown)}")
         cfg.update(user)
     validate(cfg)
+    for k, v in OPTIONAL_DEFAULTS.items():                  # explicit default == absent: same hash, same run record
+        if k in cfg and type(cfg[k]) is type(v) and cfg[k] == v:
+            del cfg[k]
     return cfg
 
 
@@ -162,6 +182,13 @@ def validate(cfg: dict) -> None:
     v = cfg.get("conn_flapping_max", 2)
     if isinstance(v, bool) or not isinstance(v, int) or v < 2:
         raise ConfigError("conn_flapping_max must be an integer >= 2")
+    for k in ("health_state_split", "health_coverage_tiering"):          # optional health-view flags
+        if not isinstance(opt(cfg, k), bool):
+            raise ConfigError(f"{k} must be a JSON boolean")
+    if not (_is_int(opt(cfg, "health_coverage_max_streams")) and 2 <= opt(cfg, "health_coverage_max_streams") <= 20):
+        raise ConfigError("health_coverage_max_streams must be an integer in [2, 20]")
+    if not (_is_int(opt(cfg, "health_coverage_max_age_s")) and 10 <= opt(cfg, "health_coverage_max_age_s") <= 600):
+        raise ConfigError("health_coverage_max_age_s must be an integer in [10, 600]")
     if cfg["mode"] not in ("bounded", "continuous"):
         raise ConfigError("mode must be bounded or continuous")
     if not _is_int(cfg["max_runtime_s"]):

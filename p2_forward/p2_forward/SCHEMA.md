@@ -298,6 +298,35 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
   - The threshold is a candidate value, not an approved production value.
   - A 1.6.0 collector refuses a config file that contains these keys (`unknown config keys`). A rollback to 1.6.0 must restore the previous config file.
   - These are additive control-payload changes. `schema_version` stays 2.
+- **Optional live-health views (development candidate after 1.6.1; not released, not deployed; `VERSION` unchanged).**
+  Both are off by default. The keys are not part of `DEFAULTS`: an absent key, or one set to exactly its default, is
+  dropped from the effective config, so `config_hash`, the run record and the health file are byte-identical to 1.6.1.
+  Neither view changes `health` raw records, gap records, gap accounting, sealing or the verifiers. Raw records always
+  carry the unfiltered `state` / `reasons` / `warnings`. Code: `healthview.py`.
+  - `health_state_split` (default `false`): the live `health/collector_health.json` gains `integrity_state` and
+    `coverage_state` (`OK` / `WARNING` / `STARTING` / `DEGRADED`, or `NOT_EVALUATED` in stop / failure states).
+    `state` and every existing key are unchanged.
+    - Integrity covers writer, certifier, disk hard stop, write errors, rejected records, quarantine, failed emits,
+      `seq_reset`, queue drops and incidents of severity DEGRADED or CRITICAL. Duplicate obs_ids dropped by the writer
+      give WARNING.
+    - Coverage covers stream freshness, gaps, acknowledgements and connection data-liveness.
+    - Tasks, clock, ban, handler exceptions and universe refresh are neither. An unknown reason counts as integrity.
+  - `health_coverage_tiering` (default `false`): in the live file only, a DEGRADED evaluation whose only hard reasons
+    are `stale:` / `gap_short:` / `gap_open:` with gap cause `stale_stream` becomes `state` HEALTHY plus the warning
+    `coverage:streams_stale:<n>` (and `coverage_tolerated:<reason>` per moved reason). This needs:
+    - fewer than `health_coverage_max_streams` (K) affected Tier-1/2 book or depth streams;
+    - each of them affected for less than `health_coverage_max_age_s` (T) seconds. The age is the longest of the
+      episode age, the open-gap extent and the time past the stream's stale bound.
+    - Everything else stays DEGRADED immediately: Tier 0, `!miniTicker@arr`, any other gap cause, age at or above T,
+      a connection not data-live, a stream not ready, failed or awaiting post-reconnect data, and every integrity or
+      operational reason.
+    - Clearing needs 2 consecutive clean evaluations. Until then the stream keeps its episode age and counts toward K.
+      A stream that was not tolerable during its episode keeps the file DEGRADED (`coverage_clearing:<stream>`).
+    - The unfiltered state is in the file as `coverage_policy.raw_state`. The `health` record cadence follows the
+      unfiltered state.
+    - K = 2 and T = 120 s are **candidate placeholders that need owner approval**. Nothing enables tiering.
+  - A 1.6.1 collector refuses a config file that contains these keys (`unknown config keys`). A rollback must restore
+    the previous config file.
 
 **Clock records** are exempt from the "exchange time in the future" rejection, because `serverTime` ahead of the
 host is exactly what they measure. Clock probes never trip the REST circuit breaker. A failed round is visible as
