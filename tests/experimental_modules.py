@@ -16,4 +16,5 @@ EXPERIMENTAL_SHARED = (
     "s3_shadow",                 # S3 shadow evaluation (disabled; no production caller)
     "s3_shadow_store",           # S3 shadow bounded JSONL store (disabled)
     "s3_shadow_sidecar",         # S3 shadow out-of-process read-only runner (disabled)
+    "shadow_opportunity",        # shadow opportunity ledger (capacity-blocked; not wired)
 )
