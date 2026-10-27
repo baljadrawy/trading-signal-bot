@@ -169,3 +169,15 @@ inside the tests (`evidence_class="SYNTHETIC"`). No real market data will be rea
 a dataset permission, the preregistration is accepted (RD-2) and the exploratory run is authorized
 (`NEXT_LICENSED_DATA_STEP.md` §6). The code refuses non-synthetic input without a permission record
 (`DatasetPermission` gate) and refuses a non-synthetic summary label without an authorization reference.
+
+## Proposed licensee and permitted use (2026-10-27; owner to confirm before sending)
+
+| Item | Proposal | Owner decision needed |
+|---|---|---|
+| Intended licensee | The project owner **as an individual**, for a private, non-commercial R&D project (no company, no clients, no fund) | Confirm individual vs. a business entity (affects terms, Q2) |
+| Permitted use requested | Private internal backtesting and statistical research, including selecting strategies for **paper (simulated) testing only**; no live-money use is planned or authorized | Confirm wording; Q5 asks about any later live use |
+| Storage | Raw files and derived datasets kept privately on the owner's server and private backups; no redistribution, publication, resale or API re-serving | Confirm retention period (Q4) |
+| Earlier downloads | The 2026-10-11 record (A18) notes historical klines already on disk; disclose them in the inquiry and ask which terms apply (Q6) rather than using them | Decide whether to disclose (recommended: yes) |
+| Channel | The provider's official support/legal contact for data licensing | Owner sends from their own account |
+
+**Until a written permission is recorded as OD-DF-1, no historical market data (including the files already on disk) is used for HR-04/HR-08/HR-13 research.**
