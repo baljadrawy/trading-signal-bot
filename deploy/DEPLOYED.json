@@ -1,7 +1,7 @@
 {
  "compose_projects": {
   "trading-signal-bot": {
-   "git_blob": "04f965ef8c20a0b2283f695b5eb90735e036643e",
+   "git_blob": "d1a4b197e10f31a4972e8f6e5feba6be361c3689",
    "production_dir": "/home/tradmin/trading-signal-bot",
    "production_path": "/home/tradmin/trading-signal-bot/docker-compose.yml",
    "repo_path": "docker-compose.yml"
@@ -14,6 +14,9 @@
   }
  },
  "evidence": [
+  "deploy/VERSION_BOUNDARY.md",
+  "deploy/paper-observe-bb7825f/services.json",
+  "deploy/paper-observe-bb7825f/IMAGES.md",
   "deploy/a561-rel-ea8ae4f/IMAGES.md",
   "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
   "deploy/a561-rel-ea8ae4f/ARCHIVE_REFERENCES.json",
@@ -29,13 +32,13 @@
  },
  "learner_service": "continuous_learner",
  "note": "Observed runtime baseline. Not a statement of intent and not proof of clean-build reproducibility. Update only through a reviewed PR after an approved deployment or rollback.",
- "observed_at": "2026-10-18T11:58:35Z",
- "observed_by": "R1.2 read-only (Class A) observation; provenance from the referenced records",
+ "observed_at": "2026-10-27T15:34Z",
+ "observed_by": "Paper observe deployment record 2026-10-27: read-only (Class A) observation via drift_check.py observe after Stage 2; provenance from the referenced records",
  "release_manifest": {
   "manifest": "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
   "spec": "deploy/a561-rel-ea8ae4f/services.json"
  },
- "repository_head": "c8902f11e71bffad130f851e59b8111c2daa3ba5",
+ "repository_head": "26eb4e8c69273bf1eda4d8953c44dad86364f92b",
  "schema": "tsb-deployed/1",
  "services": {
   "analyzer": {
@@ -63,7 +66,7 @@
     "image_id": "sha256:011f99ba451b0debc25d1332d59eb60819b5ad49f26b170b3b196400af42fb57",
     "image_ref": "tsb-a561-analyzer:rel-ea8ae4f-r2",
     "restart_count": 0,
-    "started_at": "2026-10-16T22:19:12.953101358Z",
+    "started_at": "2026-10-19T15:20:52.00226212Z",
     "state": "running"
    },
    "provenance": {
@@ -161,7 +164,7 @@
     "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
     "image_ref": "postgres:16.15-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
     "restart_count": 0,
-    "started_at": "2026-09-29T12:05:49.494398838Z",
+    "started_at": "2026-10-19T15:20:52.00440736Z",
     "state": "running"
    },
    "provenance": {
@@ -198,7 +201,7 @@
     "image_id": "sha256:63b38e7a659d0efbc5dd1cb2a6035da1ab210f7774e94056d77fe7c61b50615e",
     "image_ref": "tsb-aiohttp-test-scanner:3.14.3-20260929T124120Z",
     "restart_count": 0,
-    "started_at": "2026-09-30T06:50:17.293162836Z",
+    "started_at": "2026-10-19T15:20:52.00066796Z",
     "state": "running"
    },
    "provenance": {
@@ -245,7 +248,7 @@
     "image_id": "sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418",
     "image_ref": "tsb-a561-signal_engine:rel-ea8ae4f-r2",
     "restart_count": 0,
-    "started_at": "2026-10-16T22:50:18.321124108Z",
+    "started_at": "2026-10-19T15:20:51.968062Z",
     "state": "running"
    },
    "provenance": {
@@ -270,16 +273,22 @@
   "telegram": {
    "archives": [
     {
-     "file": "telegram.rel-ea8ae4f-r2.tar",
+     "file": "telegram.obs-bb7825f-20261027-r2.tar",
      "role": "running image",
-     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
-     "sha256": "acb68ad7a06e487657c7f5c56f5da67450f2a25c34952bba3c9be58fca7260f4"
+     "set_path": "~/backups/tsb-paper-observe-20261027",
+     "sha256": "8bb4de70fa2004b321c29b9f8f6c0f035d5f13677c108c0ac0b1c5957115363b"
     },
     {
-     "file": "telegram.p1d-59297305.20261014T212634Z.tar",
+     "file": "telegram.rollback-rel-ea8ae4f-r2.tar",
      "role": "rollback image",
-     "set_path": "~/backups/tsb-paper-images-a41-20261014T212634Z",
-     "sha256": "cea1e372cca47e8bdbc2cc7f08b8dba00abc39902b4fc776d62433b73090d4b4"
+     "set_path": "~/backups/tsb-paper-observe-20261027",
+     "sha256": "5d9551fd80285b9cfffdd6932082b0e83e2bda7c73fc7d46699cb5eb3c1998ed"
+    },
+    {
+     "file": "telegram.rel-ea8ae4f-r2.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "acb68ad7a06e487657c7f5c56f5da67450f2a25c34952bba3c9be58fca7260f4"
     }
    ],
    "compose_project": "trading-signal-bot",
@@ -287,28 +296,29 @@
    "container": "trading_telegram",
    "expected_state": "running",
    "observed": {
-    "config_hash": "3f03902854b6aafc4fe475c4b503b065fff828997146b6883b0280dcdc9f7ad3",
-    "container_id": "39fa735b3256af82fcf6071f8e15857e38a4d669bf6afc67d0fc081354c0718a",
-    "image_id": "sha256:51d62f4dfa512c54c29db8886cff171de7d48b356fde6f1874098df057f4d219",
-    "image_ref": "tsb-a561-telegram:rel-ea8ae4f-r2",
+    "config_hash": "14b2baf7ee5940be88b22b81f6c5f84579a6cb4752a6ace76f92a6dc549fa38b",
+    "container_id": "5630fab54ee24d378c8689ca38727e73f2762050d006e6c24520cb3cd772f937",
+    "image_id": "sha256:d665388a9092f6e5f4364a3e0dff6cca33e9623c782ea47251b625be6a2a7b83",
+    "image_ref": "tsb-obs-telegram:bb7825f-20261027-r2",
     "restart_count": 0,
-    "started_at": "2026-10-16T21:48:24.589403974Z",
+    "started_at": "2026-10-27T11:51:07.960000544Z",
     "state": "running"
    },
    "provenance": {
     "evidence": [
-     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
-     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+     "deploy/paper-observe-bb7825f/IMAGES.md",
+     "deploy/paper-observe-bb7825f/services.json",
+     "deploy/VERSION_BOUNDARY.md"
     ],
-    "notes": "46/47 equal ea8ae4f; requirements.txt text older (installed aiohttp 3.14.3)",
-    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "notes": "50/50 files equal bb7825f per host-side runtime manifest (sha256 49d1a90f..., see IMAGES.md) (0 assembled, 0 dormant); overlay FROM tsb-a561-telegram:rel-ea8ae4f-r2; deployed 2026-10-27 (Stage 2 11:51Z, compose 26eb4e8); PAPER_ECONOMIC_HALT_MODE=observe (econ-observe-v1)",
+    "source_commit": "bb7825f4744278095ef76a1d0f3b872e3043358f",
     "source_kind": "commit"
    },
    "render_hash_service": "telegram",
    "reproducibility": {
     "canonical_rebuild": false,
     "level": "L1-content-verified",
-    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+    "notes": "overlay image (full Dockerfile COPY scope from a clean git archive of bb7825f on the running release image), not a canonical Dockerfile build; dependency set inherited unchanged from rel-ea8ae4f-r2; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
    },
    "safety": {
     "paper_trading_required": true
@@ -317,16 +327,22 @@
   "trade_tracker": {
    "archives": [
     {
-     "file": "trade_tracker.rel-ea8ae4f-r2.tar",
+     "file": "trade_tracker.obs-bb7825f-20261027-r2.tar",
      "role": "running image",
-     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
-     "sha256": "0265de0c4d822c398d3a5e38e16de8e16fb1de28f39958e1dd95da607bf38c7c"
+     "set_path": "~/backups/tsb-paper-observe-20261027",
+     "sha256": "27668ee2adffbc27da5a655bcfaf736328f877edf33df6a71acb5360ace0dcc3"
     },
     {
-     "file": "trade_tracker.p1d-59297305.20261014T212634Z.tar",
+     "file": "trade_tracker.rollback-rel-ea8ae4f-r2.tar",
      "role": "rollback image",
-     "set_path": "~/backups/tsb-paper-images-a41-20261014T212634Z",
-     "sha256": "73ca99f0e3212e68f50630f26c3267698f9e71a756949a01bc9d5aa8a993370b"
+     "set_path": "~/backups/tsb-paper-observe-20261027",
+     "sha256": "4890a6441a5e944ca6fadd12eec65b1fc50aca0ddd30ebfa0b10fa88ed60c080"
+    },
+    {
+     "file": "trade_tracker.rel-ea8ae4f-r2.tar",
+     "role": "rollback image",
+     "set_path": "~/backups/tsb-a564-release-images-20261016T204443Z",
+     "sha256": "0265de0c4d822c398d3a5e38e16de8e16fb1de28f39958e1dd95da607bf38c7c"
     }
    ],
    "compose_project": "trading-signal-bot",
@@ -334,28 +350,29 @@
    "container": "trading_tracker",
    "expected_state": "running",
    "observed": {
-    "config_hash": "9d914e8f999407b6517306296ea69f6579b5887dc938bfb8e928ad4d1041d0de",
-    "container_id": "c384b6113e3882f075e4773ab2894feee6e43a68a663b0a58c4fc8cc89da9f53",
-    "image_id": "sha256:2cf1dd52cd89d44b7dc70c92b0ff797a54e3799d7deaf82b4fe7d1012ba76ae8",
-    "image_ref": "tsb-a561-trade_tracker:rel-ea8ae4f-r2",
+    "config_hash": "539e6347530538094159a2bb16dc16c213946670e2a7a40b1064809ab9d48a28",
+    "container_id": "e311ca1f1c6dd95aa02a293850a95e62de9423324c4028f07156aa4a14318a81",
+    "image_id": "sha256:8e609ca84740e9cd5c16f79c5fac2ae28a0f5004bb90665e29f4f0a6f5e1410c",
+    "image_ref": "tsb-obs-trade_tracker:bb7825f-20261027-r2",
     "restart_count": 0,
-    "started_at": "2026-10-16T21:17:23.895946868Z",
+    "started_at": "2026-10-27T10:56:08.167825299Z",
     "state": "running"
    },
    "provenance": {
     "evidence": [
-     "deploy/a561-rel-ea8ae4f/RUNTIME_MANIFEST.json",
-     "deploy/a561-rel-ea8ae4f/IMAGES.md"
+     "deploy/paper-observe-bb7825f/IMAGES.md",
+     "deploy/paper-observe-bb7825f/services.json",
+     "deploy/VERSION_BOUNDARY.md"
     ],
-    "notes": "47/48 equal ea8ae4f; requirements.txt text older",
-    "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e",
+    "notes": "51/51 files equal bb7825f per host-side runtime manifest (sha256 49d1a90f..., see IMAGES.md) (0 assembled, 0 dormant); overlay FROM tsb-a561-trade_tracker:rel-ea8ae4f-r2; deployed 2026-10-27 (Stage 1 10:56Z, compose 7305d2e); PAPER_ECONOMIC_HALT_MODE=observe (econ-observe-v1)",
+    "source_commit": "bb7825f4744278095ef76a1d0f3b872e3043358f",
     "source_kind": "commit"
    },
    "render_hash_service": "trade_tracker",
    "reproducibility": {
     "canonical_rebuild": false,
     "level": "L1-content-verified",
-    "notes": "overlay image, not a canonical Dockerfile build; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
+    "notes": "overlay image (full Dockerfile COPY scope from a clean git archive of bb7825f on the running release image), not a canonical Dockerfile build; dependency set inherited unchanged from rel-ea8ae4f-r2; no dependency lock (legacy transition exception, BRANCH_RELEASE_POLICY section 4 item 5)"
    },
    "safety": {
     "paper_trading_required": true

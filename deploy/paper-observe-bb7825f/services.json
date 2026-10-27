@@ -1,0 +1,32 @@
+{
+ "release": "paper-observe-bb7825f-r2 (Stage 1 trade_tracker 2026-10-27T10:56Z, Stage 2 telegram 2026-10-27T11:51Z); analyzer, signal_engine, scanner, postgres unchanged from a561-rel-ea8ae4f-r2; collector 1.6.1 Stage A 2026-10-22",
+ "dockerignore_excludes": ["*.log", "*.csv", "*.jsonl", "*.pkl", "*.joblib", "data/*", "logs/*", "backups/*", "**/__pycache__/*", ".env", ".env.*"],
+ "services": [
+  {"service": "analyzer", "container": "trading_analyzer", "image": "tsb-a561-analyzer:rel-ea8ae4f-r2",
+   "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e", "app_root": "app",
+   "copy_map": [["analyzer/requirements.txt", "requirements.txt"], ["shared/", "shared/"], ["analyzer/main.py", "main.py"],
+                ["analyzer/technical_analyzer.py", "technical_analyzer.py"], ["analyzer/orderbook_analyzer.py", "orderbook_analyzer.py"],
+                ["analyzer/simple_entry.py", "simple_entry.py"]]},
+  {"service": "signal_engine", "container": "trading_signal_engine", "image": "tsb-a561-signal_engine:rel-ea8ae4f-r2",
+   "source_commit": "ea8ae4f00e80c5c171536293d2df7472fa338c3e", "app_root": "app",
+   "copy_map": [["signal_engine/requirements.txt", "requirements.txt"], ["shared/", "shared/"], ["signal_engine/", ""],
+                ["research/continuous_learner.py", "research/continuous_learner.py"],
+                ["research/rollback_learned_gates.py", "research/rollback_learned_gates.py"],
+                ["research/strategy_performance_review.py", "research/strategy_performance_review.py"],
+                ["research/null_a/", "research/null_a/"]]},
+  {"service": "telegram", "container": "trading_telegram", "image": "tsb-obs-telegram:bb7825f-20261027-r2",
+   "source_commit": "bb7825f4744278095ef76a1d0f3b872e3043358f", "app_root": "app",
+   "copy_map": [["telegram/requirements.txt", "requirements.txt"], ["shared/", "shared/"], ["telegram/", ""]]},
+  {"service": "trade_tracker", "container": "trading_tracker", "image": "tsb-obs-trade_tracker:bb7825f-20261027-r2",
+   "source_commit": "bb7825f4744278095ef76a1d0f3b872e3043358f", "app_root": "app",
+   "copy_map": [["trade_tracker/requirements.txt", "requirements.txt"], ["shared/", "shared/"], ["trade_tracker/", ""]]},
+  {"service": "scanner", "container": "trading_scanner", "image": "tsb-aiohttp-test-scanner:3.14.3-20260929T124120Z",
+   "source_commit": null, "source_reference": "deploy/baseline-2026-09-27/deployed_files.json (per-file source commits)",
+   "app_root": "app", "copy_map": []},
+  {"service": "collector", "container": "tsb-p2-forward-collector", "image": "tsb-p2-forward:p2f-161-72c0bee-20261022T1558Z",
+   "source_commit": "72c0bee82b44bede5192373d18374724f11c6c3a", "app_root": "app",
+   "copy_map": [["p2_forward/p2_forward/", "p2_forward/"]]},
+  {"service": "postgres", "container": "postgres", "image": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea", "image_reference": "postgres:16.15-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea", "source_commit": null,
+   "source_reference": "upstream image; compose: shared-postgres project (outside this repository)"}
+ ]
+}
