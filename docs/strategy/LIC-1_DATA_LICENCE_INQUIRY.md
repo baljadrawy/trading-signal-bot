@@ -170,14 +170,33 @@ a dataset permission, the preregistration is accepted (RD-2) and the exploratory
 (`NEXT_LICENSED_DATA_STEP.md` §6). The code refuses non-synthetic input without a permission record
 (`DatasetPermission` gate) and refuses a non-synthetic summary label without an authorization reference.
 
-## Proposed licensee and permitted use (2026-10-27; owner to confirm before sending)
+## Licensee and intended use (owner-confirmed 2026-10-27; supersedes earlier assumptions)
 
-| Item | Proposal | Owner decision needed |
-|---|---|---|
-| Intended licensee | The project owner **as an individual**, for a private, non-commercial R&D project (no company, no clients, no fund) | Confirm individual vs. a business entity (affects terms, Q2) |
-| Permitted use requested | Private internal backtesting and statistical research, including selecting strategies for **paper (simulated) testing only**; no live-money use is planned or authorized | Confirm wording; Q5 asks about any later live use |
-| Storage | Raw files and derived datasets kept privately on the owner's server and private backups; no redistribution, publication, resale or API re-serving | Confirm retention period (Q4) |
-| Earlier downloads | The 2026-10-11 record (A18) notes historical klines already on disk; disclose them in the inquiry and ask which terms apply (Q6) rather than using them | Decide whether to disclose (recommended: yes) |
-| Channel | The provider's official support/legal contact for data licensing | Owner sends from their own account |
+- **Licensee:** the project owner as an **individual, for personal use**. No company or other legal entity is involved.
+- **Purpose:** private cryptocurrency trading-strategy research, backtesting, statistical analysis and **Paper (simulated)
+  trading**.
+- **Not done:** no commercial services, no paid signals, no client funds, no redistribution or publication of market
+  data or derived datasets.
+- **Possible future personal investment use is disclosed here.** It is not planned or authorized. Live trading stays
+  forbidden by the project's own rules, and any such use would need the provider's explicit permission first.
 
-**Until a written permission is recorded as OD-DF-1, no historical market data (including the files already on disk) is used for HR-04/HR-08/HR-13 research.**
+**Questions this adds to the inquiry** (alongside Q1–Q7):
+- **Q8:** Is personal financial-strategy research by an individual, including backtesting and paper trading of the
+  owner's own strategies, permitted under your personal / non-commercial terms?
+- **Q9:** If a strategy researched on this data were later used for the individual's own personal investing (own
+  funds, no clients, no commercial service), is that permitted? If not, what licence would be required?
+
+**Accurate disclosure of previously downloaded data** (A18 record of 2026-10-11, not re-verified):
+- **What:** Binance Spot klines at 15m, 1h, 4h and 1d for about 596 symbols, covering 2017-08 to 2026-05. They were
+  obtained from Binance's public data archive and checked against the archive's checksums.
+- **Where:** stored on the owner's private server only. The 15m files are under the research data area; the
+  1h/4h/1d files are in a `bt_data` folder inside the production checkout, which A18 flagged as a governance defect.
+- **How they were used:** they **were used in earlier internal research** (2026-05 to 2026-10), including multi-year
+  backtests and an ML study. That use happened before this licensing review. Nothing was redistributed.
+- **Terms on record:** the archive's dataset terms were recorded on 2026-10-11 as CC BY-NC-SA 4.0. The record says
+  §4.2 excludes "live proprietary trading execution". **Re-check the current terms** before sending.
+- **From 2026-10-27, these files stay unused** for HR-04/HR-08/HR-13 or any other research until permission is
+  confirmed and recorded as OD-DF-1. They are kept unchanged as historical evidence and are not deleted.
+
+**Channel:** the provider's official licensing or support contact. The owner sends it from their own account. This
+draft has **not** been sent.
