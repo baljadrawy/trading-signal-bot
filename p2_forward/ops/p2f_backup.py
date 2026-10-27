@@ -16,6 +16,16 @@ backup — only a day with a PASS seal (seals/D.json + its report): copies
   An existing destination is never overwritten (immutable). Never deletes source or destination data.
 restore-test — re-verifies SHA256SUMS and runs the independent day verifier on the backup copy itself.
 Failures exit non-zero and write incidents/external/backup-D-<ms>.json in the source dataset (visible).
+
+--verify-existing (optional, OFF by default; without it an existing destination is reported exactly as before:
+  FAIL destination_exists_immutable, exit 3, no incident). With it, an existing destination is verified read-only:
+  every file listed in its SHA256SUMS hashes to the listed digest, it holds no unlisted file, BACKUP.json names this
+  day / dataset and the current seal's SHA-256, and every day-scoped immutable source file (dataset.json, days/D,
+  seals/D + report, manifests/D, raw/**, universe/**) is listed with the source's current digest, with the same set.
+  Snapshot members (manifests/D+1, runs/, control/, docs/) are checked inside the copy only, because the source
+  legitimately grows after the backup. Identical: prints {"backup": "OK (exists)", ...} and exits 0. Any difference:
+  FAIL existing_destination_mismatch (exit 1 + incident). Nothing is ever overwritten or deleted. This reads (hashes)
+  the whole day twice (source and copy) on every invocation.
 """
 import argparse
 import fcntl
@@ -105,7 +115,55 @@ def file_set(base, day, seal_report):
     return sorted(set(out))
 
 
-def backup(base, day, dest_root, floor_gb):
+def _immutable(rel, day):
+    """Day-scoped source files that never change after the seal (compared with the source by --verify-existing)."""
+    return rel in ("dataset.json", f"days/{day}.json", f"seals/{day}.json", f"seals/{day}.report.json",
+                   f"manifests/{day}.jsonl") or rel.startswith(("raw/", "universe/"))
+
+
+def verify_existing(base, day, seal, seal_p, out):
+    """Read-only check that the existing immutable backup `out` is this sealed day, intact and hash-identical to
+    the source's immutable files. Raises BackupError(existing_destination_mismatch:...) on any difference."""
+    def bad(why):
+        return BackupError(f"existing_destination_mismatch:{why}:{out}")
+    try:
+        with open(os.path.join(out, "SHA256SUMS"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        with open(os.path.join(out, "BACKUP.json"), encoding="utf-8") as fh:
+            meta = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise bad(f"unreadable:{type(e).__name__}") from None
+    listed = {}
+    for line in lines:
+        d0, sep, r = line.partition("  ")
+        if not sep or len(d0) != 64 or not r or r in listed:
+            raise bad("sha256sums_malformed")
+        listed[r] = d0
+    if meta.get("day") != day or meta.get("dataset_id") != seal.get("dataset_id") or \
+            meta.get("seal_sha256") != sha(seal_p) or meta.get("files") != len(listed):
+        raise bad("backup_record_differs")
+    present = set()
+    for root, dirs, files in os.walk(out):
+        for f in files:
+            present.add(os.path.relpath(os.path.join(root, f), out))
+    extra = sorted(present - set(listed) - {"SHA256SUMS", "BACKUP.json"})
+    missing = sorted(set(listed) - present)
+    if extra or missing:
+        raise bad(f"file_set_differs:extra={extra[:3]},missing={missing[:3]}")
+    for r, d0 in sorted(listed.items()):
+        if sha(os.path.join(out, r)) != d0:
+            raise bad(f"copy_digest_differs:{r}")
+    cur = {r for r in file_set(base, day, seal) if _immutable(r, day)}
+    lst = {r for r in listed if _immutable(r, day)}
+    if cur != lst:
+        raise bad(f"source_set_differs:only_source={sorted(cur - lst)[:3]},only_copy={sorted(lst - cur)[:3]}")
+    for r in sorted(cur):
+        if sha(os.path.join(base, r)) != listed[r]:
+            raise bad(f"source_digest_differs:{r}")
+    return {"backup": "OK (exists)", "day": day, "dest": out, "files": len(listed), "verified": "sha256"}
+
+
+def backup(base, day, dest_root, floor_gb, verify_existing_dest=False):
     seal_p = os.path.join(base, "seals", f"{day}.json")
     if not os.path.exists(seal_p):
         raise BackupError("not_sealed")                       # active / partial / failed days are never backed up
@@ -115,6 +173,8 @@ def backup(base, day, dest_root, floor_gb):
     ds_id = seal["dataset_id"]
     out = os.path.join(dest_root, ds_id, day)
     if os.path.exists(out):
+        if verify_existing_dest:                                # optional: identical existing copy = OK (exists)
+            return verify_existing(base, day, seal, seal_p, out)
         raise BackupError(f"destination_exists_immutable:{out}")
     rels = file_set(base, day, seal)
     need = sum(os.path.getsize(os.path.join(base, r)) for r in rels)
@@ -184,6 +244,8 @@ def main(argv=None) -> int:
     ap.add_argument("base"); ap.add_argument("day")
     ap.add_argument("--dest", default=DEFAULT_DEST); ap.add_argument("--floor-gb", type=float, default=60.0)
     ap.add_argument("--allow-test-calendar", action="store_true")
+    ap.add_argument("--verify-existing", action="store_true",
+                    help="optional (OFF by default): an existing hash-identical destination is OK (exists), exit 0")
     a = ap.parse_args(argv)
     os.makedirs(a.dest, exist_ok=True)
     lock = open(os.path.join(a.dest, ".lock"), "w")
@@ -192,7 +254,7 @@ def main(argv=None) -> int:
     except BlockingIOError:
         print(json.dumps({"backup": "busy"})); return 75
     try:
-        res = backup(a.base, a.day, a.dest, a.floor_gb) if a.mode == "backup" else \
+        res = backup(a.base, a.day, a.dest, a.floor_gb, a.verify_existing) if a.mode == "backup" else \
             restore_test(a.base, a.day, a.dest, a.allow_test_calendar)
     except BackupError as e:
         if not str(e).startswith(("not_sealed", "destination_exists")):
