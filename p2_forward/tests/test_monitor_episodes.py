@@ -55,9 +55,9 @@ def scope(root):
 
 
 H0 = 1_800_000_000_000
-STEPS = [("HEALTHY", []), ("DEGRADED", ["stale:adausdt@depth10"]),
-         ("DEGRADED", ["stale:adausdt@depth10", "gap_open:adausdt@depth10:stale_stream", "stale:solusdt@depth10"]),
-         ("HEALTHY", []), ("DEGRADED", ["conn_not_data_live:conn1-depth", "gap_short:btcusdt@depth20:conn_data_stale"]),
+STEPS = [("HEALTHY", []), ("DEGRADED", ["stale:ada-t1-depth"]),
+         ("DEGRADED", ["stale:ada-t1-depth", "gap_open:ada-t1-depth:stale_stream", "stale:sol-t2-depth"]),
+         ("HEALTHY", []), ("DEGRADED", ["conn_not_data_live:conn1-depth", "gap_short:btc-t0-depth:conn_data_stale"]),
          ("DEGRADED_DISK", ["disk_hard_stop"]), ("HEALTHY", [])]
 
 
@@ -122,10 +122,10 @@ class FlagOn(unittest.TestCase):
             self.assertEqual(len(eps), 2)
             e1, e2 = eps
             self.assertEqual((e1["start_ms"], e1["end_ms"], e1["duration_s"], e1["samples"]), (H0 + 60_000, H0 + 180_000, 120.0, 2))
-            self.assertEqual(e1["streams"], ["adausdt@depth10", "solusdt@depth10"])
+            self.assertEqual(e1["streams"], ["ada-t1-depth", "sol-t2-depth"])
             self.assertEqual(e1["causes"], ["gap_open:stale_stream", "stale"])
             self.assertEqual((e1["end_state"], e1["severity"]), ("HEALTHY", "DEGRADED"))
-            self.assertEqual(e2["streams"], ["btcusdt@depth20"])
+            self.assertEqual(e2["streams"], ["btc-t0-depth"])
             self.assertEqual(e2["causes"], ["conn_not_data_live:conn1-depth", "gap_short:conn_data_stale"])
             self.assertEqual(e2["end_state"], "DEGRADED_DISK")
             disk = [x for x in al if "health:DEGRADED_DISK" in x["reasons"]]
@@ -134,7 +134,7 @@ class FlagOn(unittest.TestCase):
             self.assertEqual(al[-1]["kind"], "recovery")
 
     def test_long_episode_alerts_once_while_open(self):
-        steps = [("DEGRADED", ["stale:adausdt@depth10"])] * 8 + [("HEALTHY", [])]
+        steps = [("DEGRADED", ["stale:ada-t1-depth"])] * 8 + [("HEALTHY", [])]
         with tempfile.TemporaryDirectory() as d:
             al = alerts(drive(M, d, steps=steps, coalesce_health_episodes=True, episode_open_alert_s=300))
             opens = [x for x in al if x["kind"] == "health_episode_open"]
@@ -156,9 +156,9 @@ class FlagOn(unittest.TestCase):
 
     def test_episode_reason_parsing(self):
         P = M.episode_reason
-        self.assertEqual(P("gap_short:a@depth10:stale_stream"), ("a@depth10", "gap_short:stale_stream"))
-        self.assertEqual(P("stale:a@bookTicker"), ("a@bookTicker", "stale"))
-        self.assertEqual(P("stream_failed:a@depth10:FAILED"), ("a@depth10", "stream_failed"))
+        self.assertEqual(P("gap_short:a-depth:stale_stream"), ("a-depth", "gap_short:stale_stream"))
+        self.assertEqual(P("stale:a-book"), ("a-book", "stale"))
+        self.assertEqual(P("stream_failed:a-depth:FAILED"), ("a-depth", "stream_failed"))
         self.assertEqual(P("awaiting_post_reconnect:x"), ("x", "awaiting_post_reconnect"))
         self.assertEqual(P("writer_stale"), (None, "writer_stale"))
         self.assertEqual(P("gap_open:nocause"), (None, "gap_open:nocause"))

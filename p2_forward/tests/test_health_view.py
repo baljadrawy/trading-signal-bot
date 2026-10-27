@@ -15,21 +15,26 @@ from p2_forward import app as A, config as C, healthview as HV, procwatch, unive
 from tests.test_regression_g2r import book, capture, depth, healthy_collector, mini, stop_writer
 
 UNI = {**U.tier0_only(C.DEFAULTS), "tier1": ["ADAUSDT"], "tier2": ["SOLUSDT"]}
-T1D, T2B, T0D = "adausdt@depth10", "solusdt@bookTicker", "ethusdt@depth20"
-MARKET = "!miniTicker@arr"
+# Synthetic stream names for the pure policy tests (the policy only sees names and the stream table).
+T1D, T1B, T2D, T2B, T0D, MARKET = "ada-t1-depth", "ada-t1-book", "sol-t2-depth", "sol-t2-book", "eth-t0-depth", "market"
 ON = {"health_state_split": True, "health_coverage_tiering": True}
 
 
-def info_table(**over):
+def info_table(over=None):
     base = {T1D: {"tier": 1, "kind": "depth", "last_ms": None, "stale_ms": 180_000, "gap_first_ms": None},
-            "adausdt@bookTicker": {"tier": 1, "kind": "book", "last_ms": None, "stale_ms": 600_000, "gap_first_ms": None},
-            "solusdt@depth10": {"tier": 2, "kind": "depth", "last_ms": None, "stale_ms": 15_000, "gap_first_ms": None},
+            T1B: {"tier": 1, "kind": "book", "last_ms": None, "stale_ms": 600_000, "gap_first_ms": None},
+            T2D: {"tier": 2, "kind": "depth", "last_ms": None, "stale_ms": 15_000, "gap_first_ms": None},
             T2B: {"tier": 2, "kind": "book", "last_ms": None, "stale_ms": 600_000, "gap_first_ms": None},
             T0D: {"tier": 0, "kind": "depth", "last_ms": None, "stale_ms": 2000, "gap_first_ms": None},
             MARKET: {"tier": None, "kind": "market", "last_ms": None, "stale_ms": 10_000, "gap_first_ms": None}}
-    for k, v in over.items():
-        base[k.replace("__", "@")] = {**base[k.replace("__", "@")], **v}
+    for k, v in (over or {}).items():
+        base[k] = {**base[k], **v}
     return base.get
+
+
+def stream(c, tier, kind, symbol):
+    """Name of the collector's own stream for (tier, kind, symbol)."""
+    return next(t.name for t in c.tracks.values() if (t.tier, t.kind, t.symbol) == (tier, kind, symbol))
 
 
 def policy(k=2, t=120):
@@ -115,7 +120,7 @@ class PolicyTolerates(unittest.TestCase):
         p = policy()
         hard = [f"stale:{T1D}", f"gap_short:{T1D}:stale_stream"]
         warn = ["malformed:1"]
-        r = p.apply("DEGRADED", hard, [], warn, M0, info_table(adausdt__depth10={"last_ms": M0 - 200_000}))
+        r = p.apply("DEGRADED", hard, [], warn, M0, info_table({T1D: {"last_ms": M0 - 200_000}}))
         self.assertEqual(r["state"], "HEALTHY")
         self.assertEqual(r["reasons"], [])
         self.assertEqual(r["warnings"][:2], ["malformed:1", "coverage:streams_stale:1"])
@@ -127,7 +132,7 @@ class PolicyTolerates(unittest.TestCase):
     def test_tier2_book_and_gap_open_under_t(self):
         p = policy()
         r = p.apply("DEGRADED", [f"gap_open:{T2B}:stale_stream"], [], [], M0,
-                    info_table(solusdt__bookTicker={"gap_first_ms": M0 - 60_000}))
+                    info_table({T2B: {"gap_first_ms": M0 - 60_000}}))
         self.assertEqual(r["state"], "HEALTHY")
 
     def test_startup_reasons_still_starting(self):
@@ -154,7 +159,7 @@ class PolicyStaysDegraded(unittest.TestCase):
         self.deg([f"stale:{T0D}"])
         self.deg([f"gap_short:{T0D}:stale_stream"])
         self.deg([f"stale:{MARKET}"])
-        self.deg(["stale:nosuch@depth10"])
+        self.deg(["stale:no-such-stream"])
 
     def test_other_gap_causes(self):
         for cause in ("conn_data_stale", "ws_disconnect_reconnect", "sampler_stall", "backpressure_or_rejected",
@@ -162,8 +167,8 @@ class PolicyStaysDegraded(unittest.TestCase):
             self.deg([f"gap_short:{T1D}:{cause}"])
 
     def test_age_at_or_beyond_t(self):
-        self.deg([f"gap_open:{T1D}:stale_stream"], info_table(adausdt__depth10={"gap_first_ms": M0 - 120_000}))
-        self.deg([f"stale:{T1D}"], info_table(adausdt__depth10={"last_ms": M0 - 180_000 - 120_000}))
+        self.deg([f"gap_open:{T1D}:stale_stream"], info_table({T1D: {"gap_first_ms": M0 - 120_000}}))
+        self.deg([f"stale:{T1D}"], info_table({T1D: {"last_ms": M0 - 180_000 - 120_000}}))
 
     def test_too_many_streams(self):
         self.deg([f"stale:{T1D}", f"stale:{T2B}"])
@@ -259,14 +264,19 @@ def read_file(d):
         return fh.read()
 
 
+def names(c):
+    return stream(c, 1, "depth", "ADAUSDT"), stream(c, 0, "depth", "ETHUSDT"), stream(c, 1, "book", "ADAUSDT")
+
+
 class AppFlagOff(unittest.TestCase):
     def test_view_is_identity_and_file_bytes_unchanged(self):
         with tempfile.TemporaryDirectory() as d:
             c = fed_collector(d)
+            t1d, t0d, t1b = names(c)
             try:
                 self.assertIsNone(c.coverage_policy)
                 for prep in (lambda: None,
-                             lambda: setattr(c.tracks[T1D].values, "latest", ((A.now_ms() - 200_000) * 1_000_000, {}, 9))):
+                             lambda: setattr(c.tracks[t1d].values, "latest", ((A.now_ms() - 200_000) * 1_000_000, {}, 9))):
                     prep()
                     h = c.health()
                     self.assertIs(c.health_view(h), h)
@@ -286,13 +296,14 @@ class AppFlagOn(unittest.TestCase):
     def test_split_only_is_additive(self):
         with tempfile.TemporaryDirectory() as d:
             c = fed_collector(d, health_state_split=True)
+            t1d, t0d, t1b = names(c)
             try:
                 self.assertIsNone(c.coverage_policy)
                 h = c.health(); v = c.health_view(h)
                 self.assertEqual({k: v[k] for k in h}, h)                 # every existing key and value unchanged
                 self.assertEqual(set(v) - set(h), {"integrity_state", "coverage_state"})
                 self.assertEqual((v["state"], v["integrity_state"], v["coverage_state"]), ("HEALTHY", "OK", "OK"))
-                c.tracks[T1D].values.latest = ((A.now_ms() - 200_000) * 1_000_000, {}, 9)
+                c.tracks[t1d].values.latest = ((A.now_ms() - 200_000) * 1_000_000, {}, 9)
                 c.write_health()
                 f = json.loads(read_file(d))
                 self.assertEqual((f["state"], f["integrity_state"], f["coverage_state"]), ("DEGRADED", "OK", "DEGRADED"))
@@ -302,10 +313,11 @@ class AppFlagOn(unittest.TestCase):
     def test_tiering_live_file_only_raw_record_unfiltered(self):
         with tempfile.TemporaryDirectory() as d:
             c = fed_collector(d, **ON)
+            t1d, t0d, t1b = names(c)
             try:
                 self.assertEqual(c.health_eval()[0], "HEALTHY")
                 got = capture(c)
-                c.tracks[T1D].values.latest = ((A.now_ms() - 200_000) * 1_000_000, {}, 9)   # 20 s past its 180 s bound
+                c.tracks[t1d].values.latest = ((A.now_ms() - 200_000) * 1_000_000, {}, 9)   # 20 s past its 180 s bound
                 c.write_health(record=True)
                 f = json.loads(read_file(d))
                 self.assertEqual((f["state"], f["reasons"], f["integrity_state"], f["coverage_state"]),
@@ -313,7 +325,7 @@ class AppFlagOn(unittest.TestCase):
                 self.assertIn("coverage:streams_stale:1", f["warnings"])
                 self.assertEqual(f["coverage_policy"]["raw_state"], "DEGRADED")
                 rec = [r for r in got if r["type"] == "health"][-1]["payload"]
-                self.assertEqual(rec["state"], "DEGRADED"); self.assertIn(f"stale:{T1D}", rec["reasons"])
+                self.assertEqual(rec["state"], "DEGRADED"); self.assertIn(f"stale:{t1d}", rec["reasons"])
                 for k in ("integrity_state", "coverage_state", "coverage_policy"):
                     self.assertNotIn(k, rec)                              # dataset health records are unchanged
                 self.assertEqual(c.health_state_last, "DEGRADED")         # record cadence follows the raw state
@@ -323,22 +335,23 @@ class AppFlagOn(unittest.TestCase):
     def test_tiering_safety_cases_in_app(self):
         with tempfile.TemporaryDirectory() as d:
             c = fed_collector(d, **ON)
+            t1d, t0d, t1b = names(c)
             try:
                 self.assertEqual(c.health_eval()[0], "HEALTHY")
-                c.tracks[T1D].values.latest = ((A.now_ms() - 400_000) * 1_000_000, {}, 9)  # 220 s stale >= T
+                c.tracks[t1d].values.latest = ((A.now_ms() - 400_000) * 1_000_000, {}, 9)  # 220 s stale >= T
                 c.write_health()
                 f = json.loads(read_file(d))
-                self.assertEqual((f["state"], f["reasons"]), ("DEGRADED", [f"stale:{T1D}"]))
-                c.tracks[T1D].values.latest = ((A.now_ms() - 100) * 1_000_000, {}, 10)
+                self.assertEqual((f["state"], f["reasons"]), ("DEGRADED", [f"stale:{t1d}"]))
+                c.tracks[t1d].values.latest = ((A.now_ms() - 100) * 1_000_000, {}, 10)
                 c.write_health(); c.write_health()                         # clearing hysteresis: 2 clean evaluations
                 self.assertEqual(json.loads(read_file(d))["state"], "HEALTHY")
-                c.tracks[T0D].values.latest = ((A.now_ms() - 2500) * 1_000_000, {}, 11)    # Tier 0: never tolerated
+                c.tracks[t0d].values.latest = ((A.now_ms() - 2500) * 1_000_000, {}, 11)    # Tier 0: never tolerated
                 c.write_health()
                 f = json.loads(read_file(d))
-                self.assertEqual(f["state"], "DEGRADED"); self.assertIn(f"stale:{T0D}", f["reasons"])
-                c.tracks[T0D].values.latest = ((A.now_ms() - 100) * 1_000_000, {}, 12)
+                self.assertEqual(f["state"], "DEGRADED"); self.assertIn(f"stale:{t0d}", f["reasons"])
+                c.tracks[t0d].values.latest = ((A.now_ms() - 100) * 1_000_000, {}, 12)
                 c.write_health(); c.write_health()
-                c.tracks["adausdt@bookTicker"].values.latest = ((A.now_ms() - 700_000) * 1_000_000, {}, 13)
+                c.tracks[t1b].values.latest = ((A.now_ms() - 700_000) * 1_000_000, {}, 13)
                 c.beats["sampler"] = time.monotonic() - 10                # an operational reason alongside
                 c.write_health()
                 f = json.loads(read_file(d))
