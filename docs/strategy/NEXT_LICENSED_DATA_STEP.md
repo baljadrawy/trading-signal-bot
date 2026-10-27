@@ -2,7 +2,9 @@
 
 **Status: PLAN (D0). Nothing in this file has been run on real data.** Written 2026-10-26 on `research/variant-ledger`
 (PR #94); 2026-10-27 revision adds the next licensed-data stage gated on the LIC-1 outcome (§7), power notes for the
-single look (§8), the fallback if the licence is refused (§9) and the source links (§10). It describes the stage-X
+single look (§8), the fallback if the licence is refused (§9) and the source links (§10); a second 2026-10-27
+revision adds the synthetic power simulation for RD-2 (§8, `X1_RD2_WINDOW_DECISION_SUPPORT.md`) and the X1
+preregistration DRAFT skeleton (§11). It describes the stage-X
 (exploratory) step that would follow the synthetic engineering stage S, and the gates that must be passed first. It authorizes nothing, reads no data, registers no non-synthetic variant, spends no
 alpha and opens no window.
 
@@ -50,6 +52,8 @@ to `AssetSeries` first/last days is a later step. Items 4–5 remain open.
 4. Per-tier cost declaration (half-spread 0.01 % BTC/ETH, 0.04 % other top 20; slippage 0.05 %/side; ×2 stress) as
    `CostModel` instances with labels, and the tracker 0.30 % flat label reported beside.
 5. A preregistration file template (§4) and synthetic power simulation with heavy-tailed, day-clustered returns.
+   *Status 2026-10-27:* simulation done (`research/power_sim/x1_single_look.py`, synthetic only); template drafted
+   as the §11 skeleton (DRAFT, not frozen).
 
 ## 2. Data requirements
 
@@ -143,7 +147,7 @@ separate owner decision (§6).
 | Costs | `s4-mech-v1` (`research/mechanisms/costs.py`): **fee 0.10 % per side** (0.20 % round trip) as a floor, never discounted; half-spread 0.01 % BTC / ETH and 0.04 % other top-20; slippage 0.05 % per side; stress ×1.5 and ×2 on spread and slippage, never on the fee; the tracker's 0.30 % flat label reported beside. Delisting exits pay full costs; −100 % stress for delistings without a final tradable price |
 | Endpoints | §4: one primary notion named by the owner before data (active net vs EW B&H, or PSR / DSR); gross and net, turnover, cost drag, MDD and duration, P&L concentration, regimes, every variant |
 | Pass rule | roadmap PM-1 (PR #91, Draft): active net vs EW B&H > 0 with HAC t ≥ 2 (lag 7) and bootstrap 95 % CI excluding 0; DSR ≥ 0.95 with full N; mean net > 0 under ×2 cost stress; none of the five S4 failure criteria (§4) triggered. A pass is labelled EXPLORATORY and only nominates a candidate |
-| Output | one labelled summary per variant (`research/strategies/result_summary.py`, label EXPLORATORY with `authorization_ref`), committed as aggregate statistics only. The repository is public, so no data tables, and attribution if the reply requires it |
+| Output | one labelled summary per variant (`research/strategies/result_summary.py`, label EXPLORATORY with `authorization_ref`), committed as aggregate statistics only. The repository was public for a period and is now private (LIC-1 §A row L3); visibility can change, so no data tables, and attribution if the reply requires it |
 
 **Separation of evidence classes (binding).**
 
@@ -161,7 +165,10 @@ such a bar fails certification and the run aborts with only the abort recorded (
 
 Normal approximation, one-sided α = 0.05 / 3 (z ≈ 2.13), long-run variance ratio 1, 365.25-day crypto year; these
 reproduce the register's figures (0.76 at 8 years, 0.13 at 1 year). Day-clustering, heavy tails and the DSR
-correction lower every number; the synthetic power simulation (§1 item 5) must replace this table before RD-2.
+correction lower every number. **The synthetic simulation of the full PM-1 rule now exists**
+(`research/power_sim/x1_single_look.py`, `x1-pwr-sim-v1`, tests `tests/test_x1_single_look_power.py`); its
+results, the window trade-off and a recommendation for RD-2 are in `docs/strategy/X1_RD2_WINDOW_DECISION_SUPPORT.md`
+and supersede this table for planning. The table is kept as the normal-theory reference.
 
 | Window | Days | MDE (annualized SR, power 0.8) | Power at true SR 0.5 | 1.0 | 1.5 |
 |---|---|---|---|---|---|
@@ -208,3 +215,33 @@ Under any refusal, the Vision files on disk stay unused and are retained or dele
   D1/D2 HOLD; `docs/strategy/EVIDENCE_LADDER_PARAMETERS.md`.
 - Licence analysis: A18 / A19 (2026-10-11) and A22 §3 (2026-10-12) on the held branch commit `8cb5c9e` (not on
   `main`).
+
+## 11. X1 preregistration DRAFT skeleton (NOT FROZEN, NOT AUTHORIZED)
+
+**Status: DRAFT skeleton, written 2026-10-27 (D0).** It is **not frozen** (no SHA is recorded as a
+preregistration), **not accepted** (RD-2 is open), **not authorized** (no G-DATA, no X-AUTH), registers no variant,
+spends no alpha and **uses no holdout**: no bar at or after the 2026-08-19 freeze instant, no W3 / FORWARD_HOLDOUT
+read, no prospective partition touched. Every `<<…>>` is an owner decision or a value fixed before data. Freezing it
+is part of RD-2 and needs the owner's approval; this file does not do it.
+
+| Field | Draft content |
+|---|---|
+| ID / version | `X1-PREREG-DRAFT-0`; on acceptance, frozen as a committed file whose git SHA, `config_hash()` per variant and `VariantLedger.head()` are recorded in the X-AUTH record |
+| Evidence class | `HISTORICAL_EXPOSED`, role **exploratory qualification only** (S4 §4; A19 §4 and §15 on the held branch commit `8cb5c9e`, not on `main`). Never confirmatory, whatever the result |
+| Hypotheses (≤ 3 candidates, contract §4) | **H1 = HR-04** (primary): mean daily active net return of HR-04 vs the PIT EW B&H (monthly rebalance) is > 0. **H2 = HR-13** (variant): paired daily net difference HR-13 − HR-04 > 0 with turnover reduction ≥ 30 %. **H3 = HR-08** (variant): PSR higher, MDD lower and non-inferior mean daily net (margin −0.02 %/day [ASM]) vs HR-04. Nothing else is tested in X1 |
+| Primary metric | notion (c) per roadmap PM-1: mean daily active net return a_t = R_t − B_t of H1, HAC t (Bartlett, lag 7). `<<RD-2: owner confirms (c); notion (b) PSR / DSR then secondary>>` |
+| Secondary metrics | §4 "Metrics" row: gross and net, BTC / ETH B&H, PSR / DSR (full N), MDD and duration, turnover, cost drag, top-5-month and top-1-coin P&L share, per-regime summaries (descriptive only) |
+| Single look | **exactly one** logged look per variant over the window below, through `~/ops/research-runner`, recorded in `research/governance/validation_usage.jsonl`; each variant registered in the `VariantLedger` (non-synthetic class + `authorization_ref`) **before** its result is read; no re-run with changed settings; a technical abort records only the abort |
+| Window | `<<RD-2: (a) 2023-01-01 → 2026-08-18 or (b) 2019-01-01 → 2026-08-18>>` (see `X1_RD2_WINDOW_DECISION_SUPPORT.md`). Warm-up (14-day lookback, 20-day vol, 30-day volume rank, 90-day listing age) is taken from bars **before** the window start and inside the licensed span; no bar closing at or after the 2026-08-19 freeze instant, not even for warm-up. If (a) is chosen, 2019–2022 is used for specification sanity only and changes nothing (§4 "Looks") |
+| Data and universe | §2: Binance Spot USDT 1d klines from the source named in OD-DF-1; PIT top 20 by trailing 30-day quote volume `<<median or sum, fixed before data>>`, listed ≥ 90 days, monthly rebalance; delisted pairs kept to their last traded day; first / last available bar rule for listing / delisting `<<frozen>>` |
+| Parameters | from the register, none tuned: lookback 14 d; band ±1 % (HR-13); vol window 20 d, target = universe median, cap 2 × (1/N) `<<cap frozen>>`; `execution_lag=1`; rebalance policy `<<daily or on_signal_change>>` |
+| Cost model | `s4-mech-v1` (`research/mechanisms/costs.py`): fee **0.10 % per side** floor, never discounted; half-spread 0.01 % BTC / ETH, 0.04 % other top-20; slippage 0.05 % per side; stress ×1.5 and ×2 on spread and slippage, **never on the fee**; benchmark charged on its own turnover; delisting exits pay full costs, −100 % stress for delistings without a final tradable price; tracker 0.30 % flat reported beside |
+| Exclusion rules (frozen before data) | stablecoins, leveraged, wrapped and fiat-pegged coins by a list with its hash `<<list>>`; pairs listed < 90 days at the rebalance date; symbol-days failing the data-quality rule (gaps, zero volume, price anomalies; rule `<<frozen>>`) dropped and **counted in the report**; no symbol added or removed after data is seen; any bar at / after the freeze instant, a certificate failure or a permission mismatch aborts the run |
+| Inference | HAC t lag 7 (lag-rule value reported as sensitivity only); stationary bootstrap, mean block 20 d, `<<n_resamples, seed>>` fixed; Romano–Wolf step-down over the family, Holm as a check; DSR with N = every variant registered in the family, abandoned ones included |
+| Multiplicity | familywise error 5 % per family (contract §4: 5 % familywise control; max 3 candidates); `exploratory_family_budget` = 0.05 split over the family size (0.05 / 3). Exploratory alpha never draws on the governed 1 / 240 budget and never admits a confirmation. Reported beside, not as a gate unless the owner decides so: DSR at the A19 imputed N = 10⁴ for exposed history |
+| NOMINATE (PM-1 pass) | **all** PM-1 conditions for H1: a_t mean > 0 with HAC t ≥ `<<2.0 as PM-1, or 2.13 = z at 0.05 / 3>>` and bootstrap 95 % CI excluding 0; DSR ≥ 0.95 (full N); mean absolute net > 0 under ×2 cost stress; none of the five S4 failure criteria. Effect: the candidate may be **proposed** for a governed prospective test; that still needs G-SCI (D1/D2 HOLD lifted, own preregistration, prospective partition, alpha slot) and G-OPS |
+| ENCOURAGING (non-confirmatory) | `[PROP]` primary HAC t ≥ 0.8416 (the Evidence Ladder ENCOURAGING threshold, `EVIDENCE_LADDER_PARAMETERS.md`; about 20 % null rate) with all technical checks passed, but PM-1 not met. Effect: recorded as ENCOURAGING; **no nomination**, no alpha, no change of plan without a new preregistration |
+| INCONCLUSIVE / REJECT | INCONCLUSIVE: neither of the above and no failure criterion triggered; reported as inconclusive, **not** as evidence of no effect. REJECT: any §4 kill criterion (S4 five; HR-08 and HR-13 kill rules) |
+| Reporting | every variant, including failures and abandoned ones; gross and net, turnover, drawdown, sample sizes, regimes, uncertainty, failure cases; aggregate statistics only; the W3 and Research-1A contamination disclosures where required |
+| Explicit non-statements | not frozen; not authorized; no holdout used or opened; no profitability claim; no confirmatory claim; PAPER_ONLY unchanged |
+
