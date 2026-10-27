@@ -37,6 +37,14 @@ G3 readiness (additive): the collector's limits are read from its cgroup scope (
   mem_pct_of_limit uses the observed memory.max (None when unlimited / unreadable -> WARNING memory_limit_unknown);
   samples gain mem_limit_bytes, cpu_quota_cores, cpu_pct_of_quota and swap_current. A limit that differs from the
   expectation is WARNING limit_mismatch:<file>; an unreadable / malformed / unlimited limit is WARNING limit_<file>_*.
+
+Health-episode coalescing (optional, --coalesce-health-episodes; OFF by default = the behaviour above, byte for byte):
+  a collector `health:DEGRADED` no longer produces entry / recovery lines of its own. Instead alerts.jsonl gets ONE
+  `health_episode` line when the episode ends: start_ms, end_ms, duration_s, samples, streams, causes, reasons, end
+  state. An episode still open after --episode-open-alert-s (default 300 s) also gets one `health_episode_open` line at
+  that point, so a long degradation is never silent. Resolution is the full-sample interval (60 s): start = first
+  sample that saw DEGRADED, end = first sample that did not. Every other reason (incidents, DEGRADED_DISK, BANNED_418,
+  FAILED, stale health file, memory, binding ...) alerts exactly as before; status.json and samples are unchanged.
 """
 import argparse
 import datetime as dt
@@ -261,6 +269,21 @@ def load_binding(path, dataset):
     return b
 
 
+def episode_reason(reason):
+    """(stream or None, cause) of a collector health reason, for episode summaries. `gap_*:<stream>:<cause>` gives
+    the gap cause, `stale:` / `not_ready:` / `awaiting_post_reconnect:` / `stream_failed:` the reason kind, and any
+    other reason (connection, writer, task, incident ...) is its own cause."""
+    kind, _, rest = reason.partition(":")
+    if kind in ("gap_short", "gap_open"):
+        stream, sep, cause = rest.rpartition(":")
+        return (stream, f"{kind}:{cause}") if sep and stream else (None, reason)
+    if kind in ("stale", "not_ready", "awaiting_post_reconnect") and rest:
+        return rest, kind
+    if kind == "stream_failed" and rest:
+        return rest.rsplit(":", 1)[0], kind
+    return None, reason
+
+
 class Monitor:
     def __init__(self, a):
         self.a, self.last_sev, self.last_alert, self.unknown = a, None, {}, {}
@@ -270,6 +293,9 @@ class Monitor:
         self.ident = getattr(a, "ident", None) or {}
         self.limit_expect = getattr(a, "limit_expect", None)      # from the binding file (or None)
         self.limit_baseline = None                                # first observation (no binding limits)
+        self.coalesce = bool(getattr(a, "coalesce_health_episodes", False))   # optional, OFF by default
+        self.episode_open_alert_ms = 1000 * int(getattr(a, "episode_open_alert_s", 300) or 300)
+        self.episode = None
         os.makedirs(a.out, exist_ok=True)
 
     def day_dir(self):
@@ -349,6 +375,8 @@ class Monitor:
              "last_closed_day": days[-1] if days else None, "last_sealed_day": seals[-1] if seals else None,
              "universe_epoch": h.get("universe_epoch"), "connection_age_s": h.get("connection_age_s"),
              "_limits": lim}
+        if self.coalesce:
+            s["_health_reasons"] = list(h.get("reasons") or [])   # full list (episode detail); never written as is
         return s
 
     def limits(self, scope):
@@ -395,6 +423,12 @@ class Monitor:
         self.append(LIFECYCLE, dict(obj, t_ms=int(time.time() * 1000)), day=False)
 
     def evaluate(self, s, proc_bad):
+        r = self.severity_reasons(s, proc_bad)
+        sev = max((SEV.index(x) for x, _ in r), default=0)
+        return SEV[sev], sorted({why for _, why in r})
+
+    def severity_reasons(self, s, proc_bad):
+        """[(severity, reason)] for one full sample (evaluate() reduces it to the overall severity)."""
         r = []
         if not s["alive"]:
             r.append(("STOPPED", "collector_not_running"))
@@ -437,8 +471,37 @@ class Monitor:
             r.append(("CRITICAL", "binding_dataset_mismatch"))
         for o in bc.get("other_collectors") or []:
             r.append(("CRITICAL", f"binding_stale:collector_now={o}"))
-        sev = max((SEV.index(x) for x, _ in r), default=0)
-        return SEV[sev], sorted({why for _, why in r})
+        return r
+
+    def episode_step(self, s, health_reasons):
+        """Coalescing mode: track one collector health:DEGRADED episode; write one line when it ends (and one
+        `health_episode_open` line once it has lasted episode_open_alert_ms)."""
+        m, deg = s["t_ms"], s.get("health_state") == "DEGRADED"
+        ep = self.episode
+        if deg:
+            if ep is None:
+                ep = self.episode = {"start_ms": m, "samples": 0, "streams": set(), "causes": set(), "reasons": set(),
+                                     "open_alerted": False}
+            ep["samples"] += 1
+            for r in health_reasons:
+                stream, cause = episode_reason(r)
+                ep["reasons"].add(r)
+                ep["causes"].add(cause)
+                if stream:
+                    ep["streams"].add(stream)
+            if not ep["open_alerted"] and m - ep["start_ms"] >= self.episode_open_alert_ms:
+                ep["open_alerted"] = True
+                self.append("alerts.jsonl", dict(self.episode_summary(ep, m), kind="health_episode_open"), day=False)
+        elif ep is not None:
+            self.append("alerts.jsonl", dict(self.episode_summary(ep, m), kind="health_episode", end_ms=m,
+                                             end_state=s.get("health_state")), day=False)
+            self.episode = None
+
+    @staticmethod
+    def episode_summary(ep, m):
+        return {"t_ms": m, "severity": "DEGRADED", "reasons": sorted(ep["reasons"])[:50], "start_ms": ep["start_ms"],
+                "duration_s": round((m - ep["start_ms"]) / 1000, 1), "samples": ep["samples"],
+                "streams": sorted(ep["streams"])[:50], "streams_total": len(ep["streams"]), "causes": sorted(ep["causes"])}
 
     def alert(self, sev, reasons, s):
         m = s["t_ms"]
@@ -472,13 +535,20 @@ class Monitor:
                 sev, reasons = self.evaluate(dict(s, _binding=bc), bad)
                 s.update(severity=sev, severity_reasons=reasons)
                 lim = s.pop("_limits", None)
+                health_reasons = s.pop("_health_reasons", None)
                 self.append("samples.jsonl", s)
                 tmp = os.path.join(self.a.out, "status.json.tmp")
                 with open(tmp, "w", encoding="utf-8") as fh:
                     json.dump(dict(s, limits=lim, monitor=dict(self.ident, binding_check=bc, status_written_ms=s["t_ms"])), fh,
                               sort_keys=True, indent=1, default=str)
                 os.replace(tmp, os.path.join(self.a.out, "status.json"))
-                self.alert(sev, reasons, s)
+                if self.coalesce:                    # health:DEGRADED -> one line per episode; all else as before
+                    rest = [x for x in self.severity_reasons(dict(s, _limits=lim, _binding=bc), bad)
+                            if x[1] != "health:DEGRADED"]
+                    self.alert(SEV[max((SEV.index(x) for x, _ in rest), default=0)], sorted({w for _, w in rest}), s)
+                    self.episode_step(s, health_reasons or [])
+                else:
+                    self.alert(sev, reasons, s)
                 last_full = time.time()
                 if not ready:
                     sd_notify("READY=1")
@@ -528,11 +598,17 @@ def main(argv=None):
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--record-exit", action="store_true", help="systemd ExecStopPost hook")
     ap.add_argument("--collector-cmdline", default="python -m p2_forward", help="offline harness only")
+    ap.add_argument("--coalesce-health-episodes", action="store_true",
+                    help="optional (OFF by default): one alert line per collector health:DEGRADED episode")
+    ap.add_argument("--episode-open-alert-s", type=int, default=300,
+                    help="with --coalesce-health-episodes: an episode open this long alerts once (candidate value)")
     a = ap.parse_args(argv)
     if a.record_exit:
         return record_exit(a.out)
     if not a.dataset or not (a.cid or a.binding_file):
         ap.error("--dataset and one of --cid / --binding-file are required")
+    if a.episode_open_alert_s <= 0:
+        ap.error("--episode-open-alert-s must be > 0")
     ROLE_EXACT[a.collector_cmdline] = "collector"
     if os.path.abspath(a.out).startswith(os.path.abspath(a.dataset) + os.sep):
         sys.exit("monitor output must be outside the dataset (observe only)")
