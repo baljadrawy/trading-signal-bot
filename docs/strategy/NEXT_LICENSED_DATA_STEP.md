@@ -1,8 +1,9 @@
 # HR-04 / HR-08 (+ HR-13): next step on licensed historical data
 
 **Status: PLAN (D0). Nothing in this file has been run on real data.** Written 2026-10-26 on `research/variant-ledger`
-(PR #94). It describes the stage-X (exploratory) step that would follow the synthetic engineering stage S, and the
-gates that must be passed first. It authorizes nothing, reads no data, registers no non-synthetic variant, spends no
+(PR #94); 2026-10-27 revision adds the next licensed-data stage gated on the LIC-1 outcome (§7), power notes for the
+single look (§8), the fallback if the licence is refused (§9) and the source links (§10). It describes the stage-X
+(exploratory) step that would follow the synthetic engineering stage S, and the gates that must be passed first. It authorizes nothing, reads no data, registers no non-synthetic variant, spends no
 alpha and opens no window.
 
 - **No profitability is claimed** for HR-04, HR-08, HR-13 or any strategy. The synthetic tests listed in §1 prove
@@ -64,7 +65,10 @@ to `AssetSeries` first/last days is a later step. Items 4–5 remain open.
 
 ## 3. Licence status: NOT CLEARED
 
-- LIC-1 draft for this step: `docs/strategy/LIC-1_DATA_LICENCE_INQUIRY.md` (2026-10-27, **not sent**; reuses A22 §4).
+- LIC-1 draft for this step: `docs/strategy/LIC-1_DATA_LICENCE_INQUIRY.md` (2026-10-27 revision 3, **DRAFT – NOT
+  SENT**; reuses A22 §4). Its §A is the owner's send checklist and its §B maps each reply outcome to the gates of §6
+  below. The next stage (§7) starts only on the outcomes "Permitted" or "Permitted with restrictions" whose scope
+  still covers strategy selection for paper testing.
 - Binance Vision terms: **licence HOLD** (A18/A19). The licence inquiry is drafted and **not sent** (profitability
   roadmap O7, `PROFITABILITY_ROADMAP_2026-10-24.md`, PR #91 — **Draft, not merged**).
 - The roadmap's owner decision **RD-5: "Send LIC-1; decide dataset permission (OD-DF-1)"**, with roadmap item R9
@@ -118,3 +122,89 @@ Pure-Python, single core: the synthetic suite runs 5 assets × 750 days per vari
    or forward capture additionally needs operational approval (G-OPS).
 
 Until gates 1–3 are passed, only the D0 engineering items of §1 may proceed.
+
+## 7. Next licensed-data research stage: X1 (gated on the LIC-1 outcome)
+
+**Headline:** one preregistered, single-look exploratory qualification of HR-04 (with HR-13 and HR-08 as registered
+variants) on licence-cleared, pre-freeze Binance Spot daily klines, with a point-in-time top-20 universe that keeps
+delisted pairs. It can only nominate a candidate for a later governed prospective test; it can never confirm one.
+
+**Entry condition.** LIC-1 sent by the owner and answered "Permitted", or "Permitted with restrictions" whose scope
+still covers strategy selection for paper testing (LIC-1 §B). Every other outcome keeps the work in stage S
+(synthetic) and points to §9. In order: OD-DF-1 recorded with the reply reference → certified snapshot (G-DATA) →
+preregistration accepted (RD-2) → scientific authorization of the single look (X-AUTH) → run. Each arrow is a
+separate owner decision (§6).
+
+| Element | X1 content |
+|---|---|
+| Data | §2: daily Spot USDT klines 2019-01-01 → 2026-08-18 plus listing / delisting events, from the source named in OD-DF-1. The archives already on disk (LIC-1 §9) stay unused unless OD-DF-1 names them explicitly, and they end in 2026-05, so the 2026-06-01 → 2026-08-18 tail needs a new acquisition under the confirmed terms (separate owner approval). Vision archives carry no explicit listing / delisting dates: the first / last available bar rule is frozen in the preregistration before data |
+| Hypotheses | **HR-04** primary (register rank 1; A45-G REVISE STRATEGY track 2; roadmap PR #91 W1 / R1 / R8 / R9); **HR-13** (band) and **HR-08** (inverse-vol sizing) as registered variants. Nothing else: the 15m / 4h hypotheses (HR-03, HR-05, A45 H1–H3, A42 C1 / C3) need intraday or funding data and the Paper stream, which this licence question does not cover |
+| Families and alpha | `fam.s4-direction` (HR-04, HR-13, and S4 H2 / H3 only if ever registered) and `fam.risk-overlay` (HR-08), exploratory budget 0.05 split over the family (`research/stats/alpha_budget.exploratory_family_budget`). Romano–Wolf with Holm as a check; DSR with N = every registered variant, abandoned ones included (`docs/strategy/VARIANT_LEDGER.md`) |
+| Costs | `s4-mech-v1` (`research/mechanisms/costs.py`): **fee 0.10 % per side** (0.20 % round trip) as a floor, never discounted; half-spread 0.01 % BTC / ETH and 0.04 % other top-20; slippage 0.05 % per side; stress ×1.5 and ×2 on spread and slippage, never on the fee; the tracker's 0.30 % flat label reported beside. Delisting exits pay full costs; −100 % stress for delistings without a final tradable price |
+| Endpoints | §4: one primary notion named by the owner before data (active net vs EW B&H, or PSR / DSR); gross and net, turnover, cost drag, MDD and duration, P&L concentration, regimes, every variant |
+| Pass rule | roadmap PM-1 (PR #91, Draft): active net vs EW B&H > 0 with HAC t ≥ 2 (lag 7) and bootstrap 95 % CI excluding 0; DSR ≥ 0.95 with full N; mean net > 0 under ×2 cost stress; none of the five S4 failure criteria (§4) triggered. A pass is labelled EXPLORATORY and only nominates a candidate |
+| Output | one labelled summary per variant (`research/strategies/result_summary.py`, label EXPLORATORY with `authorization_ref`), committed as aggregate statistics only. The repository is public, so no data tables, and attribution if the reply requires it |
+
+**Separation of evidence classes (binding).**
+
+| Stage | Data | Purpose | Alpha | Can claim |
+|---|---|---|---|---|
+| S (now) | synthetic, generated inside tests | engineering correctness | none | nothing about markets |
+| **X1 (this plan)** | licence-cleared pre-freeze history, **exposed** (A18: every pre-freeze month was used by earlier studies) | exploratory qualification, one logged look | exploratory 0.05 / family, never the governed budget | "nominated" at most |
+| C (D1/D2 HOLD) | a new prospective partition defined by the owner; **never FORWARD_HOLDOUT** | governed confirmation | 1 / 240 per admission | supported / not supported for the preregistered primary only |
+
+**Holdout rule.** No bar that closes at or after the 2026-08-19 freeze instant is requested, loaded or used, not
+even for warm-up; FORWARD_HOLDOUT and W3 stay sealed; prospective partitions are untouched. A snapshot that contains
+such a bar fails certification and the run aborts with only the abort recorded (§4 technical stop).
+
+## 8. Sample size and power notes (outcome-free)
+
+Normal approximation, one-sided α = 0.05 / 3 (z ≈ 2.13), long-run variance ratio 1, 365.25-day crypto year; these
+reproduce the register's figures (0.76 at 8 years, 0.13 at 1 year). Day-clustering, heavy tails and the DSR
+correction lower every number; the synthetic power simulation (§1 item 5) must replace this table before RD-2.
+
+| Window | Days | MDE (annualized SR, power 0.8) | Power at true SR 0.5 | 1.0 | 1.5 |
+|---|---|---|---|---|---|
+| 1 forward year | 365 | ≈ 2.97 | ≈ 0.05 | ≈ 0.13 | ≈ 0.26 |
+| Logged look 2023-01-01 → 2026-08-18 (current §4 design) | 1,326 | ≈ 1.56 | ≈ 0.12 | ≈ 0.41 | ≈ 0.77 |
+| Whole pre-freeze span 2019-01-01 → 2026-08-18 | 2,787 | ≈ 1.08 | ≈ 0.23 | ≈ 0.74 | ≈ 0.98 |
+
+- The register's "≈ 0.76 over 8 years" applies only if the whole span is the evidence window. With the current §4
+  design (2019–2022 for specification checks only, one look on 2023 → 2026-08-18), power for a true SR of 1.0 is
+  about 0.4. **Owner decision for RD-2:** keep that design and accept low power, or preregister the whole
+  2019-01-01 → 2026-08-18 span as the single look, with specification checks done on synthetic data only.
+- Effective n is the number of days, not asset-days: about 80 % of crypto return variance is a common component, so
+  20 assets do not multiply the sample.
+- For realistic effects (SR ≈ 0.5–1.5), an inconclusive result is the expected outcome, and it must be reported as
+  inconclusive, not as evidence of no effect.
+- The X1 sample is **exposed** history: a pass is a nomination; it says nothing about the effect existing now.
+
+## 9. Fallback if LIC-1 is refused, needs a commercial licence, or gets no answer
+
+Options **to evaluate only**: no downloads, no sign-ups, no contact, until the owner decides. Each needs its own
+licence check against the same questions (LIC-1 §4) and its own OD-DF-1 before any use.
+
+| # | Option | What it would give | Known issues to evaluate |
+|---|---|---|---|
+| F1 | Binance enterprise data licence (Vision terms §3.4) | the same dataset with written rights | no public channel or price found (A22); cost |
+| F2 | Commercial vendor with an explicit research licence (e.g. Kaiko, CoinAPI, Tardis.dev, Amberdata, CCData / CryptoCompare) | contract that states the permitted uses | per vendor: use by an individual for possible personal trading; Binance Spot daily coverage since 2019; **delisted pairs and listing / delisting dates**; retention and derived data after termination; cost |
+| F3 | Datasets published under an explicit open licence that allows the intended use (e.g. CC BY or CC0) | no inquiry needed if the licence text covers the use | availability of Binance Spot daily bars with delisted pairs is unknown; provenance and survivorship must be verified |
+| F4 | Binance REST API klines under the Terms of Use (option B) | a different, also unconfirmed basis | delisted pairs usually unavailable through the API → survivorship bias that breaks the HR-04 PIT universe; bulk historical download may not be a purpose "purposely provided" (cl. 26(i)); needs the same confirmation |
+| F5 | Prospective-only evidence (architecture C, project collector via the API) | avoids the historical-data question | power ≈ 0.13 per year for SR 1.0 (§8); needs a prospective-partition record and G-OPS |
+| F6 | Close the HR-04 direction for now | no licence risk | the only literature-supported direction in the register stays untested |
+
+Under any refusal, the Vision files on disk stay unused and are retained or deleted as the licensor requires
+(LIC-1 §B); stage S engineering (§1 items 4–5) may continue on synthetic data.
+
+## 10. Sources
+
+- LIC-1 inquiry, owner checklist and reply decision table: `docs/strategy/LIC-1_DATA_LICENCE_INQUIRY.md` (PR #94).
+- Hypotheses and statistical accounting: `docs/strategy/HYPOTHESIS_REGISTER.md`, `docs/strategy/VARIANT_LEDGER.md`,
+  `research/stats/` (PR #94, Draft, not merged).
+- Roadmap: `docs/strategy/PROFITABILITY_ROADMAP_2026-10-24.md` (PR #91, Draft, not merged): O7, R9, RD-5, PM-1, EQ-1.
+- A45-G REVISE STRATEGY: owner operating contract §4 (`docs/governance/OWNER_OPERATING_CONTRACT.md` on `main`); A45
+  reports are cited through the register (not re-verified here).
+- Governance: `docs/governance/DEVELOPMENT_FIRST_POLICY.md` (D1, OD-DF-1, OD-DF-2); A29 Evidence Ladder with the
+  D1/D2 HOLD; `docs/strategy/EVIDENCE_LADDER_PARAMETERS.md`.
+- Licence analysis: A18 / A19 (2026-10-11) and A22 §3 (2026-10-12) on the held branch commit `8cb5c9e` (not on
+  `main`).
