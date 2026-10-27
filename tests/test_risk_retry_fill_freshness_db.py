@@ -7,41 +7,20 @@ default p1_schema), as tests/test_evidence_v2_tracker_db.py.
 """
 import sys; sys.path.insert(0, '.'); sys.path.insert(0, 'trade_tracker')
 import asyncio
-import importlib.util
 import json
 import os
-from urllib.parse import urlsplit
 
-import asyncpg
 import pytest
 
 from shared.config import config
 from shared.database import Database
 
 DSN = os.getenv('P1_DB_DSN')
-TEMPLATE = os.getenv('P1_SCHEMA_TEMPLATE', 'p1_schema')
 pytestmark = pytest.mark.skipif(not DSN, reason='P1_DB_DSN not set (disposable PostgreSQL required)')
 
 
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-async def fresh_db(name, monkeypatch):
-    owner = await asyncpg.connect(DSN)
-    await owner.execute(f'DROP DATABASE IF EXISTS {name}')
-    await owner.execute(f'CREATE DATABASE {name} TEMPLATE {TEMPLATE}')
-    await owner.close()
-    u = urlsplit(DSN)
-    for field, value in (('POSTGRES_HOST', u.hostname), ('POSTGRES_PORT', u.port or 5432),
-                         ('POSTGRES_USER', u.username), ('POSTGRES_PASSWORD', u.password),
-                         ('POSTGRES_DB', name)):
-        monkeypatch.setattr(config, field, value)
-    await Database.disconnect()
-    await Database.connect()
+# Same disposable-database helpers as the P1-C tracker lifecycle test (one definition only).
+from test_evidence_v2_tracker_db import fresh_db, load  # noqa: E402
 
 
 async def seed_signal(symbol, entry):
