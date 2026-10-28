@@ -54,6 +54,7 @@ BASE_ENV_KEYS = ('PATH', 'HOME', 'LANG', 'LC_ALL', 'CI', 'TZ', 'PYTHONDONTWRITEB
 EXPR = re.compile(r'\$\{\{\s*(.*?)\s*\}\}')
 COUNTS = re.compile(r'(\d+) (passed|failed|skipped|errors?|xfailed|xpassed|deselected|warnings?|subtests passed)')
 DSN = re.compile(r'postgres(?:ql)?://[^\s\'"]+')
+PYTEST_RUN = re.compile(r'-m pytest\b')          # a pytest invocation (not `pip install pytest==...`)
 LCE_HOME = os.path.expanduser('~/.cache/tsb-lce')
 
 # Classified deviations (CI_EFFICIENCY.md §11.3). classification: portable | portable-with-record |
@@ -441,7 +442,7 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             check_uses(step)
             if not ctx.condition(step.get('if')):
                 srec['result'] = 'skipped (if: false)'
-                srec['pytest'] = 'pytest' in step.get('run', '')
+                srec['pytest'] = bool(PYTEST_RUN.search(step.get('run', '')))
                 if srec['pytest']:
                     srec['counts'] = {}
                 continue
@@ -477,7 +478,7 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             with open(log, 'w') as lf:
                 lf.write(text)
             srec.update({'rc': rc, 'seconds': round(time.time() - t0, 1), 'log': os.path.basename(log),
-                         'pytest': 'pytest' in script})
+                         'pytest': bool(PYTEST_RUN.search(script))})
             if srec['pytest']:
                 srec['counts'] = pytest_counts(text)
             for line in open(files['output']):

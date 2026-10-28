@@ -263,3 +263,11 @@ def test_reviewed_pins_and_deviation_classes_are_documented():
         assert d['id'] in doc and d['classification'] in doc
     assert {d['classification'] for d in lce.STATIC_DEVIATIONS} <= {
         'portable', 'portable-with-record', 'requires-verification', 'not-reproduced'}
+
+
+def test_pytest_step_detection_ignores_installs():
+    wf_install = 'python -m pip install "$(grep -E \'^pytest==\' .github/ci/requirements-test.txt)"\npython -m pip check'
+    assert not lce.PYTEST_RUN.search(wf_install)
+    assert lce.PYTEST_RUN.search('python -m pytest -q -p no:cacheprovider -rs tests')
+    for job in _workflow()['jobs'].values():          # every job keeps at least one real pytest step
+        assert any(lce.PYTEST_RUN.search(s.get('run', '')) for s in job['steps'])
