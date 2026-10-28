@@ -75,3 +75,21 @@ above, which differ on each side.
 
 **Correction.** The 2026-10-27 operational report named the 23:21Z `entry.attempt` as the first post-activation
 evidence record. The first records are the `recorder.started` events listed above; the identifiers are the same.
+
+### VB-2026-10-27-01 amendment A2 (recorded 2026-10-28): first admission.decision
+
+Closes the "Still PENDING: first admission.decision" item of amendment A1. Source: trade_tracker Evidence v2
+(`data/evidence_v2/trade_tracker/events-2026-10-28.jsonl`), read on the host. Amendment A1 is not rewritten.
+
+```
+first_admission_decision : 2026-10-28T00:06Z  event_id evt_a92593e4b6e462cbb0a6026a47d37cb2  (15m signal)
+outcome_code             : OPENED
+risk_policy_version      : econ-observe-v1
+config_hash / code_sha   : c2af868dbb79… / ad43026473f4… (the A1 values)
+admissions_by_08:00Z     : 19 admission.decision records after the boundary; 5 trades opened since the /resume
+                           (read-only counts at about 08:40Z); risk.halted unchanged at 6, risk.observed 0
+```
+
+The label is therefore verified on the first admission evaluated after the boundary. Trades admitted from
+2026-10-28T00:06Z carry `risk_policy_version=econ-observe-v1` in their admission records; the stratification rule of
+the entry above is unchanged.
