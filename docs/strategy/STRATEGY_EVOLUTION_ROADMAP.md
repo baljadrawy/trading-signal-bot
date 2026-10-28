@@ -235,3 +235,10 @@ Synthetic bias rows show the legacy replay is optimistic by speed × ½ poll + g
   No further replay infrastructure is planned unless the review asks for it.
 
 **Decision:** READY FOR SCIENTIFIC DESIGN REVIEW.
+
+### A45-G — net evaluation and causal regimes (`integration/rnd`; D0, synthetic only)
+
+- `research/evaluation/net_eval.py` (`a45g-ne-v1`): trade-population evaluation on the `a48-cost-v1` convention (A48 ledger adapter, parity tested). Per-component cost attribution (fee / spread / slippage), break-even gross edge, ×1.5/×2 spread-and-slippage stress with a `fragile` flag, turnover in capital units, fixed-notional drawdown, unfilled intents kept, day-cluster SE, **design effect** and effective n (the A45-F unknown), seeded day-cluster bootstrap, top-1 % and symbol/day concentration. Labels: `SYNTHETIC`, or `EXPLORATORY_NOT_CONFIRMATORY` only with a recorded `DatasetPermission` plus an owner reference.
+- `research/evaluation/regimes.py` (`a45g-rg-v1`): causal trend/volatility labels for a reference series (closed bars only, prefix-invariant, hysteresis), as-of join to trades (bar closing at the decision is excluded). Supports H1/W6 stratification once a permitted dataset exists.
+- `research/evaluation/synthetic.py`: Markov-switching market and a null (random-entry) trade generator for engine checks.
+- No real data was read (no dataset permission exists; DEVELOPMENT_FIRST_POLICY §2 D1). Nothing here is evidence of an edge.
