@@ -44,3 +44,34 @@ captures, hash gates, pause reads, CI run IDs), not from memory, and the delay h
 was admitted between 10:56Z and the time of writing, because the technical pause blocks admissions. Two fields
 (`config_hash_after`, `code_sha_after`) stay PENDING until the first evidence record and will be filled by an
 amendment, never by rewriting this entry's other fields.
+
+### VB-2026-10-27-01 amendment A1 (recorded 2026-10-28): evidence identifiers
+
+Fills the two PENDING fields above from Evidence v2 records read on the host
+(`data/evidence_v2/<service>/events-2026-10-27.jsonl`). The fields of the entry above are not rewritten.
+
+```
+config_hash_after     : c2af868dbb799919c165717262d6929aba27b0cbbfab27bc2d9d14ded902bb19  (trade_tracker and telegram)
+config_hash_before    : 7f5246cb6d843ca2ff14be8dec4afe51fe09629a247a2c56a3c87ead185dcb9e  (both services, last record
+                        before each step: trade_tracker 10:50Z, telegram 11:46Z)
+code_sha_after        : trade_tracker ad43026473f46ecb8f3fa13497ad865ef4af02f44ceded869af6cac37c60591a
+                        telegram      417bf99f8e27fa9a5bf03a8fbcfed14bc692e2df733031dc62289754d750787d
+code_sha_before       : trade_tracker 6a45297bedc818332f2ca756381f352cec75508911563ea81e9bdcefeb639ff9
+                        telegram      6beadba130ab5a107762911e1031db6afe84fcda64c65164254d6c0bc1e9ddf6
+first_record_after    : trade_tracker recorder.started 2026-10-27T10:56Z; telegram recorder.started 2026-10-27T11:51Z.
+                        Every later record of both services carries the same pair (one distinct pair per service).
+first_trading_record  : trade_tracker entry.attempt 2026-10-27T23:21Z (signal 15896, 15m), outcome ENTRY_REJECTED
+                        (signal_invalidated_before_fill) after the owner's /resume (risk_management row 36139,
+                        manual_resume, first seen 22:46Z). Rejected at the fill stage, before any risk evaluation.
+build_revision        : unknown (the overlay images carry the revision only as an OCI label, not in the records)
+strategy_version      : sb-2026.08 (unchanged across the boundary)
+```
+
+**Still PENDING: first admission.decision.** No `admission.decision` record exists after the boundary yet: the only
+post-/resume signal was rejected before the risk check, so 0 trades were admitted. The `risk_policy_version` label
+(`econ-observe-v1`) is carried only by `admission.decision` payloads, so its verification waits for the first
+admission evaluation. Until then, trades are separated by this boundary minute and by the config_hash/code_sha pairs
+above, which differ on each side.
+
+**Correction.** The 2026-10-27 operational report named the 23:21Z `entry.attempt` as the first post-activation
+evidence record. The first records are the `recorder.started` events listed above; the identifiers are the same.
