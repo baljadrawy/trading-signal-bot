@@ -376,6 +376,9 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
   same reference trees), collector suite and parity inventory.
 - Evidence (SHA-bound): `~/ops/ci-evidence/<sha>/` with the commands, interpreter version, requirements hash,
   pass/fail/skip counts, full logs and their sha256; summarised in the commit or review note.
+- Environment parity matters: run with `umask 022` (the hosted runner's default) and the collector suite from
+  `p2_forward/`, as `tests.yml` does. A trial run on 2026-10-28 under `umask 077` failed one collector test
+  (`test_p2f_ack_recovery`, file mode 0o400 instead of 0o444) that passes under `umask 022`.
 - Disposable PostgreSQL: this host has no PostgreSQL binaries outside containers. Options for owner decision:
   (a) a throwaway container from the already-present `postgres:16.15-alpine3.24` image (no pull), `--rm`, no mount of
   any production path, port bound to 127.0.0.1, CPU and memory caps, removed after the run; (b) PostgreSQL 16 client
