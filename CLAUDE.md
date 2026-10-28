@@ -1,6 +1,6 @@
 # CLAUDE.md — بوت إشارات تداول Binance
 
-بوت توليد إشارات على Binance يعمل **Paper Trading فقط** (لا تداول حقيقي). الوضع الحالي: **التعلّم الحي** — يجمع صفقات حيّة بمؤشرات بسيطة + سياق ماكرو (BTC/ETH/USDT.D) ويتعلّم باستمرار من الدورة الحالية.
+بوت توليد إشارات على Binance يعمل **Paper Trading فقط** (لا تداول حقيقي). الوضع الحالي (2026-10-28): جمع صفقات Paper مستقبلية بمؤشرات بسيطة + سياق ماكرو (BTC/ETH/USDT.D)، بوضع `PAPER_ECONOMIC_HALT_MODE=observe` منذ 2026-10-27 (`deploy/VERSION_BOUNDARY.md`). **المتعلّم المستمر (`continuous_learner`) متوقف منذ 2026-08-17** ولا يعدّل الأوزان؛ أي تشغيل له يحتاج تفويضاً منفصلاً من المالك (قسم سلامة التشغيل أدناه).
 
 > **مرجع إلزامي قبل كل مهمة:** اقرأ [OWNER_OPERATING_CONTRACT.md](docs/governance/OWNER_OPERATING_CONTRACT.md) ثم الوثائق المتخصصة. يضم قرارات المالك المعتمدة بتاريخ 2026-10-26: Continuous Development + PR-on-Demand، استمرارية Paper عند الخسائر الاقتصادية، Claude Code للتنفيذ، GitHub/runtime parity، وحدود النشر والسلامة. هذا لا يعني أن تعديل كود Paper أو نشره قد حدث. عند تعارض تعليمات سير العمل القديمة، قدّم قرار المالك الأحدث دون تجاوز قيود التشغيل/الأدلة/الحماية.
 
@@ -13,6 +13,7 @@
 ## GitHub usage and compute cost (owner directive 2026-10-28, permanent)
 
 - [OWNER_OPERATING_CONTRACT.md §8](docs/governance/OWNER_OPERATING_CONTRACT.md): local/isolated testing is the default; GitHub Actions runs must be purposeful (batch pushes, no redundant runs); disposable PostgreSQL only, never a production database for tests; heavy research never on GitHub-hosted CI; no paid runners or spending changes without owner approval; never weaken a gate to save cost — propose a documented equivalent instead. Existing CI gates stay in force until an alternative is approved (`docs/ops/CI_EFFICIENCY.md` §10).
+- **LCE (owner decision 2026-10-28, contract §9):** `python3 ops/ci/lce.py <sha>` runs the `tests.yml` jobs locally with SHA-bound evidence in `~/ops/ci-evidence/<sha>/` and fails closed (`docs/ops/CI_EFFICIENCY.md` §11). It substitutes for GitHub CI checks only after independent review of the runner; GitHub branch protections stay binding.
 
 ## R1.3 recovery governance (merged in PR #46, 2026-10-18)
 
@@ -52,7 +53,7 @@ research/skill_application/.venv/bin/python -m pytest tests/ -q               # 
 - `git add <paths>` محدّدة — **تجنّب `git add -A`** (مخرجات بحث ضخمة غير متعقّبة).
 
 ## التوثيق المفصّل
-- [وضع التعلّم الحي (النظام الحالي)](docs/claude/live-learning.md)
+- [وضع التعلّم الحي (التصميم؛ المتعلّم متوقف منذ 2026-08-17)](docs/claude/live-learning.md)
 - [البنية والقرارات التقنية](docs/claude/architecture.md)
 - [قاعدة البيانات](docs/claude/database.md)
 - [التشغيل والإعدادات + Telegram](docs/claude/operations.md)

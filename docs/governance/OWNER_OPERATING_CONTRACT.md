@@ -88,3 +88,23 @@ commits stay small; rule 5 batches the pushes, not the commits. A local
 CI-equivalent evidence standard that could substitute for them is proposed in `docs/ops/CI_EFFICIENCY.md` §10 and
 takes effect only after a separate owner approval. Existing CI savings (`CI_EFFICIENCY.md` §3: C1–C5) stay in place;
 workflow triggers are changed only after a documented impact assessment and owner approval.
+
+## 9. Local CI-Equivalent (LCE) — OWNER DECISION, 2026-10-28
+
+The owner approved LCE as an alternative verification mechanism for development and integration gates, subject to
+strict equivalence and auditable evidence. It does not waive tests, does not bypass enforced GitHub branch
+protections and authorises no production operation.
+
+- Runner and procedure: `ops/ci/lce.py`, `docs/ops/CI_EFFICIENCY.md` §11. It runs the jobs of
+  `.github/workflows/tests.yml` for one exact SHA in a clean disposable worktree and fails closed on missing
+  evidence, failed tests, incomplete coverage, environment mismatch or unverified equivalence (a workflow that differs
+  from the reviewed one is refused).
+- Disposable PostgreSQL containers only, isolated from production networks, volumes, credentials and databases. No
+  host packages are installed and no production service is altered.
+- **Substitution takes effect only after the runner and its equivalence have been independently reviewed.** From
+  then on, an LCE verdict PASS for a SHA (manifest + checksums) may stand in for the documented development and
+  integration CI checks (BRANCH_RELEASE_POLICY §3 "CI green", the Development-First "provided CI is green"
+  condition). Existing GitHub-enforced branch protections remain binding; required checks are not disabled and
+  protection settings are not modified. If GitHub prevents an integration despite valid LCE evidence, the blocker is
+  reported, never bypassed. No PR is opened merely to implement this policy.
+- Production deployment, restarts, database changes and protected scientific operations remain separately gated.

@@ -368,7 +368,7 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
 | O4 | Docs-only change scope for the default and PostgreSQL jobs | small | many tests read documentation; needs a tested path map; low priority |
 | O5 | Local CI-equivalent evidence (LCE), below | lets D0 work proceed when Actions is unavailable or not worth the cost | substitution of a mandatory gate needs owner approval |
 
-### 10.3 Proposal O5: local CI-equivalent evidence (LCE) — NOT APPROVED, not in force
+### 10.3 Proposal O5: local CI-equivalent evidence (LCE) — approved 2026-10-28, implemented in §11
 
 - Runner: a script (to be written and reviewed) that checks out the exact SHA in a clean throwaway `git worktree`,
   builds a virtualenv from `.github/ci/requirements-test.txt` (hash recorded), and runs the same commands as the
@@ -386,3 +386,56 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
 - Substitution rule: LCE may stand in for a named GitHub-hosted check only after owner approval of that substitution;
   the reviewer accepts it on the evidence (or re-runs it). Until approved, BRANCH_RELEASE_POLICY §3 and the required
   checks apply unchanged.
+
+## 11. LCE runner (owner decision 2026-10-28, contract §9)
+
+**Status:** implemented in `ops/ci/lce.py` (runner `lce-1`), tests `tests/test_lce_runner.py`. Substitution for a
+GitHub-hosted check takes effect only after independent review of the runner and of this equivalence matrix.
+
+### 11.1 Use
+
+```
+python3 ops/ci/lce.py <40-hex SHA>            # all four jobs; exit 0 only for verdict PASS
+python3 ops/ci/lce.py <SHA> --jobs database   # diagnosis only: verdict PARTIAL, never a substitute
+```
+Evidence: `~/ops/ci-evidence/<sha>/lce-<UTC stamp>/` — `manifest.json` (SHA, tree, workflow and job hashes, host
+identity, per-step command, cwd, rc, duration and pytest counts, environments with `pip freeze` hashes, postgres
+image/container/port, deviations, refusals, verdict, runner sha256), one log per step, `freeze-*.txt`, `SHA256SUMS`.
+
+### 11.2 How equivalence is obtained
+
+The runner executes the workflow's own `run:` steps, from the target tree, in step order, with the job and step
+`env:`, `working-directory`, `if:` conditions and the GitHub shell (`bash --noprofile --norc -eo pipefail`). Only what
+GitHub itself provides is emulated, from a closed allowlist; anything else is refused:
+
+| tests.yml element | GitHub | LCE |
+|---|---|---|
+| `actions/checkout@v4` (+ `fetch-depth: 0`) | fresh clone at the SHA | `git fetch origin`, then a clean detached worktree of the SHA (full history); refused if not clean |
+| `actions/setup-python@v5` `'3.12'` | latest 3.12 on ubuntu-24.04 | fresh venv from the host 3.12 interpreter; refused for any other minor |
+| `actions/cache/restore`/`save` (`~/ci-venv`) | cache keyed by image, Python, requirements hash | persistent LCE `HOME` keyed by Python minor + sha256 of `requirements-test.txt`; the workflow's own `pip install -r` runs every time; save is a no-op |
+| `services.postgres` `postgres:16.15-alpine`, `env`, `options` | service container on 5432 | the single local image with `PG_VERSION=16.15`, `--pull never`, same `env` and `options` read from tests.yml, default `bridge` network (refused if any other container is attached), no volume (tmpfs data), `127.0.0.1:<free port>`, memory/CPU/pid caps, removed after the run |
+| `psql` on the runner | preinstalled client | shim forwarding to the disposable server's own `psql` 16.15 (`-f` files streamed) |
+| `${{ … }}` expressions | full language | env.*, steps.*.outputs.*, github.workspace/sha/event_name/ref/event.* (manual-run values), `==`, `!=`, `&&`, `||`; anything else refused |
+| `GITHUB_OUTPUT` / `GITHUB_PATH` / `GITHUB_STEP_SUMMARY` | runner files | per-step files, applied the same way |
+| change scope (collector job) | may skip on PRs | `event_name=workflow_dispatch`: always the full collector suite |
+| environment | runner image | minimal env (`PATH`, `HOME`, `LANG=C.UTF-8`, `TZ=UTC`, `CI=true`), umask 022, `timeout-minutes` per job |
+
+**Pins (fail closed on any difference):** whole `tests.yml` sha256 `f30ffb0c5e65e2f6…`; job definitions (sha256 of the
+canonical JSON) unit `7859f6e1aa52…`, database `167412ca0a99…`, collector `d5333c09a64c…`, parity-inventory
+`86fc0fc604a2…`. `tests/test_lce_runner.py` fails when tests.yml changes without a reviewed runner update.
+
+**Verdict PASS requires:** all four jobs run; every executed step rc 0; at least one passing pytest step per job; no
+failed or error counts; pins, Python minor and umask verified; evidence written with checksums. Any exception is a
+FAIL. A job subset is PARTIAL and never substitutes.
+
+### 11.3 Known deviations and limitations (recorded in every manifest)
+
+- Host Python 3.12.3 vs the runner's latest 3.12 patch; aarch64 vs x86_64; Ubuntu host vs `ubuntu-24.04` image.
+- PostgreSQL 16.15 on the local arm64 image for the workflow tag `postgres:16.15-alpine` (OS variant not verified
+  beyond `PG_VERSION`); published on a free localhost port instead of 5432 (taken by the shared production server); the
+  job `PGURL` is rewritten to that port only.
+- Network access to PyPI is needed for the pinned installs, as on GitHub; a PyPI change between runs is visible in the
+  `pip freeze` hashes.
+- The `pull_request` merge-commit test is not reproduced: LCE tests the exact SHA (as the `push` runs do).
+- Trial run 2026-10-28 (runner before its first commit), database job only, on `ea2e9f4`: PASS — 2652 passed /
+  4 skipped / 1 deselected, then 18 and 10 passed; the Retry Guard DB test executed (not among the skips).
