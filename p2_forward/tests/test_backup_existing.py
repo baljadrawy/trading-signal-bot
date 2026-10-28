@@ -178,6 +178,20 @@ class ExistingDestination(unittest.TestCase):
         self.check_fail("unreadable")
         self.assert_untouched()
 
+    @unittest.skipIf(os.geteuid() == 0, "root reads mode-000 files")
+    def test_unreadable_copy_or_source_file_fails_loudly(self):
+        rel = f"raw/depth/{DAY}/depth-20260105T03Z-x.idx"
+        for root, side in ((self.copy, "copy"), (self.base, "source")):
+            p = os.path.join(root, rel)
+            mode = os.stat(p).st_mode & 0o777
+            os.chmod(p, 0)
+            try:
+                self.check_fail(f"{side}_unreadable:PermissionError")
+            finally:
+                os.chmod(p, mode)
+            shutil.rmtree(os.path.join(self.base, "incidents"))
+        self.assert_untouched()
+
     def test_not_sealed_unchanged_with_flag(self):
         rc, _, err = run_main("backup", self.base, "2026-01-04", "--dest", self.dest, "--floor-gb", "0",
                               "--verify-existing")

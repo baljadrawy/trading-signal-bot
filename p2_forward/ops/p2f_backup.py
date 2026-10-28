@@ -126,6 +126,12 @@ def verify_existing(base, day, seal, seal_p, out):
     the source's immutable files. Raises BackupError(existing_destination_mismatch:...) on any difference."""
     def bad(why):
         return BackupError(f"existing_destination_mismatch:{why}:{out}")
+
+    def digest(path, rel, side):
+        try:
+            return sha(path)
+        except OSError as e:                                    # unreadable file: a loud mismatch, never a traceback
+            raise bad(f"{side}_unreadable:{type(e).__name__}:{rel}") from None
     try:
         with open(os.path.join(out, "SHA256SUMS"), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -151,14 +157,17 @@ def verify_existing(base, day, seal, seal_p, out):
     if extra or missing:
         raise bad(f"file_set_differs:extra={extra[:3]},missing={missing[:3]}")
     for r, d0 in sorted(listed.items()):
-        if sha(os.path.join(out, r)) != d0:
+        if digest(os.path.join(out, r), r, "copy") != d0:
             raise bad(f"copy_digest_differs:{r}")
-    cur = {r for r in file_set(base, day, seal) if _immutable(r, day)}
+    try:
+        cur = {r for r in file_set(base, day, seal) if _immutable(r, day)}
+    except (OSError, ValueError) as e:
+        raise bad(f"source_unreadable:{type(e).__name__}") from None
     lst = {r for r in listed if _immutable(r, day)}
     if cur != lst:
         raise bad(f"source_set_differs:only_source={sorted(cur - lst)[:3]},only_copy={sorted(lst - cur)[:3]}")
     for r in sorted(cur):
-        if sha(os.path.join(base, r)) != listed[r]:
+        if digest(os.path.join(base, r), r, "source") != listed[r]:
             raise bad(f"source_digest_differs:{r}")
     return {"backup": "OK (exists)", "day": day, "dest": out, "files": len(listed), "verified": "sha256"}
 
