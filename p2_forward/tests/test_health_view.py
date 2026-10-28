@@ -166,6 +166,15 @@ class PolicyStaysDegraded(unittest.TestCase):
                       "awaiting_post_reconnect_data", "disk_hard_stop"):
             self.deg([f"gap_short:{T1D}:{cause}"])
 
+    def test_gap_that_later_saw_another_cause(self):
+        # the reason names only the gap's FIRST cause; any later non-stale cause of the same gap is not tolerable
+        for cause in ("sampler_stall", "ws_disconnect_reconnect", "awaiting_post_reconnect_data"):
+            self.deg([f"gap_short:{T2D}:stale_stream"],
+                     info_table({T2D: {"gap_first_ms": M0 - 20_000, "gap_causes": ["stale_stream", cause]}}))
+        r = policy().apply("DEGRADED", [f"gap_short:{T2D}:stale_stream"], [], [], M0,
+                           info_table({T2D: {"gap_first_ms": M0 - 20_000, "gap_causes": ["stale_stream"]}}))
+        self.assertEqual(r["state"], "HEALTHY")
+
     def test_age_at_or_beyond_t(self):
         self.deg([f"gap_open:{T1D}:stale_stream"], info_table({T1D: {"gap_first_ms": M0 - 120_000}}))
         self.deg([f"stale:{T1D}"], info_table({T1D: {"last_ms": M0 - 180_000 - 120_000}}))
@@ -356,6 +365,24 @@ class AppFlagOn(unittest.TestCase):
                 c.write_health()
                 f = json.loads(read_file(d))
                 self.assertEqual(f["state"], "DEGRADED"); self.assertIn("task_stale:sampler", f["reasons"])
+            finally:
+                stop_writer(c)
+
+    def test_tiering_gap_with_a_later_cause_in_app(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = fed_collector(d, **ON)
+            t1d, t0d, t1b = names(c)
+            try:
+                tr, m = c.tracks[t1d], A.now_ms()
+                tr.values.latest = ((m - 200_000) * 1_000_000, {}, 9)       # 20 s past its 180 s bound: tolerable
+                tr.missing(m - 15_000, "stale_stream")
+                c.write_health()
+                self.assertEqual(json.loads(read_file(d))["state"], "HEALTHY")
+                tr.missing(m - 5_000, "sampler_stall")                       # same gap, later cause: reason unchanged
+                c.write_health()
+                f = json.loads(read_file(d))
+                self.assertIn(f"gap_short:{t1d}:stale_stream", f["reasons"])
+                self.assertEqual((f["state"], f["coverage_policy"]["raw_state"]), ("DEGRADED", "DEGRADED"))
             finally:
                 stop_writer(c)
 

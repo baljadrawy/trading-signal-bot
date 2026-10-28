@@ -109,7 +109,9 @@ class CoveragePolicy:
         return age
 
     def apply(self, state: str, hard: list, startup: list, warn: list, m: int, stream_info) -> dict:
-        """stream_info(name) -> {tier, kind, gap_first_ms, last_ms, stale_ms} or None (unknown stream: not tolerable).
+        """stream_info(name) -> {tier, kind, gap_first_ms, gap_causes, last_ms, stale_ms} or None (unknown stream: not
+        tolerable). `gap_causes` is every cause of the stream's open gap: the reason names only the gap's FIRST cause, so
+        a gap that began as stale_stream and later saw any other cause is not tolerable.
         Returns {state, reasons, warnings, coverage_state, detail}; the inputs are never mutated."""
         if not evaluated(state, startup):
             return {"state": state, "reasons": list(hard), "warnings": list(warn), "coverage_state": None,
@@ -136,6 +138,7 @@ class CoveragePolicy:
             info = stream_info(name)
             ok = (info is not None and info.get("tier") in TOLERATED_TIERS and info.get("kind") in TOLERATED_KINDS
                   and all(c is None or c in TOLERATED_CAUSES for c in causes)
+                  and all(c in TOLERATED_CAUSES for c in (info.get("gap_causes") or ()))   # every cause the gap ever had
                   and self._age_ms(self.streams[name], info, m) < self.t_ms)
             if not ok:
                 self.streams[name]["level"] = "DEGRADED"

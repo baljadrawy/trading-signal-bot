@@ -2147,7 +2147,9 @@ class Collector:
                 t = by_name.get(name)
                 return None if t is None else {"tier": t.tier, "kind": t.kind, "last_ms": t.last_recv_ms(),
                                                "stale_ms": t.stale_ms,
-                                               "gap_first_ms": None if getattr(t, "gap", None) is None else t.gap["first"]}
+                                               "gap_first_ms": None if getattr(t, "gap", None) is None else t.gap["first"],
+                                               "gap_causes": None if getattr(t, "gap", None) is None else
+                                               sorted(t.gap["causes"])}
             res = self.coverage_policy.apply(h["state"], h["reasons"], h["startup_reasons"], h["warnings"], h["ts_ms"], info)
             v.update(state=res["state"], reasons=res["reasons"], warnings=res["warnings"], coverage_policy=res["detail"])
             cov = res["coverage_state"]

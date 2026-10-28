@@ -317,7 +317,7 @@ warning). After 20 consecutive regressions the new sequence is accepted as an ex
     - fewer than `health_coverage_max_streams` (K) affected Tier-1/2 book or depth streams;
     - each of them affected for less than `health_coverage_max_age_s` (T) seconds. The age is the longest of the
       episode age, the open-gap extent and the time past the stream's stale bound.
-    - Everything else stays DEGRADED immediately: Tier 0, the market stream, any other gap cause, age at or above T,
+    - Everything else stays DEGRADED immediately: Tier 0, the market stream, any other gap cause (also a later cause of a gap that began as `stale_stream`), age at or above T,
       a connection not data-live, a stream not ready, failed or awaiting post-reconnect data, and every integrity or
       operational reason.
     - Clearing needs 2 consecutive clean evaluations. Until then the stream keeps its episode age and counts toward K.
