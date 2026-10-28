@@ -389,8 +389,10 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
 
 ## 11. LCE runner (owner decision 2026-10-28, contract §9)
 
-**Status:** implemented in `ops/ci/lce.py` (runner `lce-1`), tests `tests/test_lce_runner.py`. Substitution for a
-GitHub-hosted check takes effect only after independent review of the runner and of this equivalence matrix.
+**Status:** runner `lce-2` in `ops/ci/lce.py`, tests `tests/test_lce_runner.py`. Hardened after the internal review of
+`d1184c8` (dedicated network, verified cleanup, classified deviations, negative tests, DSN and environment guards).
+Substitution for a GitHub-hosted check takes effect only after independent review. **This is not universal
+equivalence**: §11.3 classifies what is portable and what still needs verification.
 
 ### 11.1 Use
 
@@ -400,7 +402,8 @@ python3 ops/ci/lce.py <SHA> --jobs database   # diagnosis only: verdict PARTIAL,
 ```
 Evidence: `~/ops/ci-evidence/<sha>/lce-<UTC stamp>/` — `manifest.json` (SHA, tree, workflow and job hashes, host
 identity, per-step command, cwd, rc, duration and pytest counts, environments with `pip freeze` hashes, postgres
-image/container/port, deviations, refusals, verdict, runner sha256), one log per step, `freeze-*.txt`, `SHA256SUMS`.
+image/OS/arch/network/IP, cleanup report, classified deviations, refusals, verdict, runner sha256), one log per step,
+`freeze-*.txt`, `SHA256SUMS`.
 
 ### 11.2 How equivalence is obtained
 
@@ -412,30 +415,55 @@ GitHub itself provides is emulated, from a closed allowlist; anything else is re
 |---|---|---|
 | `actions/checkout@v4` (+ `fetch-depth: 0`) | fresh clone at the SHA | `git fetch origin`, then a clean detached worktree of the SHA (full history); refused if not clean |
 | `actions/setup-python@v5` `'3.12'` | latest 3.12 on ubuntu-24.04 | fresh venv from the host 3.12 interpreter; refused for any other minor |
-| `actions/cache/restore`/`save` (`~/ci-venv`) | cache keyed by image, Python, requirements hash | persistent LCE `HOME` keyed by Python minor + sha256 of `requirements-test.txt`; the workflow's own `pip install -r` runs every time; save is a no-op |
-| `services.postgres` `postgres:16.15-alpine`, `env`, `options` | service container on 5432 | the single local image with `PG_VERSION=16.15`, `--pull never`, same `env` and `options` read from tests.yml, default `bridge` network (refused if any other container is attached), no volume (tmpfs data), `127.0.0.1:<free port>`, memory/CPU/pid caps, removed after the run |
+| `actions/cache/restore`/`save` (`~/ci-venv`) | cache keyed by image, Python, requirements hash | persistent LCE `HOME` keyed by Python minor + sha256 of `requirements-test.txt`; the workflow's own `pip install -r` runs every time; save is a no-op; refused if the home holds a `.pgpass` |
+| `services.postgres` `postgres:16.15-alpine`, `env`, `options` | service container, `127.0.0.1:5432` | **a dedicated `--internal` bridge network created per run** (no route out, verified empty before use) and the single local image with `PG_VERSION=16.15` (`--pull never`), same `env` and `options` read from tests.yml, no volume (tmpfs), **no published port**, `no-new-privileges`, memory/CPU/pid caps; the host reaches the container IP |
+| isolation checks | n/a | after start and again at the end of the job: the network is internal, bridge, and its only member is the LCE container; the container is on that network only, with no mount, bind, published port or privilege — otherwise refused |
+| job DSNs | `127.0.0.1:5432` | rewritten to `<container IP>:5432`; **every** postgres URL in job and step env must target that container (refused otherwise: e.g. the shared production server on 127.0.0.1:5432 or a compose host name) |
 | `psql` on the runner | preinstalled client | shim forwarding to the disposable server's own `psql` 16.15 (`-f` files streamed) |
 | `${{ … }}` expressions | full language | env.*, steps.*.outputs.*, github.workspace/sha/event_name/ref/event.* (manual-run values), `==`, `!=`, `&&`, `||`; anything else refused |
 | `GITHUB_OUTPUT` / `GITHUB_PATH` / `GITHUB_STEP_SUMMARY` | runner files | per-step files, applied the same way |
 | change scope (collector job) | may skip on PRs | `event_name=workflow_dispatch`: always the full collector suite |
-| environment | runner image | minimal env (`PATH`, `HOME`, `LANG=C.UTF-8`, `TZ=UTC`, `CI=true`), umask 022, `timeout-minutes` per job |
+| environment | runner image | **built from scratch** for every step (`PATH`, `HOME`, `LANG=C.UTF-8`, `LC_ALL`, `TZ=UTC`, `CI=true`, two pip/python flags, job/step env, `GITHUB_*`); nothing is inherited from the caller; umask 022; `timeout-minutes` per job |
+| cleanup | runner discarded | container and network removed, worktrees removed and pruned, temp dir deleted; then **verified** (by name and by the run label, `git worktree list`, the directory): any residue makes the verdict FAIL |
+| logs | runner logs | the throwaway service values and DSN credentials are redacted from step logs and the manifest |
 
 **Pins (fail closed on any difference):** whole `tests.yml` sha256 `f30ffb0c5e65e2f6…`; job definitions (sha256 of the
 canonical JSON) unit `7859f6e1aa52…`, database `167412ca0a99…`, collector `d5333c09a64c…`, parity-inventory
 `86fc0fc604a2…`. `tests/test_lce_runner.py` fails when tests.yml changes without a reviewed runner update.
 
-**Verdict PASS requires:** all four jobs run; every executed step rc 0; at least one passing pytest step per job; no
-failed or error counts; pins, Python minor and umask verified; evidence written with checksums. Any exception is a
-FAIL. A job subset is PARTIAL and never substitutes.
+**Verdict PASS requires:** all four jobs run; every executed step rc 0; every pytest step produced a summary; no
+failed or error counts; at least one pass per job; pins, Python minor and umask verified; isolation verified twice;
+cleanup verified with no residue; evidence written with checksums. Any refusal or exception is FAIL. A job subset is
+PARTIAL and never substitutes.
 
-### 11.3 Known deviations and limitations (recorded in every manifest)
+### 11.3 Deviations, classified (recorded in every manifest)
 
-- Host Python 3.12.3 vs the runner's latest 3.12 patch; aarch64 vs x86_64; Ubuntu host vs `ubuntu-24.04` image.
-- PostgreSQL 16.15 on the local arm64 image for the workflow tag `postgres:16.15-alpine` (OS variant not verified
-  beyond `PG_VERSION`); published on a free localhost port instead of 5432 (taken by the shared production server); the
-  job `PGURL` is rewritten to that port only.
-- Network access to PyPI is needed for the pinned installs, as on GitHub; a PyPI change between runs is visible in the
-  `pip freeze` hashes.
-- The `pull_request` merge-commit test is not reproduced: LCE tests the exact SHA (as the `push` runs do).
-- Trial run 2026-10-28 (runner before its first commit), database job only, on `ea2e9f4`: PASS — 2652 passed /
-  4 skipped / 1 deselected, then 18 and 10 passed; the Retry Guard DB test executed (not among the skips).
+| id | deviation | classification | portable / still to verify |
+|---|---|---|---|
+| ARCH | aarch64 host vs x86_64 runner | requires-verification | portable: pure-Python logic, SQL, file formats; to verify: anything depending on compiled wheels (numeric/TA libraries), float formatting, platform-specific packages |
+| PY_PATCH | host 3.12.3 vs latest 3.12 patch | requires-verification | same minor enforced; CPython bugfix-level differences only |
+| HOST_OS | host Ubuntu, git and bash versions vs the ubuntu-24.04 image | requires-verification | shell steps use bash, git and coreutils features |
+| PG_IMAGE | local `postgres:16.15` Alpine 3.24 arm64 (by image ID) vs `postgres:16.15-alpine` amd64 resolved at run time | requires-verification | SQL semantics of the same PostgreSQL minor are portable; locale/collation, Alpine minor and architecture-specific server behaviour are not verified |
+| PG_NETWORK | internal network + container IP instead of the service port on 127.0.0.1:5432 | portable | connection target only |
+| VENV_CACHE | persistent LCE home venv instead of a cache entry | portable-with-record | the workflow's `pip install -r` runs every time; freeze hashes recorded |
+| PYPI_TIME | pinned installs resolved from PyPI at run time | portable-with-record | freeze hashes recorded |
+| MERGE_COMMIT | pull_request runs test GitHub's merge commit; LCE tests the exact SHA | not-reproduced | valid only for integrating that exact SHA (fast-forward); a merge result needs its own LCE run on the merge commit |
+
+Further verification that would close the `requires-verification` items: one GitHub-hosted (or x86_64) run of the
+same SHA when Actions is available, compared job by job with the LCE counts and freeze hashes.
+
+### 11.4 Negative tests (offline, `tests/test_lce_runner.py`)
+
+Cleanup failure (container, network, worktree residue → FAIL); network isolation failure (not internal, other driver,
+foreign member, second network, mount, published port, privileged, wrong network mode → refused); unsupported
+workflow change (file pin, job pin, unknown action, unknown expression → refused); incomplete execution (no pytest
+step, missing summary, failed/timeout step, failures, errors, nothing passed, a skipped pytest step → FAIL); DSN guard
+(production server, compose host name, wrong port → refused); no inherited environment; redaction.
+
+### 11.5 Run history
+
+- 2026-10-28, `lce-1` (default bridge, published localhost port): PASS for `d1184c8`, `ea2e9f4`, `d77166d`, `4ac0c42`
+  (superseded by `lce-2`; evidence kept).
+- 2026-10-28, `lce-2` trial before commit, database job only, `ea2e9f4`: PARTIAL by design, job PASS (2652 + 18 + 10
+  passed), internal network, 0 published ports, 0 mounts, cleanup verified with no residue, nothing to redact found
+  in any evidence file.
