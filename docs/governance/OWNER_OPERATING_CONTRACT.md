@@ -52,3 +52,39 @@ At task finish: provide an Arabic summary with exact changed file paths, GitHub 
 ## 7. Change control
 
 Add a dated owner-decision entry to this contract whenever the owner revises these rules; update `CLAUDE.md` entrypoint and any directly conflicting policy, rather than distributing instructions through chat alone. New decisions must distinguish development authorization from live operational authorization.
+
+## 8. GitHub Usage and Compute Cost Governance — OWNER DIRECTIVE, permanent, 2026-10-28
+
+Standing owner directive (not a temporary workaround for the 2026-10-27 billing block). Purpose: minimise GitHub
+Actions billing and unnecessary CI usage **without** weakening engineering quality, safety or scientific integrity.
+
+1. GitHub remains the source-control and review platform (commits, branches, reviews, integration into `main`).
+2. Local or isolated testing is the default: run the tests relevant to a change locally (or in an isolated
+   environment) before pushing, and record the result.
+3. GitHub Actions runs must be purposeful and cost-conscious: push when a reviewable state is reached, not per edit;
+   no re-runs, `workflow_dispatch` runs or empty commits without a stated reason.
+4. Avoid duplicate workflows, redundant triggers and unnecessary repeated runs of the same tree.
+5. Batch related development changes where practical (one push per coherent batch on the one integration branch).
+6. Prefer reproducible, SHA-bound local test evidence: commit SHA, exact command, interpreter and dependency-set
+   identity (pinned requirements file hash), pass/fail/skip counts and the kept log path.
+7. Integration tests that need PostgreSQL use a **disposable** PostgreSQL environment holding only the schema
+   template and synthetic data, destroyed after the run.
+8. Never use a production database for development tests (the shared `postgres` container and its databases
+   included). Read-only operational evidence queries are operations, not tests, and follow their own approvals.
+9. Heavy research, backtesting and scientific compute do not run on GitHub-hosted CI by default; they use the
+   governed host runner (`~/ops/research-runner`) and its limits.
+10. Never weaken required tests, security controls, protected-data restrictions or deployment gates to reduce cost.
+11. If a mandatory gate requires GitHub-hosted CI, propose a formally documented equivalent alternative for owner
+    approval instead of silently bypassing it. Until it is approved, the gate stands; a blocked gate is reported and
+    the dependent change stays on HOLD (as the Retry Guard did on 2026-10-27).
+12. Do not enable paid runners, raise spending limits or introduce new billable services without explicit owner
+    approval.
+
+**Relation to existing gates (no silent change).** `docs/ops/BRANCH_RELEASE_POLICY.md` §3 ("CI green, and tests
+relevant to the changed component run in CI") and the required checks named in the branch-protection proposal
+(PR #90, not merged and not applied) still apply to integration into `main`, and so does the "provided CI is green" condition for direct D0
+integration in `docs/governance/DEVELOPMENT_FIRST_POLICY.md`. Its "commit and push small, auditable changes" stays:
+commits stay small; rule 5 batches the pushes, not the commits. A local
+CI-equivalent evidence standard that could substitute for them is proposed in `docs/ops/CI_EFFICIENCY.md` §10 and
+takes effect only after a separate owner approval. Existing CI savings (`CI_EFFICIENCY.md` §3: C1–C5) stay in place;
+workflow triggers are changed only after a documented impact assessment and owner approval.

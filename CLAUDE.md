@@ -10,6 +10,10 @@
 
 - [docs/governance/DEVELOPMENT_FIRST_POLICY.md](docs/governance/DEVELOPMENT_FIRST_POLICY.md): which rules apply to which kind of work (D0 development … D5 live). Development is the default; production operations, the sealed holdout, secrets and PAPER_ONLY rules are unchanged. Owner's dated 2026-10-26 workflow directive is effective; older proposed text is historical and does not override production safety.
 
+## GitHub usage and compute cost (owner directive 2026-10-28, permanent)
+
+- [OWNER_OPERATING_CONTRACT.md §8](docs/governance/OWNER_OPERATING_CONTRACT.md): local/isolated testing is the default; GitHub Actions runs must be purposeful (batch pushes, no redundant runs); disposable PostgreSQL only, never a production database for tests; heavy research never on GitHub-hosted CI; no paid runners or spending changes without owner approval; never weaken a gate to save cost — propose a documented equivalent instead. Existing CI gates stay in force until an alternative is approved (`docs/ops/CI_EFFICIENCY.md` §10).
+
 ## R1.3 recovery governance (merged in PR #46, 2026-10-18)
 
 - Bot-owned backups are **per approved container update**, not periodically; preserve the prior certified recovery set until the replacement passes verification and a separate, named deletion is approved.

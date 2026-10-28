@@ -343,3 +343,43 @@ The external audit of head `ff8e8da` returned **PASS**, with no P0 or P1 finding
 4. **Superseded PR push:** the earlier run is cancelled.
 5. **Revert test for C4 (§8), over the first 20 default and PostgreSQL jobs:** if the mean setup time is not at least 15 s below 45–56 s, revert C4 to `setup-python` `cache: pip`.
 6. **Measured saving:** compare November's billable minutes per run type (docs-only, collector-change, `main` push) against §2. Only then can a measured monthly saving be stated.
+
+## 10. Read-only review under the cost-governance directive (2026-10-28; nothing implemented)
+
+Directive: `docs/governance/OWNER_OPERATING_CONTRACT.md` §8. Data: read-only `GET .../actions/runs` from 2026-10-24.
+No workflow, trigger, setting, billing or protection was changed and no run was triggered for this review.
+
+### 10.1 Observations
+
+- 65 runs since 2026-10-24: `tests` push 26, `tests` pull_request 25, `r14-build-readiness` 7, `r14-lock-review` 7.
+- 45 distinct SHAs ran `tests`; 5 ran more than once: 3 as push + push (the same SHA pushed to `integration/**` and
+  then fast-forwarded into `main`), 1 as pull_request + push + push, 1 as pull_request + push.
+- Since 2026-10-27 about 17:00Z every job is refused before start (billing); those runs bill 0 minutes but give no
+  evidence, so the dependent gates are on HOLD (Retry Guard `ea2e9f4`).
+- October baseline (§2): `main` push runs were 806 of 2,870 billable minutes (28 %); pull_request runs 1,782 (62 %).
+
+### 10.2 Opportunities (each needs a documented impact assessment and owner approval before any change)
+
+| id | opportunity | expected effect | main risk / cost |
+|---|---|---|---|
+| O1 | Skip the `main` push re-run when the exact SHA already passed all required checks on `integration/**` (check-runs of app 15368 on that SHA) | up to the `main` push share (about 28 % in October) | removes the post-integration safety net; the C2 rule "main always runs the full collector suite" would change |
+| O2 | Avoid pull_request + push double runs for `integration/**` heads (PR-on-demand already; or no pull_request trigger when the head is an integration branch) | most of the 62 % pull_request share for PR-based work | a PR's merge-commit test differs from the head test when `main` moved; must stay for on-demand PRs |
+| O3 | Fold the 0.2-minute `parity-inventory` job into the default job and merge the two 0.2-minute r14 PR workflows (per-job 1-minute rounding) | about 107 + 65 min per October-like month | changes required check names (branch-protection proposal, `tests/test_ci_workflows.py`) |
+| O4 | Docs-only change scope for the default and PostgreSQL jobs | small | many tests read documentation; needs a tested path map; low priority |
+| O5 | Local CI-equivalent evidence (LCE), below | lets D0 work proceed when Actions is unavailable or not worth the cost | substitution of a mandatory gate needs owner approval |
+
+### 10.3 Proposal O5: local CI-equivalent evidence (LCE) — NOT APPROVED, not in force
+
+- Runner: a script (to be written and reviewed) that checks out the exact SHA in a clean throwaway `git worktree`,
+  builds a virtualenv from `.github/ci/requirements-test.txt` (hash recorded), and runs the same commands as the
+  `tests.yml` jobs: default suite, database suite (schema template from `.github/ci/build_schema_template.sh` and the
+  same reference trees), collector suite and parity inventory.
+- Evidence (SHA-bound): `~/ops/ci-evidence/<sha>/` with the commands, interpreter version, requirements hash,
+  pass/fail/skip counts, full logs and their sha256; summarised in the commit or review note.
+- Disposable PostgreSQL: this host has no PostgreSQL binaries outside containers. Options for owner decision:
+  (a) a throwaway container from the already-present `postgres:16.15-alpine3.24` image (no pull), `--rm`, no mount of
+  any production path, port bound to 127.0.0.1, CPU and memory caps, removed after the run; (b) PostgreSQL 16 client
+  and server packages on the host (system change). Never the shared production `postgres`.
+- Substitution rule: LCE may stand in for a named GitHub-hosted check only after owner approval of that substitution;
+  the reviewer accepts it on the evidence (or re-runs it). Until approved, BRANCH_RELEASE_POLICY §3 and the required
+  checks apply unchanged.
