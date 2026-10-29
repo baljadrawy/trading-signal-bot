@@ -17,11 +17,18 @@ Usage:
   ops/compose-safe [--project-dir DIR] logs <svc> [--since T] [--tail N]
   ops/compose-safe [--project-dir DIR] inspect <svc>
   ops/compose-safe [--project-dir DIR] render-hash <svc>
+  ops/compose-safe [--project-dir DIR] health
 
 Every Compose call is `docker compose -p trading-signal-bot -f <DIR>/docker-compose.yml ...`
 with a fixed argv list (no shell). A full `docker compose config` is never run, because it
 prints interpolated secrets. Log output is redacted for bearer and Telegram bot tokens.
 `inspect` prints a curated summary and never the container environment.
+`health` is the sealed-safe liveness check (docs/ops/SEALED_SAFE_MONITORING.md): one `docker inspect --format` per
+service whose template names only state, Docker health status and restart count. The Docker CLI applies the template
+internally, so only those fields reach this tool; the environment and the healthcheck log never do. The tool itself
+reads no database, container log or evidence file; the health status is the result of each service's own Docker
+healthcheck. Each call is bounded by HEALTH_TIMEOUT_SECONDS. Exit 0 = every service running and healthy, 1 = at least
+one ALERT (including a timeout).
 
 Standard library only.
 """
@@ -49,7 +56,7 @@ SERVICES = {
 # Services that must never be touched through this helper.
 OWNER_ONLY_SERVICES = {"continuous_learner", "optimizer"}
 
-SUBCOMMANDS = ("status", "services", "logs", "inspect", "render-hash")
+SUBCOMMANDS = ("status", "services", "logs", "inspect", "render-hash", "health")
 
 # Any of these anywhere in argv is a hard error (exact token, or `--flag=value`).
 DENIED_TOKENS = frozenset({
@@ -59,7 +66,14 @@ DENIED_TOKENS = frozenset({
 })
 
 EXIT_OK = 0
+EXIT_ALERT = 1
 EXIT_USAGE = 2
+
+# `health`: these three fields only. No .Config (environment) and no .State.Health.Log (heartbeat age, error text).
+HEALTH_FORMAT = "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}"
+HEALTH_TIMEOUT_SECONDS = 15  # per docker inspect call; a hung daemon must become an ALERT, not a silent wait
+_HEALTH_LINE_RE = re.compile(
+    r"^(created|restarting|running|removing|paused|exited|dead)\|(starting|healthy|unhealthy|none)\|([0-9]{1,6})$")
 
 _SINCE_RE = re.compile(r"^[0-9A-Za-z:.+\-]{1,40}$")
 _TAIL_RE = re.compile(r"^(all|[0-9]{1,6})$")
@@ -146,7 +160,7 @@ def parse_args(argv):
         raise Refused(f"refused: unknown subcommand '{sub}'. Allowed: " + ", ".join(SUBCOMMANDS))
 
     opts = {}
-    if sub in ("status", "services"):
+    if sub in ("status", "services", "health"):
         if args:
             raise Refused(f"refused: '{sub}' takes no arguments")
     elif sub in ("inspect", "render-hash"):
@@ -193,6 +207,10 @@ def build_argv(project_dir, sub, opts):
     if sub == "inspect":
         compose_file(project_dir)  # same project-file precondition for every subcommand
         return ["docker", "inspect", SERVICES[opts["service"]]]
+    if sub == "health":
+        compose_file(project_dir)
+        return [["docker", "inspect", "--type", "container", "--format", HEALTH_FORMAT, container]
+                for container in SERVICES.values()]
     base = compose_base(project_dir)
     if sub == "status":
         return base + ["ps", "--all"]
@@ -213,13 +231,38 @@ def _clean_env():
     return {k: v for k, v in os.environ.items() if not k.startswith("COMPOSE_")}
 
 
-def _run(argv):
+def _run(argv, timeout=None):
     for tok in argv:  # defence in depth: the final argv is checked again
         if _denied(tok):
             raise Refused(f"refused: internal argv contains '{tok}'")
     if "config" in argv and not ("--hash" in argv or "--services" in argv):
         raise Refused("refused: full 'config' output is never produced (it prints secrets)")
-    return subprocess.run(argv, capture_output=True, text=True, env=_clean_env(), check=False)
+    return subprocess.run(argv, capture_output=True, text=True, env=_clean_env(), check=False, timeout=timeout)
+
+
+def health_report(argvs):
+    """One OK/ALERT line per service and a summary line; unexpected output is never echoed."""
+    alerts = 0
+    for service, argv in zip(SERVICES, argvs):
+        try:
+            res = _run(argv, timeout=HEALTH_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:  # partial output is discarded, never printed
+            alerts += 1
+            print(f"{service} ALERT inspect_timeout (output suppressed)")
+            continue
+        except OSError:  # docker missing or not executable: fail closed
+            res = None
+        match = _HEALTH_LINE_RE.match((res.stdout or "").strip()) if res and res.returncode == 0 else None
+        if not match:
+            alerts += 1
+            print(f"{service} ALERT inspect_unavailable_or_unexpected (output suppressed)")
+            continue
+        state, health, restarts = match.groups()
+        ok = state == "running" and health == "healthy"
+        alerts += not ok
+        print(f"{service} {'OK' if ok else 'ALERT'} state={state} health={health} restarts={restarts}")
+    print(f"HEALTH {'OK' if not alerts else 'ALERT'} alerts={alerts}")
+    return EXIT_OK if not alerts else EXIT_ALERT
 
 
 def _summarize_inspect(raw):
@@ -255,6 +298,8 @@ def main(argv=None):
     try:
         project_dir, sub, opts = parse_args(argv)
         cmd = build_argv(project_dir, sub, opts)
+        if sub == "health":
+            return health_report(cmd)
         res = _run(cmd)
     except Refused as exc:
         print(str(exc), file=sys.stderr)

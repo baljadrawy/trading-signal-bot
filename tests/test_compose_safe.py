@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
@@ -27,6 +28,7 @@ def _load():
 
 
 cs = _load()
+_REAL_RUN = subprocess.run  # captured before setUp patches subprocess.run
 
 HASH = "166d2d9965cbefa6bf036fce1a47d5e04e273146e6010a93ff75674a2fb0b1b5"
 
@@ -272,7 +274,89 @@ class ComposeSafeTest(unittest.TestCase):
     def test_no_mutation_subcommands_exist(self):
         for sub in cs.SUBCOMMANDS:
             self.assertNotIn(sub, cs.DENIED_TOKENS)
-        self.assertEqual(set(cs.SUBCOMMANDS), {"status", "services", "logs", "inspect", "render-hash"})
+        self.assertEqual(set(cs.SUBCOMMANDS), {"status", "services", "logs", "inspect", "render-hash", "health"})
+
+    # --- health: sealed-safe liveness (docs/ops/SEALED_SAFE_MONITORING.md) ---
+    def test_health_exact_argv_per_service_and_ok(self):
+        self.run_mock.return_value = _completed("running|healthy|0\n")
+        rc, out, _ = self.call("health")
+        self.assertEqual(rc, 0)
+        argvs = [c.args[0] for c in self.run_mock.call_args_list]
+        self.assertEqual(argvs, [["docker", "inspect", "--type", "container", "--format", cs.HEALTH_FORMAT, ctr]
+                                 for ctr in cs.SERVICES.values()])
+        for svc in cs.SERVICES:
+            self.assertIn(f"{svc} OK state=running health=healthy restarts=0", out)
+        self.assertTrue(out.rstrip().endswith("HEALTH OK alerts=0"))
+
+    def test_health_format_names_no_environment_log_or_data_source(self):
+        fields = set(__import__("re").findall(r"\.[A-Z][A-Za-z.]*", cs.HEALTH_FORMAT))
+        self.assertEqual(fields, {".State.Status", ".State.Health", ".State.Health.Status", ".RestartCount"})
+        for argv in cs.build_argv(self.project, "health", {}):
+            joined = " ".join(argv)
+            for word in ("logs", "exec", "psql", "Env", "Log", "Config", "evidence"):
+                self.assertNotIn(word, joined)
+
+    def test_health_alerts_on_unhealthy_stopped_starting_or_missing_check(self):
+        replies = ["running|healthy|0\n", "running|unhealthy|0\n", "exited|unhealthy|3\n",
+                   "running|starting|1\n", "running|none|0\n"]
+        self.run_mock.side_effect = [_completed(r) for r in replies]
+        rc, out, _ = self.call("health")
+        self.assertEqual(rc, 1)
+        self.assertIn("HEALTH ALERT alerts=4", out)
+        self.assertEqual(out.count(" ALERT state="), 4)
+
+    def test_health_fails_closed_and_suppresses_unexpected_output(self):
+        replies = [_completed(returncode=1, stderr="Error: No such object: trading_telegram"),
+                   _completed("running|healthy|0 TELEGRAM_BOT_TOKEN=supersecret\n"),
+                   _completed("ok: age=12s errors=0\n"),
+                   _completed(""), OSError("docker not found")]
+        self.run_mock.side_effect = replies
+        rc, out, err = self.call("health")
+        self.assertEqual(rc, 1)
+        self.assertIn("HEALTH ALERT alerts=5", out)
+        for leaked in ("supersecret", "age=", "No such object"):
+            self.assertNotIn(leaked, out + err)
+
+    def test_health_timeout_is_bounded_alerts_and_suppresses_partial_output(self):
+        replies = [subprocess.TimeoutExpired(cmd=["docker"], timeout=cs.HEALTH_TIMEOUT_SECONDS,
+                                             output="running|healthy|0 TELEGRAM_BOT_TOKEN=supersecret",
+                                             stderr="Bearer tok123 daemon stalled")]
+        replies += [_completed("running|healthy|0\n")] * (len(cs.SERVICES) - 1)
+        self.run_mock.side_effect = replies
+        rc, out, err = self.call("health")
+        self.assertEqual(rc, 1)
+        self.assertIn("telegram ALERT inspect_timeout (output suppressed)", out)
+        self.assertIn("HEALTH ALERT alerts=1", out)
+        for leaked in ("supersecret", "tok123", "Bearer", "stalled"):
+            self.assertNotIn(leaked, out + err)
+        self.assertGreater(cs.HEALTH_TIMEOUT_SECONDS, 0)
+        for call in self.run_mock.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], cs.HEALTH_TIMEOUT_SECONDS)
+
+    def test_health_kills_a_hung_docker_call_and_alerts(self):
+        bindir = tempfile.mkdtemp(dir=self.project)
+        fake = os.path.join(bindir, "docker")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\ncase "$*" in *trading_tracker) echo partial-secret; exec sleep 30;; esac\n'
+                     'echo "running|healthy|0"\n')
+        os.chmod(fake, 0o755)
+        self.run_mock.side_effect = _REAL_RUN
+        env = {"PATH": bindir + os.pathsep + os.environ.get("PATH", "")}
+        with mock.patch.object(cs, "HEALTH_TIMEOUT_SECONDS", 0.5), mock.patch.dict(os.environ, env):
+            started = time.monotonic()
+            rc, out, err = self.call("health")
+            elapsed = time.monotonic() - started
+        self.assertEqual(rc, 1)
+        self.assertLess(elapsed, 10)
+        self.assertIn("trade_tracker ALERT inspect_timeout (output suppressed)", out)
+        self.assertIn("HEALTH ALERT alerts=1", out)
+        self.assertNotIn("partial-secret", out + err)
+
+    def test_health_takes_no_arguments_and_never_targets_owner_only_services(self):
+        self.assert_refused("health", "telegram", contains="takes no arguments")
+        self.assert_refused("health", "continuous_learner", contains="separate")
+        targets = {argv[-1] for argv in cs.build_argv(self.project, "health", {})}
+        self.assertEqual(targets, set(cs.SERVICES.values()))
 
     def test_nonzero_docker_exit_propagates(self):
         self.run_mock.return_value = _completed(returncode=1, stderr="Bearer tok123\n")

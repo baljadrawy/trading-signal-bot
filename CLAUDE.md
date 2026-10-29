@@ -29,6 +29,7 @@
 ## أوامر سريعة (قراءة فقط)
 ```bash
 ops/compose-safe status                                                       # الحالة (مساعد قراءة فقط)
+ops/compose-safe health                                                       # حيوية آمنة للحجب OD-7 (docs/ops/SEALED_SAFE_MONITORING.md)
 ops/compose-safe logs <service> --tail 30                                     # اللوقات (يحجب التوكنات)
 research/skill_application/.venv/bin/python -m pytest tests/ -q               # اختبارات الوحدة
 ```
