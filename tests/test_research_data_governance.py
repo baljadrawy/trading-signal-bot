@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from research.data_governance.governance import (
-    HoldoutLedger, TemporalGovernance, canonical_hash, partition_for,
+    LEVELS, HoldoutLedger, TemporalGovernance, canonical_hash, partition_for,
 )
 from research.data_governance.market import add_point_in_time_24h, asof_macro, normalize_binance_klines
 from research.data_governance.market import derive_usdt_d
@@ -179,6 +179,21 @@ def test_contamination_registry_and_validation_counter(tmp_path):
     g.log_validation_use(hypothesis_id="H01", experiment_id="E01", metrics_requested=["x"], result_artifact="x.json")
     assert g.validation_look_count() == 1
     with pytest.raises(ValueError): g.register_contamination({"contamination_level": "CLEAN"})
+
+
+def test_tracked_contamination_registry_records_are_valid():
+    path = Path(__file__).resolve().parents[1] / "research" / "governance" / "contamination_registry.jsonl"
+    records = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    assert records
+    for record in records:
+        assert set(record) == {"contamination_level", "evidence", "period_end", "period_start", "reason"}
+        assert record["contamination_level"] in LEVELS
+        assert record["evidence"].strip() and record["reason"].strip()
+        start = datetime.fromisoformat(record["period_start"].replace("Z", "+00:00"))
+        assert start.utcoffset() == timedelta(0)  # UTC instants only: date-only bounds are ambiguous
+        if record["period_end"] is not None:
+            end = datetime.fromisoformat(record["period_end"].replace("Z", "+00:00"))
+            assert end.utcoffset() == timedelta(0) and end > start
 
 
 def test_future_partition_excluded_from_historical_snapshot():

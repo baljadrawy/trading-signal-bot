@@ -76,6 +76,7 @@ No approval needed. Prefer the helper `ops/compose-safe` (read-only, allowlisted
 | Resources | `docker stats --no-stream`, `$DC top`, `$DC images` |
 | Render hash | `$DC config --hash <svc>`, `ops/compose-safe render-hash <svc>` |
 | Service list | `$DC config --services`, `ops/compose-safe services` |
+| Sealed-safe liveness | `ops/compose-safe health` (exit 1 on any ALERT). Routine monitoring uses only the signals in `docs/ops/SEALED_SAFE_MONITORING.md` (OD-7): no trading-table queries, container logs or `data/evidence_v2/` |
 
 **Secret warning:** plain `docker compose config` (and `config --format json|yaml`) prints the
 fully interpolated configuration, including every `.env` secret, to the terminal. Never run it
