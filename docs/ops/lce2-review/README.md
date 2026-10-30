@@ -6,9 +6,10 @@ or LCE substitution follows from it.
 
 | What | Where (this branch) |
 |---|---|
+| **Remediation R2 (`lce-2.2`): answer to re-review R2, item by item** | [`REMEDIATION_R2.md`](REMEDIATION_R2.md) |
 | **Remediation R1 (`lce-2.1`): answer to the REQUEST_CHANGES review, finding by finding** | [`REMEDIATION_R1.md`](REMEDIATION_R1.md) |
 | Claims for `lce-2` at `b078767`, each with line references and the test that covers it (line numbers predate R1) | [`REVIEW_EVIDENCE.md`](REVIEW_EVIDENCE.md) |
-| Runner | `ops/ci/lce.py`: `lce-2.1` on this branch head; `lce-2` (sha256 `780f98d9…`) at `b078767` |
+| Runner | `ops/ci/lce.py`: `lce-2.2` on this branch head (`lce-2.1` at `631ce6f`); `lce-2` (sha256 `780f98d9…`) at `b078767` |
 | Runner tests | `tests/test_lce_runner.py`; the author's run is in [`test_lce_runner_synthetic.txt`](test_lce_runner_synthetic.txt) |
 | Workflow it emulates | `.github/workflows/tests.yml` (sha256 `f30ffb0c…` = `REVIEWED_WORKFLOW_SHA256`) |
 | Policy | `docs/governance/OWNER_OPERATING_CONTRACT.md` §8–§9, `docs/ops/CI_EFFICIENCY.md` §10–§11 |

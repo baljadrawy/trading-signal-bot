@@ -452,3 +452,117 @@ def test_evidence_logs_are_redacted_even_after_an_interrupted_step(tmp_path):
     assert 'throwaway-1' not in (pathlib.Path(r.evdir) / 'database-step08.log').read_text()
     assert 'throwaway-1' not in (pathlib.Path(r.evdir) / 'SHA256SUMS').read_text()
     os.rmdir(r.base)
+
+
+# ---- lce-2.2 (re-review R2): scope signalling, recorded cleanup failures, per-step limit read-back --------------
+class ScriptedCmd(FakeCmd):
+    """FakeCmd whose answers can be overridden per command prefix: rules = [(prefix, rc, stdout), ...]; a rule
+    given as a callable is called with the command."""
+
+    def __init__(self, rules=(), **kw):
+        super().__init__(**kw)
+        self.rules = list(rules)
+
+    def __call__(self, cmd, **kw):
+        res = super().__call__(cmd, **kw)
+        for prefix, rc, out in self.rules:
+            if cmd[:len(prefix)] == prefix:
+                out = out(cmd) if callable(out) else out
+                return types.SimpleNamespace(returncode=rc, stdout=out, stderr='simulated failure')
+        return res
+
+
+KILL, SHOW = ['systemctl', '--user', 'kill'], ['systemctl', '--user', 'show']
+
+
+@pytest.mark.parametrize('kill_rc,show_out,expect', [
+    (0, '', 'signalled'),
+    (1, 'LoadState=not-found\nActiveState=inactive\n', 'absent'),          # already gone: not an error
+    (1, 'LoadState=loaded\nActiveState=inactive\n', 'inactive'),
+])
+def test_kill_scope_accepts_an_absent_scope(tmp_path, kill_rc, show_out, expect):
+    r = lce.Runner(str(tmp_path), '5' * 40, lce.JOBS, str(tmp_path / 'ev'),
+                   cmd=ScriptedCmd([(KILL, kill_rc, ''), (SHOW, 0, show_out)]))
+    assert r.kill_scope('lce-step-x', signal.SIGTERM) == expect
+
+
+@pytest.mark.parametrize('rules', [
+    [(KILL, 1, ''), (SHOW, 0, 'LoadState=loaded\nActiveState=active\n')],  # still running: a real failure
+    [(KILL, 1, ''), (SHOW, 1, '')],                                          # systemd cannot be asked
+])
+def test_kill_scope_failure_raises(tmp_path, rules):
+    r = lce.Runner(str(tmp_path), '6' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=ScriptedCmd(rules))
+    with pytest.raises(lce.Refused):
+        r.kill_scope('lce-step-x', signal.SIGKILL)
+
+
+def test_a_scope_signal_error_counts_as_surviving_processes():
+    assert lce.termination_ok(None) and lce.termination_ok({'group_gone': True, 'signals': ['SIGTERM']})
+    assert not lce.termination_ok({'group_gone': True, 'errors': ['SIGKILL scope: Refused']})
+    assert not lce.termination_ok({'group_gone': False})
+    rc, term = lce.run_group(['bash', '-c', 'sleep 30 & wait'], timeout=0.3, grace=1,
+                             on_signal=lambda sig: (_ for _ in ()).throw(lce.Refused('scope still active')))
+    assert rc is None and term['group_gone'] is True and term['errors'] and not lce.termination_ok(term)
+
+
+def _cleanup_with(tmp_path, rules, sha):
+    fake = ScriptedCmd(rules)
+    r = lce.Runner(str(tmp_path), sha * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=fake)
+    r.containers, r.networks = ['lce-pg-x'], ['lce-net-x']
+    return r, r.cleanup(), fake
+
+
+def test_failed_container_removal_is_recorded_while_it_still_exists(tmp_path):
+    r, residuals, _ = _cleanup_with(tmp_path, [(['docker', 'rm', '-f'], 1, '')], '7')
+    assert any(x.startswith('cleanup-error:container lce-pg-x') for x in residuals)
+    assert r.manifest['cleanup']['verified'] is False
+
+
+def test_failed_removal_of_an_already_absent_resource_is_not_an_error(tmp_path):
+    state = {'removed': False}
+
+    def owned_ps(cmd):                                  # the container disappears (docker --rm race)
+        if any(a.startswith('label=') for a in cmd) and any(a.startswith('name=') for a in cmd):
+            if state['removed']:
+                return ''
+            return 'deadbeef\n'
+        return ''
+
+    def rm(cmd):
+        state['removed'] = True
+        return ''
+    r, residuals, _ = _cleanup_with(tmp_path, [(['docker', 'rm', '-f'], 1, rm), (['docker', 'ps'], 0, owned_ps)], '8')
+    assert not any('container' in x for x in residuals)
+
+
+def test_failed_network_removal_is_retried_then_recorded(tmp_path):
+    r, residuals, fake = _cleanup_with(tmp_path, [(['docker', 'network', 'rm'], 1, '')], '9')
+    assert sum(1 for c in fake.calls if c[:3] == ['docker', 'network', 'rm']) == 5
+    assert any(x.startswith('cleanup-error:network lce-net-x') for x in residuals)
+
+
+def test_failed_worktree_commands_are_recorded_and_ownership_stays_exact(tmp_path):
+    fake = ScriptedCmd([(['git', 'worktree', 'remove'], 1, ''), (['git', 'worktree', 'prune'], 1, '')])
+    r = lce.Runner(str(tmp_path), 'a1'.ljust(40, '0'), lce.JOBS, str(tmp_path / 'ev'), cmd=fake)
+    listing = f'worktree {r.base}/ws\nworktree {r.base}-other\nworktree /home/x/repo\n'
+    fake.rules.append((['git', 'worktree', 'list'], 0, listing))
+    residuals = r.cleanup()
+    assert any(x.startswith(f'cleanup-error:worktree {r.base}/ws') for x in residuals)
+    assert any(x.startswith('cleanup-error:worktree prune') for x in residuals)
+    removed = [c[-1] for c in fake.calls if c[:3] == ['git', 'worktree', 'remove']]
+    assert removed == [f'{r.base}/ws']                  # never the sibling or the repository itself
+
+
+def test_a_failed_scope_listing_or_kill_is_recorded(tmp_path):
+    r, residuals, _ = _cleanup_with(tmp_path, [(['systemctl', '--user', 'list-units'], 1, '')], 'b')
+    assert any(x.startswith('cleanup-error:scopes list') for x in residuals) and 'unverifiable:scopes' in residuals
+
+
+def test_step_scope_limits_are_read_back_and_checked(tmp_path):
+    for name, value in (('cpu.max', '200000 100000'), ('memory.max', '4294967296'), ('memory.swap.max', '0'),
+                        ('pids.max', '512')):
+        (tmp_path / name).write_text(value + '\n')
+    lce.check_scope_limits(lce.read_scope_limits(str(tmp_path)))
+    (tmp_path / 'memory.max').write_text('max\n')       # a scope created without its memory limit
+    with pytest.raises(lce.Refused, match='memory.max'):
+        lce.check_scope_limits(lce.read_scope_limits(str(tmp_path)))

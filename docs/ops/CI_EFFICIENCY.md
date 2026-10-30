@@ -389,12 +389,12 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
 
 ## 11. LCE runner (owner decision 2026-10-28, contract §9)
 
-**Status:** runner `lce-2.1` in `ops/ci/lce.py`, tests `tests/test_lce_runner.py`. `lce-2` was hardened after the
+**Status:** runner `lce-2.2` in `ops/ci/lce.py`, tests `tests/test_lce_runner.py`. `lce-2` was hardened after the
 internal review of `d1184c8` (dedicated network, verified cleanup, classified deviations, negative tests, DSN and
 environment guards). `lce-2.1` answers the independent review of `lce-2` (REQUEST_CHANGES, 2026-10-30): process-group
 termination with SIGTERM-to-SIGKILL escalation on timeouts and interruptions, bounded helper commands, host-side
 resource limits, and cleanup restricted to resources the run owns with fail-closed verification
-(`docs/ops/lce2-review/REMEDIATION_R1.md`). `lce-2.1` has not been run yet.
+(`docs/ops/lce2-review/REMEDIATION_R1.md`). `lce-2.2` answers re-review R2: a scope signal tells an absent scope apart from a real failure, every cleanup command failure is recorded (ownership unchanged), and each step's scope limits are read back (`REMEDIATION_R2.md`). Neither has been run yet; runtime enforcement is shown only by the preflight and per-step read-back of a real run.
 Substitution for a GitHub-hosted check takes effect only after independent review. **This is not universal
 equivalence**: §11.3 classifies what is portable and what still needs verification.
 

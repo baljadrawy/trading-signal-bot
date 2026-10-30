@@ -42,7 +42,7 @@ import tempfile
 import time
 import urllib.parse
 
-RUNNER_VERSION = 'lce-2.1'
+RUNNER_VERSION = 'lce-2.2'
 JOBS = ('unit', 'database', 'collector', 'parity-inventory')
 # sha256 of json.dumps(jobs[<id>], sort_keys=True) of the reviewed tests.yml (origin/main eba90dd, 2026-10-28).
 REVIEWED_JOB_SHA256 = {
@@ -222,6 +222,20 @@ def check_scope_limits(text: str):
     for key, want in EXPECTED_SCOPE.items():
         if got.get(key) != want:
             raise Refused(f'host-side resource limits are not enforced: {key}={got.get(key)!r}, expected {want!r}')
+
+
+def termination_ok(term) -> bool:
+    """A step's processes count as gone only if the group is gone AND no scope signal failed."""
+    return term is None or (term.get('group_gone') is True and not term.get('errors'))
+
+
+def read_scope_limits(cgroup_dir: str) -> str:
+    """The limit files of one scope cgroup, in SCOPE_PROBE format (checked with check_scope_limits)."""
+    out = []
+    for f in EXPECTED_SCOPE:
+        with open(os.path.join(cgroup_dir, f)) as fh:
+            out.append(f'{f}={fh.read().strip()}')
+    return '\n'.join(out) + '\n'
 
 
 def inside(path: str, base: str) -> bool:
@@ -455,8 +469,28 @@ class Runner:
         check_scope_limits(r.stdout)
         self.manifest['host_limits'] = dict(STEP_LIMITS)
 
-    def kill_scope(self, unit, sig):
-        self.cmd(['systemctl', '--user', 'kill', f'--signal={sig.name}', f'{unit}.scope'], env=user_env(), timeout=30)
+    def scope_state(self, unit) -> str:
+        """'absent' (not loaded), 'inactive', or the scope's ActiveState; raises if systemd cannot be asked."""
+        r = self.cmd(['systemctl', '--user', 'show', '--property=LoadState,ActiveState', f'{unit}.scope'],
+                     env=user_env(), timeout=30)
+        if r.returncode:
+            raise Refused(f'systemctl show {unit}.scope failed: {r.stderr.strip()[:120]}')
+        props = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)
+        if props.get('LoadState') in (None, '', 'not-found'):
+            return 'absent'
+        return props.get('ActiveState') or 'unknown'
+
+    def kill_scope(self, unit, sig) -> str:
+        """Signal every process of the step's scope. An absent or inactive scope is not an error (nothing is left
+        to signal); any other failure raises, so it is recorded and the run fails."""
+        r = self.cmd(['systemctl', '--user', 'kill', f'--signal={sig.name}', f'{unit}.scope'], env=user_env(), timeout=30)
+        if r.returncode == 0:
+            return 'signalled'
+        state = self.scope_state(unit)
+        if state in ('absent', 'inactive'):
+            return state
+        raise Refused(f'systemctl kill --signal={sig.name} {unit}.scope failed (scope {state}): '
+                      f'{r.stderr.strip()[:120]}')
 
     @staticmethod
     def sample(proc, unit, usage):
@@ -468,6 +502,7 @@ class Runner:
                 if not rel.endswith(f'/{unit}.scope'):
                     return
                 cg = usage['_cg'] = '/sys/fs/cgroup' + rel
+                usage['_limits'] = read_scope_limits(cg)
             usage['memory_peak_bytes'] = int(open(cg + '/memory.peak').read())
             for line in open(cg + '/cpu.stat'):
                 if line.startswith('usage_usec'):
@@ -632,14 +667,23 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
                 except BaseException as exc:
                     term = getattr(exc, 'lce_termination', None)
                     srec.update({'termination': term, 'result': f'FAILED ({type(exc).__name__})'})
-                    if not (term or {}).get('group_gone'):
+                    if term is None or not termination_ok(term):
                         self.process_residuals.append(f'processes:{unit}')
                     raise
             srec['usage'] = {k: v for k, v in usage.items() if not k.startswith('_')}
+            if '_limits' in usage:                      # the step's own scope, read back while it ran
+                try:
+                    check_scope_limits(usage['_limits'])
+                    srec['limits_verified'] = True
+                except Refused as exc:
+                    srec['limits_verified'] = False
+                    self.process_residuals.append(f'limits:{unit}: {exc}'[:200])
+            else:
+                srec['limits_verified'] = None          # finished before the first sample (< POLL_S)
             if term:
                 srec['termination'] = term
-                if not term['group_gone']:
-                    self.process_residuals.append(f'processes:{unit}')
+            if not termination_ok(term):
+                self.process_residuals.append(f'processes:{unit}')
             text = redact(open(log, errors='replace').read(), self.redactions)
             with open(log, 'w') as lf:
                 lf.write(text)
@@ -730,26 +774,41 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             except Exception:
                 residuals.append(f'unverifiable:{label}')
 
-        attempt('scopes', lambda: [self.kill_scope(u.removesuffix('.scope'), signal.SIGKILL) for u in self._own_scopes()])
-        for c in self.containers:
-            attempt(f'container {c}', lambda c=c: [self.docker('rm', '-f', i) for i in self._owned_ids('container', c)])
-        for n in self.networks:
-            def rm_net(n=n):
-                for i in self._owned_ids('network', n):
-                    for _ in range(5):
-                        if not self.docker('network', 'rm', i).returncode:
-                            break
-                        time.sleep(1)
-            attempt(f'network {n}', rm_net)
+        def must(r, what):
+            if r.returncode:
+                raise Refused(f'{what} failed: {r.stderr.strip()[:120]}')
 
-        def rm_worktrees():
-            for wt in sorted(self._own_worktrees(), reverse=True):
-                self.cmd(['git', 'worktree', 'remove', '--force', wt], cwd=self.repo)
-                removed_wt.append(wt)
-        attempt('worktrees', rm_worktrees)
-        attempt('worktree prune', lambda: self.cmd(['git', 'worktree', 'prune'], cwd=self.repo))
+        scopes = []
+        attempt('scopes list', lambda: scopes.extend(self._own_scopes()))
+        for u in scopes:
+            attempt(f'scope {u}', lambda u=u: self.kill_scope(u.removesuffix('.scope'), signal.SIGKILL))
+
+        def rm_owned(kind, name, *rm):
+            for i in self._owned_ids(kind, name):
+                for _ in range(1 if kind == 'container' else 5):
+                    r = self.docker(*rm, i)
+                    if not r.returncode:
+                        break
+                    time.sleep(0 if kind == 'container' else 1)
+                if r.returncode and i in self._owned_ids(kind, name):    # still there: a real failure
+                    raise Refused(f'docker {" ".join(rm)} {i} failed: {r.stderr.strip()[:120]}')
+        for c in self.containers:
+            attempt(f'container {c}', lambda c=c: rm_owned('container', c, 'rm', '-f'))
+        for n in self.networks:
+            attempt(f'network {n}', lambda n=n: rm_owned('network', n, 'network', 'rm'))
+
+        def rm_worktree(wt):
+            r = self.cmd(['git', 'worktree', 'remove', '--force', wt], cwd=self.repo)
+            if r.returncode and wt in self._own_worktrees():
+                raise Refused(f'git worktree remove {wt} failed: {r.stderr.strip()[:120]}')
+            removed_wt.append(wt)
+        wts = []
+        attempt('worktrees list', lambda: wts.extend(self._own_worktrees()))
+        for wt in sorted(wts, reverse=True):
+            attempt(f'worktree {wt}', lambda wt=wt: rm_worktree(wt))
+        attempt('worktree prune', lambda: must(self.cmd(['git', 'worktree', 'prune'], cwd=self.repo), 'git worktree prune'))
         attempt('directory', self._remove_base)
-        attempt('worktree prune', lambda: self.cmd(['git', 'worktree', 'prune'], cwd=self.repo))
+        attempt('worktree prune', lambda: must(self.cmd(['git', 'worktree', 'prune'], cwd=self.repo), 'git worktree prune'))
 
         def listed(*args):
             r = self.docker(*args)
