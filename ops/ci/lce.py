@@ -16,6 +16,13 @@ throwaway values are redacted from logs. Container, network and worktrees are re
 verified: any residue, refusal or failure makes the verdict FAIL. This is NOT universal equivalence; every manifest
 lists the classified deviations.
 
+Host-side processes (lce-2.1): every `run:` step runs in its own process group inside a transient user systemd scope
+with CPU, memory, swap and task limits (STEP_LIMITS; verified in preflight, refused if not enforced), because this host
+also runs production. On a timeout or an interruption (SIGINT/SIGTERM/SIGHUP) the whole group and its scope get
+SIGTERM, then SIGKILL, and their absence is verified. Helper commands (docker, git, pip, venv) are bounded by
+CMD_TIMEOUT_S the same way. Cleanup only touches resources that carry this run's label and name, or that lie inside
+this run's own temporary directory; a verification that cannot run counts as a residue.
+
 usage: lce.py <40-hex commit> [--jobs unit,database,collector,parity-inventory] [--evidence-root DIR] [--repo DIR]
 Exit 0 only for verdict PASS (all four jobs). A job subset is PARTIAL and never substitutes.
 """
@@ -28,13 +35,14 @@ import platform
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.parse
 
-RUNNER_VERSION = 'lce-2'
+RUNNER_VERSION = 'lce-2.1'
 JOBS = ('unit', 'database', 'collector', 'parity-inventory')
 # sha256 of json.dumps(jobs[<id>], sort_keys=True) of the reviewed tests.yml (origin/main eba90dd, 2026-10-28).
 REVIEWED_JOB_SHA256 = {
@@ -56,6 +64,17 @@ COUNTS = re.compile(r'(\d+) (passed|failed|skipped|errors?|xfailed|xpassed|desel
 DSN = re.compile(r'postgres(?:ql)?://[^\s\'"]+')
 PYTEST_RUN = re.compile(r'-m pytest\b')          # a pytest invocation (not `pip install pytest==...`)
 LCE_HOME = os.path.expanduser('~/.cache/tsb-lce')
+CMD_TIMEOUT_S = 600         # docker / git / pip / venv helper commands: a hung daemon or network fails closed
+TERM_GRACE_S = 10           # SIGTERM to a process group (and its scope), then SIGKILL
+POLL_S = 2                  # step wait slice (resource sampling)
+# Host-side step limits (lce-2.1). The host (12 cores, 23 GiB) also runs production; the disposable PostgreSQL has its
+# own caps (2 CPUs, 1 GiB, 512 pids), so one LCE run uses at most about 4 cores, 5 GiB and 1024 tasks.
+STEP_LIMITS = (('CPUQuota', '200%'), ('CPUWeight', 'idle'), ('MemoryMax', '4G'), ('MemorySwapMax', '0'),
+               ('TasksMax', '512'))
+EXPECTED_SCOPE = {'cpu.max': '200000 100000', 'memory.max': str(4 * 1024 ** 3), 'memory.swap.max': '0',
+                  'pids.max': '512'}
+SCOPE_PROBE = ('d=/sys/fs/cgroup$(cut -d: -f3- /proc/self/cgroup); '
+               'for f in cpu.max memory.max memory.swap.max pids.max; do echo "$f=$(cat "$d/$f")"; done')
 
 # Classified deviations (CI_EFFICIENCY.md §11.3). classification: portable | portable-with-record |
 # requires-verification | not-reproduced.
@@ -82,6 +101,11 @@ STATIC_DEVIATIONS = [
      'scope': "the workflow's own pip install -r runs every time; pip freeze hashes are recorded"},
     {'id': 'PYPI_TIME', 'classification': 'portable-with-record',
      'what': 'pinned installs resolved from PyPI at run time (as on GitHub)', 'scope': 'freeze hashes recorded'},
+    {'id': 'HOST_LIMITS', 'classification': 'portable-with-record',
+     'what': 'host-side steps run in a user scope (CPUQuota 200 %, CPUWeight idle, MemoryMax 4G, no swap, TasksMax 512) '
+             'instead of a dedicated GitHub runner',
+     'scope': 'a limit can only slow a step or kill it (verdict FAIL), never pass it; peak memory and CPU time of '
+              'every step are recorded'},
     {'id': 'MERGE_COMMIT', 'classification': 'not-reproduced',
      'what': 'pull_request runs test a GitHub merge commit; LCE tests the exact SHA (push semantics)',
      'scope': 'evidence is valid only for integrating that exact SHA (fast-forward); a merge result needs its own '
@@ -93,6 +117,10 @@ class Refused(Exception):
     """Fail-closed condition: the run cannot be equivalent."""
 
 
+class Interrupted(BaseException):
+    """SIGINT/SIGTERM/SIGHUP during a run: stop, terminate child processes, clean up, verdict FAIL."""
+
+
 def sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -101,8 +129,104 @@ def job_sha256(job: dict) -> str:
     return sha256_bytes(json.dumps(job, sort_keys=True).encode())
 
 
-def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+def _group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def terminate_group(proc, grace=TERM_GRACE_S, on_signal=None) -> dict:
+    """SIGTERM, then SIGKILL after `grace`, to the whole process group of `proc` (started with
+    start_new_session=True) and, through `on_signal`, to its scope. Reports what was sent and whether the group is
+    gone. Never raises."""
+    rec = {'signals': [], 'group_gone': False}
+    for sig, wait_s in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
+        rec['signals'].append(sig.name)
+        if on_signal:
+            try:
+                on_signal(sig)
+            except Exception as exc:
+                rec.setdefault('errors', []).append(f'{sig.name} scope: {type(exc).__name__}')
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            rec.setdefault('errors', []).append(f'{sig.name}: {type(exc).__name__}')
+        end = time.monotonic() + wait_s
+        while time.monotonic() < end:
+            if proc.poll() is not None and not _group_alive(proc.pid):
+                rec['group_gone'] = True
+                return rec
+            time.sleep(0.05)
+    rec['group_gone'] = proc.poll() is not None and not _group_alive(proc.pid)
+    return rec
+
+
+def run_group(argv, timeout, grace=TERM_GRACE_S, on_signal=None, on_poll=None, **popen_kw):
+    """Run `argv` in its own session and process group. On a timeout, an exception or an interruption the WHOLE
+    group is terminated (terminate_group) before returning or re-raising; processes left behind by a step that
+    exited are terminated too. Returns (returncode, or None on timeout; termination record or None)."""
+    proc = subprocess.Popen(argv, start_new_session=True, **popen_kw)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            if on_poll:
+                on_poll(proc)
+            try:
+                rc = proc.wait(timeout=max(0.05, min(POLL_S, deadline - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    return None, dict(terminate_group(proc, grace, on_signal), cause='timeout')
+    except BaseException as exc:
+        exc.lce_termination = dict(terminate_group(proc, grace, on_signal), cause=type(exc).__name__)
+        raise
+    if _group_alive(proc.pid):
+        return rc, dict(terminate_group(proc, grace, on_signal), cause='processes left after exit')
+    return rc, None
+
+
+def run(cmd, timeout=CMD_TIMEOUT_S, **kw):
+    """Helper command (docker, git, pip, venv): output captured, bounded by `timeout`; the whole process group is
+    terminated on timeout or interruption, and a timeout is refused (fail closed)."""
+    with tempfile.TemporaryFile('w+') as out, tempfile.TemporaryFile('w+') as err:
+        rc, term = run_group(cmd, timeout, stdout=out, stderr=err, **kw)
+        if rc is None:
+            raise Refused(f'{" ".join(map(str, cmd[:2]))} timed out after {timeout}s; process group '
+                          f'{"terminated" if term["group_gone"] else "SURVIVED"}')
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(cmd, rc, out.read(), err.read())
+
+
+def user_env() -> dict:
+    """Minimal environment for systemd-run / systemctl --user (the caller's environment is never inherited)."""
+    return {'PATH': '/usr/local/bin:/usr/bin:/bin', 'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}', 'LANG': 'C.UTF-8'}
+
+
+def scope_argv(unit: str, argv) -> list:
+    """`argv` in a transient user scope with STEP_LIMITS. `env -u` drops the variable only systemd-run needs, so a
+    step sees exactly the environment built by step_env()."""
+    return (['systemd-run', '--user', '--scope', '--quiet', f'--unit={unit}']
+            + [f'--property={k}={v}' for k, v in STEP_LIMITS] + ['--', 'env', '-u', 'XDG_RUNTIME_DIR'] + list(argv))
+
+
+def check_scope_limits(text: str):
+    """Output of SCOPE_PROBE run inside a limited scope: refuse unless every limit is enforced by the kernel."""
+    got = dict(line.split('=', 1) for line in text.strip().splitlines() if '=' in line)
+    for key, want in EXPECTED_SCOPE.items():
+        if got.get(key) != want:
+            raise Refused(f'host-side resource limits are not enforced: {key}={got.get(key)!r}, expected {want!r}')
+
+
+def inside(path: str, base: str) -> bool:
+    rp, rb = os.path.realpath(path), os.path.realpath(base)
+    return rp == rb or rp.startswith(rb + os.sep)
 
 
 # ---- pure checks (unit-tested in tests/test_lce_runner.py) ------------------------------------------------------
@@ -276,6 +400,7 @@ class Runner:
         self.base = tempfile.mkdtemp(prefix=f'lce-{sha[:8]}-')
         self.ws = os.path.join(self.base, 'ws')
         self.worktrees, self.containers, self.networks, self.redactions = [], [], [], []
+        self.process_residuals, self.interrupted = [], None
         self.facts = {}
         self.manifest = {'runner': RUNNER_VERSION, 'sha': sha, 'run_id': self.run_id, 'jobs_requested': list(jobs),
                          'jobs': {}, 'refusals': [], 'cleanup': {}, 'started_utc': stamp,
@@ -317,10 +442,39 @@ class Runner:
         self.workflow = yaml.safe_load(wf_text)
         self.manifest['workflow_sha256'] = sha256_bytes(wf_text.encode())
         self.manifest['job_sha256'] = check_pins(wf_text, self.workflow, self.jobs)
+        self.verify_step_limits()
         self.git('worktree', 'add', '-q', '--detach', self.ws, self.sha)
         self.worktrees.append(self.ws)
         if self.git('status', '--porcelain', cwd=self.ws).strip():
             raise Refused('target worktree is not clean')
+
+    def verify_step_limits(self):
+        r = self.cmd(scope_argv(f'lce-probe-{self.run_id}', ['sh', '-c', SCOPE_PROBE]), env=user_env())
+        if r.returncode:
+            raise Refused(f'cannot start a limited user scope: {r.stderr.strip()[:160]}')
+        check_scope_limits(r.stdout)
+        self.manifest['host_limits'] = dict(STEP_LIMITS)
+
+    def kill_scope(self, unit, sig):
+        self.cmd(['systemctl', '--user', 'kill', f'--signal={sig.name}', f'{unit}.scope'], env=user_env(), timeout=30)
+
+    @staticmethod
+    def sample(proc, unit, usage):
+        """Peak memory, CPU time and tasks of the step's scope cgroup (best effort; recorded per step)."""
+        try:
+            cg = usage.get('_cg')
+            if not cg:
+                rel = open(f'/proc/{proc.pid}/cgroup').read().strip().split(':', 2)[2]
+                if not rel.endswith(f'/{unit}.scope'):
+                    return
+                cg = usage['_cg'] = '/sys/fs/cgroup' + rel
+            usage['memory_peak_bytes'] = int(open(cg + '/memory.peak').read())
+            for line in open(cg + '/cpu.stat'):
+                if line.startswith('usage_usec'):
+                    usage['cpu_seconds'] = round(int(line.split()[1]) / 1e6, 1)
+            usage['tasks_max_seen'] = max(usage.get('tasks_max_seen', 0), int(open(cg + '/pids.current').read()))
+        except (OSError, ValueError, IndexError):
+            pass
 
     # ---- disposable postgres -----------------------------------------------------------------------
     def _inspect(self, kind, name):
@@ -464,16 +618,28 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             cwd = os.path.join(self.ws, step['working-directory']) if step.get('working-directory') else self.ws
             log = os.path.join(self.evdir, f'{job}-step{i:02d}.log')
             t0 = time.time()
+            unit, usage = f'lce-step-{self.run_id}-{job}-{i:02d}', {}
+            env['XDG_RUNTIME_DIR'] = user_env()['XDG_RUNTIME_DIR']    # for systemd-run only; `env -u` drops it
             with open(log, 'w') as lf:
                 lf.write(f'# job={job} step={i} label={label}\n# cwd={cwd}\n# script:\n{script}\n# ----\n')
                 lf.flush()
                 try:
-                    p = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
-                                       cwd=cwd, env=env, stdout=lf, stderr=subprocess.STDOUT,
-                                       timeout=max(1, deadline - time.time()))
-                    rc = p.returncode
-                except subprocess.TimeoutExpired:
-                    rc = None
+                    rc, term = run_group(
+                        scope_argv(unit, ['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script]),
+                        max(1, deadline - time.time()), cwd=cwd, env=env, stdout=lf, stderr=subprocess.STDOUT,
+                        on_signal=lambda sig, u=unit: self.kill_scope(u, sig),
+                        on_poll=lambda proc, u=unit, us=usage: self.sample(proc, u, us))
+                except BaseException as exc:
+                    term = getattr(exc, 'lce_termination', None)
+                    srec.update({'termination': term, 'result': f'FAILED ({type(exc).__name__})'})
+                    if not (term or {}).get('group_gone'):
+                        self.process_residuals.append(f'processes:{unit}')
+                    raise
+            srec['usage'] = {k: v for k, v in usage.items() if not k.startswith('_')}
+            if term:
+                srec['termination'] = term
+                if not term['group_gone']:
+                    self.process_residuals.append(f'processes:{unit}')
             text = redact(open(log, errors='replace').read(), self.redactions)
             with open(log, 'w') as lf:
                 lf.write(text)
@@ -519,39 +685,90 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             return f'emulated: persistent LCE home (hit={hit})'
         return 'emulated: no-op (cache save)'
 
-    # ---- cleanup, verified -------------------------------------------------------------------------
-    def cleanup(self) -> list:
-        for c in self.containers:
-            self.docker('rm', '-f', c)
-        for n in self.networks:
-            for _ in range(5):
-                if not self.docker('network', 'rm', n).returncode:
-                    break
-                time.sleep(1)
-        refs = [os.path.join(self.base, d) for d in os.listdir(self.base) if d.startswith('ref-')] \
-            if os.path.isdir(self.base) else []
-        for wt in reversed(self.worktrees + refs):
-            self.cmd(['git', 'worktree', 'remove', '--force', wt], cwd=self.repo)
-        self.cmd(['git', 'worktree', 'prune'], cwd=self.repo)
-        shutil.rmtree(self.base, ignore_errors=True)
-        residuals = []
-        for c in self.containers:
-            if self.docker('ps', '-a', '-q', '--filter', f'name=^{c}$').stdout.strip():
-                residuals.append(f'container:{c}')
-        for n in self.networks:
-            if self.docker('network', 'ls', '-q', '--filter', f'name=^{n}$').stdout.strip():
-                residuals.append(f'network:{n}')
-        if self.docker('ps', '-a', '-q', '--filter', f'label=tsb.lce.run={self.run_id}').stdout.strip():
-            residuals.append('labelled containers')
-        if self.docker('network', 'ls', '-q', '--filter', f'label=tsb.lce.run={self.run_id}').stdout.strip():
-            residuals.append('labelled networks')
+    # ---- cleanup, verified (strict ownership) ------------------------------------------------------
+    def _owned_ids(self, kind, name):
+        """IDs of resources that carry BOTH this run's label and the exact name; nothing else is ever removed."""
+        lst = ['ps', '-a', '-q'] if kind == 'container' else ['network', 'ls', '-q']
+        r = self.docker(*lst, '--filter', f'label=tsb.lce.run={self.run_id}', '--filter', f'name=^{name}$')
+        if r.returncode:
+            raise Refused(f'cannot list {kind} {name}')
+        return r.stdout.split()
+
+    def _own_worktrees(self):
         wl = self.cmd(['git', 'worktree', 'list', '--porcelain'], cwd=self.repo)
-        if wl.returncode or any(line.startswith('worktree ' + self.base) for line in wl.stdout.splitlines()):
-            residuals.append('worktrees')
-        if os.path.exists(self.base):
-            residuals.append(f'directory:{self.base}')
+        if wl.returncode:
+            raise Refused('git worktree list failed')
+        return [ln[9:] for ln in wl.stdout.splitlines() if ln.startswith('worktree ') and inside(ln[9:], self.base)]
+
+    def _own_scopes(self):
+        r = self.cmd(['systemctl', '--user', 'list-units', '--all', '--plain', '--no-legend', '--type=scope',
+                      f'lce-*-{self.run_id}*'], env=user_env(), timeout=30)
+        if r.returncode:
+            raise Refused('systemctl --user list-units failed')
+        return [ln.split()[0] for ln in r.stdout.splitlines() if ln.split() and self.run_id in ln.split()[0]]
+
+    def _remove_base(self):
+        rb = os.path.realpath(self.base)
+        if (os.path.dirname(rb) != os.path.realpath(tempfile.gettempdir())
+                or not os.path.basename(rb).startswith(f'lce-{self.sha[:8]}-')):
+            raise Refused(f'refusing to remove unexpected directory {self.base}')
+        shutil.rmtree(rb, ignore_errors=True)
+
+    def cleanup(self) -> list:
+        errors, residuals, removed_wt = [], [], []
+
+        def attempt(label, fn):
+            try:
+                fn()
+            except Exception as exc:
+                errors.append(f'cleanup-error:{label}: {type(exc).__name__}: {exc}'[:200])
+
+        def verify(label, present):            # present() -> bool; a check that cannot run is a residue
+            try:
+                if present():
+                    residuals.append(label)
+            except Exception:
+                residuals.append(f'unverifiable:{label}')
+
+        attempt('scopes', lambda: [self.kill_scope(u.removesuffix('.scope'), signal.SIGKILL) for u in self._own_scopes()])
+        for c in self.containers:
+            attempt(f'container {c}', lambda c=c: [self.docker('rm', '-f', i) for i in self._owned_ids('container', c)])
+        for n in self.networks:
+            def rm_net(n=n):
+                for i in self._owned_ids('network', n):
+                    for _ in range(5):
+                        if not self.docker('network', 'rm', i).returncode:
+                            break
+                        time.sleep(1)
+            attempt(f'network {n}', rm_net)
+
+        def rm_worktrees():
+            for wt in sorted(self._own_worktrees(), reverse=True):
+                self.cmd(['git', 'worktree', 'remove', '--force', wt], cwd=self.repo)
+                removed_wt.append(wt)
+        attempt('worktrees', rm_worktrees)
+        attempt('worktree prune', lambda: self.cmd(['git', 'worktree', 'prune'], cwd=self.repo))
+        attempt('directory', self._remove_base)
+        attempt('worktree prune', lambda: self.cmd(['git', 'worktree', 'prune'], cwd=self.repo))
+
+        def listed(*args):
+            r = self.docker(*args)
+            if r.returncode:
+                raise Refused('docker check failed')
+            return bool(r.stdout.strip())
+        for c in self.containers:
+            verify(f'container:{c}', lambda c=c: listed('ps', '-a', '-q', '--filter', f'name=^{c}$'))
+        for n in self.networks:
+            verify(f'network:{n}', lambda n=n: listed('network', 'ls', '-q', '--filter', f'name=^{n}$'))
+        verify('labelled containers', lambda: listed('ps', '-a', '-q', '--filter', f'label=tsb.lce.run={self.run_id}'))
+        verify('labelled networks',
+               lambda: listed('network', 'ls', '-q', '--filter', f'label=tsb.lce.run={self.run_id}'))
+        verify('worktrees', lambda: bool(self._own_worktrees()))
+        verify('scopes', lambda: bool(self._own_scopes()))
+        verify(f'directory:{self.base}', lambda: os.path.exists(self.base))
+        residuals += self.process_residuals + errors
         self.manifest['cleanup'] = {'containers': self.containers, 'networks': self.networks,
-                                    'worktrees': len(self.worktrees) + len(refs), 'residuals': residuals,
+                                    'worktrees': len(removed_wt), 'errors': errors, 'residuals': residuals,
                                     'verified': not residuals}
         return residuals
 
@@ -579,6 +796,9 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
             self.manifest['refusals'].append(str(exc))
         except Exception as exc:                        # anything unexpected is a failure, never a pass
             self.manifest['refusals'].append(f'{type(exc).__name__}: {exc}'[:300])
+        except BaseException as exc:                    # Interrupted / KeyboardInterrupt: clean up, then FAIL
+            self.interrupted = f'{type(exc).__name__} {exc}'.strip()
+            self.manifest['refusals'].append(f'interrupted: {self.interrupted}; cleanup ran')
         finally:
             try:
                 residuals = self.cleanup()
@@ -597,6 +817,12 @@ sys.exit(subprocess.run(['docker', 'exec', '-i', {container!r}, 'psql'] + args, 
     def write_evidence(self):
         if not os.path.isdir(self.evdir):
             return
+        for f in os.listdir(self.evdir):                # also covers a log left unredacted by an interrupted step
+            if f.endswith('.log'):
+                path = os.path.join(self.evdir, f)
+                text = open(path, errors='replace').read()
+                if redact(text, self.redactions) != text:
+                    open(path, 'w').write(redact(text, self.redactions))
         with open(os.path.join(self.evdir, 'manifest.json'), 'w') as fh:
             fh.write(redact(json.dumps(self.manifest, indent=1, sort_keys=True), self.redactions))
         sums = [f'{sha256_bytes(open(os.path.join(self.evdir, f), "rb").read())}  {f}'
@@ -620,12 +846,27 @@ def main(argv=None):
     jobs = tuple(j for j in a.jobs.split(',') if j)
     if not jobs or any(j not in JOBS for j in jobs):
         ap.error(f'--jobs must be a subset of {",".join(JOBS)}')
+    install_interrupt_handlers()
     r = Runner(a.repo, a.commit, jobs, a.evidence_root)
     verdict = r.go()
     print(json.dumps({'verdict': verdict, 'evidence': r.evdir, 'refusals': r.manifest['refusals'],
                       'residuals': r.manifest.get('cleanup', {}).get('residuals'),
-                      'jobs': {j: v['status'] for j, v in r.manifest['jobs'].items()}}, sort_keys=True))
-    return 0 if verdict == 'PASS' else 1
+                      'jobs': {j: v['status'] for j, v in r.manifest['jobs'].items()},
+                      'interrupted': r.interrupted}, sort_keys=True))
+    return 0 if verdict == 'PASS' else (130 if r.interrupted else 1)
+
+
+def install_interrupt_handlers():
+    """SIGINT/SIGTERM/SIGHUP raise Interrupted ONCE, so go() terminates child processes and cleans up; later signals
+    are ignored until the cleanup and the evidence are written."""
+    state = {'raised': False}
+
+    def handler(signum, frame):
+        if not state['raised']:
+            state['raised'] = True
+            raise Interrupted(signal.Signals(signum).name)
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, handler)
 
 
 if __name__ == '__main__':

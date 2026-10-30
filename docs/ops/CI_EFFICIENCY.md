@@ -389,8 +389,12 @@ No workflow, trigger, setting, billing or protection was changed and no run was 
 
 ## 11. LCE runner (owner decision 2026-10-28, contract §9)
 
-**Status:** runner `lce-2` in `ops/ci/lce.py`, tests `tests/test_lce_runner.py`. Hardened after the internal review of
-`d1184c8` (dedicated network, verified cleanup, classified deviations, negative tests, DSN and environment guards).
+**Status:** runner `lce-2.1` in `ops/ci/lce.py`, tests `tests/test_lce_runner.py`. `lce-2` was hardened after the
+internal review of `d1184c8` (dedicated network, verified cleanup, classified deviations, negative tests, DSN and
+environment guards). `lce-2.1` answers the independent review of `lce-2` (REQUEST_CHANGES, 2026-10-30): process-group
+termination with SIGTERM-to-SIGKILL escalation on timeouts and interruptions, bounded helper commands, host-side
+resource limits, and cleanup restricted to resources the run owns with fail-closed verification
+(`docs/ops/lce2-review/REMEDIATION_R1.md`). `lce-2.1` has not been run yet.
 Substitution for a GitHub-hosted check takes effect only after independent review. **This is not universal
 equivalence**: §11.3 classifies what is portable and what still needs verification.
 
@@ -424,7 +428,8 @@ GitHub itself provides is emulated, from a closed allowlist; anything else is re
 | `GITHUB_OUTPUT` / `GITHUB_PATH` / `GITHUB_STEP_SUMMARY` | runner files | per-step files, applied the same way |
 | change scope (collector job) | may skip on PRs | `event_name=workflow_dispatch`: always the full collector suite |
 | environment | runner image | **built from scratch** for every step (`PATH`, `HOME`, `LANG=C.UTF-8`, `LC_ALL`, `TZ=UTC`, `CI=true`, two pip/python flags, job/step env, `GITHUB_*`); nothing is inherited from the caller; umask 022; `timeout-minutes` per job |
-| cleanup | runner discarded | container and network removed, worktrees removed and pruned, temp dir deleted; then **verified** (by name and by the run label, `git worktree list`, the directory): any residue makes the verdict FAIL |
+| host-side processes | dedicated runner VM | every `run:` step in its own process group inside a transient user scope (`STEP_LIMITS`: CPUQuota 200 %, CPUWeight idle, MemoryMax 4G, no swap, TasksMax 512; enforcement verified in preflight, refused otherwise); peak memory, CPU time and tasks recorded per step; on timeout or SIGINT/SIGTERM/SIGHUP the group and its scope get SIGTERM, then SIGKILL after 10 s, and must be gone; processes left by a finished step are terminated (GitHub also kills orphans); helper commands (docker, git, pip, venv) bounded at 600 s the same way |
+| cleanup | runner discarded | this run's scopes killed; containers and networks removed **by ID, only when they carry this run's label and exact name**; only worktrees inside the run's own temporary directory removed and pruned; that directory removed only if it is the run's own `mkdtemp` directory; then **verified** (by name, by the run label, `git worktree list`, `systemctl --user list-units`, the directory). A check that cannot run counts as a residue; a cleanup error, a residue or a surviving process makes the verdict FAIL |
 | logs | runner logs | the throwaway service values and DSN credentials are redacted from step logs and the manifest |
 
 **Pins (fail closed on any difference):** whole `tests.yml` sha256 `f30ffb0c5e65e2f6…`; job definitions (sha256 of the
@@ -447,6 +452,7 @@ PARTIAL and never substitutes.
 | PG_NETWORK | internal network + container IP instead of the service port on 127.0.0.1:5432 | portable | connection target only |
 | VENV_CACHE | persistent LCE home venv instead of a cache entry | portable-with-record | the workflow's `pip install -r` runs every time; freeze hashes recorded |
 | PYPI_TIME | pinned installs resolved from PyPI at run time | portable-with-record | freeze hashes recorded |
+| HOST_LIMITS | host-side steps in a user scope (CPUQuota 200 %, CPUWeight idle, MemoryMax 4G, no swap, TasksMax 512) instead of a dedicated runner | portable-with-record | a limit can only slow a step or kill it (FAIL), never pass it; peak memory and CPU time per step recorded |
 | MERGE_COMMIT | pull_request runs test GitHub's merge commit; LCE tests the exact SHA | not-reproduced | valid only for integrating that exact SHA (fast-forward); a merge result needs its own LCE run on the merge commit |
 
 Further verification that would close the `requires-verification` items: one GitHub-hosted (or x86_64) run of the
@@ -458,7 +464,13 @@ Cleanup failure (container, network, worktree residue → FAIL); network isolati
 foreign member, second network, mount, published port, privileged, wrong network mode → refused); unsupported
 workflow change (file pin, job pin, unknown action, unknown expression → refused); incomplete execution (no pytest
 step, missing summary, failed/timeout step, failures, errors, nothing passed, a skipped pytest step → FAIL); DSN guard
-(production server, compose host name, wrong port → refused); no inherited environment; redaction.
+(production server, compose host name, wrong port → refused); no inherited environment; redaction. `lce-2.1`:
+a timeout terminates the whole process group; SIGTERM is escalated to SIGKILL and the scope is signalled; an
+interruption terminates the group before it propagates; processes left by a finished step are terminated; a helper
+command timeout is refused; limits are part of the scope command; unenforced limits are refused; cleanup removes
+only this run's resources; a check that cannot run, a directory outside the run's own temporary base, a leftover
+worktree, scope or process each make the run FAIL; an interrupted run still cleans up and fails; logs are redacted
+when evidence is written.
 
 ### 11.5 Run history
 
@@ -467,3 +479,6 @@ step, missing summary, failed/timeout step, failures, errors, nothing passed, a 
 - 2026-10-28, `lce-2` trial before commit, database job only, `ea2e9f4`: PARTIAL by design, job PASS (2652 + 18 + 10
   passed), internal network, 0 published ports, 0 mounts, cleanup verified with no residue, nothing to redact found
   in any evidence file.
+- 2026-10-28, `lce-2`: PASS for `f3ade07`, `b30fb66`, `33c7b68`, `4ac0c42`, cleanup verified.
+- 2026-10-30, `lce-2.1`: offline tests only (`tests/test_lce_runner.py`); no LCE run yet. Its first run must record
+  the per-step peak memory and CPU time, so that the `STEP_LIMITS` values can be confirmed or adjusted on evidence.

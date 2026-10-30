@@ -4,8 +4,11 @@ targets, redaction, no inherited environment). No Docker, git or database is use
 """
 import importlib.util
 import json
+import os
 import pathlib
 import re
+import signal
+import time
 import types
 
 import pytest
@@ -189,19 +192,25 @@ def test_verdict_is_fail_closed(requested, statuses, refusals, residuals, verdic
 
 
 class FakeCmd:
-    """Fake subprocess runner: docker/git calls succeed; `leave` makes a resource survive its removal."""
+    """Fake subprocess runner: docker/git/systemctl calls succeed. A label+name query (the ownership lookup before
+    removal) finds the run's own resource; `leave` makes a resource survive its removal; `fail` makes a
+    verification query fail."""
 
-    def __init__(self, leave=()):
-        self.leave, self.calls = set(leave), []
+    def __init__(self, leave=(), fail=()):
+        self.leave, self.fail, self.calls = set(leave), set(fail), []
 
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
-        out = ''
-        if cmd[:2] == ['docker', 'ps'] and 'container' in self.leave:
-            out = 'deadbeef\n'
-        if cmd[:3] == ['docker', 'network', 'ls'] and 'network' in self.leave:
-            out = 'cafebabe\n'
-        return types.SimpleNamespace(returncode=0, stdout=out, stderr='')
+        owned_query = any(a.startswith('label=') for a in cmd) and any(a.startswith('name=') for a in cmd)
+        out, rc = '', 0
+        if cmd[:2] == ['docker', 'ps']:
+            out = 'deadbeef\n' if owned_query or 'container' in self.leave else ''
+            rc = 1 if 'container' in self.fail and not owned_query else 0
+        if cmd[:3] == ['docker', 'network', 'ls']:
+            out = 'cafebabe\n' if owned_query or 'network' in self.leave else ''
+        if cmd[:3] == ['systemctl', '--user', 'list-units'] and 'scope' in self.leave:
+            out = 'lce-step-' + cmd[-1][6:-1] + '-unit-06.scope loaded active running\n'
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr='')
 
 
 @pytest.mark.parametrize('leave,expect', [((), None), (('container',), 'container:'), (('network',), 'network:')])
@@ -215,8 +224,8 @@ def test_cleanup_is_verified(tmp_path, leave, expect):
     else:
         assert any(x.startswith(expect) for x in residuals) and r.manifest['cleanup']['verified'] is False
         assert lce.decide_verdict(lce.JOBS, ALL, [], residuals) == 'FAIL'
-    assert ['docker', 'rm', '-f', 'lce-pg-x'] in fake.calls
-    assert ['docker', 'network', 'rm', 'lce-net-x'] in fake.calls
+    assert ['docker', 'rm', '-f', 'deadbeef'] in fake.calls          # removed by ID found via label + name
+    assert ['docker', 'network', 'rm', 'cafebabe'] in fake.calls
 
 
 def test_cleanup_detects_a_leftover_worktree(tmp_path):
@@ -271,3 +280,175 @@ def test_pytest_step_detection_ignores_installs():
     assert lce.PYTEST_RUN.search('python -m pytest -q -p no:cacheprovider -rs tests')
     for job in _workflow()['jobs'].values():          # every job keeps at least one real pytest step
         assert any(lce.PYTEST_RUN.search(s.get('run', '')) for s in job['steps'])
+
+
+# ---- lce-2.1: process groups, interruptions, host limits, strict cleanup ownership ---------------------------
+def _gone(pgid):
+    try:
+        os.killpg(pgid, 0)
+        return False
+    except ProcessLookupError:
+        return True
+
+
+def test_step_timeout_terminates_the_whole_process_group():
+    started = time.monotonic()
+    rc, term = lce.run_group(['bash', '-c', 'sleep 30 & sleep 30 & wait'], timeout=0.5, grace=2)
+    assert rc is None and term['cause'] == 'timeout' and term['group_gone'] is True
+    assert term['signals'] == ['SIGTERM'] and time.monotonic() - started < 5
+
+
+def test_termination_escalates_to_sigkill_and_signals_the_scope():
+    sent = []
+    rc, term = lce.run_group(['bash', '-c', "trap '' TERM; sleep 30 & wait"], timeout=0.5, grace=0.5,
+                             on_signal=lambda sig: sent.append(sig.name))
+    assert rc is None and term['group_gone'] is True
+    assert term['signals'] == ['SIGTERM', 'SIGKILL'] and sent == ['SIGTERM', 'SIGKILL']
+
+
+def test_interruption_terminates_the_group_before_it_propagates():
+    def alarm(signum, frame):
+        raise lce.Interrupted('SIGALRM')
+    old = signal.signal(signal.SIGALRM, alarm)
+    signal.setitimer(signal.ITIMER_REAL, 0.3)
+    try:
+        with pytest.raises(lce.Interrupted) as info:
+            lce.run_group(['bash', '-c', 'sleep 30 & sleep 30 & wait'], timeout=30, grace=2)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+    term = info.value.lce_termination
+    assert term['cause'] == 'Interrupted' and term['group_gone'] is True
+
+
+def test_processes_left_by_a_finished_step_are_terminated():
+    rc, term = lce.run_group(['bash', '-c', 'sleep 30 & exit 0'], timeout=10, grace=2)
+    assert rc == 0 and term['cause'] == 'processes left after exit' and term['group_gone'] is True
+
+
+def test_helper_command_timeout_is_refused_and_its_group_terminated():
+    with pytest.raises(lce.Refused, match='timed out after 0.5s; process group terminated'):
+        lce.run(['bash', '-c', 'sleep 30 & sleep 30 & wait'], timeout=0.5)
+    r = lce.run(['bash', '-c', 'echo out; echo err >&2'])
+    assert (r.returncode, r.stdout, r.stderr) == (0, 'out\n', 'err\n')
+
+
+def test_steps_run_in_a_limited_scope_with_the_step_environment_only():
+    argv = lce.scope_argv('lce-step-x-unit-06', ['bash', '-c', 'true'])
+    assert argv[:5] == ['systemd-run', '--user', '--scope', '--quiet', '--unit=lce-step-x-unit-06']
+    assert [a for a in argv if a.startswith('--property=')] == [f'--property={k}={v}' for k, v in lce.STEP_LIMITS]
+    assert argv[argv.index('--'):] == ['--', 'env', '-u', 'XDG_RUNTIME_DIR', 'bash', '-c', 'true']
+    assert set(lce.user_env()) == {'PATH', 'XDG_RUNTIME_DIR', 'LANG'}
+
+
+def test_step_limits_stay_small_for_a_host_shared_with_production():
+    lim = dict(lce.STEP_LIMITS)
+    assert int(lim['CPUQuota'].rstrip('%')) <= 400 and lim['CPUWeight'] == 'idle' and lim['MemorySwapMax'] == '0'
+    assert int(lim['MemoryMax'].rstrip('G')) <= 8 and int(lim['TasksMax']) <= 1024
+    assert lce.EXPECTED_SCOPE == {'cpu.max': f'{int(lim["CPUQuota"][:-1]) * 1000} 100000',
+                                  'memory.max': str(int(lim['MemoryMax'][:-1]) * 1024 ** 3),
+                                  'memory.swap.max': '0', 'pids.max': lim['TasksMax']}
+
+
+GOOD_PROBE = 'cpu.max=200000 100000\nmemory.max=4294967296\nmemory.swap.max=0\npids.max=512\n'
+
+
+@pytest.mark.parametrize('probe', [
+    GOOD_PROBE.replace('memory.max=4294967296', 'memory.max=max'),        # memory controller not delegated
+    GOOD_PROBE.replace('200000 100000', 'max 100000'),                    # no CPU quota
+    GOOD_PROBE.replace('memory.swap.max=0\n', ''),                         # swap limit missing
+    GOOD_PROBE.replace('pids.max=512', 'pids.max=max'),
+    '',
+])
+def test_unenforced_host_limits_are_refused(probe):
+    lce.check_scope_limits(GOOD_PROBE)
+    with pytest.raises(lce.Refused, match='not enforced'):
+        lce.check_scope_limits(probe)
+
+
+def test_cleanup_removes_only_resources_of_this_run(tmp_path):
+    fake = FakeCmd()
+    r = lce.Runner(str(tmp_path), 'c' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=fake)
+    r.containers, r.networks = ['lce-pg-x'], ['lce-net-x']
+    assert r.cleanup() == []
+    lookups = [c for c in fake.calls if c[:2] == ['docker', 'ps'] or c[:3] == ['docker', 'network', 'ls']]
+    owned = [c for c in lookups if f'label=tsb.lce.run={r.run_id}' in c and 'name=^lce-pg-x$' in c]
+    assert owned, 'a container is removed only after a lookup by this run label AND its exact name'
+    removals = [c for c in fake.calls if c[:3] in (['docker', 'rm', '-f'], ['docker', 'network', 'rm'])]
+    assert removals == [['docker', 'rm', '-f', 'deadbeef'], ['docker', 'network', 'rm', 'cafebabe']]
+    assert not any(w in c for c in fake.calls for w in ('prune', 'system')) or all(
+        c[:3] == ['git', 'worktree', 'prune'] for c in fake.calls if 'prune' in c)
+
+
+def test_a_cleanup_check_that_cannot_run_is_a_residue(tmp_path):
+    r = lce.Runner(str(tmp_path), 'd' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=FakeCmd(fail=('container',)))
+    r.containers = ['lce-pg-x']
+    residuals = r.cleanup()
+    assert 'unverifiable:container:lce-pg-x' in residuals and r.manifest['cleanup']['verified'] is False
+    assert lce.decide_verdict(lce.JOBS, ALL, [], residuals) == 'FAIL'
+
+
+def test_cleanup_never_removes_a_directory_outside_its_own_temp_base(tmp_path):
+    r = lce.Runner(str(tmp_path), 'e' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=FakeCmd())
+    os.rmdir(r.base)
+    foreign = tmp_path / f'lce-{"e" * 8}-foreign'
+    foreign.mkdir()
+    r.base = str(foreign)                               # not directly under the system temp directory
+    residuals = r.cleanup()
+    assert foreign.exists() and any(x.startswith('cleanup-error:directory') for x in residuals)
+    assert f'directory:{foreign}' in residuals
+
+
+def test_worktree_ownership_is_exact(tmp_path):
+    fake = FakeCmd()
+    r = lce.Runner(str(tmp_path), 'f' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=fake)
+    base = r.base
+    listing = f'worktree {base}-sibling\nworktree {base}/ws\nworktree {base}/ref-prod\nworktree /home/x/repo\n'
+
+    def cmd(c, **kw):
+        res = fake(c, **kw)
+        if c[:3] == ['git', 'worktree', 'list']:
+            res.stdout = listing
+        return res
+    r.cmd = cmd
+    residuals = r.cleanup()
+    removed = [c[-1] for c in fake.calls if c[:3] == ['git', 'worktree', 'remove']]
+    assert sorted(removed) == sorted([f'{base}/ws', f'{base}/ref-prod'])
+    assert 'worktrees' in residuals                     # the fake keeps listing them, so they count as left over
+
+
+def test_a_leftover_scope_of_this_run_is_a_residue_and_is_killed(tmp_path):
+    fake = FakeCmd(leave=('scope',))
+    r = lce.Runner(str(tmp_path), '1' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=fake)
+    assert 'scopes' in r.cleanup()
+    kills = [c for c in fake.calls if c[:3] == ['systemctl', '--user', 'kill']]
+    assert kills and all(r.run_id in c[-1] and c[3] == '--signal=SIGKILL' for c in kills)
+
+
+def test_surviving_step_processes_make_the_run_fail(tmp_path):
+    r = lce.Runner(str(tmp_path), '2' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=FakeCmd())
+    r.process_residuals = ['processes:lce-step-x-unit-06']
+    residuals = r.cleanup()
+    assert 'processes:lce-step-x-unit-06' in residuals and r.manifest['cleanup']['verified'] is False
+
+
+def test_an_interrupted_run_still_cleans_up_and_fails(tmp_path):
+    r = lce.Runner(str(tmp_path), '3' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=FakeCmd())
+
+    def interrupted():
+        raise lce.Interrupted('SIGTERM')
+    r.preflight = interrupted
+    assert r.go() == 'FAIL'
+    assert any('interrupted: Interrupted SIGTERM' in x for x in r.manifest['refusals'])
+    assert r.manifest['cleanup']['verified'] is True and not os.path.exists(r.base)
+
+
+def test_evidence_logs_are_redacted_even_after_an_interrupted_step(tmp_path):
+    r = lce.Runner(str(tmp_path), '4' * 40, lce.JOBS, str(tmp_path / 'ev'), cmd=FakeCmd())
+    os.makedirs(r.evdir)
+    (pathlib.Path(r.evdir) / 'database-step08.log').write_text('dsn postgresql://postgres:throwaway-1@h/x\n')
+    r.redactions = ['throwaway-1']
+    r.write_evidence()
+    assert 'throwaway-1' not in (pathlib.Path(r.evdir) / 'database-step08.log').read_text()
+    assert 'throwaway-1' not in (pathlib.Path(r.evdir) / 'SHA256SUMS').read_text()
+    os.rmdir(r.base)
