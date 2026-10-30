@@ -1,0 +1,63 @@
+# AUTHOR-PRODUCED synthetic evidence (2026-10-30); no Docker calls (fake command executor)
+$ git archive f3ade07 | tar -x -C <dir> && cd <dir> && umask 022 && python -m pytest -q -p no:cacheprovider -rA tests/test_lce_runner.py
+tree: b0229e6207a8978276108a7e6f2e79027a49e3ed
+Python 3.12.3
+pytest 9.1.1
+pyyaml 6.0.1
+..............................................                           [100%]
+==================================== PASSES ====================================
+________________ test_partial_job_selection_argument_validation ________________
+----------------------------- Captured stderr call -----------------------------
+usage: __main__.py [-h] [--jobs JOBS] [--evidence-root EVIDENCE_ROOT]
+                   [--repo REPO]
+                   commit
+__main__.py: error: --jobs must be a subset of unit,database,collector,parity-inventory
+=========================== short test summary info ============================
+PASSED tests/test_lce_runner.py::test_reviewed_workflow_file_pin_equals_tests_yml
+PASSED tests/test_lce_runner.py::test_reviewed_pins_equal_the_current_workflow_jobs
+PASSED tests/test_lce_runner.py::test_unsupported_workflow_change_is_refused
+PASSED tests/test_lce_runner.py::test_every_action_and_service_used_by_the_workflow_is_supported
+PASSED tests/test_lce_runner.py::test_every_expression_the_runner_evaluates_is_supported
+PASSED tests/test_lce_runner.py::test_expression_semantics_and_fail_closed
+PASSED tests/test_lce_runner.py::test_isolation_accepts_the_private_internal_network
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net0-ctr0]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net1-ctr1]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net2-ctr2]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net3-ctr3]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net4-ctr4]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net5-ctr5]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net6-ctr6]
+PASSED tests/test_lce_runner.py::test_isolation_failures_are_refused[net7-ctr7]
+PASSED tests/test_lce_runner.py::test_dsn_guard_refuses_anything_but_the_disposable_server[postgresql://trading_signal_bot:x@127.0.0.1:5432/trading_signals]
+PASSED tests/test_lce_runner.py::test_dsn_guard_refuses_anything_but_the_disposable_server[postgresql://postgres:ci@postgres:5432/postgres]
+PASSED tests/test_lce_runner.py::test_dsn_guard_refuses_anything_but_the_disposable_server[postgresql://postgres:ci@172.30.0.2:5433/postgres]
+PASSED tests/test_lce_runner.py::test_dsn_guard_accepts_the_disposable_server
+PASSED tests/test_lce_runner.py::test_step_environment_inherits_nothing_from_the_caller
+PASSED tests/test_lce_runner.py::test_throwaway_values_are_redacted
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps0-no pytest step]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps1-no summary]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps2-step failed]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps3-step failed]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps4-test failures]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps5-test failures]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps6-no test passed]
+PASSED tests/test_lce_runner.py::test_incomplete_or_failed_execution_fails[steps7-no summary]
+PASSED tests/test_lce_runner.py::test_complete_job_passes
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested0-statuses0-refusals0-residuals0-PASS]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested1-statuses1-refusals1-residuals1-FAIL]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested2-statuses2-refusals2-residuals2-FAIL]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested3-statuses3-refusals3-residuals3-FAIL]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested4-statuses4-refusals4-residuals4-FAIL]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested5-statuses5-refusals5-residuals5-PARTIAL]
+PASSED tests/test_lce_runner.py::test_verdict_is_fail_closed[requested6-statuses6-refusals6-residuals6-FAIL]
+PASSED tests/test_lce_runner.py::test_cleanup_is_verified[leave0-None]
+PASSED tests/test_lce_runner.py::test_cleanup_is_verified[leave1-container:]
+PASSED tests/test_lce_runner.py::test_cleanup_is_verified[leave2-network:]
+PASSED tests/test_lce_runner.py::test_cleanup_detects_a_leftover_worktree
+PASSED tests/test_lce_runner.py::test_runner_source_never_targets_production
+PASSED tests/test_lce_runner.py::test_pytest_summary_counts
+PASSED tests/test_lce_runner.py::test_partial_job_selection_argument_validation
+PASSED tests/test_lce_runner.py::test_reviewed_pins_and_deviation_classes_are_documented
+PASSED tests/test_lce_runner.py::test_pytest_step_detection_ignores_installs
+46 passed in <duration>
+exit=0

@@ -1,0 +1,2145 @@
+{
+ "description": "Sanitized summary of the host-side LCE evidence manifests (author-produced). Omitted: second-precision start/finish times, host paths, step logs. The originals stay on the host under ~/ops/ci-evidence/<sha>/<run>/manifest.json; original_manifest_sha256 lets a reviewer verify them if they are provided.",
+ "runs": [
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 514,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2779,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1909,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "966e3f65e6dda74b9255f246c09dec7d12b7fd3de02c2512ff50821041f383c5",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2305Z",
+   "runner_sha256": "780f98d983dbae95b02948becdfdf3d69877ffecce7c20468df3976afa36f20d",
+   "sha": "33c7b687fe66e66e6769c219a4ce90d366b19530",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": null,
+   "deviations": [
+    "python 3.12.3 (tests.yml: 3.12 latest patch on ubuntu-24.04)",
+    "architecture aarch64 (GitHub runner: x86_64)",
+    "postgres image sha256:721873c34ceb (PG_VERSION=16.15, local,",
+    "postgres published on 127.0.0.1:60267 instead of 5432 (5432 "
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2344,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1474,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "d80c1551d5546f6a450ce73b88566c85ce7bf38941701913766a937c90235c4f",
+   "postgres_isolation": {
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "mounts": "0",
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T1554Z",
+   "runner_sha256": "ff977459dc42de59bc0fae4e4f54e6c9316861a928daea683443484b8e066156",
+   "sha": "4ac0c421892e86964c4c55d82191430f42ea14da",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "FAIL",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2344,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1474,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "cd0033bc78771c344f617cacd3a1456a58fc5613e31340b643fa6994ee5c2673",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2155Z",
+   "runner_sha256": "159ec8f2be4a866f2cec2203168966742c1dc0f412e884a8e07f65e454b8e43a",
+   "sha": "4ac0c421892e86964c4c55d82191430f42ea14da",
+   "verdict": "FAIL",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2344,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1474,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "361b766f5fceaeea2d4325935075f56fd37d92b460b6f9fa89222a744ac105cb",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2327Z",
+   "runner_sha256": "780f98d983dbae95b02948becdfdf3d69877ffecce7c20468df3976afa36f20d",
+   "sha": "4ac0c421892e86964c4c55d82191430f42ea14da",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2683,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1811,
+      "skipped": 849,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "4dd879a5d30cfb7ea1965ddcb3f53b7d4b4df0a9a4196540259b3e14346a046a",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2242Z",
+   "runner_sha256": "780f98d983dbae95b02948becdfdf3d69877ffecce7c20468df3976afa36f20d",
+   "sha": "b30fb6676cae6d3f8ea15eb86391fa90cc550293",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "FAIL",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2711,
+      "skipped": 8,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1841,
+      "skipped": 851,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "f00b1768ad22ff0d610d38ee0ef64924d744fb4b7cdedca45f8f8556e8d3a9d1",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2047Z",
+   "runner_sha256": "159ec8f2be4a866f2cec2203168966742c1dc0f412e884a8e07f65e454b8e43a",
+   "sha": "cbe6b43d18ceef9cdae4525b4314e72214278835",
+   "verdict": "FAIL",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": null,
+   "deviations": [
+    "python 3.12.3 (tests.yml: 3.12 latest patch on ubuntu-24.04)",
+    "architecture aarch64 (GitHub runner: x86_64)",
+    "postgres image sha256:721873c34ceb (PG_VERSION=16.15, local,",
+    "postgres published on 127.0.0.1:51973 instead of 5432 (5432 "
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2679,
+      "skipped": 7,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1809,
+      "skipped": 850,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "08ded13c771116facc25e3820dc52b133829ce01184f44d0e952cf0ea92f2979",
+   "postgres_isolation": {
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "mounts": "0",
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T1447Z",
+   "runner_sha256": "ff977459dc42de59bc0fae4e4f54e6c9316861a928daea683443484b8e066156",
+   "sha": "d1184c86128f134fdcfadc6cc0f0ec08533d4a75",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": null,
+   "deviations": [
+    "python 3.12.3 (tests.yml: 3.12 latest patch on ubuntu-24.04)",
+    "architecture aarch64 (GitHub runner: x86_64)",
+    "postgres image sha256:721873c34ceb (PG_VERSION=16.15, local,",
+    "postgres published on 127.0.0.1:37731 instead of 5432 (5432 "
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 511,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2719,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1849,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "92f45a49b422997ab5ab98c37a0ba87cb59ab24a1169cb6ac6ad770eb3a86436",
+   "postgres_isolation": {
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "mounts": "0",
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T1531Z",
+   "runner_sha256": "ff977459dc42de59bc0fae4e4f54e6c9316861a928daea683443484b8e066156",
+   "sha": "d77166dfa609c4c2a0f7a1b2882f7f6fe78ff91c",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 511,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "FAIL",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2719,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1849,
+      "skipped": 847,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "2cc33db13406826235bb0b6a937b5a933efba54e31e4fb6068c176cf42120c79",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2133Z",
+   "runner_sha256": "159ec8f2be4a866f2cec2203168966742c1dc0f412e884a8e07f65e454b8e43a",
+   "sha": "d77166dfa609c4c2a0f7a1b2882f7f6fe78ff91c",
+   "verdict": "FAIL",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": null,
+   "deviations": [
+    "python 3.12.3 (tests.yml: 3.12 latest patch on ubuntu-24.04)",
+    "architecture aarch64 (GitHub runner: x86_64)",
+    "postgres image sha256:721873c34ceb (PG_VERSION=16.15, local,",
+    "postgres published on 127.0.0.1:48035 instead of 5432 (5432 "
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2680,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1809,
+      "skipped": 848,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "9e53e6a41a1de0e856d48b92a4d54c747e9679df63473be2dcfa3751823b41c6",
+   "postgres_isolation": {
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "mounts": "0",
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T1509Z",
+   "runner_sha256": "ff977459dc42de59bc0fae4e4f54e6c9316861a928daea683443484b8e066156",
+   "sha": "ea2e9f44798c802275c3bcc8a121f0e386d1310c",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "FAIL",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2680,
+      "skipped": 4,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1809,
+      "skipped": 848,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "4a197f6803d9d16147df8b4203f74707d4b91a86d32248c4c0ec1247e00cd518",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2110Z",
+   "runner_sha256": "159ec8f2be4a866f2cec2203168966742c1dc0f412e884a8e07f65e454b8e43a",
+   "sha": "ea2e9f44798c802275c3bcc8a121f0e386d1310c",
+   "verdict": "FAIL",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  },
+  {
+   "cleanup_verified": true,
+   "deviations": [
+    "ARCH:requires-verification",
+    "PY_PATCH:requires-verification",
+    "HOST_OS:requires-verification",
+    "PG_IMAGE:requires-verification",
+    "PG_NETWORK:portable",
+    "VENV_CACHE:portable-with-record",
+    "PYPI_TIME:portable-with-record",
+    "MERGE_COMMIT:not-reproduced"
+   ],
+   "jobs": {
+    "collector": {
+     "counts": {
+      "passed": 466,
+      "skipped": 1,
+      "subtests passed": 40
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "change scope (collector inputs)",
+       "result": "ok"
+      },
+      {
+       "label": "presence check",
+       "result": "ok"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "install the collector's exact pinned set (no dependency resolution) and pytest",
+       "result": "ok"
+      },
+      {
+       "label": "collector tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "database": {
+     "counts": {
+      "passed": 2711,
+      "skipped": 9,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "reference trees (read-only checkouts of reviewed commits)",
+       "result": "ok"
+      },
+      {
+       "label": ".github/ci/build_schema_template.sh",
+       "result": "ok"
+      },
+      {
+       "label": "full suite with databases",
+       "result": "ok"
+      },
+      {
+       "label": "test_p1fix with the pre-fix tree",
+       "result": "ok"
+      },
+      {
+       "label": "A39 mixed-version suite with the production tree",
+       "result": "ok"
+      }
+     ]
+    },
+    "parity-inventory": {
+     "counts": {
+      "passed": 21
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "Inventory known legacy release gaps without false certification",
+       "result": "ok"
+      },
+      {
+       "label": "Parity inventory unit and negative tests",
+       "result": "ok"
+      }
+     ]
+    },
+    "unit": {
+     "counts": {
+      "passed": 1841,
+      "skipped": 852,
+      "subtests passed": 46
+     },
+     "status": "PASS",
+     "steps": [
+      {
+       "label": "actions/checkout@v4",
+       "result": "emulated: clean detached worktree of the SHA (full history)"
+      },
+      {
+       "label": "actions/setup-python@v5",
+       "result": "emulated: fresh venv, python 3.12.3"
+      },
+      {
+       "label": "runner image id (part of the virtualenv cache key)",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/restore@v4",
+       "result": "emulated: persistent LCE home (hit=true)"
+      },
+      {
+       "label": "install the pinned test set into the virtualenv",
+       "result": "ok"
+      },
+      {
+       "label": "actions/cache/save@v4",
+       "result": "skipped (if: false)"
+      },
+      {
+       "label": "python -m pytest -q -p no:cacheprovider -rs tests",
+       "result": "ok"
+      }
+     ]
+    }
+   },
+   "original_manifest_sha256": "2bcb65f6c977eb8fda32d9e272c74186cc41ca7878b794163031a19589ec4aed",
+   "postgres_isolation": {
+    "arch": "arm64",
+    "image_id": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "internal": true,
+    "mounts": 0,
+    "os": "Alpine Linux v3.24",
+    "published_ports": 0,
+    "tag_in_workflow": "postgres:16.15-alpine"
+   },
+   "refusals": [],
+   "run": "lce-20261028T2220Z",
+   "runner_sha256": "780f98d983dbae95b02948becdfdf3d69877ffecce7c20468df3976afa36f20d",
+   "sha": "f3ade07cd2370d7821638d6fdf3a2d4121e8f241",
+   "verdict": "PASS",
+   "workflow_sha256": "f30ffb0c5e65e2f60053c3c732b160ea358b5e8a7def0887edcba1cb54158c74"
+  }
+ ]
+}
