@@ -1,11 +1,13 @@
 """Design A v1.0 state machine and accounting (spec §7, §9–§13).
 
-``apply_decision`` records a decision and opens a pending transition only for a genuine state
-transition: the target changes and differs from the actual position. ``execute_pending`` fills it
-at the open of the scheduled Tuesday candle, or of the next available candle opening within three
-calendar days of the decision, with the frozen cost formulas; a reference candle that is due but
-unavailable is recorded as missing market data, and the transition is cancelled once no eligible
-candle remains. Balances change only on a fill, and nothing is charged otherwise.
+``apply_decision`` records a decision and opens a pending transition whenever the decided target
+differs from the actual tradable position, including a weekly retry after an expired or rejected
+transition (owner decision, spec F10). ``execute_pending`` models the execution at the reference
+price, the open of the scheduled Tuesday candle or of the next available candle opening within
+three calendar days of the decision, with the frozen cost formulas. That open is a benchmark
+reference, not an executable live quote. A reference candle that is due but unavailable is
+recorded as missing market data, and the transition is cancelled once no eligible candle remains.
+Balances change only on a modelled fill, and nothing is charged otherwise.
 
 Every execution-side entry is booked at the instant its outcome became known under the
 availability rule, never at the instant a caller happened to look. For snapshots that never
@@ -62,13 +64,14 @@ def apply_decision(state: State, decision: Decision) -> State:
         raise TransitionError("decision was computed for a different target or position")
     changes = {"target": decision.target, "last_decision_at": decision.at}
     if decision.action is None:
-        why = "TARGET_UNCHANGED" if decision.target is state.target else "ALREADY_AT_TARGET"
-        entries.append(_entry(state, entries, decision.at, Event.NO_CHANGE, reason=why))
+        entries.append(_entry(state, entries, decision.at, Event.NO_CHANGE,
+                              reason="ALREADY_AT_TARGET"))
     else:
         pending = PendingTransition(decision.action, decision.at,
                                     scheduled_reference_open(decision.at))
         event = Event.PENDING_BUY if pending.side is Side.BUY else Event.PENDING_SELL
-        entries.append(_entry(state, entries, decision.at, event, side=pending.side,
+        why = "RETRY" if decision.target is state.target else "NEW_TARGET"
+        entries.append(_entry(state, entries, decision.at, event, reason=why, side=pending.side,
                               decided_at=pending.decided_at, expires_at=pending.expires_at,
                               reference_time=pending.next_open))
         changes.update(pending=pending, execution_status=ExecutionStatus.PENDING)
@@ -126,8 +129,10 @@ def _min_order_failure(quantity: Decimal, notional: Decimal, rules: MinOrderRule
 def _fill(state: State, pending: PendingTransition, candle: Candle, entries: list) -> State:
     """Frozen formulas (spec §10): P_buy = P(1 + hs + sl), quantity = Cash / (P_buy (1 + fee))
     rounded down to qty_step; P_sell = P(1 - hs - sl), quantity = BTC rounded down to qty_step.
-    The fee is charged once, in quote currency, on quantity x execution price. The outcome is
-    booked when the reference candle became available."""
+    The fee is charged once, in quote currency, on quantity x execution price. ``reference_time``
+    is the open's timestamp (the event time); ``at`` is when the complete reference candle became
+    available, the earliest instant the model knows the outcome. This is a modelled execution at
+    a benchmark reference price, not a claim that a live order would have filled at the open."""
     costs, rules = state.costs, state.rules
     reference = candle.open
     known = available_from(candle.open_time)

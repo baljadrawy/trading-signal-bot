@@ -13,6 +13,7 @@ import pytest
 
 sys.path.insert(0, ".")
 import design_a_synthetic as syn  # noqa: E402
+from research.design_a import decision as X  # noqa: E402
 from research.design_a import ledger as L  # noqa: E402
 from research.design_a import state as S  # noqa: E402
 from research.design_a import timing as T  # noqa: E402
@@ -36,8 +37,8 @@ def fresh(cash="1000", costs=S.BASELINE, rules=syn.RULES):
     return S.initial_state(D(cash), costs, rules)
 
 
-def holding(btc, cash="0", rules=syn.RULES):
-    return S.State(cash=D(cash), btc=D(btc), costs=S.BASELINE, rules=rules, target=LONG)
+def holding(btc, cash="0", rules=syn.RULES, costs=S.BASELINE):
+    return S.State(cash=D(cash), btc=D(btc), costs=costs, rules=rules, target=LONG)
 
 
 def signal(when, target, action=None):
@@ -143,18 +144,101 @@ def test_three_day_expiry_cancels_and_keeps_holdings():                         
     assert late.ledger == expired.ledger      # a single late look records exactly the same
 
 
-def test_after_expiry_an_unchanged_target_does_not_trade():
-    """Provisional F10 reading (spec §7, §19 item 11): no trade while the target is unchanged,
-    even though the expired buy left the position FLAT; the next change of target decides."""
-    expired = L.execute_pending(decided(fresh(), LONG), syn.snapshot(at(FRI), []))
-    again = decided(expired, LONG, DECISION + WEEK)
+# --- owner decision 2026-10-31 (F10): weekly retries of transitions that did not execute ---------
+
+NEXT = DECISION + WEEK
+
+
+def expired(state):
+    """Let the pending transition expire: no reference candle inside its window."""
+    return L.execute_pending(state, syn.snapshot(at(state.pending.decided_at.replace(
+        hour=0, minute=0, second=0) + 4 * S.DAY), []))
+
+
+@pytest.mark.parametrize("costs", [S.BASELINE, S.STRESS], ids=["baseline", "stress"])
+def test_an_expired_sell_is_retried_at_the_next_flat_decision(costs):           # 1, 7, 8
+    s = expired(decided(holding("2", costs=costs), FLAT))
+    assert s.execution_status is S.ExecutionStatus.EXPIRED and S.actual_position(s) is LONG
+    retry = decided(s, FLAT, NEXT)
+    assert events(retry, 2) == [E.DECIDE_FLAT, E.PENDING_SELL] and retry.ledger[-1].reason == "RETRY"
+    assert (retry.pending.next_open, retry.pending.expires_at) == (TUE + WEEK, NEXT + 3 * S.DAY)
+    assert (retry.cash, retry.btc) == (s.cash, s.btc)                       # nothing moves yet
+    waiting = L.execute_pending(retry, syn.snapshot(at(WED + WEEK), []))    # missing data
+    assert (waiting.cash, waiting.btc) == (s.cash, s.btc)
+    done = fill(retry, "110", day=TUE + WEEK)
+    e = done.ledger[-1]
+    assert e.execution_price == D("110") * (1 - costs.half_spread - costs.slippage)
+    assert done.cash == e.notional - e.notional * costs.fee and done.btc == 0
+    lapsed = expired(retry)                                                  # the same 72 h window
+    assert events(lapsed, 1) == [E.EXPIRED] and lapsed.ledger[-1].expires_at == NEXT + 3 * S.DAY
+
+
+@pytest.mark.parametrize("costs", [S.BASELINE, S.STRESS], ids=["baseline", "stress"])
+def test_an_expired_buy_is_retried_at_the_next_long_decision(costs):            # 3, 7, 8
+    s = expired(decided(fresh(costs=costs), LONG))
+    retry = decided(s, LONG, NEXT)
+    assert events(retry, 2) == [E.DECIDE_LONG, E.PENDING_BUY] and retry.ledger[-1].reason == "RETRY"
+    assert (retry.cash, retry.btc) == (D("1000"), 0)
+    done = fill(retry, "100", day=TUE + WEEK)
+    buy = done.ledger[-1]
+    assert buy.execution_price == D("100") * (1 + costs.half_spread + costs.slippage)
+    assert buy.quantity == (D("9.98002") if costs is S.BASELINE else D("9.97006"))
+    assert done.cash == D("1000") - buy.notional - buy.notional * costs.fee
+    assert (buy.reference_time, buy.at) == (TUE + WEEK, WED + WEEK)      # open vs availability
+
+
+def test_a_rejected_sell_is_retried_only_at_the_next_valid_weekly_decision():   # 2, 6
+    rejected = fill(decided(holding("0.05"), FLAT))           # 0.05 x 99.9 = 4.995 < 10
+    assert rejected.execution_status is S.ExecutionStatus.REJECTED_MIN_ORDER
+    with pytest.raises(S.TransitionError, match="no pending"):           # nothing between decisions
+        L.execute_pending(rejected, syn.snapshot(at(THU), [reference(WED, "300")]))
+    skipped = L.apply_decision(rejected, S.Decision(NEXT, E.SKIP_MISSING_SUNDAY,
+                                                    reason="SUNDAY_CANDLE_UNAVAILABLE"))
+    assert skipped.pending is None and events(skipped, 1) == [E.SKIP_MISSING_SUNDAY]
+    retry = decided(skipped, FLAT, NEXT + WEEK)
+    assert events(retry, 1) == [E.PENDING_SELL] and retry.ledger[-1].reason == "RETRY"
+    sold = fill(retry, "300", day=TUE + 2 * WEEK)             # 0.05 x 299.7 = 14.985 >= 10
+    assert sold.ledger[-1].event is E.EXECUTED and sold.btc == 0
+    again = fill(decided(rejected, FLAT, NEXT), "100", day=TUE + WEEK)    # minimums still apply
+    assert (again.ledger[-1].reason, again.btc) == ("BELOW_MIN_NOTIONAL", D("0.05"))
+
+
+def test_missing_sunday_data_does_not_trigger_a_retry():                         # 6
+    s = expired(decided(fresh(), LONG))                       # target LONG, actual FLAT
+    sunday = MONDAY + WEEK - S.DAY
+    closes = ["100"] * 199 + ["120"]
+    lacking = [c for c in syn.ending(sunday, closes) if c.open_time != sunday]
+    d = X.decide(s, syn.snapshot(NEXT, lacking))
+    after = L.apply_decision(s, d)
+    assert d.event is E.SKIP_MISSING_SUNDAY and after.pending is None
+    assert (after.cash, after.btc) == (s.cash, s.btc)
+    d2 = X.decide(after, syn.snapshot(NEXT + WEEK, syn.ending(sunday + WEEK, closes)))
+    assert d2.action is BUY and L.apply_decision(after, d2).ledger[-1].reason == "RETRY"
+
+
+def test_an_executed_transition_is_never_duplicated():                           # 4, 5
+    long = fill(decided(fresh(), LONG))
+    again = decided(long, LONG, NEXT)
     assert events(again, 2) == [E.DECIDE_LONG, E.NO_CHANGE] and again.pending is None
-    assert again.ledger[-1].reason == "TARGET_UNCHANGED" and again.cash == D("1000")
-    flat = decided(again, FLAT, DECISION + 2 * WEEK)
-    assert (events(flat, 1), flat.ledger[-1].reason) == ([E.NO_CHANGE], "ALREADY_AT_TARGET")
-    assert flat.target is FLAT
-    long = decided(flat, LONG, DECISION + 3 * WEEK)
-    assert events(long, 2) == [E.DECIDE_LONG, E.PENDING_BUY]
+    flat = fill(decided(again, FLAT, NEXT + WEEK), day=TUE + 2 * WEEK)
+    again = decided(flat, FLAT, NEXT + 2 * WEEK)
+    assert events(again, 2) == [E.DECIDE_FLAT, E.NO_CHANGE] and again.pending is None
+    assert [e.side for e in executed(again)] == [BUY, SELL]
+
+
+def test_a_changed_signal_replaces_the_retry():
+    s = expired(decided(fresh(), LONG))                       # the BUY expired
+    flat = decided(s, FLAT, NEXT)                              # the signal turned: follow it
+    assert events(flat, 2) == [E.DECIDE_FLAT, E.NO_CHANGE] and flat.pending is None
+
+
+def test_dust_below_the_tradable_minimums_creates_no_repeated_orders():          # 10
+    for btc, rules in (("0.000001", syn.RULES),                                  # below one step
+                       ("0.0005", S.MinOrderRules(D("1"), D("0.001"), D("0.00001")))):  # < min_qty
+        s = S.State(cash=D("0"), btc=D(btc), costs=S.BASELINE, rules=rules, target=FLAT)
+        for week in range(3):
+            s = decided(s, FLAT, DECISION + week * WEEK)
+            assert events(s, 1) == [E.NO_CHANGE] and s.pending is None and s.btc == D(btc)
 
 
 # --- transitions ---------------------------------------------------------------------------------
@@ -171,7 +255,7 @@ def test_an_unchanged_target_never_rebalances():                                
     long = fill(decided(fresh(), LONG))
     again = decided(long, LONG, DECISION + WEEK)
     assert events(again, 2) == [E.DECIDE_LONG, E.NO_CHANGE] and again.pending is None
-    assert again.ledger[-1].reason == "TARGET_UNCHANGED"
+    assert again.ledger[-1].reason == "ALREADY_AT_TARGET"
     assert (again.cash, again.btc) == (long.cash, long.btc) == (D("0.000997998"), D("9.98002"))
     flat = decided(fresh(), FLAT)
     assert events(flat) == [E.DECIDE_FLAT, E.NO_CHANGE] and flat.pending is None
@@ -300,6 +384,7 @@ def test_the_clean_scenario_trades_on_the_weekly_schedule():
 
 def test_the_rough_scenario_reaches_every_recorded_event():
     assert {e.event for e in rough().ledger} == RECORDED_EVENTS
+    assert any(e.reason == "RETRY" for e in rough().ledger)          # the expired SELL is retried
     dust = next(e for e in rough().ledger if e.event is E.RESIDUAL_DUST)
     assert dust.record()["quantity"] == "1E-7"
 
@@ -387,6 +472,20 @@ def test_replay_refuses_revised_candles_and_resumes_into_the_past():
         L.replay(part, snaps[2:12])
 
 
+def test_known_limitation_revision_detection_is_per_replay_call():
+    """Documented limitation (spec §5): the revised-candle check covers one replay call. A
+    resumed call does not know the candles an earlier call saw, and no State carries them."""
+    snaps = syn.scenario_snapshots()[:11]
+    old = snaps[10].candles[3]
+    new = S.Candle(old.open_time, old.open, old.high * 2, old.low, old.close)
+    revised = S.Snapshot(snaps[10].as_of, tuple(new if c is old else c for c in snaps[10].candles),
+                         snaps[10].permission)
+    start = S.initial_state(syn.CASH, S.BASELINE, syn.RULES)
+    with pytest.raises(S.DesignAError, match="revised"):
+        L.replay(start, snaps[:10] + [revised])               # one call: refused
+    L.replay(L.replay(start, snaps[:10]), [revised])           # two calls: not detected
+
+
 def test_a_skipped_decision_instant_is_refused():
     start = S.initial_state(syn.CASH, S.BASELINE, syn.RULES)
     for offset in (timedelta(0), timedelta(minutes=1)):         # snapshots that miss the instant
@@ -407,7 +506,11 @@ def test_an_interrupted_replay_resumes_to_the_same_ledger(which):               
     first_pending = next(e for e in whole.ledger if e.event in (E.PENDING_BUY, E.PENDING_SELL))
     inside = next(i for i, s in enumerate(snaps) if s.as_of > first_pending.at)
     assert L.replay(start, snaps[:inside]).pending is not None
-    for cut in (1, inside, inside + 1, len(snaps) // 2, len(snaps) - 1):
+    cuts = [1, inside, inside + 1, len(snaps) // 2, len(snaps) - 1]
+    retry = next((e for e in whole.ledger if e.reason == "RETRY"), None)
+    if retry is not None:                                      # a cut inside a retry window
+        cuts.append(next(i for i, s in enumerate(snaps) if s.as_of > retry.at))
+    for cut in cuts:
         part = L.replay(start, snaps[:cut])
         assert L.digest(L.replay(part, snaps[cut:])) == L.digest(whole), cut
 

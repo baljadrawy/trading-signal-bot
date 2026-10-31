@@ -9,6 +9,8 @@
 
 **Base:** `origin/main` at `eba90dd`.
 
+**Owner decision (2026-10-31):** weekly retries of transitions that did not execute (F10). It is recorded in §2 and is binding.
+
 **Owner brief:** "Trading Signal Bot — Design A v1.0: Specification, Minimal Implementation & Synthetic Validation" (2026-10-30). It is cited below as *the brief* (§n = brief section n).
 
 **Labels.** Each normative statement carries one label. They follow the brief's Phase B categories:
@@ -27,7 +29,7 @@ A29–A34 are not in this worktree: they live at local commit `54a6369`, held un
 **"D1" has three meanings in this repository.** They are kept apart here:
 - **class D1** of `docs/governance/DEVELOPMENT_FIRST_POLICY.md` §2 (historical evaluation on real data);
 - the A29 **"D1/D2 HOLD"** for governed confirmation (`OWNER_OPERATING_CONTRACT.md` §4);
-- the review-log IDs, which are X1–X16 and R1–R13 (§23).
+- the review-log IDs, which are X1–X16 and R1–R14 (§23).
 
 ---
 
@@ -109,9 +111,18 @@ The rule text is **FROZEN** (the brief §4–§8). Readings the brief leaves ope
 **Position**
 - **F9.** The target exposure is 100 % BTC when `LONG` and cash when `FLAT`. The portfolio starts in cash.
 - **F10.** "Do not rebalance when the target state is unchanged. Execute only genuine state transitions."
-  - **Reading (PROPOSED, implemented, provisional; OPEN §19 item 11):** a transition opens only when the decided target **differs from the previous target** and the **actual position differs from the new target**.
-  - **Consequence:** an unchanged target never trades, even when an earlier transition expired or was rejected.
-  - **The alternative reading** (retry while the actual position differs from an unchanged target) is the owner's to choose (§23 X8).
+  - **Owner decision, 2026-10-31 (APPROVED, binding):** at each valid weekly decision, a new pending transition opens whenever the newly computed target **differs from the actual tradable position**, even if the target is unchanged from the previous week. That covers an earlier order that:
+    - expired without execution;
+    - was rejected by the minimum-order rules;
+    - or otherwise did not execute.
+  - **Limits:**
+    - no retry between weekly decisions;
+    - no rebalance of a correctly positioned portfolio;
+    - no duplicate of an executed order;
+    - the minimum-order rules always apply;
+    - if the signal changes before a retry, the latest valid signal governs;
+    - a skipped decision (missing or invalid signal data) creates no order.
+  - **Implementation:** `state.required_action`. The ledger marks such a transition `PENDING_* (RETRY)`, or `PENDING_* (NEW_TARGET)` when the target changed.
 - **F11.** Residual balances, dust included, are preserved and never rounded to zero.
 - **F12.** No fill is fabricated to force an exact allocation.
 
@@ -125,6 +136,8 @@ The rule text is **FROZEN** (the brief §4–§8). Readings the brief leaves ope
 - **F16.** The execution reference is the **open** of the Tuesday 00:00 UTC daily candle.
   - The brief calls the roughly 24-hour delay "a deliberate, conservative research-model assumption".
   - The opening print is a benchmark reference, not a guaranteed executable quote. Half-spread and slippage are applied.
+  - **Two timestamps are kept apart.** The reference price carries the open's timestamp, Tuesday 00:00 UTC (`reference_time`, the event time). The model only learns it when the complete Tuesday candle becomes available, Wednesday 00:00 UTC under §5 (`at`, the booking time).
+  - An `EXECUTED` entry is a **modelled** execution at that reference price. It is not a claim that a live order could have filled at the opening print. No change to the reference-price convention without owner approval.
 - **F17.** A pending transition executes only at a reference strictly after the decision.
 - **F18.** If the scheduled candle is unavailable, execution defers to the next available completed daily candle within **three calendar days** of the decision timestamp.
   - **Reading (PROPOSED, implemented, provisional; OPEN §19 item 11):** the window is measured on the reference **open**, as `decided_at < open_time ≤ decided_at + 72 h`. It covers the Tuesday, Wednesday and Thursday opens.
@@ -185,7 +198,10 @@ The first two implement the brief's test 6: "Rejection of future and incomplete 
 
 **Permission** (APPROVED gate `research/mechanisms/simulate.py` `DatasetPermission`; `DEVELOPMENT_FIRST_POLICY.md` §2 row D1).
 - Only the synthetic permission itself is accepted: exact type and value (`SYNTHETIC`). Every other permission is refused, including one whose self-declared `allows()` is true, or a subclass.
-- The permission is a declaration, so v1.0 adds a mechanical guard (PROPOSED, implemented): a synthetic snapshot must be dated before 2009-01-03, Bitcoin's first block. No real BTC price can enter under the synthetic permission.
+- The permission is a declaration, so v1.0 adds a mechanical guard (PROPOSED, implemented): a synthetic snapshot must be dated before 2009-01-03, Bitcoin's first block.
+  - This blocks data carrying real BTC dates (2009 onward, including the forward holdout).
+  - It is **an additional safeguard, not proof of synthetic provenance**: real prices re-dated before 2009 would pass.
+  - Provenance rests on the permission declaration and on review. The permission check itself is unchanged.
 
 **Adapter.** FROZEN F1 requires an exchange-agnostic data adapter; v1.0 ships none. That the package consumes `Snapshot` objects only, and never reads files, databases, environment variables or the network, is PROPOSED (implemented).
 
@@ -226,7 +242,16 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
   - The ledger books it then (`at` = the end of the reference day), and records its event time separately (`reference_time`).
   - A missing reference and an expiry are booked when the candle was due.
   - For data that never arrive late, the ledger therefore does not depend on how often a caller checks. Daily, weekly and every-third-day checks give the same digest on the clean path, a Thursday fill with a rejection and dust, and an expiry.
-  - `replay` refuses a candle that changes between snapshots (revised data).
+  - `replay` refuses a candle that changes between snapshots (revised data), **within one call only**.
+- **Limitation: revision detection across calls.** The check does not survive a resume or serialisation:
+  - the map of seen candles is local to one `replay` call;
+  - no `State` field carries it;
+  - `state_record` is a one-way, canonical description (there is no deserialiser).
+  - So a revised candle delivered to a resumed call is not detected (pinned by `test_known_limitation_revision_detection_is_per_replay_call`).
+  - **Proposed minimal durable mechanism (not implemented; needs owner approval):**
+    - record a sha256 fingerprint of the 200 window candles in each `DECIDE_*` entry, and of the reference candle in each `EXECUTED` / `REJECTED_MIN_ORDER` entry. These are ledger fields, so they are covered by the existing digest;
+    - a resumed replay recomputes the fingerprints of recorded entries whose candles reappear in its snapshots, and refuses on a mismatch.
+    - No new data infrastructure and no change to protected-data controls.
 - **Late data.** A candle recorded missing is never used afterwards, even if it turns up later.
   - Without availability stamps, a sparse check cannot tell a late-arriving candle from a timely one.
   - Data that change between snapshots can therefore change results. This is an availability-policy question.
@@ -259,7 +284,7 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
 **Lifecycle.** FROZEN F15–F19, except where marked **P** (PROPOSED, implemented, provisional; OPEN §19 item 11).
 
 1. **`apply_decision(state, decision)`** records the decision.
-   - It opens `PendingTransition(side, decided_at, next_open = Tuesday 00:00 UTC)` only for a genuine state transition (F10, **P**). Otherwise it records `NO_CHANGE`, with reason `TARGET_UNCHANGED` or `ALREADY_AT_TARGET`.
+   - It opens `PendingTransition(side, decided_at, next_open = Tuesday 00:00 UTC)` whenever the target differs from the actual tradable position (F10, owner decision), with reason `NEW_TARGET` or `RETRY`. Otherwise it records `NO_CHANGE` (`ALREADY_AT_TARGET`).
    - Balances never change here.
    - The status becomes `PENDING`, and the entry records `expires_at = decided_at + 72 h` (the 72 h reading is **P**).
 2. **`execute_pending(state, snapshot)`** works through the candidate references in order: Tuesday, then Wednesday, then Thursday (**P**).
@@ -279,11 +304,12 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
 **P consequences:**
 - **Thursday fills.** A fill at the Thursday open becomes known only on Friday, after `expires_at`. The reference is inside the window in event time; the booking is not (§23 X9).
 - **No retroactive use.** A candle recorded missing is never used later.
-- **No retry.** `REJECTED_MIN_ORDER` ends the transition, and minimum-order failure does not defer.
-- **After expiry or rejection.** An unchanged target at the next Monday trades nothing (F10). The next change of target decides.
-  - So one expired or rejected SELL keeps full BTC exposure under a FLAT target until the target flips twice.
-  - In the rough synthetic fixture, an expired SELL left 100 % BTC through the next 19 weekly decisions.
-  - One expired or rejected BUY keeps cash under a LONG target in the same way.
+- **No retry inside the window.** `REJECTED_MIN_ORDER` ends the transition, and minimum-order failure does not defer.
+- **After expiry or rejection (owner decision, F10).** The next valid weekly decision retries if its target still differs from the actual tradable position.
+  - The retry follows the original schedule: the Tuesday reference, the 72 h window, the same costs and minimums.
+  - It changes no balance until a modelled fill.
+  - A skipped decision does not retry. A changed signal replaces the retry.
+  - A balance that the minimum notional blocks is retried, and may be rejected again, at each valid weekly decision. Each attempt is recorded.
 - **Resolution timing.** A pending transition resolves by Friday 00:00 UTC at the latest. With only weekly snapshots, it resolves at the next Monday snapshot, before that decision. `apply_decision` refuses while one is unresolved.
 
 ---
@@ -372,8 +398,8 @@ At execution:
 | `WARMUP`, `SKIP_INVALID_DATA` | `INSUFFICIENT_HISTORY` | history shorter than the window |
 | `SKIP_MISSING_SUNDAY` | `SUNDAY_CANDLE_UNAVAILABLE` | the Sunday candle is absent |
 | `SKIP_INVALID_DATA` | `GAP_IN_WINDOW` | a window day is absent |
-| `NO_CHANGE` | `TARGET_UNCHANGED` | the target equals the previous target |
-| `NO_CHANGE` | `ALREADY_AT_TARGET` | the target changed, and the actual position already matches it |
+| `NO_CHANGE` | `ALREADY_AT_TARGET` | the actual tradable position already matches the target |
+| `PENDING_BUY`, `PENDING_SELL` | `NEW_TARGET`, `RETRY` | the target changed / the target is unchanged, but the earlier transition did not execute |
 | `MISSING_MARKET_DATA` | `REFERENCE_CANDLE_UNAVAILABLE` | a reference candle was due and absent |
 | `EXPIRED` | `NO_REFERENCE_WITHIN_THREE_DAYS` | no reference within the window |
 | `REJECTED_MIN_ORDER` | `ZERO_QUANTITY`, `BELOW_MIN_QTY`, `BELOW_MIN_NOTIONAL` | the failing minimum |
@@ -385,10 +411,9 @@ At execution:
 |---|---|---|---|
 | any | `NO_SIGNAL` | same | nothing |
 | no pending | `WARMUP` or `SKIP_*` | same (target kept) | the decision event |
-| no pending | `DECIDE_*`, same target as before | same | decision event, `NO_CHANGE` (`TARGET_UNCHANGED`) |
-| no pending | `DECIDE_*`, new target equal to the actual position | target updated | decision event, `NO_CHANGE` (`ALREADY_AT_TARGET`) |
-| actual FLAT | `DECIDE_LONG`, new target | pending BUY | `DECIDE_LONG`, `PENDING_BUY` |
-| actual LONG | `DECIDE_FLAT`, new target | pending SELL | `DECIDE_FLAT`, `PENDING_SELL` |
+| no pending | `DECIDE_*`, target equal to the actual position | target updated | decision event, `NO_CHANGE` (`ALREADY_AT_TARGET`) |
+| actual FLAT | `DECIDE_LONG` | pending BUY | `DECIDE_LONG`, `PENDING_BUY` (`NEW_TARGET` or `RETRY`) |
+| actual LONG | `DECIDE_FLAT` | pending SELL | `DECIDE_FLAT`, `PENDING_SELL` (`NEW_TARGET` or `RETRY`) |
 | pending | candidate available, minimums met | LONG / FLAT (+dust) | `EXECUTED` (+`RESIDUAL_DUST`) |
 | pending | candidate available, minimums not met | unchanged | `REJECTED_MIN_ORDER` |
 | pending | candidate due and absent, window left | pending (`DEFERRED`) | `MISSING_MARKET_DATA` |
@@ -520,7 +545,7 @@ These are fabricated numbers.
 
 **Rejection ends the transition** (PROPOSED; OPEN §19 item 10).
 - There is no retry inside the window.
-- Under F10, an unchanged target does not retry either.
+- The next valid weekly decision retries while the target still differs from the actual position (F10, owner decision). The minimums apply to every attempt.
 
 ---
 
@@ -705,7 +730,7 @@ None is approved by this document.
 | 8 | Benchmark and drawdown definitions | **B** | Proposed definitions only (§14, §15) |
 | 9 | Cost tiers and fee base | **A**: rates, formulas, fee base on the adjusted notional, half-spread on both legs, fixed-level stress. **B**: whether the levels are measured venue tiers (`EVIDENCE_LADDER_PARAMETERS.md` §1.1 U4, on the provenance of A30 figures). | No realism claim |
 | 10 | Minimum-order rules | **A**: buy rejection; configurable inputs. **C**: the quantity step, the check set (minimum notional at the execution price), sell-side rejection, reject-and-end vs retry. **B**: the venue's actual values. | Provisional in `ledger._fill`, `ledger._min_order_failure`, `state.floor_to_step`, `state.actual_position` |
-| 11 | Pending-transition semantics and the F10 reading | **C** | Provisional in `state.required_action`, `state.actual_position`, `ledger.apply_decision`, `ledger.execute_pending`, covering:<br>• no trade while the target is unchanged (X8);<br>• the window measured on reference opens, as 72 h; the calendar-date readings Tue–Thu or Mon–Wed are the alternatives (X9);<br>• booking upon completion, so a Thursday fill is known after `expires_at` (X9, X10);<br>• one `MISSING_MARKET_DATA` per due day;<br>• expiry once Thursday is overdue;<br>• no retroactive use;<br>• no retry after rejection. |
+| 11 | Pending-transition semantics and the F10 reading | **A** for the F10 reading (owner decision 2026-10-31: weekly retries, `state.required_action`). **C** for the rest | Provisional in `state.actual_position`, `ledger.apply_decision`, `ledger.execute_pending`, covering:<br>• the window measured on reference opens, as 72 h; the calendar-date readings Tue–Thu or Mon–Wed are the alternatives (X9);<br>• booking upon completion, so a Thursday fill is known after `expires_at` (X9, X10);<br>• one `MISSING_MARKET_DATA` per due day;<br>• expiry once Thursday is overdue;<br>• no retroactive use;<br>• no retry after rejection. |
 | 12 | Dust valuation and mark source | **A**: dust kept and marked to market; quote-currency fee. **C**: the mark (latest completed close, no haircut, no staleness bound). | Provisional in `ledger.mark_price`, `ledger.valuation` |
 | 13 | Arithmetic convention | **C**: `Decimal` itself (the brief fixes only "deterministic arithmetic appropriate for financial accounting"), the contexts, exact-or-refuse, the floor for the buy division, no cash quantisation. **B**: tolerances against float ledgers. | Provisional in `state.EXACT`, `state.FLOOR`, `state.arithmetic`, `state.text`, `state.floor_to_step` |
 | 14 | Power and confirmatory path | **B** | Nothing computed |
@@ -729,7 +754,7 @@ None is approved by this document.
 - **Fee asset.**
   - Fees are modelled in quote currency.
   - A venue that deducts the buy fee in BTC would change the bought quantity slightly.
-- **Minimum-order rejection or expiry ends the transition,** and an unchanged target does not retry. One expired SELL can keep full BTC exposure under a FLAT target for many weeks (§7). A real operator might retry; the direction of the effect is unknown.
+- **Minimum-order rejection or expiry ends the transition.** It is retried only at the next valid weekly decision (F10, owner decision), so exposure can differ from the target for up to a week per failed attempt. A position blocked by the minimum notional can be rejected again each week.
 - **Mixed states.** A state holding both tradable BTC and buyable cash is outside the contract (§9). It is unreachable from the frozen start in cash.
 - **Dust** can accumulate after rule changes. It is reported, never consolidated.
 - **Decimal range.** Values needing more than 28 significant digits are refused (§10).
@@ -741,7 +766,7 @@ None is approved by this document.
 
 - **Evidence rules.** The A29 Evidence Ladder remains in force, with D1/D2 HOLD for governed confirmation (APPROVED, `OWNER_OPERATING_CONTRACT.md` §4; the brief §14). Nothing in v1.0 approaches an admission.
 - **OD-7** (`docs/strategy/S5_PWR_1_OWNER_DECISIONS.md`): no access to sealed-stream counts or timestamps. Protected outcomes stay closed (`DEVELOPMENT_FIRST_POLICY.md` §3). v1.0 reads no evidence, telemetry, data directory or database.
-- **Sealed holdout.** `FORWARD_HOLDOUT` stays sealed. v1.0 accepts only the synthetic permission and only snapshots dated before 2009-01-03 (§3), so no real and no post-freeze data can enter.
+- **Sealed holdout.** `FORWARD_HOLDOUT` stays sealed. v1.0 accepts only the synthetic permission, and only snapshots dated before 2009-01-03 (§3). So data carrying real or post-freeze dates cannot enter. That is a safeguard, not proof of provenance: re-dated data would pass.
 - **Authorized now (class D0):** this specification, the package, the synthetic tests, and a commit and push of `feature/design-a-v1` for review. A push authorizes review only.
 - **Not authorized:**
   - real-data evaluation (class D1), and recording a dataset permission;
@@ -822,7 +847,7 @@ The evidence (SHA, interpreter, counts, breakage check) is reported with the han
 | X5 | Classification extras as frozen; two brief clauses omitted | five requirements, the label limits, no arbitrary thresholds | §17 restated; extras PROPOSED | owner (item 3) |
 | X6 | Calendar listed as open | FROZEN (§4–§5) | item 7 class A | settled |
 | X7 | Fee base, both-leg spread, fixed stress, quote-currency fee listed as open | fixed by the formulas and the table (§6) | item 9 class A | settled |
-| X8 | F10 "relative to the actual position" as frozen, with a mis-described alternative | "Do not rebalance when the target state is unchanged. Execute only genuine state transitions." | **Two coherent readings.** (a) Literal, implemented: trade only on a change of target, and only if the position differs. (b) Retry: trade whenever the position differs from the target, so a weekly retry follows `EXPIRED` or `REJECTED_MIN_ORDER`. They differ only after an expiry or a rejection, or from a non-clean start. | owner (item 11) |
+| X8 | F10 "relative to the actual position" as frozen, with a mis-described alternative | "Do not rebalance when the target state is unchanged. Execute only genuine state transitions." | **Two coherent readings.** (a) Literal, implemented: trade only on a change of target, and only if the position differs. (b) Retry: trade whenever the position differs from the target, so a weekly retry follows `EXPIRED` or `REJECTED_MIN_ORDER`. They differ only after an expiry or a rejection, or from a non-clean start. | decided by the owner, 2026-10-31: reading (b), weekly retries |
 | X9 | Deferral window `open_time ≤ expires_at` as settled | "within three calendar days of the decision timestamp" | **Implemented:** on reference opens, as 72 h (Tue, Wed, Thu). **Alternatives:** on completion, which drops Thursday, since a Thursday fill is known only on Friday; or by calendar date (Mon–Wed). | owner (item 11) |
 | X10 | Booking at completion as settled | Tuesday open is the reference; "next available **completed** daily candle" | event time recorded; booking upon completion | owner (items 1, 11) |
 | X11 | Non-decision instants raise | "No signal" is a required state | `NO_SIGNAL` value; a forged one at a decision instant is refused | owner (minor) |
@@ -848,4 +873,5 @@ The evidence (SHA, interpreter, counts, breakage check) is reported with the han
 | R10 | `HYPOTHESIS_SOURCE` fixed in code and hashed, yet classed independent; DISCOVERY_DERIVED omitted | constant removed; the three options and the evidence are in §1 |
 | R11 | The consequence of one lost candle (28–29 frozen weeks) was undisclosed | disclosed (§8), tested, alternatives listed |
 | R12 | Further labels, citations and wording | relabelled (Decimal, the candle shape, `qty_step`, the window and deferral readings); "triage" replaced by the governance quote; multiplicity, prior exposure, the event-time basis (item 17), reason codes and the reuse rationale added |
+| R14 | Owner decision and focused remediation (2026-10-31) | Weekly retries implemented in `state.required_action`, marked `RETRY`, with ten regression tests (baseline and stress). Documented: the reference timestamp versus availability; that revision detection is per replay call, with a proposed durable mechanism; that the pre-2009 guard is a safeguard, not proof of provenance. |
 | R13 | Second round, no BLOCKER or MAJOR. Findings:<br>• hand-made decisions could contradict F5 or warm up late;<br>• revised candles were silently accepted;<br>• the cadence claim was unqualified;<br>• the isolation scan was narrower than stated;<br>• the F10 consequence was unquantified;<br>• FROZEN labels covered PROPOSED clauses;<br>• the permission gate could be bypassed by a subclass;<br>• resume guards had gaps;<br>• ledger invariants were missing;<br>• documentation had drifted. | Resolutions:<br>• F5-consistent decisions and initial-only warm-up are enforced;<br>• revised candles and backward resumes are refused;<br>• the claim is qualified and tested on three data cases;<br>• the scan covers code and configuration but never reads data;<br>• the F10 consequence is quantified (§7, §20);<br>• labels are fixed (§2–§3, §7);<br>• the gate is exact, with a pre-2009 guard;<br>• ledger invariants are added;<br>• the documentation is corrected. |

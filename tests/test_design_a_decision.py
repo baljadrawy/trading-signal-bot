@@ -112,12 +112,12 @@ def test_the_action_is_a_genuine_state_transition():
     up, down = ["100"] * 199 + ["120"], ["100"] * 199 + ["80"]
     assert decide(up, fresh()).action is S.Side.BUY                  # first target, from cash
     assert decide(down, fresh()).action is None                      # first target, already there
-    assert decide(up, holding()).action is None                      # unchanged target
+    assert decide(up, holding()).action is None                      # positioned: no rebalance
     assert decide(down, holding()).action is S.Side.SELL             # target changes
-    # provisional F10 reading: an unchanged target never trades, even if the position differs
+    # owner decision (F10): an unchanged target whose transition did not execute is retried
     stranded = S.State(cash=syn.CASH, btc=D("0"), costs=S.BASELINE, rules=syn.RULES, target=LONG)
-    assert decide(up, stranded).action is None
-    assert decide(down, stranded).action is None                     # already FLAT in fact
+    assert decide(up, stranded).action is S.Side.BUY
+    assert decide(down, stranded).action is None                     # the latest signal wins
     dust = holding("0.000001", target=FLAT)                          # below one step: FLAT
     assert S.actual_position(dust) is FLAT and decide(up, dust).action is S.Side.BUY
     small = holding("0.0005", target=FLAT,                           # a whole step, below min_qty

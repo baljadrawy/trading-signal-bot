@@ -18,8 +18,9 @@ from research.mechanisms.costs import BASELINE_FEE_PER_SIDE, CostModelError
 from research.mechanisms.simulate import SYNTHETIC, DatasetPermission
 
 EVIDENCE_CLASS = "SYNTHETIC"    # v1.0 accepts synthetic data only (spec §0)
-# Synthetic snapshots must predate Bitcoin's first block, so no real BTC price can enter v1.0
-# under the (self-declared) synthetic permission.
+# Synthetic snapshots must predate Bitcoin's first block: data carrying real BTC dates (2009 onward,
+# including the forward holdout) cannot enter. A safeguard only, not proof of synthetic provenance:
+# real prices re-dated before 2009 would pass; provenance rests on the permission declaration.
 SYNTHETIC_BEFORE = datetime(2009, 1, 3, tzinfo=timezone.utc)
 
 # Frozen timing (spec F7, F16, F18).
@@ -420,14 +421,16 @@ def actual_position(state: State) -> Target:
 
 
 def required_action(state: State, target: Target) -> Side | None:
-    """The genuine state transition a decided ``target`` requires, or None.
+    """The transition a valid weekly ``target`` requires from the actual tradable position, or
+    None when the portfolio is already positioned (no rebalance, no duplicate of a fill).
 
-    Provisional reading of F10 (spec §19 item 11): nothing is traded while the target state is
-    unchanged, even if an earlier transition expired or was rejected; when the target changes,
-    a transition is opened only if the actual position differs from it."""
+    Owner decision (2026-10-31, spec F10): an earlier transition that expired, was rejected by
+    the minimum-order rules or otherwise did not execute is retried at the next valid weekly
+    decision whose target still differs from the actual position, even if the target is
+    unchanged. Retries happen only here, at weekly decisions; skipped decisions carry no target."""
     if not isinstance(target, Target):
         raise TypeError("target must be a Target")
-    if target is state.target or target is actual_position(state):
+    if target is actual_position(state):
         return None
     return Side.BUY if target is Target.LONG else Side.SELL
 
