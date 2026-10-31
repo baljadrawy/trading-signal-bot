@@ -624,6 +624,14 @@ def test_tampered_or_malformed_integrity_metadata_is_refused():
         change(record)
         return record
 
+    def relabelled(record):
+        """Days 100-202 re-labelled one day later (101-203): every window slice keeps its
+        fingerprint sequence, so only the window's own days can tell (spec §5)."""
+        consumed = record["consumed"]
+        k = next(i for i, (day, _) in enumerate(consumed) if day == syn.day(100).isoformat())
+        consumed[k:-1] = [[syn.day(101 + n).isoformat(), fingerprint]
+                          for n, (_, fingerprint) in enumerate(consumed[k:-1])]
+
     older = (syn.EPOCH - 400 * S.DAY).isoformat()
     bad = [
         edited(lambda r: r["consumed"][5].__setitem__(1, flip(r["consumed"][5][1]))),
@@ -635,6 +643,7 @@ def test_tampered_or_malformed_integrity_metadata_is_refused():
         edited(lambda r: r["consumed"].insert(0, [older, "a" * 64])),        # an entry added
         edited(lambda r: r["consumed"].insert(1, list(r["consumed"][0]))),   # a day twice
         edited(lambda r: r["consumed"].insert(0, r["consumed"].pop(1))),     # out of order
+        edited(relabelled),                                                  # days re-labelled
         edited(lambda r: r["consumed"][3].__setitem__(1, "not-a-fingerprint")),
         edited(lambda r: r["ledger"][0].__setitem__("window_digest", "b" * 64)),  # on a WARMUP
         edited(lambda r: r.__setitem__("consumed", "garbage")),
@@ -659,6 +668,42 @@ def test_tampered_or_malformed_integrity_metadata_is_refused():
         L.replay(tampered, [])
     with pytest.raises(S.DesignAError, match="differs from the one consumed"):  # a forged window
         L.apply_decision(part, signal(syn.at_decision(syn.day(210)), LONG))
+
+
+def test_fingerprints_and_index_entries_are_checked_where_they_enter():
+    good = "0123456789abcdef" * 4
+    assert S.is_fingerprint(good)
+    for bad in ("A" * 64, "g" * 64, good[:-1], good + "0", "\u0663" * 64, " " + good[1:], None,
+                good.encode()):
+        assert not S.is_fingerprint(bad), bad
+    index = S.merge_consumed(S.ConsumedIndex(), [(syn.day(5), good)])
+    assert type(index) is S.ConsumedIndex and S.merge_consumed(index, [(syn.day(5), good)]) is index
+    for day, fingerprint in ((syn.day(6), "A" * 64), (syn.day(6) + timedelta(hours=1), good),
+                             (syn.day(6).replace(tzinfo=None), good)):   # what a merge adds
+        with pytest.raises(S.DesignAError, match="consumed must hold"):
+            S.merge_consumed(index, [(day, fingerprint)])
+    with pytest.raises(S.DesignAError, match="strictly increasing"):
+        S.ConsumedIndex([(syn.day(6), good), (syn.day(5), good)])
+    state = S.State(cash=D("1"), btc=D("0"), costs=S.BASELINE, rules=syn.RULES,
+                    consumed=((syn.day(5), good),))
+    assert type(state.consumed) is S.ConsumedIndex          # any other tuple: checked in full
+
+
+def test_the_replay_record_vouches_only_for_the_same_candle_and_fingerprint():
+    """Within one call, replay does not hash again a consumed candle that its check already
+    confirmed as the same object under the same expected fingerprint (state._check_consumed).
+    The record never vouches for another candle object, or under another fingerprint."""
+    snaps = syn.scenario_snapshots()
+    part = L.replay(clean_start(), snaps[:CUT])
+    real = next(c for c in snaps[CUT].candles if c.open_time == syn.day(100))
+    revised = replaced(snaps[CUT], syn.day(100), high=real.high * 2)
+    other = next(c for c in revised.candles if c.open_time == syn.day(100))
+    verified = {}
+    S._check_consumed(part, snaps[CUT], None, verified)
+    assert verified[syn.day(100)] == (real, dict(part.consumed)[syn.day(100)])
+    for record in (verified, {syn.day(100): (other, "f" * 64)}):
+        with pytest.raises(S.DesignAError, match="differs from the one consumed"):
+            S._check_consumed(part, revised, None, dict(record))
 
 
 def test_restoration_inside_a_retry_window_resumes_identically():

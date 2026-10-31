@@ -31,7 +31,7 @@ A29–A34 are not in this worktree: they live at local commit `54a6369`, held un
 **"D1" has three meanings in this repository.** They are kept apart here:
 - **class D1** of `docs/governance/DEVELOPMENT_FIRST_POLICY.md` §2 (historical evaluation on real data);
 - the A29 **"D1/D2 HOLD"** for governed confirmation (`OWNER_OPERATING_CONTRACT.md` §4);
-- the review-log IDs, which are X1–X16 and R1–R15 (§23).
+- the review-log IDs, which are X1–X16 and R1–R16 (§23).
 
 ---
 
@@ -274,6 +274,14 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
    - a non-canonical one, which the restored state would not reproduce exactly: an unknown key, another spelling of an instant, a JSON number where text is expected;
    - one that fails check 3.
 
+*Cost of the checks* (performance remediation, R16). The checks are unchanged in what they refuse; four implementation choices keep them cheap:
+- **The index is a validated value** (`state.ConsumedIndex`). Like `CostSpec` or `LedgerEntry`, it is checked in full when built from any tuple, including a restored record, and is immutable afterwards. A `State` then checks only its type, and `merge_consumed` checks the pairs it adds.
+- **Each window is one slice of the sorted index**, hashed whole, in `verify_integrity`.
+- **Within one `replay` call**, a consumed candle passed again as the *same object* under the *same expected fingerprint* is not hashed again. Its presence is still checked at every snapshot. The record of confirmed pairs lives only for that call; no global state is kept, and the public functions always check in full.
+- **Fingerprint formats** are checked in C (`str.strip`).
+
+Like every frozen value in the package, these rely on normal construction: Python-level bypasses such as `object.__setattr__` or `tuple.__new__` are outside the threat model.
+
 *Coverage and missing candles.* Missing data is never treated as matching.
 
 | A candle that is … | … and missing from a snapshot | Result |
@@ -420,7 +428,7 @@ At execution:
   - a pending transition exists exactly while the status is `PENDING` or `DEFERRED`;
   - it belongs to the last decision and to its target;
   - the ledger holds only `LedgerEntry` objects;
-  - `consumed` holds `(00:00 UTC open time, sha256)` pairs in strictly increasing order.
+  - `consumed` is a `ConsumedIndex`: `(00:00 UTC open time, sha256)` pairs in strictly increasing order. It is checked in full when built from any other tuple, and merges check the pairs they add.
 - **More invariants:**
   - ledger entries are numbered 0, 1, … in time order;
   - the last entry carries the current balances;
@@ -807,6 +815,8 @@ None is approved by this document.
 - **Before any real-data use at all:** items 1 and 7 (the partition guard).
 - **Before any historical evaluation:** every class B and C part above. The class-B part of item 9 is needed only for a statement about cost realism.
 
+A profitability-first reading of these items is `docs/strategy/DESIGN_A_PROFITABILITY_DECISION_MEMO.md` (2026-10-31, read-only, PROPOSED). It separates the decisions that gate the first evaluation from those that can wait. It decides nothing.
+
 ---
 
 ## 20. Known modelling limitations
@@ -824,11 +834,12 @@ None is approved by this document.
 - **Dust** can accumulate after rule changes. It is reported, never consolidated.
 - **Decimal range.** Values needing more than 28 significant digits are refused (§10).
 - **Integrity is consistency, not authenticity** (§5). Unkeyed sha256 fingerprints reveal inconsistent data. They do not reveal coordinated tampering with a saved record and its snapshots, or a history forged from the start. Across calls, only consumed candles are evidence.
-- **Integrity cost.** Measured in the evidence record; not optimised.
+- **Integrity cost** (measured before and after the R16 remediation, in the evidence record).
   - The index grows by one entry per consumed day: about 217 bytes in memory and 100 in JSON.
-  - Each snapshot check is linear in the snapshot and the index.
-  - `verify_integrity` is linear in the number of decisions, and it runs at every `replay` call. So resuming after every single snapshot is quadratic in the length of the history: 3.1 s for the 540 snapshots of the clean fixture, against 0.4 s in one call.
-  - Every `State` construction re-validates the whole index, as it does the ledger. That is the largest integrity cost of a replay.
+  - A snapshot check is linear in the snapshot and the index. Within a call, a candle already confirmed is not hashed again.
+  - A `State` construction no longer re-validates the index; merges check what they add.
+  - `verify_integrity` stays comprehensive at every `replay` call, as required, and linear in the number of decisions, with a smaller constant. Resuming after every single snapshot therefore stays quadratic in the length of the history.
+  - To feed snapshots incrementally within one process, pass a generator to one `replay` call; restorations across processes verify in full by design.
 - **Synthetic fixtures.** They are seeded stdlib random walks dated 2001–2002, before Bitcoin existed. They test arithmetic and state transitions, nothing economic.
 
 ---
@@ -867,10 +878,10 @@ There is no I/O, `shared.*` import, pandas or numpy. No `research/__init__.py`, 
 | Module | Contents |
 |---|---|
 | `__init__.py` | docstring (research only, never imported by production); `VERSION` |
-| `state.py` | `Candle`, `Snapshot`, `CostSpec` (+ `BASELINE`, `STRESS`), `MinOrderRules`, `PendingTransition`, `Decision`, `LedgerEntry`, `State`; enums `Target`, `Side`, `Event`, `ExecutionStatus`; validators and invariants; `EXACT`/`FLOOR`, `arithmetic`, `text`; `is_decision_instant`, `available_from`; `floor_to_step`, `actual_position`, `required_action`; `EVIDENCE_CLASS`, `SYNTHETIC_BEFORE`, `SMA_WINDOW = 200`; candle integrity (§5): `candle_fingerprint`, `window_days`, `merge_consumed`, `check_consumed`, `verify_integrity` |
+| `state.py` | `Candle`, `Snapshot`, `CostSpec` (+ `BASELINE`, `STRESS`), `MinOrderRules`, `PendingTransition`, `Decision`, `LedgerEntry`, `State`; enums `Target`, `Side`, `Event`, `ExecutionStatus`; validators and invariants; `EXACT`/`FLOOR`, `arithmetic`, `text`; `is_decision_instant`, `available_from`; `floor_to_step`, `actual_position`, `required_action`; `EVIDENCE_CLASS`, `SYNTHETIC_BEFORE`, `SMA_WINDOW = 200`; candle integrity (§5): `ConsumedIndex`, `check_index_pairs`, `candle_fingerprint`, `window_bounds`, `window_days`, `merge_consumed`, `check_consumed`, `verify_integrity` |
 | `timing.py` | `next_decision_instant`, `is_available`, `is_overdue`, `available`, `latest_sunday_open`, `scheduled_reference_open`, `signal_window` |
-| `decision.py` | `decide(state, snapshot)`; re-exports `SMA_WINDOW` |
-| `ledger.py` | `apply_decision`, `execute_pending`, `valuation`, `mark_price`, `cost_totals`, `replay`, `state_record`, `state_from_record`, `digest` |
+| `decision.py` | `decide(state, snapshot)`, and `_decide`, the variant `replay` calls with its per-call record; re-exports `SMA_WINDOW` |
+| `ledger.py` | `apply_decision`, `execute_pending`, `valuation`, `mark_price`, `cost_totals`, `replay`, `state_record`, `state_from_record`, `digest`; `_execute_pending`, the variant `replay` calls |
 
 **Why existing components were not reused for the rest** (the brief §2, §3):
 
@@ -950,3 +961,4 @@ The evidence (SHA, interpreter, counts, breakage check) is reported with the han
 | R13 | Second round, no BLOCKER or MAJOR. Findings:<br>• hand-made decisions could contradict F5 or warm up late;<br>• revised candles were silently accepted;<br>• the cadence claim was unqualified;<br>• the isolation scan was narrower than stated;<br>• the F10 consequence was unquantified;<br>• FROZEN labels covered PROPOSED clauses;<br>• the permission gate could be bypassed by a subclass;<br>• resume guards had gaps;<br>• ledger invariants were missing;<br>• documentation had drifted. | Resolutions:<br>• F5-consistent decisions and initial-only warm-up are enforced;<br>• revised candles and backward resumes are refused;<br>• the claim is qualified and tested on three data cases;<br>• the scan covers code and configuration but never reads data;<br>• the F10 consequence is quantified (§7, §20);<br>• labels are fixed (§2–§3, §7);<br>• the gate is exact, with a pre-2009 guard;<br>• ledger invariants are added;<br>• the documentation is corrected. |
 | R14 | Owner decision and focused remediation (2026-10-31) | Weekly retries implemented in `state.required_action`, marked `RETRY`, with ten regression tests (baseline and stress). Documented: the reference timestamp versus availability; that revision detection is per replay call, with a proposed durable mechanism; that the pre-2009 guard is a safeguard, not proof of provenance. |
 | R15 | Owner-approved replay/resume integrity remediation (2026-10-31). Findings during the round:<br>• the day-330 gap outage of the rough fixture hid a candle that earlier decisions had consumed;<br>• a resumed snapshot starting inside the next decision's window turned missing consumed candles into an `INSUFFICIENT_HISTORY` skip;<br>• the breakage check showed that no test reached the canonical round-trip check of `state_from_record`;<br>• the old known-limitation test was about to be removed, although its case, a revision of a delivered but unconsumed candle across a cut, is still undetected. | Resolutions:<br>• the durable mechanism is implemented (§5): fingerprints, the compact index, ledger cross-references, checks before processing, `verify_integrity`, `state_from_record`. The known-limitation test, with its assertions unchanged, now pins the narrower remaining limitation: unconsumed candles (§5);<br>• the outage moved to day 352, which no decision had consumed (still a gap, tested); the former day-330 outage is refused (tested);<br>• `decide` extends the coverage to its window, so such a snapshot is refused (tested);<br>• non-canonical records are tested;<br>• the costs are measured, not optimised (§20). |
+| R16 | Focused performance remediation and a profitability-first decision memo (2026-10-31). Measured bottlenecks:<br>• full index re-validation on every `State` construction;<br>• repeated fingerprint comparisons of the same candles at every snapshot;<br>• slow per-decision cross-verification;<br>• character-level fingerprint checks. | Resolutions:<br>• the validated `ConsumedIndex` value type;<br>• a per-call record in `replay` of confirmed (candle object, fingerprint) pairs;<br>• slice-based `verify_integrity`;<br>• a C-level format check.<br>Refusals, digests and accounting are unchanged, and restoration and each new `replay` call still verify in full. New regression tests cover the format, merges, the re-labelled index and the per-call record; before-and-after measurements are in the evidence record. The memo reviews the open scientific decisions read-only and decides nothing. |

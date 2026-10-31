@@ -131,8 +131,8 @@ def optional(value, kind, name: str):
 
 
 def is_fingerprint(value) -> bool:
-    return isinstance(value, str) and len(value) == 64 and all(ch in "0123456789abcdef"
-                                                               for ch in value)
+    """A sha256 hex digest: exactly 64 characters, all from 0-9a-f (``str.strip`` runs in C)."""
+    return isinstance(value, str) and len(value) == 64 and not str.strip(value, "0123456789abcdef")
 
 
 def is_midnight(at: datetime) -> bool:
@@ -384,6 +384,29 @@ class LedgerEntry:
         return out
 
 
+def check_index_pairs(pairs) -> None:
+    if not all(isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], datetime)
+               and p[0].tzinfo is timezone.utc and is_midnight(p[0]) and is_fingerprint(p[1])
+               for p in pairs):
+        raise DesignAError("consumed must hold (00:00 UTC open time, sha256) pairs")
+
+
+class ConsumedIndex(tuple):
+    """The integrity index (spec §5): (00:00 UTC open time, sha256 fingerprint) pairs, strictly
+    increasing in open time. Like the other values a State holds (``CostSpec``,
+    ``PendingTransition``, ``LedgerEntry``), it is checked in full when it is built and is
+    immutable afterwards, so a State checks only its type; ``merge_consumed`` checks the pairs it
+    adds."""
+    __slots__ = ()
+
+    def __new__(cls, pairs=()):
+        pairs = tuple(pairs)
+        check_index_pairs(pairs)
+        if any(a[0] >= b[0] for a, b in zip(pairs, pairs[1:])):
+            raise DesignAError("consumed open times must be strictly increasing")
+        return super().__new__(cls, pairs)
+
+
 @dataclass(frozen=True)
 class State:
     """Actual balances, intended target, pending transition, execution status and the ledger,
@@ -397,7 +420,7 @@ class State:
     execution_status: ExecutionStatus | None = None
     last_decision_at: datetime | None = None
     ledger: tuple[LedgerEntry, ...] = ()
-    consumed: tuple[tuple[datetime, str], ...] = ()   # integrity index: (open time, fingerprint)
+    consumed: tuple[tuple[datetime, str], ...] = ()   # integrity index; held as a ConsumedIndex
 
     def __post_init__(self):
         amount(self.cash, "cash")
@@ -417,13 +440,10 @@ class State:
             raise DesignAError("ledger entries must be numbered 0, 1, ... in time order")
         if self.ledger and (self.ledger[-1].cash, self.ledger[-1].btc) != (self.cash, self.btc):
             raise DesignAError("the last ledger entry must carry the current balances")
-        if not isinstance(self.consumed, tuple) or not all(
-                isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], datetime)
-                and p[0].tzinfo is timezone.utc and is_midnight(p[0]) and is_fingerprint(p[1])
-                for p in self.consumed):
-            raise DesignAError("consumed must hold (00:00 UTC open time, sha256) pairs")
-        if any(a[0] >= b[0] for a, b in zip(self.consumed, self.consumed[1:])):
-            raise DesignAError("consumed open times must be strictly increasing")
+        if type(self.consumed) is not ConsumedIndex:      # any other tuple is checked in full
+            if not isinstance(self.consumed, tuple):
+                raise DesignAError("consumed must hold (00:00 UTC open time, sha256) pairs")
+            object.__setattr__(self, "consumed", ConsumedIndex(self.consumed))
         if (self.pending is not None) != (self.execution_status in LIVE_STATUSES):
             raise DesignAError("a pending transition exists exactly while the status is "
                                "PENDING or DEFERRED")
@@ -463,11 +483,16 @@ def required_action(state: State, target: Target) -> Side | None:
 
 
 def check_inputs(state: State, snapshot: Snapshot) -> None:
-    """Type checks, and the permission again: deliberate defence in depth beside ``Snapshot``."""
+    """Type checks, and the permission again: deliberate defence in depth beside ``Snapshot``;
+    then the consumed-candle check (spec §5)."""
+    _check_inputs(state, snapshot, None)
+
+
+def _check_inputs(state: State, snapshot: Snapshot, verified: dict | None) -> None:
     if not isinstance(state, State) or not isinstance(snapshot, Snapshot):
         raise TypeError("expected (state: State, snapshot: Snapshot)")
     require_synthetic(snapshot.permission)
-    check_consumed(state, snapshot)
+    _check_consumed(state, snapshot, None, verified)
 
 
 # Candle integrity (spec §5). Integrity checks keep data already admitted under the permission
@@ -483,20 +508,38 @@ def candle_fingerprint(candle: Candle) -> str:
     return canonical_hash({"open_time": candle.open_time.isoformat(), **values})
 
 
+def window_bounds(decision_time: datetime) -> tuple[datetime, datetime]:
+    """Open times of the first and the last (the latest completed Sunday) of the SMA_WINDOW
+    consecutive candles an actionable decision at ``decision_time`` uses."""
+    sunday = decision_time.replace(hour=0, minute=0, second=0, microsecond=0) - DAY
+    return sunday - DAY * (SMA_WINDOW - 1), sunday
+
+
 def window_days(decision_time: datetime) -> tuple[datetime, ...]:
     """Open times of the SMA_WINDOW candles an actionable decision at ``decision_time`` uses."""
-    sunday = decision_time.replace(hour=0, minute=0, second=0, microsecond=0) - DAY
-    return tuple(sunday - DAY * k for k in range(SMA_WINDOW - 1, -1, -1))
+    first, _ = window_bounds(decision_time)
+    return tuple(first + DAY * k for k in range(SMA_WINDOW))
 
 
-def merge_consumed(consumed, pairs) -> tuple[tuple[datetime, str], ...]:
+def merge_consumed(consumed, pairs) -> ConsumedIndex:
     """``consumed`` plus (open time, fingerprint) ``pairs``; a different fingerprint for a candle
-    already consumed is a revision and is refused."""
+    already consumed is a revision and is refused. Only the added pairs are checked: the others
+    were checked when ``consumed`` was built, and sorting the union keeps the order invariant."""
+    if type(consumed) is not ConsumedIndex:
+        consumed = ConsumedIndex(consumed)
     index = dict(consumed)
+    added = []
     for day, fingerprint in pairs:
-        if index.setdefault(day, fingerprint) != fingerprint:
+        known = index.get(day)
+        if known is None:
+            index[day] = fingerprint
+            added.append((day, fingerprint))
+        elif known != fingerprint:
             raise DesignAError(f"candle {day.isoformat()} differs from the one consumed earlier")
-    return tuple(sorted(index.items()))
+    if not added:
+        return consumed
+    check_index_pairs(added)
+    return tuple.__new__(ConsumedIndex, sorted(index.items()))
 
 
 def check_consumed(state: State, snapshot: Snapshot, since: datetime | None = None) -> None:
@@ -508,43 +551,71 @@ def check_consumed(state: State, snapshot: Snapshot, since: datetime | None = No
     first day of the window it reads, so a snapshot cut short inside that window is refused, not
     skipped. Older consumed candles are read by nothing the snapshot can decide or execute, so
     that snapshot does not re-check them."""
+    _check_consumed(state, snapshot, since, None)
+
+
+def _check_consumed(state: State, snapshot: Snapshot, since: datetime | None,
+                    verified: dict | None) -> None:
+    """``check_consumed``. ``verified`` is None, or the record that one ``replay`` call keeps of
+    the (candle object, fingerprint) pairs this check has confirmed during that call. A candle
+    found there as the same object, under the same expected fingerprint, is not hashed again:
+    candles are immutable, and only confirmed comparisons, made here, enter the record. Presence
+    is still checked at every snapshot."""
     starts = [c.open_time for c in snapshot.candles[:1]] + ([] if since is None else [since])
     if not state.consumed or not starts:
         return
     first = min(starts)
     present = {c.open_time: c for c in snapshot.candles}
-    for day, fingerprint in state.consumed:
-        if day < first or available_from(day) > snapshot.as_of:
+    entries = state.consumed
+    if available_from(entries[-1][0]) > snapshot.as_of:   # the index is sorted, so this is rare
+        entries = [p for p in entries if available_from(p[0]) <= snapshot.as_of]
+    for day, fingerprint in entries:
+        if day < first:
             continue
         candle = present.get(day)
         if candle is None:
             raise DesignAError(f"previously consumed candle {day.isoformat()} is missing")
+        if verified is not None:
+            known = verified.get(day)
+            if known is not None and known[0] is candle and known[1] == fingerprint:
+                continue
         if candle_fingerprint(candle) != fingerprint:
             raise DesignAError(f"candle {day.isoformat()} differs from the one consumed earlier")
+        if verified is not None:
+            verified[day] = (candle, fingerprint)
 
 
 def verify_integrity(state: State) -> None:
     """Cross-check the consumed index with the ledger: every actionable decision's window digest
     and every execution attempt's reference fingerprint must match it, and it may hold nothing
-    else. Run on restoration and at the start of every replay call."""
-    index = dict(state.consumed)
-    used = set()
+    else. Run on restoration and at the start of every replay call.
+
+    The index is strictly increasing in open time (a ``State`` invariant), so the SMA_WINDOW
+    entries from a window's first day are exactly the window's days if the last of them is its
+    Sunday: each window is one slice of the index, hashed as a whole."""
+    days = [day for day, _ in state.consumed]
+    fingerprints = [fingerprint for _, fingerprint in state.consumed]
+    position = {day: i for i, day in enumerate(days)}
+    used = bytearray(len(days))
     for e in state.ledger:
         if e.event in (Event.DECIDE_LONG, Event.DECIDE_FLAT):
-            days = window_days(e.at)
-            fingerprints = [index.get(d) for d in days]
-            if None in fingerprints or e.window_digest != canonical_hash(fingerprints):
+            first, sunday = window_bounds(e.at)
+            i = position.get(first, len(days))
+            j = i + SMA_WINDOW
+            if (j > len(days) or days[j - 1] != sunday
+                    or e.window_digest != canonical_hash(fingerprints[i:j])):
                 raise DesignAError(f"integrity: the window of the decision at "
                                    f"{e.at.isoformat()} does not match the consumed index")
-            used.update(days)
+            used[i:j] = b"\x01" * SMA_WINDOW
         elif e.event in (Event.EXECUTED, Event.REJECTED_MIN_ORDER):
-            if (e.reference_fingerprint is None
-                    or index.get(e.reference_time) != e.reference_fingerprint):
+            i = position.get(e.reference_time)
+            if (e.reference_fingerprint is None or i is None
+                    or fingerprints[i] != e.reference_fingerprint):
                 raise DesignAError(f"integrity: the reference candle of entry {e.seq} does not "
                                    f"match the consumed index")
-            used.add(e.reference_time)
+            used[i] = 1
         elif e.window_digest is not None or e.reference_fingerprint is not None:
             raise DesignAError(f"integrity: entry {e.seq} consumes no candle but carries a "
                                f"fingerprint")
-    if used != set(index):
+    if 0 in used:
         raise DesignAError("integrity: the consumed index holds candles no ledger entry used")

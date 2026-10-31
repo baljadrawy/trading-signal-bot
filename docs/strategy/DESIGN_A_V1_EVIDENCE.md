@@ -3,9 +3,9 @@
 **What this is.** Sanitized evidence for the independent review of `feature/design-a-v1`. It is software evidence only. Passing tests is not evidence of profitability (the owner brief), and no market data was used.
 
 **Code under test:** the tree of the commit that carries this revision of the document.
-- It follows `4a4f40f` (weekly retries).
-- It adds the owner-approved durable candle integrity for offline replay and resume (2026-10-31; specification §5).
-- Earlier revisions of this record covered `0aaf2e1` and `4a4f40f`.
+- It follows `d6bc9ca` (durable candle integrity).
+- It adds the focused performance remediation of that mechanism (specification §5 "Cost of the checks", §23 R16) and a read-only decision memo, `docs/strategy/DESIGN_A_PROFITABILITY_DECISION_MEMO.md`.
+- Earlier revisions of this record covered `0aaf2e1`, `4a4f40f` and `d6bc9ca`.
 
 **Base:** `origin/main` at `eba90dd`.
 
@@ -13,16 +13,15 @@
 
 ## Scope check
 
-12 files, all under the paths below. No file outside them was modified:
+13 files, all under the paths below. No file outside them was modified:
 - `research/design_a/`: `__init__.py`, `state.py`, `timing.py`, `decision.py`, `ledger.py`
 - `tests/`: `design_a_synthetic.py`, `test_design_a_timing.py`, `test_design_a_decision.py`, `test_design_a_ledger.py`, `test_design_a_isolation.py`
-- `docs/strategy/DESIGN_A_SPEC_v1.0.md`, `docs/strategy/DESIGN_A_V1_EVIDENCE.md`
+- `docs/strategy/DESIGN_A_SPEC_v1.0.md`, `docs/strategy/DESIGN_A_V1_EVIDENCE.md`, `docs/strategy/DESIGN_A_PROFITABILITY_DECISION_MEMO.md`
 
-This revision changes 8 of them and adds or removes none:
-- `state.py`, `decision.py`, `ledger.py`;
-- `design_a_synthetic.py`, `test_design_a_ledger.py`;
-- `test_design_a_isolation.py`, whose only change admits the stdlib module `functools`;
-- the specification and this record.
+This revision changes 6 of them and adds 1:
+- changed: `state.py`, `decision.py`, `ledger.py`, `test_design_a_ledger.py`, the specification and this record;
+- added: the decision memo;
+- no new dependency or import (the isolation allow-list is unchanged).
 
 Nothing changed under `.github/`, `deploy/`, `shared/`, `docs/governance/`, `docs/ops/` or any runtime service directory. No Dockerfile or compose file changed. No `conftest.py`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `tox.ini` or `research/__init__.py` was added. The integrity evidence lives in the existing `State` and ledger: no database, service, storage system or other infrastructure.
 
@@ -36,14 +35,14 @@ cd <worktree> && umask 022 && PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python -m pyt
 
 | Check | Environment | Result |
 |---|---|---|
-| Design A suite | the project venv (`research/skill_application/.venv`): Python 3.12.3, pytest 9.1.1 | 81 passed, 0 failed, 0 skipped |
-| Design A suite | a venv with the pinned CI test set (`.github/ci/requirements-test.txt`: all 64 pins at their pinned versions, plus one unpinned package, `nvidia-nccl-cu12`, that Design A does not import): Python 3.12.3, pytest 9.1.1 | 81 passed, 0 failed, 0 skipped |
+| Design A suite | the project venv (`research/skill_application/.venv`): Python 3.12.3, pytest 9.1.1 | 83 passed, 0 failed, 0 skipped |
+| Design A suite | a venv with the pinned CI test set (`.github/ci/requirements-test.txt`: all 64 pins at their pinned versions, plus one unpinned package, `nvidia-nccl-cu12`, that Design A does not import): Python 3.12.3, pytest 9.1.1 | 83 passed, 0 failed, 0 skipped |
 | Existing tests that walk `research/` or `tests/` | the project venv | 263 passed |
 | `ops/provenance/protected_scan.py --base origin/main --head <commit>` | system Python | SCAN CLEAN |
 | Key-pattern search of the branch diff's added lines (cloud, Git hosting, chat and API keys; private keys; database URLs) | — | no match |
 
-- **Per test file:** timing 13, decision 13, ledger 49, isolation 6.
-- **Runtime of the suite:** about 29 s, against 6.7 s for the 71 tests of `4a4f40f`, measured back to back under the same conditions. The same 71 tests take about 20 s on this tree, because every replay now fingerprints and checks candles; the 10 new tests take the rest. See the resource measurement below.
+- **Per test file:** timing 13, decision 13, ledger 51, isolation 6.
+- **Runtime of the suite:** 17–18 s, against 29.8 s for the 81 tests of `d6bc9ca`, measured back to back under the same conditions (and 6.7 s for the 71 tests of `4a4f40f`, before integrity existed).
 - **Owner decision 2026-10-31 (weekly retries): ten regression items, all still passing.**
   1. An expired SELL is retried at the next FLAT decision (baseline and stress).
   2. A rejected SELL is retried only at the next valid weekly decision, and minimums still apply.
@@ -75,14 +74,15 @@ cd <worktree> && umask 022 && PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python -m pyt
   4. **Missing candles that were never consumed:** `test_a_missing_unconsumed_candle_follows_the_missing_data_rules`. After restoration they follow the existing rules: a window gap skips, a due reference defers to Wednesday. The rough fixture's day-352 outage is still a gap.
   5. **Serialisation and restoration followed by resume:** the restored cases above, the restored scenario, and `test_a_state_saved_by_one_process_resumes_in_another`.
   6. **Tampered or malformed integrity metadata:** `test_tampered_or_malformed_integrity_metadata_is_refused`. It covers:
-     - 13 tampered or malformed records;
+     - 14 tampered or malformed records, among them an index whose days were re-labelled so that each window slice keeps its fingerprint sequence;
      - 3 consistent but non-canonical records;
      - a tampered state in memory;
      - a forged decision window.
   7. **Deterministic digests across process restarts and hash seeds:** `test_replay_is_deterministic`, now including the restored scenario, and the cross-process test.
   8. **Interrupted versus uninterrupted replay:** `test_an_interrupted_replay_resumes_to_the_same_ledger` and the restored variants above.
   9. **Weekly retries:** `test_restoration_inside_a_retry_window_resumes_identically`, plus the retry-window cut of the interrupted-replay test.
-  10. **Remaining known limitation:** `test_known_limitation_unconsumed_candles_are_checked_within_one_call_only`. A candle that was delivered but not yet consumed before a cut is checked within one call only (specification §5).
+  10. **Where checks enter (R16):** `test_fingerprints_and_index_entries_are_checked_where_they_enter` (format, merges, ordering, conversion of plain tuples) and `test_the_replay_record_vouches_only_for_the_same_candle_and_fingerprint` (the per-call record never vouches for another candle object or fingerprint).
+  11. **Remaining known limitation:** `test_known_limitation_unconsumed_candles_are_checked_within_one_call_only`. A candle that was delivered but not yet consumed before a cut is checked within one call only (specification §5).
 - **Effect on existing tests.** No established assertion was changed, relaxed or removed.
   - **Unchanged.** 30 of the 33 earlier ledger test functions are byte-identical. The timing and decision test files are unchanged, and the isolation test changed only its stdlib allow-list.
   - **Changed, apart from docstrings:**
@@ -108,37 +108,53 @@ cd <worktree> && umask 022 && PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python -m pyt
   - permanent losses that force an expiry.
 - **Interrupted replays** resumed from the saved state, in memory or after a JSON round trip, give the same digest as uninterrupted ones.
 
-## Integrity resource measurement
+## Performance: before and after (R16)
 
-**Method.** A scratch probe, not committed, run on fabricated data only, with no returns or equity computed. "Checks off" replaces `check_consumed` and `verify_integrity` with no-ops. "All off" also drops the fingerprints and the index. The 2,900-day history is a seeded stdlib walk dated 2001–2008: a size test near the limit of the pre-2009 guard, not a backtest.
+**Method.** One harness ran on fabricated data only, computing no returns or equity:
+- **Trees.** The `d6bc9ca` tree and this tree, interleaved over two rounds, A B A B, to cancel load drift on the shared host. Earlier separate runs showed that drift.
+- **Fixtures.** Identical for both trees; each figure is a median.
+- **Long history.** The 2,900-day history is a seeded walk dated 2001–2008: a size test, not a backtest.
+- **Digests.** Every fixture's final-state digest was identical in both trees.
 
-| | 540-day fixture | 2,900-day fabricated history |
-|---|---|---|
-| Consumed-index entries | 536 | 2,895 |
-| Index memory (217 bytes per entry) | 114 KiB | 614 KiB |
-| Index share of the JSON record (about 100 bytes per entry) | 52 of 78 KiB | 280 of 449 KiB |
-| Ledger entries / actionable decisions | 132 / 49 | 822 / 386 |
-| Replay, daily snapshots: integrity on / checks off / all off | 0.42 / 0.31 / 0.16 s | 14.9 / 7.3 / 3.3 s |
-| Replay, weekly snapshots: integrity on / checks off / all off | 0.27 / 0.24 / 0.10 s | 7.2 / 5.1 / 1.4 s |
-| `verify_integrity`, per call | 15.7 ms | 144 ms |
-| `check_consumed`, last snapshot | 0.84 ms | 7.6 ms |
-| `state_from_record`, per restoration | 22–34 ms | 180–200 ms |
+| Case | `d6bc9ca` | this tree | speed-up |
+|---|---|---|---|
+| clean daily replay (540 snapshots) | 0.470 s | 0.260 s | 1.81× |
+| rough daily replay | 0.477 s | 0.268 s | 1.78× |
+| clean weekly replay | 0.303 s | 0.164 s | 1.85× |
+| clean, resumed after every snapshot (540 calls) | 3.728 s | 1.405 s | 2.65× |
+| clean, cut at 300, JSON restore, resume | 0.546 s | 0.290 s | 1.88× |
+| 2,900-day daily replay | 14.83 s | 7.16 s | 2.07× |
+| 2,900-day weekly replay | 7.01 s | 3.00 s | 2.33× |
+| `verify_integrity`, clean / 2,900-day final state | 16.3 / 134.5 ms | 6.6 / 43.4 ms | 2.5× / 3.1× |
+| `state_from_record`, clean / 2,900-day | 26.5 / 218.8 ms | 20.6 / 113.1 ms | 1.3× / 1.9× |
+| Design A suite | 29.8 s (81 tests) | 17–18 s (83 tests) | — |
 
-**Findings:**
-- **Memory is linear.** The index has one entry per consumed day; overlapping windows share entries, and each decision and fill adds one 64-character value to the ledger.
-- **The fingerprint cache is bounded.** Its cap is 65,536 entries, at about 240 bytes each plus the candle it keeps alive. That is about 33 MB at the cap; the fixture uses 536 entries.
-- **Each check is linear in its inputs.**
-  - A snapshot check is linear in the snapshot and the index.
-  - `verify_integrity` is linear in the number of decisions.
-  - With full-history snapshots the replay was already quadratic in the history length, because every snapshot carries the whole history. The checks keep that order and add a constant factor.
-- **Two patterns are quadratic over a whole run.** Both have the order of existing code, with larger constants:
-  1. **Resuming after every single snapshot,** because `verify_integrity` runs at every call. For the fixture that is 3.07 s for 540 calls, against 0.42 s in one call.
-  2. **Re-validating the whole index in every `State` construction,** as the constructor already does for the ledger. Under cProfile, which inflates many small calls, it takes about 30 % of a clean replay. With the `Decision` window check, the character-level fingerprint checks take about 45 %, and `check_consumed` about 27 %.
-- **Not optimised,** as instructed. Options if a reviewer wants them:
-  - validate fingerprints once, where they enter (merge, restoration), rather than in every construction;
-  - use a faster fingerprint check;
-  - verify once per restoration rather than per call;
-  - bisect the sorted index to the coverage start.
+**Bottlenecks measured on `d6bc9ca`, and what changed.** The shares are instrumented, of the clean daily replay.
+
+| Bottleneck | Share | Change | Safeguard kept |
+|---|---|---|---|
+| repeated consumed-candle comparisons in `check_consumed` | 30 % | `replay` keeps a per-call record of confirmed (candle object, fingerprint) pairs; the same object under the same fingerprint is not hashed again. The availability rule is applied once per call | presence is checked at every snapshot; every new call starts empty; the public functions always check in full |
+| full index re-validation in every `State` construction | 25 % | the index is a validated `ConsumedIndex`, checked in full when built; merges check what they add | restoration and any plain tuple are checked in full |
+| fingerprint-format checks (character loops) | part of the above, and 8.5 % in `Decision` | a C-level `str.strip` check, proved equal to the old check on 200,015 adversarial strings | the same accepted set |
+| per-decision cross-verification in `verify_integrity` | dominant when resuming per snapshot | each window is one slice of the sorted index, hashed whole | still comprehensive at every call and every restoration |
+
+After the change, the shares are:
+- `check_consumed`: 22 %;
+- `merge_consumed`: 8 %;
+- `State.__post_init__`: 1 %.
+
+**Memory.** Unchanged:
+- **Index.** One entry per consumed day, about 217 bytes in memory and 100 in JSON: 536 entries for the fixture, 2,895 for the 2,900-day history.
+- **Fingerprint cache.** Bounded at 65,536 entries, about 33 MB at the cap.
+- **The per-call record.** Holds at most one entry per consumed day and is freed when the call returns.
+
+**Remaining performance risks:**
+- **Full-history daily replays still cost about twice an integrity-free replay.** Every snapshot is still checked for presence against the whole covered index (2,900 days: 7.2 s).
+- **Resuming after every single snapshot is still quadratic over a whole run.** Each `replay` call verifies in full, by design. A caller feeding snapshots within one process should pass a generator to one call.
+- **Larger, non-synthetic workloads were not measured.**
+- **Not done** (each would be a further change, not demonstrated as needed):
+  - bisecting the index to the coverage start (it helps only shorter-history sources);
+  - avoiding the per-merge sort.
 
 ## Breakage check (mutation testing)
 
@@ -147,17 +163,22 @@ Method:
 2. The Design A suite was run against the broken code, in a scratch copy of the tree.
 3. The original file was restored, and its sha256 verified.
 
-**Result on the final tree: 58 of 58 breakages caught.**
+**Result on this tree: 65 of 65 breakages caught.**
 
-**This revision adds 14 of them** (listed below with the rest):
-- 8 for the integrity mechanism, written with it;
-- 6 more for checks those 8 did not target: the window coverage that `decide` gained later in the round; the reference fingerprints; the order of the index; the window length; the availability clause; verification on restoration.
+**This revision:**
+- **7 new mutants** for the new code paths:
+  - the window end check;
+  - the fingerprint format;
+  - the per-call record's identity condition;
+  - its fingerprint condition;
+  - the merge's check of added pairs;
+  - the `State` index validation;
+  - the merge's sort.
+- **7 re-pointed anchors.** The mutants for the merge conflict, the window digest, unused index entries, the decision window, reference fingerprints, index order and the availability clause now point at the reshaped code, with unchanged meaning.
 
-The one stale anchor, for "NO_CHANGE drops the target", was updated to the new code. Before it was fixed, the script stopped before changing any file.
+All 65 were caught. The run's inputs were byte-identical to this tree's code and tests.
 
-Earlier runs in this round, which shaped the tests:
-- **On the code before the last fixes: 51 of 52 caught.** The survivor, "restore skips canonical check", showed that no test reached `state_from_record`'s round-trip check. Non-canonical records are now tested.
-- **A later run: "consumed conflict ignored" survived** a reworked revision test. The next decision's merge refused the same revision with the same message, which masked the check. The test now delivers the revision in a call that ends before the next decision, and includes a window day that no later decision reads.
+**Earlier rounds** (`d6bc9ca` and before) are recorded in that revision of this file: 58 of 58, after two survivors found by earlier runs had led to new tests.
 
 `decision.py`:
 - equality counts as LONG
@@ -224,6 +245,13 @@ Earlier runs in this round, which shaped the tests:
 - consumed order unchecked
 - decision window length unchecked
 - unavailable consumed candles required
+- fingerprint format unchecked
+- window end unchecked
+- record vouches for any candle
+- record ignores the fingerprint
+- merge skips checking added pairs
+- State skips index validation
+- merge leaves the index unsorted
 
 ## Reviews
 
@@ -232,7 +260,7 @@ The earlier rounds had three reviewer passes in the same session:
 - the specification against the brief and the cited repository files;
 - a focused re-review of the fixes.
 
-This round was self-reviewed in the same session. None of this is independent approval. Every BLOCKER or MAJOR finding was resolved. Findings and resolutions are listed in the specification, §23 (X1–X16, R1–R15).
+This round was self-reviewed in the same session. None of this is independent approval. Every BLOCKER or MAJOR finding was resolved. Findings and resolutions are listed in the specification, §23 (X1–X16, R1–R16).
 
 ## Not uploaded or not done, and why
 
@@ -240,7 +268,7 @@ This round was self-reviewed in the same session. None of this is independent ap
 |---|---|
 | CI | Pushes to `feature/*` trigger no workflow, and GitHub Actions is billing-blocked. No CI result is claimed. |
 | LCE | Not authorized for this work; not run. |
-| The breakage-check script and the resource probe | Local scratch tools. The breakage check rewrites package files in place, so it does not belong in the repository. The lists and tables above are the reviewable record. |
+| The breakage-check script and the benchmark harness | Local scratch tools. The breakage check rewrites package files in place, so it does not belong in the repository. The lists and tables above are the reviewable record. |
 | Revision detection for candles delivered but not yet consumed, across a cut | Not implemented: outside the approved mechanism, which covers consumed candles. A known limitation, pinned by a test and described in the specification, §5. |
 | Authenticity of saved records (keyed MAC, signature, external anchor) | Not implemented: new infrastructure, outside v1.0 (specification §5). |
 | Reviewer transcripts | Session-local. Their findings and resolutions are summarized in the specification, §23. |

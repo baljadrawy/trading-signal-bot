@@ -23,12 +23,12 @@ from decimal import Decimal
 
 from research.data_governance.governance import canonical_hash
 from research.design_a import VERSION
-from research.design_a.decision import decide
+from research.design_a.decision import _decide
 from research.design_a.state import (DAY, EVIDENCE_CLASS, FLOOR, ONE, ZERO, Candle, CostSpec,
                                      Decision, DesignAError, Event, ExecutionStatus, LedgerEntry,
                                      MinOrderRules, PendingTransition, Side, Snapshot, State,
-                                     Target, TransitionError, actual_position, amount, arithmetic,
-                                     candle_fingerprint, check_inputs, floor_to_step,
+                                     Target, TransitionError, _check_inputs, actual_position,
+                                     amount, arithmetic, candle_fingerprint, floor_to_step,
                                      merge_consumed, required_action, text, verify_integrity,
                                      window_days)
 from research.design_a.timing import (available, available_from, is_decision_instant, is_overdue,
@@ -88,7 +88,13 @@ def apply_decision(state: State, decision: Decision) -> State:
 def execute_pending(state: State, snapshot: Snapshot) -> State:
     """Advance the pending transition as far as ``snapshot`` allows (spec §7): fill it, record
     missing reference candles, or cancel it once none can remain within the window."""
-    check_inputs(state, snapshot)
+    return _execute_pending(state, snapshot, None)
+
+
+def _execute_pending(state: State, snapshot: Snapshot, verified: dict | None) -> State:
+    """``execute_pending``; ``verified`` is the record of one ``replay`` call
+    (``state._check_consumed``)."""
+    _check_inputs(state, snapshot, verified)
     pending = state.pending
     if pending is None:
         raise TransitionError("no pending transition to execute")
@@ -247,10 +253,13 @@ def replay(state: State, snapshots: Iterable[Snapshot]) -> State:
     Across calls and restorations, the state's consumed index carries the fingerprints of every
     candle used by a decision or an execution attempt; each snapshot is checked against it
     before anything is processed (``state.check_consumed``), and the index itself is verified
-    against the ledger here first (``state.verify_integrity``)."""
+    against the ledger here first (``state.verify_integrity``). Within the call, a consumed candle
+    passed again as the same object is not hashed again, though its presence is still checked
+    at every snapshot; the record of what was checked lives only for the call."""
     verify_integrity(state)
     previous = None
     seen: dict = {}
+    verified: dict = {}
     for snapshot in snapshots:
         if not isinstance(snapshot, Snapshot):
             raise TypeError("snapshots must be Snapshot objects")
@@ -271,8 +280,8 @@ def replay(state: State, snapshots: Iterable[Snapshot]) -> State:
                                f"at every decision instant")
         previous = snapshot.as_of
         if state.pending is not None:
-            state = execute_pending(state, snapshot)
-        state = apply_decision(state, decide(state, snapshot))
+            state = _execute_pending(state, snapshot, verified)
+        state = apply_decision(state, _decide(state, snapshot, verified))
     return state
 
 

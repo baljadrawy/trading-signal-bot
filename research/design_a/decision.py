@@ -4,8 +4,8 @@ ending with that Sunday; equality is FLAT. No other input, indicator, band or pa
 from __future__ import annotations
 
 from research.design_a.state import (SMA_WINDOW, ZERO, Decision, Event, Snapshot, State, Target,
-                                     arithmetic, candle_fingerprint, check_consumed, check_inputs,
-                                     required_action, window_days)
+                                     _check_consumed, _check_inputs, arithmetic,
+                                     candle_fingerprint, required_action, window_bounds)
 from research.design_a.timing import is_decision_instant, signal_window
 
 __all__ = ["SMA_WINDOW", "decide"]
@@ -13,11 +13,16 @@ __all__ = ["SMA_WINDOW", "decide"]
 
 def decide(state: State, snapshot: Snapshot) -> Decision:
     """Pure: the weekly decision at ``snapshot.as_of``. ``state`` is read, never changed."""
-    check_inputs(state, snapshot)
+    return _decide(state, snapshot, None)
+
+
+def _decide(state: State, snapshot: Snapshot, verified: dict | None) -> Decision:
+    """``decide``; ``verified`` is the record of one ``replay`` call (``state._check_consumed``)."""
+    _check_inputs(state, snapshot, verified)
     at = snapshot.as_of
     if not is_decision_instant(at):
         return Decision(at, Event.NO_SIGNAL, reason="NOT_DECISION_INSTANT")
-    check_consumed(state, snapshot, since=window_days(at)[0])   # also the window read below
+    _check_consumed(state, snapshot, window_bounds(at)[0], verified)   # also the window read below
     window, refusal = signal_window(snapshot, SMA_WINDOW)
     if refusal is not None:
         event, reason = refusal
