@@ -6,6 +6,8 @@
 
 > اقرأ الملف المرتبط ذا الصلة قبل أي تعديل.
 
+> **MASTER DIRECTION — OWNER APPROVED 2026-11-01 (MANDATORY BEFORE EVERY TASK):** Read [Trading System Master Charter](docs/governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md) in full before planning, coding, reviewing, proposing a strategy or drafting a Claude task. The current objective is active daily opportunity scanning (never forced daily trades), net-of-cost spot trading, strategy-specific holding and risk-controlled compounding of **realized net profits**. Preserve external-review and ERG-01 INCONCLUSIVE findings as evidence, not as an obsolete business objective. State WP0–WP5, R1–R9, baseline SHA, evidence class, permission gate and DEVIATION ALERT for every task. Never assume this charter authorizes protected research, production changes or deployment. Existing stricter operational and research governance remains binding. If a conflict arises, stop the affected action and ask the owner.
+
 ## Development-First policy (owner workflow directive effective 2026-10-26)
 
 - [docs/governance/DEVELOPMENT_FIRST_POLICY.md](docs/governance/DEVELOPMENT_FIRST_POLICY.md): which rules apply to which kind of work (D0 development … D5 live). Development is the default; production operations, the sealed holdout, secrets and PAPER_ONLY rules are unchanged. Owner's dated 2026-10-26 workflow directive is effective; older proposed text is historical and does not override production safety.
