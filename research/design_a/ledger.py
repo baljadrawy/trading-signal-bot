@@ -18,16 +18,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 
 from research.data_governance.governance import canonical_hash
 from research.design_a import VERSION
 from research.design_a.decision import decide
-from research.design_a.state import (DAY, EVIDENCE_CLASS, FLOOR, ONE, ZERO,
-                                     Candle, Decision, DesignAError, Event, ExecutionStatus,
-                                     LedgerEntry, MinOrderRules, PendingTransition, Side, Snapshot,
-                                     State, Target, TransitionError, actual_position, amount,
-                                     arithmetic, check_inputs, floor_to_step, required_action, text)
+from research.design_a.state import (DAY, EVIDENCE_CLASS, FLOOR, ONE, ZERO, Candle, CostSpec,
+                                     Decision, DesignAError, Event, ExecutionStatus, LedgerEntry,
+                                     MinOrderRules, PendingTransition, Side, Snapshot, State,
+                                     Target, TransitionError, actual_position, amount, arithmetic,
+                                     candle_fingerprint, check_inputs, floor_to_step,
+                                     merge_consumed, required_action, text, verify_integrity,
+                                     window_days)
 from research.design_a.timing import (available, available_from, is_decision_instant, is_overdue,
                                       next_decision_instant, scheduled_reference_open)
 
@@ -56,13 +59,17 @@ def apply_decision(state: State, decision: Decision) -> State:
         raise TransitionError("decision is older than the last ledger entry")
     if decision.event is Event.WARMUP and state.target is not None:
         raise TransitionError("warm-up is only the initial state")
+    window_digest = canonical_hash(list(decision.window)) if decision.window else None
     entries = [_entry(state, [], decision.at, decision.event, reason=decision.reason,
-                      sunday_close=decision.sunday_close, sma=decision.sma)]
+                      sunday_close=decision.sunday_close, sma=decision.sma,
+                      window_digest=window_digest)]
     if decision.target is None:     # warm-up or a skipped decision: holdings and target are kept
         return replace(state, last_decision_at=decision.at, ledger=state.ledger + tuple(entries))
     if required_action(state, decision.target) is not decision.action:
         raise TransitionError("decision was computed for a different target or position")
-    changes = {"target": decision.target, "last_decision_at": decision.at}
+    changes = {"target": decision.target, "last_decision_at": decision.at,
+               "consumed": merge_consumed(state.consumed,
+                                          zip(window_days(decision.at), decision.window))}
     if decision.action is None:
         entries.append(_entry(state, entries, decision.at, Event.NO_CHANGE,
                               reason="ALREADY_AT_TARGET"))
@@ -136,8 +143,11 @@ def _fill(state: State, pending: PendingTransition, candle: Candle, entries: lis
     costs, rules = state.costs, state.rules
     reference = candle.open
     known = available_from(candle.open_time)
+    fingerprint = candle_fingerprint(candle)
+    consumed = merge_consumed(state.consumed, [(candle.open_time, fingerprint)])
     common = {"side": pending.side, "decided_at": pending.decided_at,
-              "reference_time": candle.open_time, "reference_price": reference}
+              "reference_time": candle.open_time, "reference_price": reference,
+              "reference_fingerprint": fingerprint}
     with arithmetic():
         if pending.side is Side.BUY:
             price = reference * (ONE + costs.half_spread + costs.slippage)
@@ -155,7 +165,7 @@ def _fill(state: State, pending: PendingTransition, candle: Candle, entries: lis
                               execution_price=price, quantity=quantity, notional=notional,
                               **common))
         return replace(state, pending=None, execution_status=ExecutionStatus.REJECTED_MIN_ORDER,
-                       ledger=state.ledger + tuple(entries))
+                       ledger=state.ledger + tuple(entries), consumed=consumed)
     with arithmetic():
         fee = notional * costs.fee
         spread_cost = quantity * reference * costs.half_spread
@@ -174,7 +184,7 @@ def _fill(state: State, pending: PendingTransition, candle: Candle, entries: lis
                               reason="BELOW_QTY_STEP", quantity=btc, mark_price=candle.close))
     return replace(state, cash=cash, btc=btc, pending=None,
                    execution_status=ExecutionStatus.EXECUTED,
-                   ledger=state.ledger + tuple(entries))
+                   ledger=state.ledger + tuple(entries), consumed=consumed)
 
 
 def mark_price(snapshot: Snapshot) -> Decimal:
@@ -232,7 +242,13 @@ def replay(state: State, snapshots: Iterable[Snapshot]) -> State:
     state's last decision, when resuming); a skipped decision instant is refused, never silently
     passed over. A candle that differs from the one an earlier snapshot of this call carried for
     the same day is refused as revised data. Between decision instants any cadence then gives the
-    same ledger, provided no candle arrives late."""
+    same ledger, provided no candle arrives late.
+
+    Across calls and restorations, the state's consumed index carries the fingerprints of every
+    candle used by a decision or an execution attempt; each snapshot is checked against it
+    before anything is processed (``state.check_consumed``), and the index itself is verified
+    against the ledger here first (``state.verify_integrity``)."""
+    verify_integrity(state)
     previous = None
     seen: dict = {}
     for snapshot in snapshots:
@@ -281,9 +297,69 @@ def state_record(state: State) -> dict:
                                                 "next_open": iso(pending.next_open)},
         "last_decision_at": iso(state.last_decision_at),
         "ledger": [entry.record() for entry in state.ledger],
+        "consumed": [[day.isoformat(), fingerprint] for day, fingerprint in state.consumed],
     }
 
 
 def digest(state: State) -> str:
     """sha256 of the canonical record (the repository's ``canonical_hash`` convention)."""
     return canonical_hash(state_record(state))
+
+
+_INSTANTS = {"at", "decided_at", "expires_at", "reference_time"}
+_DECIMALS = {"cash", "btc", "reference_price", "execution_price", "quantity", "notional", "fee",
+             "spread_cost", "slippage_cost", "mark_price", "sunday_close", "sma"}
+
+
+def _instant(value) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _entry_from(record: dict) -> LedgerEntry:
+    values = {}
+    for name, value in record.items():
+        if name in _INSTANTS:
+            value = _instant(value)
+        elif name in _DECIMALS:
+            value = Decimal(value)
+        elif name == "event":
+            value = Event(value)
+        elif name == "side":
+            value = Side(value)
+        values[name] = value
+    return LedgerEntry(**values)
+
+
+def state_from_record(record: dict) -> State:
+    """Restore a State from ``state_record`` output, for example after JSON serialisation.
+
+    Anything malformed, non-canonical (the restored state must reproduce the record exactly) or
+    failing the integrity cross-check is refused with DesignAError."""
+    try:
+        if record["version"] != VERSION or record["evidence_class"] != EVIDENCE_CLASS:
+            raise DesignAError("not a Design A v1.0 synthetic state record")
+        costs, rules, pending = record["costs"], record["rules"], record["pending"]
+        state = State(
+            cash=Decimal(record["cash"]), btc=Decimal(record["btc"]),
+            costs=CostSpec(Decimal(costs["fee"]), Decimal(costs["half_spread"]),
+                           Decimal(costs["slippage"]), costs["label"]),
+            rules=MinOrderRules(Decimal(rules["min_notional"]), Decimal(rules["min_qty"]),
+                                Decimal(rules["qty_step"])),
+            target=None if record["target"] is None else Target(record["target"]),
+            pending=None if pending is None else PendingTransition(
+                Side(pending["side"]), _instant(pending["decided_at"]),
+                _instant(pending["next_open"])),
+            execution_status=(None if record["execution_status"] is None
+                              else ExecutionStatus(record["execution_status"])),
+            last_decision_at=(None if record["last_decision_at"] is None
+                              else _instant(record["last_decision_at"])),
+            ledger=tuple(_entry_from(e) for e in record["ledger"]),
+            consumed=tuple((_instant(day), fingerprint) for day, fingerprint in record["consumed"]))
+    except DesignAError:
+        raise
+    except (KeyError, TypeError, ValueError, ArithmeticError, AttributeError) as exc:
+        raise DesignAError(f"malformed state record ({type(exc).__name__})") from exc
+    if state_record(state) != record:
+        raise DesignAError("state record is not canonical")
+    verify_integrity(state)
+    return state

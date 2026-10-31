@@ -8,12 +8,14 @@ in the caller's ambient decimal context, and Decimals are serialised by ``text``
 from __future__ import annotations
 
 import enum
+import functools
 from contextlib import contextmanager
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta, timezone
 from decimal import (ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal, DecimalException,
                      DivisionByZero, Inexact, InvalidOperation, Overflow, localcontext)
 
+from research.data_governance.governance import canonical_hash
 from research.mechanisms.costs import BASELINE_FEE_PER_SIDE, CostModelError
 from research.mechanisms.simulate import SYNTHETIC, DatasetPermission
 
@@ -28,6 +30,7 @@ DECISION_OFFSET_SECONDS = 30                    # Monday 00:00 UTC plus 30 secon
 DEFERRAL_WINDOW = timedelta(days=3)             # reference opens within three calendar days
 DAY = timedelta(days=1)
 WEEK = 7 * DAY
+SMA_WINDOW = 200    # the primary configuration; the diagnostics of spec §18 are not implemented
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
@@ -125,6 +128,11 @@ def optional(value, kind, name: str):
     if value is not None and not isinstance(value, kind):
         raise TypeError(f"{name} must be a {kind.__name__} or None")
     return value
+
+
+def is_fingerprint(value) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(ch in "0123456789abcdef"
+                                                               for ch in value)
 
 
 def is_midnight(at: datetime) -> bool:
@@ -282,6 +290,7 @@ class Decision:
     reason: str | None = None
     sunday_close: Decimal | None = None
     sma: Decimal | None = None
+    window: tuple[str, ...] = ()            # fingerprints of the 200 window candles, oldest first
 
     def __post_init__(self):
         utc(self.at, "at")
@@ -304,6 +313,11 @@ class Decision:
         if expected is not None and (None in signal
                                      or (self.sunday_close > self.sma) != (expected is Target.LONG)):
             raise DesignAError("the target must follow F5: LONG iff the Sunday close is above the SMA")
+        if not isinstance(self.window, tuple) or not all(is_fingerprint(f) for f in self.window):
+            raise DesignAError("window must be a tuple of sha256 fingerprints")
+        if len(self.window) != (SMA_WINDOW if expected is not None else 0):
+            raise DesignAError("an actionable decision carries the fingerprints of its 200 window "
+                               "candles, and no other decision carries any")
 
 
 @dataclass(frozen=True)
@@ -329,6 +343,8 @@ class LedgerEntry:
     mark_price: Decimal | None = None
     sunday_close: Decimal | None = None
     sma: Decimal | None = None
+    window_digest: str | None = None        # actionable decisions: digest of the window fingerprints
+    reference_fingerprint: str | None = None  # execution attempts: the reference candle's fingerprint
 
     def __post_init__(self):
         if isinstance(self.seq, bool) or not isinstance(self.seq, int) or self.seq < 0:
@@ -347,6 +363,9 @@ class LedgerEntry:
                      "spread_cost", "slippage_cost", "mark_price", "sunday_close", "sma"):
             if getattr(self, name) is not None:
                 amount(getattr(self, name), name)
+        for name in ("window_digest", "reference_fingerprint"):
+            if getattr(self, name) is not None and not is_fingerprint(getattr(self, name)):
+                raise DesignAError(f"{name} must be a sha256 fingerprint")
 
     def record(self) -> dict:
         """JSON-ready form: every set field, with Decimals and instants as canonical strings."""
@@ -378,6 +397,7 @@ class State:
     execution_status: ExecutionStatus | None = None
     last_decision_at: datetime | None = None
     ledger: tuple[LedgerEntry, ...] = ()
+    consumed: tuple[tuple[datetime, str], ...] = ()   # integrity index: (open time, fingerprint)
 
     def __post_init__(self):
         amount(self.cash, "cash")
@@ -397,6 +417,13 @@ class State:
             raise DesignAError("ledger entries must be numbered 0, 1, ... in time order")
         if self.ledger and (self.ledger[-1].cash, self.ledger[-1].btc) != (self.cash, self.btc):
             raise DesignAError("the last ledger entry must carry the current balances")
+        if not isinstance(self.consumed, tuple) or not all(
+                isinstance(p, tuple) and len(p) == 2 and isinstance(p[0], datetime)
+                and p[0].tzinfo is timezone.utc and is_midnight(p[0]) and is_fingerprint(p[1])
+                for p in self.consumed):
+            raise DesignAError("consumed must hold (00:00 UTC open time, sha256) pairs")
+        if any(a[0] >= b[0] for a, b in zip(self.consumed, self.consumed[1:])):
+            raise DesignAError("consumed open times must be strictly increasing")
         if (self.pending is not None) != (self.execution_status in LIVE_STATUSES):
             raise DesignAError("a pending transition exists exactly while the status is "
                                "PENDING or DEFERRED")
@@ -440,3 +467,84 @@ def check_inputs(state: State, snapshot: Snapshot) -> None:
     if not isinstance(state, State) or not isinstance(snapshot, Snapshot):
         raise TypeError("expected (state: State, snapshot: Snapshot)")
     require_synthetic(snapshot.permission)
+    check_consumed(state, snapshot)
+
+
+# Candle integrity (spec §5). Integrity checks keep data already admitted under the permission
+# consistent; passing them never authorizes access to any historical or protected data.
+
+@functools.lru_cache(maxsize=65536)
+def candle_fingerprint(candle: Candle) -> str:
+    """sha256 (the repository's ``canonical_hash``) of a candle's open time and numeric OHLC
+    values; trailing zeros do not count, so equal candles share one fingerprint."""
+    with arithmetic():
+        values = {name: text(getattr(candle, name).normalize())
+                  for name in ("open", "high", "low", "close")}
+    return canonical_hash({"open_time": candle.open_time.isoformat(), **values})
+
+
+def window_days(decision_time: datetime) -> tuple[datetime, ...]:
+    """Open times of the SMA_WINDOW candles an actionable decision at ``decision_time`` uses."""
+    sunday = decision_time.replace(hour=0, minute=0, second=0, microsecond=0) - DAY
+    return tuple(sunday - DAY * k for k in range(SMA_WINDOW - 1, -1, -1))
+
+
+def merge_consumed(consumed, pairs) -> tuple[tuple[datetime, str], ...]:
+    """``consumed`` plus (open time, fingerprint) ``pairs``; a different fingerprint for a candle
+    already consumed is a revision and is refused."""
+    index = dict(consumed)
+    for day, fingerprint in pairs:
+        if index.setdefault(day, fingerprint) != fingerprint:
+            raise DesignAError(f"candle {day.isoformat()} differs from the one consumed earlier")
+    return tuple(sorted(index.items()))
+
+
+def check_consumed(state: State, snapshot: Snapshot, since: datetime | None = None) -> None:
+    """Refuse a snapshot that contradicts a consumed candle, before anything is processed.
+
+    Coverage: every consumed candle available at the snapshot's ``as_of`` that opens at or after
+    its first candle, or at or after ``since`` when that is earlier, must be present and
+    identical; an absent one is refused as missing, never assumed to match. ``decide`` passes the
+    first day of the window it reads, so a snapshot cut short inside that window is refused, not
+    skipped. Older consumed candles are read by nothing the snapshot can decide or execute, so
+    that snapshot does not re-check them."""
+    starts = [c.open_time for c in snapshot.candles[:1]] + ([] if since is None else [since])
+    if not state.consumed or not starts:
+        return
+    first = min(starts)
+    present = {c.open_time: c for c in snapshot.candles}
+    for day, fingerprint in state.consumed:
+        if day < first or available_from(day) > snapshot.as_of:
+            continue
+        candle = present.get(day)
+        if candle is None:
+            raise DesignAError(f"previously consumed candle {day.isoformat()} is missing")
+        if candle_fingerprint(candle) != fingerprint:
+            raise DesignAError(f"candle {day.isoformat()} differs from the one consumed earlier")
+
+
+def verify_integrity(state: State) -> None:
+    """Cross-check the consumed index with the ledger: every actionable decision's window digest
+    and every execution attempt's reference fingerprint must match it, and it may hold nothing
+    else. Run on restoration and at the start of every replay call."""
+    index = dict(state.consumed)
+    used = set()
+    for e in state.ledger:
+        if e.event in (Event.DECIDE_LONG, Event.DECIDE_FLAT):
+            days = window_days(e.at)
+            fingerprints = [index.get(d) for d in days]
+            if None in fingerprints or e.window_digest != canonical_hash(fingerprints):
+                raise DesignAError(f"integrity: the window of the decision at "
+                                   f"{e.at.isoformat()} does not match the consumed index")
+            used.update(days)
+        elif e.event in (Event.EXECUTED, Event.REJECTED_MIN_ORDER):
+            if (e.reference_fingerprint is None
+                    or index.get(e.reference_time) != e.reference_fingerprint):
+                raise DesignAError(f"integrity: the reference candle of entry {e.seq} does not "
+                                   f"match the consumed index")
+            used.add(e.reference_time)
+        elif e.window_digest is not None or e.reference_fingerprint is not None:
+            raise DesignAError(f"integrity: entry {e.seq} consumes no candle but carries a "
+                               f"fingerprint")
+    if used != set(index):
+        raise DesignAError("integrity: the consumed index holds candles no ledger entry used")

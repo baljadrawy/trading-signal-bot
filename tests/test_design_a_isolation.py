@@ -17,7 +17,7 @@ from research.design_a import state as S  # noqa: E402
 
 PKG = pathlib.Path("research/design_a")
 STDLIB = {"__future__", "collections.abc", "contextlib", "dataclasses", "datetime", "decimal",
-          "enum"}
+          "enum", "functools"}
 REUSED = {"research.mechanisms.costs", "research.mechanisms.simulate",
           "research.data_governance.governance"}
 FORBIDDEN_MODULES = {"socket", "ssl", "http.client", "urllib.request", "asyncio", "subprocess",

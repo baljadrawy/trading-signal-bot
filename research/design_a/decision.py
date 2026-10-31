@@ -3,11 +3,12 @@ completed Sunday close is above the simple moving average of the 200 completed U
 ending with that Sunday; equality is FLAT. No other input, indicator, band or parameter."""
 from __future__ import annotations
 
-from research.design_a.state import (ZERO, Decision, Event, Snapshot, State, Target, arithmetic,
-                                     check_inputs, required_action)
+from research.design_a.state import (SMA_WINDOW, ZERO, Decision, Event, Snapshot, State, Target,
+                                     arithmetic, candle_fingerprint, check_consumed, check_inputs,
+                                     required_action, window_days)
 from research.design_a.timing import is_decision_instant, signal_window
 
-SMA_WINDOW = 200    # the primary configuration; the diagnostics of spec §18 are not implemented
+__all__ = ["SMA_WINDOW", "decide"]
 
 
 def decide(state: State, snapshot: Snapshot) -> Decision:
@@ -16,6 +17,7 @@ def decide(state: State, snapshot: Snapshot) -> Decision:
     at = snapshot.as_of
     if not is_decision_instant(at):
         return Decision(at, Event.NO_SIGNAL, reason="NOT_DECISION_INSTANT")
+    check_consumed(state, snapshot, since=window_days(at)[0])   # also the window read below
     window, refusal = signal_window(snapshot, SMA_WINDOW)
     if refusal is not None:
         event, reason = refusal
@@ -29,4 +31,5 @@ def decide(state: State, snapshot: Snapshot) -> Decision:
         sma = total / SMA_WINDOW                     # reported; exact because 1/200 terminates
     target = Target.LONG if long else Target.FLAT
     return Decision(at, Event.DECIDE_LONG if long else Event.DECIDE_FLAT, target,
-                    action=required_action(state, target), sunday_close=sunday_close, sma=sma)
+                    action=required_action(state, target), sunday_close=sunday_close, sma=sma,
+                    window=tuple(candle_fingerprint(c) for c in window))

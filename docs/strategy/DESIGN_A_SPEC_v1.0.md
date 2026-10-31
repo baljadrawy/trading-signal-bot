@@ -9,7 +9,9 @@
 
 **Base:** `origin/main` at `eba90dd`.
 
-**Owner decision (2026-10-31):** weekly retries of transitions that did not execute (F10). It is recorded in §2 and is binding.
+**Owner decisions (2026-10-31).** Both are binding:
+- weekly retries of transitions that did not execute (F10), recorded in §2;
+- the minimal durable candle-integrity mechanism for offline replay and resume (§5), proposed in R14 and implemented in R15.
 
 **Owner brief:** "Trading Signal Bot — Design A v1.0: Specification, Minimal Implementation & Synthetic Validation" (2026-10-30). It is cited below as *the brief* (§n = brief section n).
 
@@ -29,7 +31,7 @@ A29–A34 are not in this worktree: they live at local commit `54a6369`, held un
 **"D1" has three meanings in this repository.** They are kept apart here:
 - **class D1** of `docs/governance/DEVELOPMENT_FIRST_POLICY.md` §2 (historical evaluation on real data);
 - the A29 **"D1/D2 HOLD"** for governed confirmation (`OWNER_OPERATING_CONTRACT.md` §4);
-- the review-log IDs, which are X1–X16 and R1–R14 (§23).
+- the review-log IDs, which are X1–X16 and R1–R15 (§23).
 
 ---
 
@@ -242,20 +244,70 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
   - The ledger books it then (`at` = the end of the reference day), and records its event time separately (`reference_time`).
   - A missing reference and an expiry are booked when the candle was due.
   - For data that never arrive late, the ledger therefore does not depend on how often a caller checks. Daily, weekly and every-third-day checks give the same digest on the clean path, a Thursday fill with a rejection and dust, and an expiry.
-  - `replay` refuses a candle that changes between snapshots (revised data), **within one call only**.
-- **Limitation: revision detection across calls.** The check does not survive a resume or serialisation:
-  - the map of seen candles is local to one `replay` call;
-  - no `State` field carries it;
-  - `state_record` is a one-way, canonical description (there is no deserialiser).
-  - So a revised candle delivered to a resumed call is not detected (pinned by `test_known_limitation_revision_detection_is_per_replay_call`).
-  - **Proposed minimal durable mechanism (not implemented; needs owner approval):**
-    - record a sha256 fingerprint of the 200 window candles in each `DECIDE_*` entry, and of the reference candle in each `EXECUTED` / `REJECTED_MIN_ORDER` entry. These are ledger fields, so they are covered by the existing digest;
-    - a resumed replay recomputes the fingerprints of recorded entries whose candles reappear in its snapshots, and refuses on a mismatch.
-    - No new data infrastructure and no change to protected-data controls.
+  - `replay` refuses a candle that changes between the snapshots of one call (revised data). Across calls and restorations, the integrity mechanism below refuses it.
 - **Late data.** A candle recorded missing is never used afterwards, even if it turns up later.
   - Without availability stamps, a sparse check cannot tell a late-arriving candle from a timely one.
   - Data that change between snapshots can therefore change results. This is an availability-policy question.
 - **Single source.** The rule is defined once, in `state.available_from`. `timing.is_available`, `timing.is_overdue` and the `Snapshot` constructor apply it.
+
+**Candle integrity across replay calls and restorations.** This is the owner-approved mechanism (2026-10-31). It is implemented in `state.py` and `ledger.py`, with the window check in `decision.decide`. It needs no database, service or new storage: the evidence lives in the existing state and ledger.
+
+*Evidence.* No candle history is stored twice.
+- **Fingerprint** (`state.candle_fingerprint`): the repository's `canonical_hash` (sha256 of sorted-key JSON) of:
+  - the open time, in ISO 8601 UTC;
+  - the normalised text of `open`, `high`, `low` and `close`.
+
+  Equal numbers give equal fingerprints, so trailing zeros are not a revision. Any other change is.
+- **Index** (`State.consumed`): one `(open time, fingerprint)` pair per candle that a decision window or an execution attempt has read, in strictly increasing order. Overlapping windows share entries: the 540-day fixture ends with 536.
+- **Ledger cross-references:**
+  - each `DECIDE_*` entry carries `window_digest`, the `canonical_hash` of its 200 window fingerprints, oldest first;
+  - each `EXECUTED` and `REJECTED_MIN_ORDER` entry carries `reference_fingerprint`;
+  - no other entry may carry either.
+- **Digest.** All three are part of `state_record`, so they are in the canonical state digest.
+
+*Checks.* Each refuses with `DesignAError`. None repairs anything, and none turns a refusal into a skip.
+1. **Before processing.** Before `decide` or `execute_pending` processes a snapshot, every consumed candle in the snapshot's coverage (below) must be present and identical (`state.check_consumed`, called from `check_inputs`).
+2. **When evidence is added** (`state.merge_consumed`), a fingerprint that differs from the indexed one is refused. This catches, for example, a hand-built decision whose window contradicts the index.
+3. **At the start of every `replay` call and on every restoration** (`state.verify_integrity`), every window digest and reference fingerprint must match the index, and the index may hold nothing else.
+4. **On restoration** (`ledger.state_from_record`, which restores a state from `state_record` output, for example after JSON serialisation), three kinds of record are refused:
+   - a malformed record;
+   - a non-canonical one, which the restored state would not reproduce exactly: an unknown key, another spelling of an instant, a JSON number where text is expected;
+   - one that fails check 3.
+
+*Coverage and missing candles.* Missing data is never treated as matching.
+
+| A candle that is … | … and missing from a snapshot | Result |
+|---|---|---|
+| consumed | between the snapshot's first candle and its `as_of` | refused: "previously consumed candle … is missing" |
+| consumed | before the snapshot's first candle, but inside the window the decision at that snapshot reads | refused in the same way: `decide` extends the coverage to its window |
+| consumed | before both | not re-checked by that snapshot: nothing it can decide or execute reads the candle. A source that keeps a shorter history still works, provided it covers each decision's window. |
+| consumed, but complete only after the snapshot's `as_of` | — | not expected in that snapshot |
+| never consumed | anywhere | the existing missing-data rules (§6–§8): warm-up, a gap or missing-Sunday skip, deferral, expiry. It becomes evidence only once a window or an execution attempt reads it. |
+
+- **Revision.** A revised consumed candle inside the coverage is refused: "candle … differs from the one consumed earlier".
+- **A candle lost after use.** A consumed candle that is lost later is therefore refused wherever the coverage includes it, not treated as a gap. The 28–29-week skip of §8 applies only to a candle that was never consumed.
+- **No partial results.** `replay` refuses the whole call, so it returns no state from it.
+
+*Determinism.*
+- **Context independence.** Fingerprints use the fixed `EXACT` context and `state.text`, so neither the ambient decimal context nor the hash seed matters. The index is sorted.
+- **Cadence.** Daily, weekly and every-third-day cadences consume the same candles, so they still give the same digest.
+- **Process boundary.** A state saved by one interpreter resumes to the uninterrupted digest when it is restored by another interpreter, with a different hash seed and a hostile decimal context (tested).
+
+*What the checks do not establish.*
+- **Consistency, not authenticity.** sha256 detects any difference between the data a call receives and the data consumed earlier, and between the index and the ledger. But nothing is keyed or signed, and nothing is anchored outside the record. So:
+  - whoever can edit a saved record and the snapshots can rewrite the fingerprints, the index and the window digests to match altered candles, and every check would pass;
+  - a history forged consistently from the start is undetectable.
+
+  Authenticity against coordinated tampering would need a keyed MAC, a signature or an external anchor. That is new infrastructure, outside v1.0.
+- **Only consumed candles are evidence.** This is a known limitation, pinned by `test_known_limitation_unconsumed_candles_are_checked_within_one_call_only`.
+  - **Which candles.** Some are delivered before a cut but not yet read by a decision or an execution attempt:
+    - every candle before the first actionable decision;
+    - afterwards, the candles after the Sunday of the latest actionable decision, apart from reference candles already used. Skipped decisions read nothing.
+  - **Detection.** Such a candle is checked for revision only within one call.
+  - **Effect.** If it is revised after the cut, its first use takes the revised value. An uninterrupted replay over the same snapshots would have refused it.
+  - **Fix.** Recording every delivered candle's fingerprint would close this. That would extend the approved mechanism, so it is left to the owner.
+- **Not authorization.** The checks compare only data already admitted under the permission (§3), and the permission check runs first. Passing them never authorizes access to any historical, real or protected data. v1.0 still accepts only the synthetic permission.
+- **No provenance.** A matching fingerprint says nothing about where a candle came from (§3).
 
 **Policy (FROZEN requirement, the brief §5).** "If the data are unavailable at the scheduled decision time, the data-availability policy must be explicitly specified before historical evaluation." That covers which dataset, licence record, freeze and availability model would ever feed `decide()`. It is OPEN (§19 item 1).
 
@@ -276,6 +328,8 @@ The Monday candle opens 30 seconds before the decision, so it can never be a ref
   1. no candles at all gives warm-up, or `SKIP_INVALID_DATA` (`INSUFFICIENT_HISTORY`) after a decision;
   2. then a missing Sunday gives `SKIP_MISSING_SUNDAY`;
   3. then a gap or late start inside the window gives the result above.
+
+  Before all three, the owner-approved integrity checks (§5) refuse a consumed candle that is revised, or missing within the coverage. So these steps only ever meet missing candles that were never consumed.
 
 ---
 
@@ -326,9 +380,11 @@ At the decision instant:
 | Sunday candle unavailable | `SKIP_MISSING_SUNDAY` (`SUNDAY_CANDLE_UNAVAILABLE`) | unchanged | FROZEN F20 |
 | A day missing inside the window after history started | `SKIP_INVALID_DATA` (`GAP_IN_WINDOW`) | unchanged | FROZEN F14; rule PROPOSED |
 | Future or incomplete candle, duplicate or unordered time, malformed candle, non-synthetic permission | refused at construction (exception) | unchanged | FROZEN F8/F14; refusal set PROPOSED |
+| A consumed candle revised, or missing within the coverage (§5) | refused (exception), before any rule above | unchanged | owner-approved (2026-10-31) |
 
 **Consequence of the consecutive-window rule (disclosed; OPEN §19 item 16).**
 - One permanently lost daily candle blocks **every** weekly decision whose 200-day window contains it. That is 28 or 29 consecutive decisions (about 200 days), with holdings frozen throughout. A test pins this.
+- This applies to a candle lost before any decision consumed it. A candle lost **after** a decision consumed it is refused instead (§5).
 - The brief requires "200 valid, completed daily candles"; it does not say "consecutive".
 - **Alternatives for the owner:**
   - the 200 most recent available closes, so the window spans more than 200 days;
@@ -358,16 +414,20 @@ At execution:
 | `execution_status` | `PENDING` or `DEFERRED` while pending; otherwise the outcome of the latest transition: `EXECUTED`, `EXPIRED` or `REJECTED_MIN_ORDER` |
 | `last_decision_at` | the decision clock; refuses a repeated or older decision |
 | `ledger` | append-only tuple of `LedgerEntry`; each entry carries the balances after it |
+| `consumed` | the integrity index (§5): one `(open time, fingerprint)` pair per candle read by a decision window or an execution attempt |
 
 - **Invariants** (constructor):
   - a pending transition exists exactly while the status is `PENDING` or `DEFERRED`;
   - it belongs to the last decision and to its target;
-  - the ledger holds only `LedgerEntry` objects.
+  - the ledger holds only `LedgerEntry` objects;
+  - `consumed` holds `(00:00 UTC open time, sha256)` pairs in strictly increasing order.
 - **More invariants:**
   - ledger entries are numbered 0, 1, … in time order;
   - the last entry carries the current balances;
-  - every entry's prices, quantities and costs are valid `Decimal`s.
+  - every entry's prices, quantities and costs are valid `Decimal`s, and its `window_digest` and `reference_fingerprint`, when present, are sha256 values;
+  - the window digests and reference fingerprints agree with `consumed`. The constructor does not check this, because it would rehash every window. `verify_integrity` checks it at every `replay` call and every restoration (§5).
 - **Immutability.** Operations never mutate a `State`. They return one: for `NO_SIGNAL` the same object, otherwise a new one.
+- **Serialisation.** `state_record` is the canonical, JSON-ready description. `state_from_record` restores exactly that record, or refuses it (§5).
 
 **Actual position (PROPOSED, implemented, provisional).**
 - It is `LONG` iff the BTC balance, rounded down to `qty_step`, is positive and at least `min_qty`; otherwise `FLAT`.
@@ -432,13 +492,18 @@ At execution:
 - a `NO_SIGNAL` dated at a decision instant;
 - a `WARMUP` after an actionable decision.
 
-A `DECIDE_*` decision whose target contradicts F5, or that lacks the Sunday close and SMA, cannot even be constructed.
+Some decisions cannot even be constructed:
+- a `DECIDE_*` decision whose target contradicts F5;
+- one that lacks the Sunday close and SMA;
+- one that lacks the fingerprints of its 200 window candles. No other decision may carry any.
 
 `replay` also refuses:
 - snapshots out of order;
 - a first snapshot that is not later than the state's ledger;
 - a candle revised between snapshots;
-- any snapshot sequence that skips a decision instant. This avoids silently "staying in cash" when a caller's snapshots miss the exact instant.
+- any snapshot sequence that skips a decision instant. This avoids silently "staying in cash" when a caller's snapshots miss the exact instant;
+- a state whose integrity index disagrees with its ledger;
+- a snapshot that revises a consumed candle, or omits one within its coverage (§5).
 
 Within one call, the decision-instant check runs from the first snapshot. When resuming, it runs from the state's last decision. A state that has taken no decision yet carries no clock, so resuming it is the same as starting fresh.
 
@@ -735,7 +800,7 @@ None is approved by this document.
 | 13 | Arithmetic convention | **C**: `Decimal` itself (the brief fixes only "deterministic arithmetic appropriate for financial accounting"), the contexts, exact-or-refuse, the floor for the buy division, no cash quantisation. **B**: tolerances against float ledgers. | Provisional in `state.EXACT`, `state.FLOOR`, `state.arithmetic`, `state.text`, `state.floor_to_step` |
 | 14 | Power and confirmatory path | **B** | Nothing computed |
 | 15 | Evidence-class crosswalk | **B** | v1.0 emits `SYNTHETIC` only |
-| 16 | Candle-validation contract and window rule | **C** | Provisional in the `Candle` and `Snapshot` constructors, `timing.signal_window` and `decision.decide`, covering:<br>• the candle shape;<br>• the refusal set;<br>• 200 **consecutive** days, so one lost candle blocks 28 or 29 decisions (§8);<br>• initial-only warm-up. |
+| 16 | Candle-validation contract and window rule | **C** | Provisional in the `Candle` and `Snapshot` constructors, `timing.signal_window` and `decision.decide`, covering:<br>• the candle shape;<br>• the refusal set;<br>• 200 **consecutive** days, so one candle lost before any decision consumed it blocks 28 or 29 decisions (§8). One lost after it was consumed is refused under the owner-approved integrity rule (§5), which is not part of this item;<br>• initial-only warm-up. |
 | 17 | Time basis for metrics and records (event time vs booking time) | **B** | The ledger records both (`reference_time`, `at`, `expires_at`). Nothing computed. |
 
 **Recommended gates (PROPOSED; the owner decides):**
@@ -758,6 +823,12 @@ None is approved by this document.
 - **Mixed states.** A state holding both tradable BTC and buyable cash is outside the contract (§9). It is unreachable from the frozen start in cash.
 - **Dust** can accumulate after rule changes. It is reported, never consolidated.
 - **Decimal range.** Values needing more than 28 significant digits are refused (§10).
+- **Integrity is consistency, not authenticity** (§5). Unkeyed sha256 fingerprints reveal inconsistent data. They do not reveal coordinated tampering with a saved record and its snapshots, or a history forged from the start. Across calls, only consumed candles are evidence.
+- **Integrity cost.** Measured in the evidence record; not optimised.
+  - The index grows by one entry per consumed day: about 217 bytes in memory and 100 in JSON.
+  - Each snapshot check is linear in the snapshot and the index.
+  - `verify_integrity` is linear in the number of decisions, and it runs at every `replay` call. So resuming after every single snapshot is quadratic in the length of the history: 3.1 s for the 540 snapshots of the clean fixture, against 0.4 s in one call.
+  - Every `State` construction re-validates the whole index, as it does the ledger. That is the largest integrity cost of a replay.
 - **Synthetic fixtures.** They are seeded stdlib random walks dated 2001–2002, before Bitcoin existed. They test arithmetic and state transitions, nothing economic.
 
 ---
@@ -767,6 +838,7 @@ None is approved by this document.
 - **Evidence rules.** The A29 Evidence Ladder remains in force, with D1/D2 HOLD for governed confirmation (APPROVED, `OWNER_OPERATING_CONTRACT.md` §4; the brief §14). Nothing in v1.0 approaches an admission.
 - **OD-7** (`docs/strategy/S5_PWR_1_OWNER_DECISIONS.md`): no access to sealed-stream counts or timestamps. Protected outcomes stay closed (`DEVELOPMENT_FIRST_POLICY.md` §3). v1.0 reads no evidence, telemetry, data directory or database.
 - **Sealed holdout.** `FORWARD_HOLDOUT` stays sealed. v1.0 accepts only the synthetic permission, and only snapshots dated before 2009-01-03 (§3). So data carrying real or post-freeze dates cannot enter. That is a safeguard, not proof of provenance: re-dated data would pass.
+- **Integrity is not authorization.** The candle-integrity checks (§5) keep data that has already been admitted under the synthetic permission consistent across calls. Passing them authorizes access to nothing: no historical, real or protected data. They change no permission, holdout or protected-data control, and they run only after the permission check.
 - **Authorized now (class D0):** this specification, the package, the synthetic tests, and a commit and push of `feature/design-a-v1` for review. A push authorizes review only.
 - **Not authorized:**
   - real-data evaluation (class D1), and recording a dataset permission;
@@ -795,10 +867,10 @@ There is no I/O, `shared.*` import, pandas or numpy. No `research/__init__.py`, 
 | Module | Contents |
 |---|---|
 | `__init__.py` | docstring (research only, never imported by production); `VERSION` |
-| `state.py` | `Candle`, `Snapshot`, `CostSpec` (+ `BASELINE`, `STRESS`), `MinOrderRules`, `PendingTransition`, `Decision`, `LedgerEntry`, `State`; enums `Target`, `Side`, `Event`, `ExecutionStatus`; validators and invariants; `EXACT`/`FLOOR`, `arithmetic`, `text`; `is_decision_instant`, `available_from`; `floor_to_step`, `actual_position`, `required_action`; `EVIDENCE_CLASS`, `SYNTHETIC_BEFORE` |
+| `state.py` | `Candle`, `Snapshot`, `CostSpec` (+ `BASELINE`, `STRESS`), `MinOrderRules`, `PendingTransition`, `Decision`, `LedgerEntry`, `State`; enums `Target`, `Side`, `Event`, `ExecutionStatus`; validators and invariants; `EXACT`/`FLOOR`, `arithmetic`, `text`; `is_decision_instant`, `available_from`; `floor_to_step`, `actual_position`, `required_action`; `EVIDENCE_CLASS`, `SYNTHETIC_BEFORE`, `SMA_WINDOW = 200`; candle integrity (§5): `candle_fingerprint`, `window_days`, `merge_consumed`, `check_consumed`, `verify_integrity` |
 | `timing.py` | `next_decision_instant`, `is_available`, `is_overdue`, `available`, `latest_sunday_open`, `scheduled_reference_open`, `signal_window` |
-| `decision.py` | `SMA_WINDOW = 200`; `decide(state, snapshot)` |
-| `ledger.py` | `apply_decision`, `execute_pending`, `valuation`, `mark_price`, `cost_totals`, `replay`, `state_record`, `digest` |
+| `decision.py` | `decide(state, snapshot)`; re-exports `SMA_WINDOW` |
+| `ledger.py` | `apply_decision`, `execute_pending`, `valuation`, `mark_price`, `cost_totals`, `replay`, `state_record`, `state_from_record`, `digest` |
 
 **Why existing components were not reused for the rest** (the brief §2, §3):
 
@@ -812,17 +884,19 @@ There is no I/O, `shared.*` import, pandas or numpy. No `research/__init__.py`, 
 **Tests.** The fixtures are synthetic: `tests/design_a_synthetic.py` builds seeded stdlib walks dated 2001–2002. It has two replay scenarios:
 - **clean:** five fills;
 - **rough:** late data (temporary outages), a carried 1E-7 dust balance, and a minimum quantity that rejects a buy. It reaches every recorded event type.
+  - Its gap outage hides day 352, which no decision has consumed, on day 357.
+  - It previously hid day 330, which earlier decisions had consumed. The integrity rule refuses that (§5), and a test pins the refusal.
 
-Permanent losses of candles are used for the cadence-independence cases.
+Permanent losses of candles are used for the cadence-independence cases. A restored variant of the clean scenario is also replayed: interrupted at snapshot 300, serialised to JSON, restored and resumed.
 
 | File | Brief items |
 |---|---|
 | `tests/test_design_a_timing.py` | 4, 5, 6, 23, 24 (window level), permission refusal (subclass included), the pre-2009 guard |
 | `tests/test_design_a_decision.py` | 1, 2, 3, 4, 5, 8, gap skip, initial-only warm-up, genuine transitions, precision refusal, purity |
-| `tests/test_design_a_ledger.py` | 7, 9, 10, 11–22, 24 (interrupted replays), Thursday reference, F10 after expiry, cadence independence (three data cases, three cadences), skipped-instant, revised-candle and backward-resume refusals, gap-skip duration, invalid transitions and values |
+| `tests/test_design_a_ledger.py` | 7, 9, 10, 11–22, 24 (interrupted replays), Thursday reference, F10 after expiry, cadence independence (three data cases, three cadences), skipped-instant, revised-candle and backward-resume refusals, gap-skip duration, invalid transitions and values. Candle integrity (§5): identical candles across calls and restoration; revised window day, decision Sunday and execution reference, both in memory and after restoration; a missing consumed candle (inside the span, a history cut short inside the window, the former rough outage); missing unconsumed candles (gap, deferral); tampered, malformed and non-canonical records; restoration inside a retry window; a real process boundary; the remaining known limitation (unconsumed candles) |
 | `tests/test_design_a_isolation.py` | 25: import allow-list (AST); fresh-interpreter module check; a full replay with sockets disabled; no runtime file refers to the package; the Dockerfile parser; no Dockerfile copies the package |
 
-**Determinism (item 22).** Each scenario is replayed in this process and in fresh interpreters with other `PYTHONHASHSEED` values and a hostile ambient decimal context: precision 3, lower-case exponents, and a `DefaultContext` with `Emax = 3`. All must give the same sha256.
+**Determinism (item 22).** Each scenario, the restored one included, is replayed in this process and in fresh interpreters with other `PYTHONHASHSEED` values and a hostile ambient decimal context: precision 3, lower-case exponents, and a `DefaultContext` with `Emax = 3`. All must give the same sha256. In addition, one interpreter saves a state and another, with another hash seed and a hostile context, restores it and resumes it to the uninterrupted digest.
 
 **Command:**
 ```
@@ -873,5 +947,6 @@ The evidence (SHA, interpreter, counts, breakage check) is reported with the han
 | R10 | `HYPOTHESIS_SOURCE` fixed in code and hashed, yet classed independent; DISCOVERY_DERIVED omitted | constant removed; the three options and the evidence are in §1 |
 | R11 | The consequence of one lost candle (28–29 frozen weeks) was undisclosed | disclosed (§8), tested, alternatives listed |
 | R12 | Further labels, citations and wording | relabelled (Decimal, the candle shape, `qty_step`, the window and deferral readings); "triage" replaced by the governance quote; multiplicity, prior exposure, the event-time basis (item 17), reason codes and the reuse rationale added |
-| R14 | Owner decision and focused remediation (2026-10-31) | Weekly retries implemented in `state.required_action`, marked `RETRY`, with ten regression tests (baseline and stress). Documented: the reference timestamp versus availability; that revision detection is per replay call, with a proposed durable mechanism; that the pre-2009 guard is a safeguard, not proof of provenance. |
 | R13 | Second round, no BLOCKER or MAJOR. Findings:<br>• hand-made decisions could contradict F5 or warm up late;<br>• revised candles were silently accepted;<br>• the cadence claim was unqualified;<br>• the isolation scan was narrower than stated;<br>• the F10 consequence was unquantified;<br>• FROZEN labels covered PROPOSED clauses;<br>• the permission gate could be bypassed by a subclass;<br>• resume guards had gaps;<br>• ledger invariants were missing;<br>• documentation had drifted. | Resolutions:<br>• F5-consistent decisions and initial-only warm-up are enforced;<br>• revised candles and backward resumes are refused;<br>• the claim is qualified and tested on three data cases;<br>• the scan covers code and configuration but never reads data;<br>• the F10 consequence is quantified (§7, §20);<br>• labels are fixed (§2–§3, §7);<br>• the gate is exact, with a pre-2009 guard;<br>• ledger invariants are added;<br>• the documentation is corrected. |
+| R14 | Owner decision and focused remediation (2026-10-31) | Weekly retries implemented in `state.required_action`, marked `RETRY`, with ten regression tests (baseline and stress). Documented: the reference timestamp versus availability; that revision detection is per replay call, with a proposed durable mechanism; that the pre-2009 guard is a safeguard, not proof of provenance. |
+| R15 | Owner-approved replay/resume integrity remediation (2026-10-31). Findings during the round:<br>• the day-330 gap outage of the rough fixture hid a candle that earlier decisions had consumed;<br>• a resumed snapshot starting inside the next decision's window turned missing consumed candles into an `INSUFFICIENT_HISTORY` skip;<br>• the breakage check showed that no test reached the canonical round-trip check of `state_from_record`;<br>• the old known-limitation test was about to be removed, although its case, a revision of a delivered but unconsumed candle across a cut, is still undetected. | Resolutions:<br>• the durable mechanism is implemented (§5): fingerprints, the compact index, ledger cross-references, checks before processing, `verify_integrity`, `state_from_record`. The known-limitation test, with its assertions unchanged, now pins the narrower remaining limitation: unconsumed candles (§5);<br>• the outage moved to day 352, which no decision had consumed (still a gap, tested); the former day-330 outage is refused (tested);<br>• `decide` extends the coverage to its window, so such a snapshot is refused (tested);<br>• non-canonical records are tested;<br>• the costs are measured, not optimised (§20). |

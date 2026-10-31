@@ -1,8 +1,10 @@
-"""Design A synthetic fixtures: fabricated UTC daily candles, snapshots and two replay scenarios.
+"""Design A synthetic fixtures: fabricated UTC daily candles, snapshots, two replay scenarios and
+a restored variant of the clean one.
 
 The dates are in 2001-2002, before Bitcoin existed, and the prices come from a seeded stdlib
 random walk rounded to cents. They exercise arithmetic and state transitions only and say nothing
 about whether Design A earns money."""
+import json
 import math
 import random
 import sys
@@ -106,7 +108,8 @@ OUTAGES = {
     204: (204, 206),                                    # Tuesday late: deferred to Wednesday
     295: (295, 299), 296: (295, 299), 297: (295, 299),  # Tuesday-Thursday late: expiry
     349: (349, 351),                                    # a Sunday late at its decision: skip
-    330: (357, 358),                                    # a window day missing on day 357: skip
+    352: (357, 358),                                    # an unconsumed window day missing
+                                                        # on day 357: skip (gap)
 }
 ROUGH_RULES = S.MinOrderRules(min_notional=D("10"), min_qty=D("3.9"), qty_step=D("0.00001"))
 DUST = D("1E-7")
@@ -122,3 +125,12 @@ def rough_snapshots(seed=7):
 
 def rough_scenario(seed=7):
     return L.replay(rough_start(), rough_snapshots(seed))
+
+
+def restored_scenario(cut=300, seed=7):
+    """The clean scenario interrupted at snapshot ``cut``, serialised to JSON, restored and
+    resumed: it must equal the uninterrupted replay."""
+    snaps = scenario_snapshots(seed)
+    part = L.replay(S.initial_state(CASH, S.BASELINE, RULES), snaps[:cut])
+    restored = L.state_from_record(json.loads(json.dumps(L.state_record(part))))
+    return L.replay(restored, snaps[cut:])

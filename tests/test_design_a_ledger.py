@@ -1,8 +1,11 @@
 """Design A v1.0 execution and accounting (brief items 7, 9-22, 24 and invalid transitions):
 pending transitions, the Tuesday reference, deferral and expiry, the frozen cost formulas, minimum
-orders, dust, conservation and deterministic replay. Synthetic only; nothing here measures
-profitability."""
+orders, dust, conservation, deterministic replay and candle integrity across replay calls and
+restorations. Synthetic only; nothing here measures profitability."""
+import copy
+import dataclasses
 import functools
+import json
 import os
 import subprocess
 import sys
@@ -41,10 +44,18 @@ def holding(btc, cash="0", rules=syn.RULES, costs=S.BASELINE):
     return S.State(cash=D(cash), btc=D(btc), costs=costs, rules=rules, target=LONG)
 
 
+FLAT_HISTORY = ["100"] * S.SMA_WINDOW
+
+
 def signal(when, target, action=None):
-    """A decision for ``target`` whose Sunday close and SMA agree with F5."""
+    """A hand-built decision for ``target`` whose Sunday close and SMA agree with F5. Its window
+    fingerprints are those of a flat synthetic history at 100, the same for every decision, so
+    hand-built decisions never contradict one another (the signal is tested elsewhere)."""
     event, close = (E.DECIDE_LONG, D("101")) if target is LONG else (E.DECIDE_FLAT, D("99"))
-    return S.Decision(when, event, target, action=action, sunday_close=close, sma=D("100"))
+    sunday = when.replace(hour=0, minute=0, second=0, microsecond=0) - S.DAY
+    window = tuple(S.candle_fingerprint(c) for c in syn.ending(sunday, FLAT_HISTORY))
+    return S.Decision(when, event, target, action=action, sunday_close=close, sma=D("100"),
+                      window=window)
 
 
 def decided(state, target, when=DECISION):
@@ -415,7 +426,8 @@ def test_ledger_conservation(which):                                            
 
 
 def test_replay_is_deterministic():                                              # item 22
-    expected = {"scenario": L.digest(scenario()), "rough_scenario": L.digest(rough())}
+    expected = {"scenario": L.digest(scenario()), "rough_scenario": L.digest(rough()),
+                "restored_scenario": L.digest(scenario())}
     assert L.digest(syn.scenario()) == expected["scenario"]
     assert L.digest(syn.rough_scenario()) == expected["rough_scenario"]
     hostile = ("import sys, decimal; sys.path[:0] = ['.', 'tests']; "
@@ -472,9 +484,10 @@ def test_replay_refuses_revised_candles_and_resumes_into_the_past():
         L.replay(part, snaps[2:12])
 
 
-def test_known_limitation_revision_detection_is_per_replay_call():
-    """Documented limitation (spec §5): the revised-candle check covers one replay call. A
-    resumed call does not know the candles an earlier call saw, and no State carries them."""
+def test_known_limitation_unconsumed_candles_are_checked_within_one_call_only():
+    """Documented limitation (spec §5): only consumed candles are integrity evidence. A candle
+    delivered before a cut but not yet read by a decision or an execution (here a warm-up day)
+    is checked for revision within one replay call, not across the cut."""
     snaps = syn.scenario_snapshots()[:11]
     old = snaps[10].candles[3]
     new = S.Candle(old.open_time, old.open, old.high * 2, old.low, old.close)
@@ -484,6 +497,199 @@ def test_known_limitation_revision_detection_is_per_replay_call():
     with pytest.raises(S.DesignAError, match="revised"):
         L.replay(start, snaps[:10] + [revised])               # one call: refused
     L.replay(L.replay(start, snaps[:10]), [revised])           # two calls: not detected
+
+
+# --- durable candle integrity across replay calls, serialisation and restoration ----------------
+
+CUT = 206      # after the first decision (day 203) and its fill (Tuesday 204, booked on day 205)
+
+
+def restore(state):
+    """Serialise to JSON and restore, as across a process boundary."""
+    return L.state_from_record(json.loads(json.dumps(L.state_record(state))))
+
+
+def replaced(snap, day, **values):
+    old = next(c for c in snap.candles if c.open_time == day)
+    new = S.Candle(old.open_time, **{**{f: getattr(old, f) for f in ("open", "high", "low",
+                                                                     "close")}, **values})
+    return S.Snapshot(snap.as_of, tuple(new if c is old else c for c in snap.candles),
+                      snap.permission)
+
+
+def without(snap, day):
+    return S.Snapshot(snap.as_of, tuple(c for c in snap.candles if c.open_time != day),
+                      snap.permission)
+
+
+def starting(snap, day):
+    """``snap`` without its candles before ``day``: a source that keeps a shorter history."""
+    return S.Snapshot(snap.as_of, tuple(c for c in snap.candles if c.open_time >= day),
+                      snap.permission)
+
+
+def clean_start():
+    return S.initial_state(syn.CASH, S.BASELINE, syn.RULES)
+
+
+def test_identical_candles_resume_across_calls_and_restoration():
+    snaps = syn.scenario_snapshots()
+    part = L.replay(clean_start(), snaps[:CUT])
+    assert len(part.consumed) == 201 and sum(e.reference_fingerprint is not None
+                                             for e in part.ledger) == 1
+    for resumed in (part, restore(part)):
+        assert L.digest(resumed) == L.digest(part)
+        assert L.digest(L.replay(resumed, snaps[CUT:])) == L.digest(scenario())
+
+
+@pytest.mark.parametrize("day", [5, 100, 202, 204], ids=["old_window_day", "window_day",
+                                                        "decision_sunday", "execution_reference"])
+def test_a_revised_consumed_candle_is_refused_across_calls(day):
+    """Day 5 is read by no later window; the others are read again by the next decision."""
+    snaps = syn.scenario_snapshots()
+    part = L.replay(clean_start(), snaps[:CUT])
+    old = next(c for c in snaps[CUT].candles if c.open_time == syn.day(day))
+    for later in (part, restore(part)):            # a separate call, and after serialisation
+        assert syn.day(day) in dict(later.consumed)
+        for change in ({"high": old.high * 2}, {"low": old.low / 2}):
+            # revised alike in every snapshot of a call that ends before the next decision: only
+            # the consumed index can see it, and it is refused before anything is processed
+            revised = [replaced(s, syn.day(day), **change) for s in snaps[CUT:CUT + 3]]
+            with pytest.raises(S.DesignAError, match="differs from the one consumed"):
+                L.replay(later, revised)
+        same = replaced(snaps[CUT], syn.day(day), close=with_trailing_zeros(old.close))
+        assert L.digest(L.replay(later, [same] + snaps[CUT + 1:])) == L.digest(scenario())
+
+
+def with_trailing_zeros(value):
+    """The same number written with extra trailing zeros: not a revision."""
+    return D(str(value) + "000") if "." in str(value) else D(str(value) + ".000")
+
+
+def test_a_missing_consumed_candle_is_refused_never_assumed():
+    snaps = syn.scenario_snapshots()
+    part = L.replay(clean_start(), snaps[:CUT])
+    for later in (restore(part), part):
+        with pytest.raises(S.DesignAError, match="previously consumed candle .* is missing"):
+            L.replay(later, [without(snaps[CUT], syn.day(100))] + snaps[CUT + 1:])
+        # cut short inside the window the next decision reads (days 10-209): refused, not skipped
+        with pytest.raises(S.DesignAError, match="consumed candle 2001-01-11T.* is missing"):
+            L.replay(later, (starting(s, syn.day(150)) for s in snaps[CUT:]))
+    # consumed days 3-9 are read by no later window: a history starting at day 10 still resumes
+    shorter = [starting(s, syn.day(10)) for s in snaps[CUT:]]
+    assert L.digest(L.replay(part, shorter)) == L.digest(scenario())
+    with pytest.raises(S.DesignAError, match="is missing"):              # within one call too
+        L.replay(clean_start(), snaps[:CUT] + [without(snaps[CUT], syn.day(204))])
+    # no snapshot is expected to hold consumed candles that complete only after its as_of
+    assert X.decide(part, snaps[CUT - 9]).event is E.NO_SIGNAL
+    # the rough fixture's former outage: day 330, read by earlier decisions, hidden on day 357
+    former = {k: v for k, v in syn.OUTAGES.items() if k != 352} | {330: (357, 358)}
+    with pytest.raises(S.DesignAError, match="consumed candle 2001-11-27T.* is missing"):
+        L.replay(syn.rough_start(), syn.scenario_snapshots(outages=former))
+
+
+def test_a_missing_unconsumed_candle_follows_the_missing_data_rules():
+    """Only consumed candles are integrity evidence: unconsumed ones missing from a resumed call
+    keep the existing rules. A window day is a gap and a due reference defers; both are read
+    later, once present, and only then recorded as consumed."""
+    snaps = syn.scenario_snapshots(outages={205: (210, 211), 295: (296, 297)})
+    part = restore(L.replay(clean_start(), snaps[:CUT]))
+    assert not {syn.day(205), syn.day(295)} & set(dict(part.consumed))
+    resumed = L.replay(part, snaps[CUT:])
+    assert L.digest(resumed) == L.digest(L.replay(clean_start(), snaps))    # as in one call
+    gap = next(e for e in resumed.ledger if e.at == syn.at_decision(syn.day(210)))
+    assert (gap.event, gap.reason) == (E.SKIP_INVALID_DATA, "GAP_IN_WINDOW")
+    missing = next(e for e in resumed.ledger if e.event is E.MISSING_MARKET_DATA)
+    sold = next(e for e in resumed.ledger if e.event is E.EXECUTED and e.at > missing.at)
+    assert (missing.reference_time, missing.at) == (syn.day(295), syn.day(296))
+    assert (sold.side, sold.reference_time) == (SELL, syn.day(296))      # deferred to Wednesday
+    assert {syn.day(205), syn.day(295)} <= set(dict(resumed.consumed))  # read by later windows
+    moved = next(e for e in rough().ledger if e.at == syn.at_decision(syn.day(357)))
+    assert (moved.event, moved.reason) == (E.SKIP_INVALID_DATA, "GAP_IN_WINDOW")  # day 352
+
+
+
+def test_tampered_or_malformed_integrity_metadata_is_refused():
+    part = L.replay(clean_start(), syn.scenario_snapshots()[:CUT])
+    good = json.loads(json.dumps(L.state_record(part)))
+    assert L.digest(L.state_from_record(good)) == L.digest(part)
+    decision = next(i for i, e in enumerate(good["ledger"]) if "window_digest" in e)
+    fill_at = next(i for i, e in enumerate(good["ledger"]) if "reference_fingerprint" in e)
+
+    def flip(fingerprint):
+        return ("1" if fingerprint[0] == "0" else "0") + fingerprint[1:]
+
+    def edited(change):
+        record = copy.deepcopy(good)
+        change(record)
+        return record
+
+    older = (syn.EPOCH - 400 * S.DAY).isoformat()
+    bad = [
+        edited(lambda r: r["consumed"][5].__setitem__(1, flip(r["consumed"][5][1]))),
+        edited(lambda r: r["ledger"][decision].__setitem__("window_digest",
+                                                           flip(r["ledger"][decision]["window_digest"]))),
+        edited(lambda r: r["ledger"][fill_at].__setitem__(
+            "reference_fingerprint", flip(r["ledger"][fill_at]["reference_fingerprint"]))),
+        edited(lambda r: r["consumed"].pop(7)),                              # an entry dropped
+        edited(lambda r: r["consumed"].insert(0, [older, "a" * 64])),        # an entry added
+        edited(lambda r: r["consumed"].insert(1, list(r["consumed"][0]))),   # a day twice
+        edited(lambda r: r["consumed"].insert(0, r["consumed"].pop(1))),     # out of order
+        edited(lambda r: r["consumed"][3].__setitem__(1, "not-a-fingerprint")),
+        edited(lambda r: r["ledger"][0].__setitem__("window_digest", "b" * 64)),  # on a WARMUP
+        edited(lambda r: r.__setitem__("consumed", "garbage")),
+        edited(lambda r: r.pop("consumed")),
+        edited(lambda r: r.__setitem__("cash", "not a number")),
+        edited(lambda r: r.__setitem__("version", "design-a-v0")),
+    ]
+    for record in bad:
+        with pytest.raises(S.DesignAError):
+            L.state_from_record(record)
+    non_canonical = [                       # consistent, but not exactly what state_record wrote
+        edited(lambda r: r.__setitem__("note", "unexpected")),
+        edited(lambda r: r.__setitem__("last_decision_at",
+                                       r["last_decision_at"].replace("+00:00", "Z"))),
+        edited(lambda r: r["costs"].__setitem__("fee", float(r["costs"]["fee"]))),  # binary float
+    ]
+    for record in non_canonical:
+        with pytest.raises(S.DesignAError, match="not canonical"):
+            L.state_from_record(record)
+    tampered = dataclasses.replace(part, consumed=part.consumed[:-1])     # in memory
+    with pytest.raises(S.DesignAError, match="integrity"):
+        L.replay(tampered, [])
+    with pytest.raises(S.DesignAError, match="differs from the one consumed"):  # a forged window
+        L.apply_decision(part, signal(syn.at_decision(syn.day(210)), LONG))
+
+
+def test_restoration_inside_a_retry_window_resumes_identically():
+    snaps = syn.rough_snapshots()
+    retry = next(e for e in rough().ledger if e.reason == "RETRY")
+    cut = next(i for i, s in enumerate(snaps) if s.as_of > retry.at)
+    part = L.replay(syn.rough_start(), snaps[:cut])
+    assert part.pending is not None and part.ledger[-1].reason == "RETRY"
+    assert L.digest(L.replay(restore(part), snaps[cut:])) == L.digest(rough())
+
+
+def test_a_state_saved_by_one_process_resumes_in_another():
+    """A real process boundary: one interpreter saves the state as JSON; another, with another
+    hash seed and a hostile ambient decimal context, restores it and resumes."""
+    prelude = ("import sys; sys.path[:0] = ['.', 'tests']; import json; "
+               "import design_a_synthetic as syn; from research.design_a import ledger as L; ")
+    save = prelude + ("start = syn.S.initial_state(syn.CASH, syn.S.BASELINE, syn.RULES); "
+                      "print(json.dumps(L.state_record("
+                      "L.replay(start, syn.scenario_snapshots()[:300]))))")
+    resume = ("import decimal; decimal.setcontext(decimal.Context(prec=3, capitals=0)); "
+              + prelude + "state = L.state_from_record(json.loads(sys.stdin.read())); "
+                          "print(L.digest(L.replay(state, syn.scenario_snapshots()[300:])))")
+
+    def run(code, seed, stdin=None):
+        env = {"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": seed,
+               "PYTHONDONTWRITEBYTECODE": "1"}
+        return subprocess.run([sys.executable, "-c", code], input=stdin, capture_output=True,
+                              text=True, env=env, timeout=300, check=True).stdout
+    saved = run(save, "0")
+    assert json.loads(saved)["consumed"] and run(resume, "4242", saved).strip() == L.digest(
+        scenario())
 
 
 def test_a_skipped_decision_instant_is_refused():
@@ -584,6 +790,10 @@ def test_inconsistent_values_cannot_be_constructed():
         S.Decision(DECISION, E.DECIDE_LONG, LONG)
     with pytest.raises(S.DesignAError, match="only DECIDE"):
         S.Decision(DECISION, E.WARMUP, sunday_close=D("1"), sma=D("1"))
+    with pytest.raises(S.DesignAError, match="200 window"):              # no window fingerprints
+        S.Decision(DECISION, E.DECIDE_LONG, LONG, sunday_close=D("101"), sma=D("100"))
+    with pytest.raises(S.DesignAError, match="200 window"):
+        S.Decision(DECISION, E.WARMUP, window=signal(DECISION, LONG).window)
     for decided_at, next_open in ((DECISION, MONDAY), (DECISION, FRI), (DECISION, TUE + timedelta(hours=1)),
                                   (DECISION + S.DAY, WED)):
         with pytest.raises(S.DesignAError):
