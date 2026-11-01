@@ -7,7 +7,7 @@
 | Field | Value |
 |---|---|
 | Task | WP-A01 ([IMPLEMENTATION_WORKPLAN.md](remediation-design-pack-20261101/IMPLEMENTATION_WORKPLAN.md) §4.1); sources R5.d, SE-37, SE-60, SE-72, R1.d, R1.e, WP-IR-01 … WP-IR-09 |
-| Branch / code read | `feature/wp2-foundation-20261101` at `a03efdd`. For every service directory the code at `a03efdd` equals `main` `46578aa`: `git diff --stat 46578aa a03efdd` lists only new WP2 modules |
+| Branch / code read | `feature/wp2-foundation-20261101`. §3.1–§3.11 were traced at `a03efdd`, where every service directory equals `main` `46578aa` (`git diff --stat 46578aa a03efdd` lists only new WP2 modules); their line numbers are `@ a03efdd`. §3.12 traces the WP2 integrations at `9bc6f2e` (commits `cf04a4a`, signal path, and `9bc6f2e`, tracker); its line numbers are `@ 9bc6f2e`. The closure data and every region resolve at `9bc6f2e` (§12) |
 | Deployed commits | analyzer and signal_engine `ea8ae4f`; telegram and trade_tracker `bb7825f`, which equals `main` in their directories (BL-06 in [BASELINE_AND_EVIDENCE.md](remediation-design-pack-20261101/BASELINE_AND_EVIDENCE.md)). Differences are listed in §3.10 |
 | Runtime configuration | `LIVE_LEARNING_MODE=true`, `SIGNAL_INTEGRITY_MODE` off, `LEARNING_GATES_ENABLED=false`, `T1_CAP_POLICY` unset, `PAPER_ECONOMIC_HALT_MODE=observe` (telegram and trade_tracker), `EVIDENCE_V2_ENABLED=true` except in the scanner. RUNTIME_VERIFIED for 2026-10-31 only, by citation: OF-02 in [OPPORTUNITY_FUNNEL.md](remediation-design-pack-20261101/OPPORTUNITY_FUNNEL.md) (`RUNTIME_CONFIG_VERIFICATION_ADDENDUM.md:L93-112 @ 5d977f2`, VER-01 … VER-20); observe mode from [VERSION_BOUNDARY.md](../../deploy/VERSION_BOUNDARY.md) (VB-2026-10-27-01) |
 | Code | Closure data: `DRAFT_MANIFESTS` in [shared/strategy_identity.py](../../shared/strategy_identity.py). Decision-key schema: `DRAFT_CURRENT_FAMILY_SCHEMA` in [shared/strategy_config_snapshot.py](../../shared/strategy_config_snapshot.py). Report: `drift_check.py strategy` in [ops/provenance/drift_check.py](../../ops/provenance/drift_check.py) |
@@ -48,6 +48,7 @@ Every candidate dependency gets exactly one class. The class depends on the runt
 | **ACTIVE** | On a call path that can change a `Candidate`, a rejection or a position action under the runtime-verified configuration | Feeds `source_hash` |
 | **DORMANT** | Reachable only behind a flag that is off, or in a mode that is not used | Hashed separately into `inactive_hash`; never in the identity |
 | **POTENTIAL** | On no call path of any service | Hashed separately into `inactive_hash`; never in the identity |
+| **OBSERVE_ONLY** | Telemetry or shadow code that runs, or can be switched on, but by construction cannot change a decision or a booked figure: its results go only to logs and evidence records, and its failures are caught | Hashed separately into `inactive_hash`; never in the identity, even when its switch is on |
 | **EXCLUDED (infrastructure)** | On a call path, but carries no decision rule: transport, persistence, logging, health, instrumentation, credentials | Not in the closure. Its content is covered by the runtime manifest and `code_sha` (SE-21, SE-24) |
 
 Two refinements:
@@ -118,15 +119,17 @@ Exceptions: `macro_state_key` (L123-125) feeds only the learned-gate cell key, s
 
 ### 3.9 Summary of the classification
 
-| Class | Files (33 declared in `DRAFT_MANIFESTS`) |
+| Class | Files (45 declared in `DRAFT_MANIFESTS` at `9bc6f2e`; 33 at `a03efdd`, plus the 12 of §3.12) |
 |---|---|
 | ACTIVE, hash-pinned v1 (8) | `analyzer/simple_entry.py`, `shared/regime.py`, `shared/signal_stop.py`, `shared/triple_barrier.py`, `shared/partial_exits.py`, `shared/risk_management.py`, `scanner/scanner_logic.py`, `signal_engine/signal_logic.py` |
 | ACTIVE, named in SE-04 or WP-A01 (7) | `analyzer/technical_analyzer.py`, `shared/t1_cap.py`, `shared/signal_identity.py`, `signal_engine/main.py`, `trade_tracker/main.py`, `shared/fees.py`, `shared/macro_context.py` (verdict §3.5) |
 | ACTIVE, added by this trace (15) | `scanner/main.py`, `shared/trading_state.py`, `shared/maintenance.py`, `shared/ohlcv.py`, `shared/candle.py`, `analyzer/main.py`, `analyzer/orderbook_analyzer.py`, `shared/signal_readiness.py`, `telegram/main.py` (scope `regions`), `telegram/whitelist.py`, `trade_tracker/binance_price_stream.py`, `shared/entry_execution.py`, `shared/execution.py`, `shared/economic_halt_policy.py`, `shared/risk_epoch.py` |
+| ACTIVE, WP2 integrations (6, §3.12) | `shared/selection_policy.py`, `shared/capacity_authority.py`, `shared/admission_capacity.py` (scope `regions`), `shared/accounting_flags.py`, `shared/cost_label_policy.py`, `shared/cost_models.py` |
+| OBSERVE_ONLY (8, §3.12) | `shared/funnel_flags.py`, `shared/funnel_hooks.py`, `shared/funnel_records.py`, `shared/funnel_recorder.py`, `shared/ledger_legacy_adapter.py`, `shared/portfolio_ledger.py`, `shared/position_state_shadow.py`, `shared/position_state.py` |
 | DORMANT (3) | `shared/learning_governance.py` (gates off), `shared/dependency_safety.py` (integrity off), `research/continuous_learner.py` (the learner, which is stopped, is the only writer of `learned_gates`) |
 | POTENTIAL (1) | `shared/strategy_math.py`: hash-pinned by the legacy contract, but imported only by the experimental `shared/trade_geometry.py:L27`, at `a03efdd` and at `ea8ae4f` (SI-01) |
 
-Regions: 70 declared, all of which resolve on this tree (§12). Eight are DORMANT: `find_best_signal`, `independent_swing_resistance`, `macro_state_key`, `IDENTITY_VERSION`, `SetupIdentity`, `freshness_at`, `integrity_check` and `integrity_admission_refusal`. The other 62 are ACTIVE.
+Regions: 95 declared at `9bc6f2e`, all of which resolve (§12): 77 ACTIVE, 12 DORMANT, 3 OBSERVE_ONLY, 3 POTENTIAL. The DORMANT ones are `find_best_signal`, `independent_swing_resistance`, `macro_state_key`, `IDENTITY_VERSION`, `SetupIdentity`, `freshness_at`, `integrity_check`, `integrity_admission_refusal`, and from §3.12 `rank_then_limit`, `tie_break_key`, `score_of` and `single_count_close`.
 
 **SI-01 (SOURCE_VERIFIED).** The legacy research contract hashes `shared/strategy_math.py` (`research/foundation/contract.py:L68-71 @ 46578aa`), but no service imports it; the analyzer computes levels in `technical_analyzer._calculate_levels`. The v1 hash therefore covers one file that does not run and misses 22 that do. The v1 hash and `research_freeze.json` stay unchanged (DG-71 HOLD; SE-39).
 
@@ -149,6 +152,24 @@ Regions: 70 declared, all of which resolve on this tree (§12). Eight are DORMAN
 | `shared/telegram_messages.py` | telegram | Message text |
 | Exchange and HTTP clients | all | Input transport. The rules that accept or reject inputs (`prepare_ohlcv`, `usable_price`, the tick filter) are in the closure |
 
+### 3.12 WP2 integrations at `9bc6f2e`
+
+The integration commits put new modules and switches on the service paths. Each was classified from its call sites, at the runtime configuration plus the legacy defaults of the new switches.
+
+| Module | Call path @ `9bc6f2e` | Class | Justification |
+|---|---|---|---|
+| `shared/selection_policy.py` | `signal_engine/main.py:L110` parses `SELECTION_POLICY` at start (unknown or incomplete settings refuse); `L166` keeps the legacy query, `L178` calls `rank_then_limit` otherwise | ACTIVE; `rank_then_limit`, `tie_break_key`, `score_of` DORMANT | The parse selects the query on every start; the ranking runs only off the legacy default |
+| `shared/capacity_authority.py` | `delivery_gate` decides delivery (`telegram/main.py:L396`); `tracker_precheck` (`trade_tracker/main.py:L822, L872`); `legacy_risk_limits` (`L1117`); `decide_capacity` through `routed_risk_decision` (`L1136`) | ACTIVE; `compare_shadow`, `legacy_admission_queue` POTENTIAL | It now produces the delivery verdict, the tracker pre-checks and the `RiskLimits` that admission reads |
+| `shared/admission_capacity.py` | `routed_risk_decision` returns `evaluate_with_policy`'s own decision, and an error raised before that decision exists propagates (`shared/admission_capacity.py:L40-65`); the funnel classes record only | ACTIVE, scope `regions` (`routed_risk_decision`); funnel regions OBSERVE_ONLY | The routing sits on the admission path; the rest of the file is F7 telemetry |
+| `shared/accounting_flags.py` | `configure_wp2` at tracker start (`trade_tracker/main.py:L99`) resolves `PAPER_COST_LABEL_POLICY`, `PAPER_BREAK_EVEN_POLICY` and the shadow switches; unknown values refuse | ACTIVE | It selects the booking and break-even paths |
+| `shared/cost_label_policy.py` | `bound_costs` (`L83`), `barrier_cost_kwargs` into the exit barrier (`L1360`), `close_booking` at close (`L1507`) | ACTIVE; `single_count_close` DORMANT | It now supplies the barrier cost terms and the booked close economics |
+| `shared/cost_models.py` | `LegacyTrackerV1` (bound by `bound_costs`) delegates every figure to `shared/fees.py` | ACTIVE; `ResearchPricer` POTENTIAL | The tracker's fee, net and booking figures pass through it; `shared/fees.py` stays ACTIVE as the delegate |
+| `shared/funnel_flags.py`, `shared/funnel_hooks.py`, `shared/funnel_records.py`, `shared/funnel_recorder.py` | Taps built only when `FUNNEL_RECORDING=on` (`signal_engine/main.py:L129`, `analyzer/main.py:L46`, `scanner/main.py:L41`, `telegram/main.py:L133`) | OBSERVE_ONLY | With recording on, the signal-engine tap wraps the ranking key in a pass-through that returns the original key unchanged and catches its own capture errors (`shared/funnel_hooks.py:L662-667`); every other tap call only records. The funnel tests and the golden replay (WP-A04) are the parity proof. A start-up refusal of an invalid value is an operational stop, not a decision |
+| `shared/ledger_legacy_adapter.py`, `shared/portfolio_ledger.py` | `_shadow_reconcile` only when `LEDGER_SHADOW=on` (`trade_tracker/main.py:L1551`), wrapped in `try/except` | OBSERVE_ONLY | It reads what the close already booked; results go to logs and evidence only |
+| `shared/position_state_shadow.py`, `shared/position_state.py` | `_shadow_target_hits`, `_shadow_close` only when `POSITION_STATE_SHADOW=on` (`L1433`, `L1549`), wrapped in `try/except` | OBSERVE_ONLY | Validation only; no decision or write reads its result |
+
+**SI-04 (SOURCE_VERIFIED).** Before this update the non-legacy `SELECTION_VERSION` and `SELECTION_SCORE_KEY` were in no hash, so two ranked selections with different versions or score keys would have shared one `config_hash` (the R5.d gap). They are now conditional keys (§6.2).
+
 ## 4. Strategy-rule closure per family
 
 ### 4.1 One closure, two identities
@@ -161,6 +182,7 @@ Regions: 70 declared, all of which resolve on this tree (§12). Eight are DORMAN
 - **`inactive_hash`** = the same construction over `[path, class, digest]` of the DORMANT and POTENTIAL files. Drift reports show it, but it never enters the identity. Activating a dormant path flips a `config_hash` key or changes the closure spec, so the activation is a version boundary in its own right (SE-38).
 - **`closure_spec_hash`** = sha256 over the declared paths, region selectors, and any non-default class or scope. Editing the declaration is visible even when no source byte moves.
 - **Fail closed.** A missing or undeclared file, a region that resolves to zero or several definitions, or a parse error refuses the hash.
+- **`regions` scope is used twice.** `shared/admission_capacity.py` has one decision function (`routed_risk_decision`) among F7 telemetry classes.
 - **Why `telegram/main.py` uses `regions` scope.** Most of its 1,265 lines format notifications and run commands. Hashing it whole would make each message edit an undeclared strategy change (SE-38 stop). Its five decision regions are enumerable (§3.6). `trade_tracker/main.py`, `signal_engine/main.py` and `analyzer/main.py` stay `file`-scoped, because most of each is decision code.
 - **Backward compatibility.** For an all-ACTIVE, `file`-scoped manifest, the hashes equal those of the iteration-1 module (`9668485`). A test pins this (§12).
 
@@ -193,7 +215,8 @@ A key enters `config_hash` when an ACTIVE path reads it under the runtime config
 
 | Group | Keys | Class |
 |---|---|---|
-| Path switches | `LIVE_LEARNING_MODE` (the **selection policy** switch: `fixed_execution_quality_v1` versus `legacy_score_v1`, `analyzer/technical_analyzer.py:L97-98`), `SIGNAL_INTEGRITY_MODE`, `T1_CAP_POLICY`, `LEARNING_GATES_ENABLED`, `PRICE_STREAM_ENABLED`, `PAPER_ENTRY_FILL_MODEL` | ACTIVE |
+| Path switches | `LIVE_LEARNING_MODE` (live selector versus the legacy score selector: `fixed_execution_quality_v1` versus `legacy_score_v1`, `analyzer/technical_analyzer.py:L97-98`), `SELECTION_POLICY` (the **selection policy**: `legacy` or `rank_then_limit_v1`, §3.12), `SIGNAL_INTEGRITY_MODE`, `T1_CAP_POLICY`, `LEARNING_GATES_ENABLED`, `PRICE_STREAM_ENABLED`, `PAPER_ENTRY_FILL_MODEL`, `PAPER_COST_LABEL_POLICY`, `PAPER_BREAK_EVEN_POLICY` | ACTIVE |
+| Conditional (read only when `SELECTION_POLICY=rank_then_limit_v1`) | `SELECTION_VERSION`, `SELECTION_SCORE_KEY` | Required then, null under `legacy` (SI-04) |
 | Universe and candles | `TIMEFRAMES`, `MIN_VOLUME_USDT`, `MIN_PRICE_CHANGE_PERCENT` (code constant), `CANDLES_TO_FETCH` (code constant) | ACTIVE |
 | Indicators (code constants) | `RSI_PERIOD`, `MACD_FAST`, `MACD_SLOW`, `MACD_SIGNAL`, `EMA_SHORT`, `EMA_MEDIUM`, `EMA_LONG`, `BB_PERIOD`, `BB_STD`, `ATR_PERIOD`, `STOCH_RSI_WINDOW`, `STOCH_K`, `STOCH_D` | ACTIVE |
 | Entry predicates | `MOM_BREAKOUT_N`, `MOM_VOL_MULT`, `REV_RSI`, `REV_BB_MAX_POSITION` | ACTIVE |
@@ -203,9 +226,10 @@ A key enters `config_hash` when an ACTIVE path reads it under the runtime config
 | Database-held, **legacy path, DORMANT** | `optimizer_settings` (legacy selector thresholds), `learned_gates` | not hashed until activated |
 | DORMANT-path keys | `APP_VERSION` (enters only the enforce-mode A44 key; otherwise a label), `MIN_SCORE_TO_SIGNAL`, `MIN_TIMEFRAME_CONFIRMATIONS`, `MAX_SIGNALS_PER_DAY`, `GLOBAL_LOSS_COOLDOWN_HOURS`, `LEARNING_EXPLORATION_RATE`, `MIN_CELL_N` | not hashed until activated |
 | Portfolio and risk policy | `MAX_OPEN_TRADES`, `RISK_CANARY_MAX_OPEN_TRADES`, `TRADE_AMOUNT_USDT`, `RISK_CAPITAL_USDT`, the `MAX_*_PERCENT` limits, `STOP_ON_CONSECUTIVE_LOSSES`, `PAPER_ECONOMIC_HALT_MODE`, `RISK_POLICY_VERSION`, `LEARNING_CLEAN_START` | the separate risk-policy identity (VB-2026-10-27-01), not the strategy hash |
+| Excluded, telemetry and shadow | `FUNNEL_RECORDING`, `LEDGER_SHADOW`, `POSITION_STATE_SHADOW` | OBSERVE_ONLY switches (§3.12) |
 | Excluded | cadence (`SCAN_INTERVAL_SECONDS`, price-stream refresh and backup intervals, risk price retries), evidence settings, notification settings, approval settings (approval is disabled, §3.6), credentials | — |
 
-The schema in code lists names only (`DRAFT_CURRENT_FAMILY_SCHEMA`, `current-families-decision-keys/proposal-1`). Reading the effective database values is a protected-data read that needs owner permission (`CH:L21`); nothing here performs it.
+A conditional key carries `read_when = (switch, values)`. It must hold its effective value when the switch has one of those values, and must be null otherwise, so an unread value can never move the hash. The schema in code lists names only (`DRAFT_CURRENT_FAMILY_SCHEMA`, `current-families-decision-keys/proposal-2`). Reading the effective database values is a protected-data read that needs owner permission (`CH:L21`); nothing here performs it.
 
 ## 7. Decision keys
 
@@ -218,7 +242,7 @@ The schema in code lists names only (`DRAFT_CURRENT_FAMILY_SCHEMA`, `current-fam
 
 ## 8. total_score
 
-`total_score` is a fixed, data-mined input: weighted indicator points from the frozen `indicator_weights` table (`analyzer/technical_analyzer.py:L64-65`; 44 values, RUNTIME_VERIFIED by citation, VER-22). It has **no decision role in any new version** (R1.e; OQ-09). In `1.0.0` it is still read, by one place only: the `ORDER BY symbol, total_score DESC` of the candidate query (`signal_engine/main.py:L146-155`), which decides which rows of the boundary symbol survive the `LIMIT 200` cut (OF-20). No gate reads it on the live path. It is recorded as an input, and its weights enter `config_hash` as `DB_INDICATOR_WEIGHTS`, marked legacy path.
+`total_score` is a fixed, data-mined input: weighted indicator points from the frozen `indicator_weights` table (`analyzer/technical_analyzer.py:L64-65`; 44 values, RUNTIME_VERIFIED by citation, VER-22). It has **no decision role in any new version** (R1.e; OQ-09). In `1.0.0` it is still read, by one place only: the `ORDER BY symbol, total_score DESC` of the candidate query (`signal_engine/main.py:L146-155`), which decides which rows of the boundary symbol survive the `LIMIT 200` cut (OF-20). No gate reads it on the live path. It is recorded as an input, and its weights enter `config_hash` as `DB_INDICATOR_WEIGHTS`, marked legacy path. Under `SELECTION_POLICY=rank_then_limit_v1` the ranking score is the owner-declared `SELECTION_SCORE_KEY` (OF-OD-14, OQ-09); by the rule above it is not `total_score`.
 
 ## 9. Rejection taxonomy v1
 
@@ -250,7 +274,7 @@ Owner questions raised here: (1) accept the closure, including the 15 added file
 
 ## 12. Verification
 
-- `tests/test_wp2_strategy_identity.py`: closure classification and scope, backward-compatible hashes pinned to the iteration-1 values, inactive hashing, regions scope, cross-schema comparison, and resolution of all 70 regions on this tree (it reads only the declared source files).
+- `tests/test_wp2_strategy_identity.py`: closure classification and scope (including the §3.12 modules and conditional config keys), backward-compatible hashes pinned to the iteration-1 values, inactive hashing, regions scope, cross-schema comparison, and resolution of all 95 regions at `9bc6f2e` (it reads only the declared source files).
 - `tests/test_drift_check_strategy_identity.py`: the existing modes load no `shared/` module; `check` output, JSON and exit code are unchanged without the flag; S1 drift on ACTIVE and DORMANT files; S2 boundary classification; refused inputs.
 - Regression: `tests/test_drift_check.py`, `tests/test_a4*.py`, `tests/test_s3_*.py`.
 - `research/governance/research_freeze.json` keeps git blob `62b2059b`; `research/foundation/contract.py` and the nine pinned files are unchanged.

@@ -247,8 +247,22 @@ def test_draft_manifest_classification_follows_the_call_path_inventory():
     assert regions['def:independent_swing_resistance'] == si.DORMANT
     assert regions['def:SetupIdentity'] == si.DORMANT and regions['def:integrity_mode'] == si.ACTIVE
     assert regions['def:MacroContext.should_block_now'] == si.ACTIVE
-    assert a.file('telegram/main.py').scope == si.REGIONS_SCOPE
-    assert all(f.scope == si.FILE_SCOPE for f in a.files if f.path != 'telegram/main.py')
+    regions_scoped = {'telegram/main.py', 'shared/admission_capacity.py'}
+    assert {f.path for f in a.files if f.scope == si.REGIONS_SCOPE} == regions_scoped
+    # WP2 integrations (cf04a4a, 9bc6f2e): decision and booking paths are ACTIVE ...
+    assert {'shared/selection_policy.py', 'shared/capacity_authority.py', 'shared/admission_capacity.py',
+            'shared/accounting_flags.py', 'shared/cost_label_policy.py', 'shared/cost_models.py'} <= active
+    # ... telemetry and shadows are OBSERVE_ONLY and never feed source_hash
+    observe = {p for p, c in cls.items() if c == si.OBSERVE_ONLY}
+    assert observe == {'shared/funnel_flags.py', 'shared/funnel_hooks.py', 'shared/funnel_records.py',
+                       'shared/funnel_recorder.py', 'shared/ledger_legacy_adapter.py',
+                       'shared/portfolio_ledger.py', 'shared/position_state_shadow.py',
+                       'shared/position_state.py'}
+    assert regions['def:rank_then_limit'] == si.DORMANT
+    assert regions['def:selection_policy_from_env'] == si.ACTIVE
+    assert regions['def:routed_risk_decision'] == si.ACTIVE
+    assert regions['def:TrackerAdmissionFunnel'] == si.OBSERVE_ONLY
+    assert regions['def:single_count_close'] == si.DORMANT
 
 
 def test_draft_closure_resolves_on_this_tree():
@@ -486,9 +500,43 @@ def test_draft_schema_declares_names_only():
     assert names['DB_INDICATOR_WEIGHTS'].source == names['DB_SYMBOL_BLACKLIST'].source == 'database'
     assert {'LIVE_LEARNING_MODE', 'USDTD_SPIKE_PP', 'MACRO_MAX_STALE_HOURS', 'PAPER_ENTRY_FILL_MODEL'} <= set(names)
     assert 'APP_VERSION' not in names          # enters only the enforce-mode key (DORMANT path)
+    assert {'SELECTION_POLICY', 'PAPER_COST_LABEL_POLICY', 'PAPER_BREAK_EVEN_POLICY'} <= set(names)
+    assert names['SELECTION_VERSION'].read_when == ('SELECTION_POLICY', ('rank_then_limit_v1',))
+    assert not {'FUNNEL_RECORDING', 'LEDGER_SHADOW', 'POSITION_STATE_SHADOW'} & set(names)
     assert not any(hasattr(k, 'default') for k in names.values())
     with pytest.raises(scs.ConfigSnapshotError, match='missing'):
         scs.snapshot_config('momentum_breakout', scs.DRAFT_CURRENT_FAMILY_SCHEMA, {})
+
+
+CSCHEMA = scs.ConfigSchema('synthetic/conditional-1', (
+    scs.ConfigKey('POLICY', 'enum', 'env', ('legacy', 'ranked')),
+    scs.ConfigKey('VERSION', 'str', 'env', read_when=('POLICY', ('ranked',))),
+))
+
+
+def test_conditional_keys_enter_config_hash_only_when_read():
+    legacy = scs.snapshot_config('synthetic_strategy', CSCHEMA, {'POLICY': 'legacy', 'VERSION': None})
+    assert legacy.values() == {'POLICY': 'legacy', 'VERSION': None}
+    v1, v2 = (scs.snapshot_config('synthetic_strategy', CSCHEMA, {'POLICY': 'ranked', 'VERSION': v})
+              for v in ('sel-v1', 'sel-v2'))
+    assert len({legacy.config_hash, v1.config_hash, v2.config_hash}) == 3   # R5.d: version in hash
+    with pytest.raises(scs.ConfigSnapshotError, match='supply its effective value'):
+        scs.snapshot_config('synthetic_strategy', CSCHEMA, {'POLICY': 'ranked', 'VERSION': None})
+    with pytest.raises(scs.ConfigSnapshotError, match='supply None'):
+        scs.snapshot_config('synthetic_strategy', CSCHEMA, {'POLICY': 'legacy', 'VERSION': 'sel-v1'})
+    with pytest.raises(scs.ConfigSnapshotError, match='missing'):
+        scs.snapshot_config('synthetic_strategy', CSCHEMA, {'POLICY': 'legacy'})
+
+
+@pytest.mark.parametrize('make', [
+    lambda: scs.ConfigKey('A', 'str', 'env', read_when=('A', ('x',))),
+    lambda: scs.ConfigKey('A', 'str', 'env', read_when=('B',)),
+    lambda: scs.ConfigKey('A', 'str', 'env', read_when=('B', ())),
+    lambda: scs.ConfigSchema('s/1', (scs.ConfigKey('A', 'str', 'env', read_when=('B', ('x',))),)),
+])
+def test_conditional_key_declarations_are_validated(make):
+    with pytest.raises(scs.ConfigSnapshotError):
+        make()
 
 
 # ── decision metadata ──────────────────────────────────────────────────────────────────────

@@ -50,6 +50,7 @@ class ConfigKey:
     kind: str
     source: str
     choices: tuple = ()
+    read_when: tuple = ()        # (switch key, (values...)): the key is read only then; else None
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not KEY_NAME.match(self.name):
@@ -66,10 +67,24 @@ class ConfigKey:
         elif choices:
             raise ConfigSnapshotError(f"{self.name}: choices are for enum keys only")
         object.__setattr__(self, "choices", choices)
+        read_when = tuple(self.read_when)
+        if read_when:
+            if (len(read_when) != 2 or not isinstance(read_when[0], str)
+                    or not KEY_NAME.match(read_when[0]) or read_when[0] == self.name
+                    or not isinstance(read_when[1], (tuple, list)) or not read_when[1]
+                    or any(not isinstance(v, (str, bool, int)) for v in read_when[1])):
+                raise ConfigSnapshotError(f"{self.name}: read_when must be (switch key, (values...))")
+            read_when = (read_when[0], tuple(read_when[1]))
+        object.__setattr__(self, "read_when", read_when)
 
     def spec(self) -> dict:
-        return {"name": self.name, "kind": self.kind, "source": self.source,
-                "choices": list(self.choices)}
+        """Hashed description. ``read_when`` appears only when set, so schemas without
+        conditional keys keep their tsb-strategy-config-schema/1 hash."""
+        out = {"name": self.name, "kind": self.kind, "source": self.source,
+               "choices": list(self.choices)}
+        if self.read_when:
+            out["read_when"] = [self.read_when[0], list(self.read_when[1])]
+        return out
 
 
 @dataclass(frozen=True)
@@ -86,6 +101,11 @@ class ConfigSchema:
         names = [k.name for k in keys]
         if len(set(names)) != len(names):
             raise ConfigSnapshotError("duplicate key in schema")
+        by_name = {k.name: k for k in keys}
+        for k in keys:
+            if k.read_when and (k.read_when[0] not in by_name or by_name[k.read_when[0]].read_when):
+                raise ConfigSnapshotError(f"{k.name}: read_when switch must be an unconditional "
+                                          f"key of the schema")
         object.__setattr__(self, "keys", tuple(sorted(keys, key=lambda k: k.name)))
 
     def spec(self) -> dict:
@@ -196,7 +216,22 @@ def snapshot_config(strategy_id: str, schema: ConfigSchema,
         raise ConfigSnapshotError(f"missing decision keys: {missing}")
     if extra:
         raise ConfigSnapshotError(f"undeclared keys: {extra}")
-    clean = {k.name: _validated(k, values[k.name]) for k in schema.keys}
+    clean = {k.name: _validated(k, values[k.name]) for k in schema.keys if not k.read_when}
+    for k in schema.keys:
+        if not k.read_when:
+            continue
+        switch, active_values = k.read_when
+        if clean[switch] in active_values:
+            if values[k.name] is None:
+                raise ConfigSnapshotError(f"{k.name} is read when {switch}={clean[switch]!r}; "
+                                          f"supply its effective value")
+            clean[k.name] = _validated(k, values[k.name])
+        elif values[k.name] is not None:
+            # Not read on this path: an unread value must not move the hash (null instead).
+            raise ConfigSnapshotError(f"{k.name} is not read when {switch}={clean[switch]!r}; "
+                                      f"supply None")
+        else:
+            clean[k.name] = None
     values_json = canonical_json(clean)
     schema_hash = schema.schema_hash
     return StrategyConfigSnapshot(strategy_id=strategy_id, schema_id=schema.schema_id,
@@ -211,17 +246,33 @@ def changed_keys(a: StrategyConfigSnapshot, b: StrategyConfigSnapshot) -> list:
                   if k not in va or k not in vb or canonical_json(va[k]) != canonical_json(vb[k]))
 
 
-# Key names only. Rule (STRATEGY_INTERFACE_v1.md section 5): a key is in config_hash when an ACTIVE
+SELECTION_POLICY_CHOICES = ("legacy", "rank_then_limit_v1")             # shared/selection_policy.py
+COST_LABEL_POLICY_CHOICES = ("net_after_modeled_cost_v1", "net_single_count_legacy_v1")
+BREAK_EVEN_POLICY_CHOICES = ("legacy_tracker_v1", "single_count_legacy_v1")  # shared/accounting_flags.py
+
+# Key names only. Rule (STRATEGY_INTERFACE_v1.md section 6): a key is in config_hash when an ACTIVE
 # closure path reads it under the runtime-verified configuration, or when it selects between an
 # ACTIVE and a DORMANT path. Keys read only on DORMANT paths (APP_VERSION inside the enforce-mode
 # key, MIN_SCORE_TO_SIGNAL, the learned-gate parameters) join the schema of the version that
 # activates their path. Portfolio and risk-policy keys belong to the separate risk-policy identity
 # (deploy/VERSION_BOUNDARY.md VB-2026-10-27-01); operational cadence and evidence keys are excluded.
+# Keys with ``read_when`` are read only under the named switch values (SELECTION_VERSION and
+# SELECTION_SCORE_KEY under rank_then_limit_v1): they are required then, and null otherwise, so
+# the non-legacy selection version is always in config_hash (R5.d) and an unread value never is.
+# Telemetry and shadow switches (FUNNEL_RECORDING, LEDGER_SHADOW, POSITION_STATE_SHADOW) cannot
+# change a decision or the booked economics and are excluded.
 DRAFT_CURRENT_FAMILY_SCHEMA = ConfigSchema(
-    schema_id="current-families-decision-keys/proposal-1",
+    schema_id="current-families-decision-keys/proposal-2",
     keys=(
         # path-selecting switches
-        ConfigKey("LIVE_LEARNING_MODE", "bool", "env"),          # selection policy switch
+        ConfigKey("LIVE_LEARNING_MODE", "bool", "env"),          # live selector versus legacy score
+        ConfigKey("SELECTION_POLICY", "enum", "env", SELECTION_POLICY_CHOICES),
+        ConfigKey("SELECTION_VERSION", "str", "env",
+                  read_when=("SELECTION_POLICY", ("rank_then_limit_v1",))),
+        ConfigKey("SELECTION_SCORE_KEY", "str", "env",
+                  read_when=("SELECTION_POLICY", ("rank_then_limit_v1",))),
+        ConfigKey("PAPER_COST_LABEL_POLICY", "enum", "env", COST_LABEL_POLICY_CHOICES),
+        ConfigKey("PAPER_BREAK_EVEN_POLICY", "enum", "env", BREAK_EVEN_POLICY_CHOICES),
         ConfigKey("SIGNAL_INTEGRITY_MODE", "enum", "env", SIGNAL_INTEGRITY_MODE_CHOICES),
         ConfigKey("T1_CAP_POLICY", "enum", "env", T1_CAP_POLICY_CHOICES),
         ConfigKey("LEARNING_GATES_ENABLED", "bool", "env"),

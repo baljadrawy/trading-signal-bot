@@ -29,8 +29,10 @@ What it is not:
 
 Classification (WP-A01): every closure file and region is ``ACTIVE`` (on a call path that can
 change a decision under the runtime-verified configuration), ``DORMANT`` (reachable only behind an
-off flag or an unused mode) or ``POTENTIAL`` (on no call path). Only ACTIVE entries feed
-``source_hash``. DORMANT and POTENTIAL files are hashed separately into ``inactive_hash``: a
+off flag or an unused mode), ``POTENTIAL`` (on no call path) or ``OBSERVE_ONLY`` (telemetry or
+shadow code that runs, or may be switched on, but by construction cannot change a decision or the
+booked economics). Only ACTIVE entries feed ``source_hash``. The other classes are hashed
+separately into ``inactive_hash``: a
 reviewer sees their drift, but they cannot move the identity until a version activates them,
 and that activation is itself a boundary (it flips a ``config_hash`` key or the closure spec).
 A file's ``scope`` is ``file`` (all normalized bytes count; the default) or ``regions`` (only
@@ -65,7 +67,8 @@ INACTIVE_SCHEME = "tsb-strategy-inactive-source/1"
 REGION_SCOPE_SCHEME = "tsb-strategy-region-scope/1"
 
 ACTIVE, DORMANT, POTENTIAL = "ACTIVE", "DORMANT", "POTENTIAL"
-CLASSIFICATIONS = (ACTIVE, DORMANT, POTENTIAL)
+OBSERVE_ONLY = "OBSERVE_ONLY"
+CLASSIFICATIONS = (ACTIVE, DORMANT, POTENTIAL, OBSERVE_ONLY)
 FILE_SCOPE, REGIONS_SCOPE = "file", "regions"
 SCOPES = (FILE_SCOPE, REGIONS_SCOPE)
 
@@ -703,6 +706,14 @@ _CURRENT_FAMILY_FILES = (
        _r("selection_limit_constant", "assign:SELECTION_LIMIT", "the selection LIMIT"),
        _r("selection_candidate_query", "literal:LIMIT 200",
           "ordering and alphabetical LIMIT 200 cut of the candidate query")),
+    _f("shared/selection_policy.py", "SELECTION_POLICY parse and the rank-then-limit selector",
+       _r("selection_policies", "assign:SELECTION_POLICIES", "selectable policies"),
+       _r("selection_policy_from_env", "def:selection_policy_from_env",
+          "fail-closed policy parse; selects the legacy query at the default"),
+       _r("selection_rank_then_limit", "def:rank_then_limit",
+          "R1 ranking (SELECTION_POLICY=legacy)", DORMANT),
+       _r("selection_tie_break_key", "def:tie_break_key", "R1 tie-break", DORMANT),
+       _r("selection_score_of", "def:score_of", "R1 score read", DORMANT)),
     _f("signal_engine/signal_logic.py", "gates, ranking and signal emission",
        _r("signal_live_selector", "def:SignalEngine.find_best_signal_live", "live selector"),
        _r("signal_fixed_rank_key", "def:SignalEngine._fixed_candidate_key", "ranking key"),
@@ -772,9 +783,50 @@ _CURRENT_FAMILY_FILES = (
     _f("shared/risk_epoch.py", "risk epoch and loss-streak halt",
        _r("epoch_effective_start", "def:effective_risk_start", "which closes count"),
        _r("epoch_loss_streak_halt", "def:loss_streak_halt_active", "loss-streak halt")),
+    _f("shared/capacity_authority.py", "delivery gate, tracker capacity pre-checks, risk limits",
+       _r("cap_slot_limit", "def:legacy_slot_limit", "min(MAX_OPEN_TRADES, canary) slots"),
+       _r("cap_risk_limits", "def:legacy_risk_limits", "RiskLimits built from config"),
+       _r("cap_decide", "def:decide_capacity", "wraps evaluate_with_policy for admission"),
+       _r("cap_tracker_precheck", "def:tracker_precheck", "tracker loop and per-signal checks"),
+       _r("cap_delivery_gate", "def:delivery_gate", "pause and capacity refusal at delivery"),
+       _r("cap_compare_shadow", "def:compare_shadow", "shadow comparison (unused)", POTENTIAL),
+       _r("cap_admission_queue", "def:legacy_admission_queue", "queue model (unused)", POTENTIAL)),
+    _f("shared/admission_capacity.py", "risk-decision routing; the rest is funnel telemetry",
+       _r("admission_routed_risk", "def:routed_risk_decision",
+          "returns evaluate_with_policy's own decision; errors before it propagate"),
+       _r("admission_tracker_funnel", "def:TrackerAdmissionFunnel", "F7 records", OBSERVE_ONLY),
+       _r("admission_delivery_refusal", "def:record_delivery_refusal", "F7 record", OBSERVE_ONLY),
+       _r("admission_funnel_service", "def:funnel_service", "recorder factory", OBSERVE_ONLY),
+       scope=REGIONS_SCOPE),
+    _f("shared/accounting_flags.py", "PAPER_COST_LABEL_POLICY / PAPER_BREAK_EVEN_POLICY parse",
+       _r("acct_resolve", "def:resolve_accounting_flags", "fail-closed flag parse")),
+    _f("shared/cost_label_policy.py", "cost binding, close booking and break-even cost",
+       _r("cost_bound", "def:bound_costs", "legacy_tracker_v1 from config"),
+       _r("cost_validate", "def:validate_policies", "fail-closed cost validation"),
+       _r("cost_close_booking", "def:close_booking", "booked close economics"),
+       _r("cost_barrier_kwargs", "def:barrier_cost_kwargs", "exit-barrier cost terms"),
+       _r("cost_single_count_close", "def:single_count_close",
+          "per-leg booking (PAPER_COST_LABEL_POLICY at its default)", DORMANT)),
+    _f("shared/cost_models.py", "legacy_tracker_v1 model (delegates to shared/fees.py)",
+       _r("cost_legacy_tracker_v1", "def:LegacyTrackerV1", "bound legacy cost model"),
+       _r("cost_legacy_from_config", "def:legacy_tracker_v1_from_config", "binding"),
+       _r("cost_research_pricer", "def:ResearchPricer", "research pricing (no service)", POTENTIAL)),
     _f("shared/fees.py", "cost booking",
        _r("fees_economic_close", "def:economic_close", "net-of-cost booking"),
        _r("fees_fee_usdt", "def:fee_usdt", "modeled roundtrip cost")),
+    # OBSERVE_ONLY: telemetry and shadows; they cannot change a decision or a booked figure
+    _f("shared/funnel_flags.py", "FUNNEL_RECORDING parse (telemetry switch)", classification=OBSERVE_ONLY),
+    _f("shared/funnel_hooks.py", "funnel taps; the ranking-key wrapper returns the key unchanged",
+       classification=OBSERVE_ONLY),
+    _f("shared/funnel_records.py", "RejectionRecord schema and conservation", classification=OBSERVE_ONLY),
+    _f("shared/funnel_recorder.py", "funnel record writer", classification=OBSERVE_ONLY),
+    _f("shared/ledger_legacy_adapter.py", "LEDGER_SHADOW reconciliation", classification=OBSERVE_ONLY),
+    _f("shared/portfolio_ledger.py", "ledger used by the reconciliation shadow",
+       classification=OBSERVE_ONLY),
+    _f("shared/position_state_shadow.py", "POSITION_STATE_SHADOW validation",
+       classification=OBSERVE_ONLY),
+    _f("shared/position_state.py", "state machine used by the position-state shadow",
+       classification=OBSERVE_ONLY),
     # DORMANT: reachable only behind an off flag or an unused mode
     _f("shared/learning_governance.py", "learned-gate exploration (LEARNING_GATES_ENABLED false)",
        classification=DORMANT),
