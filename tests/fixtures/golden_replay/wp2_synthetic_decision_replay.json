@@ -1,0 +1,566 @@
+{
+ "canonical_form": "tsb-golden-canonical/1",
+ "cases": [
+  {
+   "case_id": "baseline",
+   "input_hash": "3d80a17dc625325835180674e5926b4968422b25bc171b60e1e68d06ceb5ede8",
+   "output": {
+    "conservation": [
+     {
+      "annotation_counts": [],
+      "counts": {
+       "expanded_from": null,
+       "held": 0,
+       "n_in": 12,
+       "passed": 2,
+       "stage": "F4"
+      },
+      "cycle_id": "c1",
+      "ok": true,
+      "reason_counts": [
+       [
+        "F4.bar_before_version_activation",
+        1
+       ],
+       [
+        "F4.bar_not_closed",
+        1
+       ],
+       [
+        "F4.bar_stale",
+        1
+       ],
+       [
+        "F4.data_quality",
+        4
+       ],
+       [
+        "F4.history_insufficient",
+        2
+       ],
+       [
+        "F4.no_setup",
+        1
+       ]
+      ],
+      "rejected_subjects": [
+       [
+        "F4",
+        10
+       ]
+      ],
+      "violations": []
+     },
+     {
+      "annotation_counts": [],
+      "counts": {
+       "expanded_from": null,
+       "held": 0,
+       "n_in": 3,
+       "passed": 1,
+       "stage": "F4"
+      },
+      "cycle_id": "c2",
+      "ok": true,
+      "reason_counts": [
+       [
+        "F4.bar_stale",
+        1
+       ],
+       [
+        "F4.duplicate_setup",
+        1
+       ]
+      ],
+      "rejected_subjects": [
+       [
+        "F4",
+        2
+       ]
+      ],
+      "violations": []
+     },
+     {
+      "annotation_counts": [],
+      "counts": {
+       "expanded_from": null,
+       "held": 0,
+       "n_in": 1,
+       "passed": 0,
+       "stage": "F4"
+      },
+      "cycle_id": "c3",
+      "ok": true,
+      "reason_counts": [
+       [
+        "F4.setup_conflict",
+        1
+       ]
+      ],
+      "rejected_subjects": [
+       [
+        "F4",
+        1
+       ]
+      ],
+      "violations": []
+     },
+     {
+      "annotation_counts": [],
+      "counts": {
+       "expanded_from": null,
+       "held": 0,
+       "n_in": 2,
+       "passed": 0,
+       "stage": "F4"
+      },
+      "cycle_id": "c4",
+      "ok": true,
+      "reason_counts": [
+       [
+        "F4.duplicate_setup",
+        1
+       ],
+       [
+        "F4.no_setup",
+        1
+       ]
+      ],
+      "rejected_subjects": [
+       [
+        "F4",
+        2
+       ]
+      ],
+      "violations": []
+     }
+    ],
+    "decisions": [
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": null,
+      "check": "candle_identity",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "integrity_error": "symbol_malformed"
+      },
+      "freshness_age_ms": null,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.data_quality",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTH-J",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_d9172182b35ecf3551165831e2e2f9f82c254818",
+      "check": "setup_claim",
+      "claim": "new",
+      "cycle_id": "c1",
+      "detail": {},
+      "freshness_age_ms": 300000,
+      "outcome": "candidate",
+      "payload": {
+       "lower": 50,
+       "reference": 53,
+       "upper": 56
+      },
+      "payload_hash": "d9ea5ca0394d7af4c35211b8199424b8c99d81dcdff55a0cfae2d510d1c707dc",
+      "reason_code": null,
+      "stage": null,
+      "sub_stage": null,
+      "symbol": "SYNTHA",
+      "timeframe": "15m"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_79fe487109aaa1b77de9ba4a5861af3a09241605",
+      "check": "setup_claim",
+      "claim": "new",
+      "cycle_id": "c1",
+      "detail": {},
+      "freshness_age_ms": 300000,
+      "outcome": "candidate",
+      "payload": {
+       "lower": 101,
+       "reference": 106,
+       "upper": 111
+      },
+      "payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+      "reason_code": null,
+      "stage": null,
+      "sub_stage": null,
+      "symbol": "SYNTHA",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_ebd347939ddaca09ff92b02b49078482e1ea1739",
+      "check": "strategy_entry",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "strategy_code": "no_setup"
+      },
+      "freshness_age_ms": 300000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.no_setup",
+      "stage": "F4",
+      "sub_stage": "strategy.entry",
+      "symbol": "SYNTHB",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_e025a4df402288116dfaf75b6c4ff3fcc2fb87bd",
+      "check": "input_completeness",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "completeness": "gap",
+       "strategy_code": "incomplete_candles"
+      },
+      "freshness_age_ms": 300000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.data_quality",
+      "stage": "F4",
+      "sub_stage": "strategy.input",
+      "symbol": "SYNTHC",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_c926b3525c800e7f74ab9cc981de43c6c1d81347",
+      "check": "input_history",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "closed_bars": 3,
+       "min_closed_bars": 4,
+       "strategy_code": "insufficient_history"
+      },
+      "freshness_age_ms": 300000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.history_insufficient",
+      "stage": "F4",
+      "sub_stage": "strategy.input",
+      "symbol": "SYNTHD",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_ab4086cd67f18547740558fd8c33572b4a463047",
+      "check": "input_completeness",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "completeness": "insufficient_history",
+       "strategy_code": "insufficient_history"
+      },
+      "freshness_age_ms": 300000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.history_insufficient",
+      "stage": "F4",
+      "sub_stage": "strategy.input",
+      "symbol": "SYNTHE",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728007199999,
+      "candle_key": "ck_9d916995563ab9a6ebbc061fe0bb39af89bb24ac",
+      "check": "version_boundary",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "activation_ms": 1728007200000
+      },
+      "freshness_age_ms": null,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.bar_before_version_activation",
+      "stage": "F4",
+      "sub_stage": "shared.identity",
+      "symbol": "SYNTHF",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999998,
+      "candle_key": null,
+      "check": "candle_identity",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "integrity_error": "bar_close_not_aligned"
+      },
+      "freshness_age_ms": null,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.data_quality",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTHG",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728021599999,
+      "candle_key": "ck_7305aca059ca8eef09535780e8b6ace261845aa6",
+      "check": "closed_bar_freshness",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "age_ms": -3300000,
+       "max_age_ms": 1800000
+      },
+      "freshness_age_ms": -3300000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.bar_not_closed",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTHH",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728014399999,
+      "candle_key": "ck_9f70a7a781146378262a1297cf561e079eeb5e60",
+      "check": "closed_bar_freshness",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "age_ms": 3900000,
+       "max_age_ms": 1800000
+      },
+      "freshness_age_ms": 3900000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.bar_stale",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTHI",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": null,
+      "check": "candle_identity",
+      "claim": null,
+      "cycle_id": "c1",
+      "detail": {
+       "integrity_error": "timeframe_unknown"
+      },
+      "freshness_age_ms": null,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.data_quality",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTHK",
+      "timeframe": "2h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_d9172182b35ecf3551165831e2e2f9f82c254818",
+      "check": "closed_bar_freshness",
+      "claim": null,
+      "cycle_id": "c2",
+      "detail": {
+       "age_ms": 1200000,
+       "max_age_ms": 600000
+      },
+      "freshness_age_ms": 1200000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.bar_stale",
+      "stage": "F4",
+      "sub_stage": null,
+      "symbol": "SYNTHA",
+      "timeframe": "15m"
+     },
+     {
+      "bar_close_ms": 1728018899999,
+      "candle_key": "ck_6c528b5fe6977038d6bc5dd282ed015d14bee30f",
+      "check": "setup_claim",
+      "claim": "new",
+      "cycle_id": "c2",
+      "detail": {},
+      "freshness_age_ms": 300000,
+      "outcome": "candidate",
+      "payload": {
+       "lower": 51,
+       "reference": 55,
+       "upper": 59
+      },
+      "payload_hash": "0c93cac3e168d0247398c7ba66bd074a4e717eb6231fb691e2db5724862f43e0",
+      "reason_code": null,
+      "stage": null,
+      "sub_stage": null,
+      "symbol": "SYNTHA",
+      "timeframe": "15m"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_79fe487109aaa1b77de9ba4a5861af3a09241605",
+      "check": "setup_claim",
+      "claim": "duplicate",
+      "cycle_id": "c2",
+      "detail": {
+       "first_cycle_id": "c1",
+       "first_payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+       "payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37"
+      },
+      "freshness_age_ms": 1200000,
+      "outcome": "rejection",
+      "payload": {
+       "lower": 101,
+       "reference": 106,
+       "upper": 111
+      },
+      "payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+      "reason_code": "F4.duplicate_setup",
+      "stage": "F4",
+      "sub_stage": "shared.identity",
+      "symbol": "SYNTHA",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_79fe487109aaa1b77de9ba4a5861af3a09241605",
+      "check": "setup_claim",
+      "claim": "conflict",
+      "cycle_id": "c3",
+      "detail": {
+       "first_cycle_id": "c1",
+       "first_payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+       "payload_hash": "d4551d1e3daf3da40aca1fd6d43717074b01c895b3def5ec629756c6cc9857e1"
+      },
+      "freshness_age_ms": 1500000,
+      "outcome": "rejection",
+      "payload": {
+       "lower": 101,
+       "reference": 107,
+       "upper": 113
+      },
+      "payload_hash": "d4551d1e3daf3da40aca1fd6d43717074b01c895b3def5ec629756c6cc9857e1",
+      "reason_code": "F4.setup_conflict",
+      "stage": "F4",
+      "sub_stage": "shared.identity",
+      "symbol": "SYNTHA",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_79fe487109aaa1b77de9ba4a5861af3a09241605",
+      "check": "setup_claim",
+      "claim": "duplicate",
+      "cycle_id": "c4",
+      "detail": {
+       "first_cycle_id": "c1",
+       "first_payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+       "payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37"
+      },
+      "freshness_age_ms": 1680000,
+      "outcome": "rejection",
+      "payload": {
+       "lower": 101,
+       "reference": 106,
+       "upper": 111
+      },
+      "payload_hash": "0596f38bd1a96f07e6a1938300651c43646a63ca49c6cceb5e54c7dec9411a37",
+      "reason_code": "F4.duplicate_setup",
+      "stage": "F4",
+      "sub_stage": "shared.identity",
+      "symbol": "SYNTHA",
+      "timeframe": "1h"
+     },
+     {
+      "bar_close_ms": 1728017999999,
+      "candle_key": "ck_ebd347939ddaca09ff92b02b49078482e1ea1739",
+      "check": "strategy_entry",
+      "claim": null,
+      "cycle_id": "c4",
+      "detail": {
+       "strategy_code": "no_setup"
+      },
+      "freshness_age_ms": 1680000,
+      "outcome": "rejection",
+      "payload": null,
+      "payload_hash": null,
+      "reason_code": "F4.no_setup",
+      "stage": "F4",
+      "sub_stage": "strategy.entry",
+      "symbol": "SYNTHB",
+      "timeframe": "1h"
+     }
+    ],
+    "digests": {
+     "chain_head": "e419f5a8f50c4b60acbdedd28c90e1d1751d5e8d922d366000c9c9b70f220269",
+     "decision_ids_hash": "4a2847c4c84fe3482c448aefe7ee942a4f05ca6a3fb4ab054606e6b2acd67040",
+     "decisions_hash": "88b8e16509d3545d2e66b2913f14aab5c9b5683a45dfbe941fafab36bbcbbfc1",
+     "records_hash": "d9197a3eb220f22fe316b6dd2b4ae68c4f62d17a05addbe2cbd536b633a24803",
+     "rejections_hash": "98e391694b01cef2bd391feaeb110a97098d4a52f125c87215d12814666e62f9",
+     "setup_keys_hash": "12461bd7694ffc5fe2e72782ef6ff55c3b22d15e06decaebd5a5ee9c9db4aa2e"
+    },
+    "observations_hash": "9ae5a2a9be9f3c825f6e12ae857e344c079f96fd483456e7162eb514f8e453c1",
+    "outcome_counts": {
+     "candidate": 3,
+     "rejection": 15
+    },
+    "reason_counts": {
+     "F4.bar_before_version_activation": 1,
+     "F4.bar_not_closed": 1,
+     "F4.bar_stale": 2,
+     "F4.data_quality": 4,
+     "F4.duplicate_setup": 2,
+     "F4.history_insufficient": 2,
+     "F4.no_setup": 2,
+     "F4.setup_conflict": 1
+    },
+    "scenario_id": "baseline",
+    "schema": "tsb-golden-wp2-decision-replay/1",
+    "strategy": {
+     "closure_spec_hash": "b0d6517b73ed3c2c48229dd0452f98c1beb432697e799156a229ad5370d824f7",
+     "config_hash": "4ecb12553a7f70da560da335b76172523d2c7a5bc4972f35ec8931ff554a22b5",
+     "contract_hash": "2dc78d30465796d5f8527d9d9b486484b28b9e70fb31177c84592dba11b0843e",
+     "identifier": "synthetic_golden/1.0.0/46da2151199352ef",
+     "identity_hash": "46da2151199352ef712f4086afe70401cdb3045c40f34e1241a846a82d744218",
+     "source_hash": "f29ed0ae44037c6fadf59a80dbcbf951196ae4a44fa61e7cac660d6459249fa2",
+     "strategy_id": "synthetic_golden",
+     "version": "1.0.0"
+    }
+   },
+   "output_hash": "66a910d6b4f644d182d46be9bf5583f6e4379b988091c9108bfb92f99f18e845"
+  }
+ ],
+ "code_refs": [
+  "shared/decision_metadata.py",
+  "shared/funnel_records.py",
+  "shared/signal_identity.py",
+  "shared/signal_integrity_v2.py",
+  "shared/strategy_config_snapshot.py",
+  "shared/strategy_identity.py",
+  "shared/strategy_version_boundary.py"
+ ],
+ "description": "WP2 composite decision replay, synthetic_golden 1.0.0",
+ "golden_name": "wp2_synthetic_decision_replay",
+ "path_id": "wp2_synthetic_decision_replay",
+ "schema": "tsb-golden-replay/1",
+ "suite_hash": "08c45298a0808632d7702379b9a739f7b391eda135ff1c77b77f0f28098e302e"
+}

@@ -1,0 +1,363 @@
+{
+ "canonical_form": "tsb-golden-canonical/1",
+ "cases": [
+  {
+   "case_id": "fresh_cycle",
+   "input_hash": "5a108cd0a5c7e5af5ddbafd226360d1f049dee3004d7a1b4825f07cbafec2d68",
+   "output": {
+    "emitted_keys": [
+     "sk_f8ec002673f72d53b30131b2f1b8ab05d14f8384"
+    ],
+    "rows": [
+     {
+      "decision": "rejected_duplicate_setup",
+      "eligible": false,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_f8ec002673f72d53b30131b2f1b8ab05d14f8384",
+      "reasons": [
+       "duplicate_setup"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHA"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_23e406a6c30037d34e586165c266a2cb530a50b2",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728014400000,
+       "key": "sk_23e406a6c30037d34e586165c266a2cb530a50b2",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHB"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_90a652ab2fdac5449c6b051765b90c9c862ac8fd",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728014400000,
+       "key": "sk_90a652ab2fdac5449c6b051765b90c9c862ac8fd",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHB"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.6666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_99ef4ba9463697ffe44ca5cf8b09806a9219a68c",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728017100000,
+       "key": "sk_99ef4ba9463697ffe44ca5cf8b09806a9219a68c",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHC"
+     },
+     {
+      "decision": "rejected_freshness:decision_before_candle_close",
+      "eligible": false,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": false,
+        "age_bars": -0.7083333333333334,
+        "age_ms": -10200000,
+        "reason": "decision_before_candle_close"
+       }
+      },
+      "key": "sk_df6f38d0237ab5afb59d5a2f76ca79c4d4fb3688",
+      "reasons": [
+       "freshness:decision_before_candle_close"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHD"
+     },
+     {
+      "decision": "rejected_freshness:superseded_by_newer_candle",
+      "eligible": false,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": false,
+        "age_bars": 1.1666666666666667,
+        "age_ms": 4200000,
+        "reason": "superseded_by_newer_candle"
+       }
+      },
+      "key": "sk_59df83140d582b4eb38c0167cdd891a360f52e2d",
+      "reasons": [
+       "freshness:superseded_by_newer_candle"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHE"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_b10b2a81deee6171deaa5042521af6fe7f67d798",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728014400000,
+       "key": "sk_b10b2a81deee6171deaa5042521af6fe7f67d798",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHF"
+     }
+    ]
+   },
+   "output_hash": "884ea1f59656ccc14d91ee9d8fc84c7f6aabaebd6cd7371fa240107948bf574b"
+  },
+  {
+   "case_id": "identity_failures",
+   "input_hash": "39f53e5df616e963c55da6b0fe0e89dbf2bb71535d5234fb1cb473b45c2bfcb7",
+   "output": {
+    "emitted_keys": [],
+    "rows": [
+     {
+      "decision": "rejected_identity:candle_identity_missing",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:candle_identity_missing"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHA"
+     },
+     {
+      "decision": "rejected_identity:candle_bounds_unavailable",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:candle_bounds_unavailable"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHB"
+     },
+     {
+      "decision": "rejected_identity:candle_open_not_aligned",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:candle_open_not_aligned"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHC"
+     },
+     {
+      "decision": "rejected_identity:candle_close_inconsistent",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:candle_close_inconsistent"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHD"
+     },
+     {
+      "decision": "rejected_identity:timeframe_unknown",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:timeframe_unknown"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHE"
+     },
+     {
+      "decision": "rejected_identity:trade_type_missing",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:trade_type_missing"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHF"
+     },
+     {
+      "decision": "rejected_identity:symbol_missing",
+      "eligible": false,
+      "freshness": null,
+      "key": null,
+      "reasons": [
+       "identity:symbol_missing"
+      ],
+      "setup_identity": null,
+      "symbol": ""
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_261e7cf93321c820a90c0348d3fc4c6ed39b4649",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728014400000,
+       "key": "sk_261e7cf93321c820a90c0348d3fc4c6ed39b4649",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHG"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.16666666666666666,
+        "age_ms": 600000,
+        "reason": null
+       }
+      },
+      "key": "sk_7c595bc89ecf103a85eb1d7644ed97744a5fea3b",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728017999999,
+       "candle_open_time_ms": 1728014400000,
+       "key": "sk_7c595bc89ecf103a85eb1d7644ed97744a5fea3b",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHH"
+     }
+    ]
+   },
+   "output_hash": "2a5a9f1e58d6c4af1ce856685b61bddd939cc7875c6a6ee9a09f0c702b1dfc03"
+  },
+  {
+   "case_id": "late_cycle",
+   "input_hash": "ed1b13f8d9604a414e1f16505be34ab61079e9ed4b867c50851e1f4e5a7c35cb",
+   "output": {
+    "emitted_keys": [
+     "sk_f8ec002673f72d53b30131b2f1b8ab05d14f8384"
+    ],
+    "rows": [
+     {
+      "decision": "rejected_freshness:superseded_by_newer_candle",
+      "eligible": false,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": false,
+        "age_bars": 1.0166666666666666,
+        "age_ms": 3660000,
+        "reason": "superseded_by_newer_candle"
+       }
+      },
+      "key": "sk_f8ec002673f72d53b30131b2f1b8ab05d14f8384",
+      "reasons": [
+       "freshness:superseded_by_newer_candle",
+       "duplicate_setup"
+      ],
+      "setup_identity": null,
+      "symbol": "SYNTHA"
+     },
+     {
+      "decision": "admissible",
+      "eligible": true,
+      "freshness": {
+       "__dataclass__": "Freshness",
+       "fields": {
+        "admissible": true,
+        "age_bars": 0.016666666666666666,
+        "age_ms": 60000,
+        "reason": null
+       }
+      },
+      "key": "sk_c496c98b777e94721157aee83afdc34dde17b315",
+      "reasons": [],
+      "setup_identity": {
+       "bracket_hash": "f8b27e6fda70df617c7dd9b6",
+       "candle_close_time_ms": 1728021599999,
+       "candle_open_time_ms": 1728018000000,
+       "key": "sk_c496c98b777e94721157aee83afdc34dde17b315",
+       "version": "a43-sid-v1"
+      },
+      "symbol": "SYNTHA"
+     }
+    ]
+   },
+   "output_hash": "9e871a2a506416afd17e0cf462e9cabc872504889faef39a6eaa438a21f0df30"
+  }
+ ],
+ "code_refs": [
+  "shared/signal_identity.py",
+  "signal_engine/signal_logic.py"
+ ],
+ "description": "A44 enforce-mode integrity step (identity, freshness, duplicate) on synthetic candidates",
+ "golden_name": "a44_enforce_integrity_step",
+ "path_id": "a44_enforce_integrity_step",
+ "schema": "tsb-golden-replay/1",
+ "suite_hash": "e38f6845fe1791f2636a59a25e1373ea918c099657a6e2da15484bde390f8596"
+}
