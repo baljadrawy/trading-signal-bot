@@ -93,10 +93,25 @@ ECONOMIC_LIMIT_RULES = ("daily_loss_limit", "weekly_loss_limit", "max_drawdown_l
 _PARAM_RE = re.compile(r"^[a-z0-9][a-z0-9_.]{0,63}$")
 
 REASON_CODES = frozenset(f"{s}.{r}" for s in STAGES for r in TAXONOMY[s] if ":" not in r)
+
+# Taxonomy v1.1: an additive bump (WP2 SE-1 integration). Every v1 code keeps its meaning and its
+# records keep ``taxonomy_version`` v1, byte for byte; only a record carrying one of these codes is
+# stamped v1.1. Sources are the live selector's labels (signal_engine/signal_logic.py @ ea8ae4f):
+# * ``F4.learned_gate_throttled``: a (trade_type, timeframe) cell throttled by the learned gates
+#   (L826, ``setdefault(symbol, 'learned_gate_throttled')``); no v1 code describes that drop;
+# * ``F4.learned_gate_exploration``: a throttled cell admitted by fixed exploration (L823). It is
+#   an admit flag, not a drop, so it is an annotation like ``F3.regime_unknown_used``;
+# * ``F4.unattributed``: a subject that left the funnel with no decision label, or with a label no
+#   documented map covers. It is counted exactly once, so conservation stays checkable, and its
+#   ``detail.legacy_reason`` keeps whatever label there was.
+TAXONOMY_VERSION_V1_1 = "of-taxonomy-v1.1"
+TAXONOMY_VERSIONS = (TAXONOMY_VERSION, TAXONOMY_VERSION_V1_1)
+TAXONOMY_V1_1_ADDITIONS = {"F4": ("learned_gate_throttled", "learned_gate_exploration", "unattributed")}
+REASON_CODES_V1_1 = frozenset(f"{s}.{r}" for s, rs in TAXONOMY_V1_1_ADDITIONS.items() for r in rs)
 PARAMETERISED_FAMILIES = {f"{s}.{r.split(':')[0]}": (ECONOMIC_LIMIT_RULES if r.startswith("economic_limit") else None)
                           for s in STAGES for r in TAXONOMY[s] if ":" in r}
 # F3 fail-open: the candidate proceeds and is flagged (OF F3). Recorded, never counted as a drop.
-ANNOTATION_CODES = frozenset({"F3.regime_unknown_used"})
+ANNOTATION_CODES = frozenset({"F3.regime_unknown_used", "F4.learned_gate_exploration"})
 RANKED_CODES = frozenset({"F6.rank_below_cap", "F6.resource_cap", "F6.legacy_alphabetical_cut"})
 
 MAX_DETAIL_KEYS = 32
@@ -178,7 +193,7 @@ def validate_reason_code(code: Any, stage: str | None = None) -> str:
     prefix = code.split(".", 1)[0]
     if stage is not None and prefix != stage:
         raise ValueError(f"reason_code_stage_mismatch:{code}:{stage}")
-    if code in REASON_CODES:
+    if code in REASON_CODES or code in REASON_CODES_V1_1:
         return code
     family, sep, param = code.partition(":")
     if sep and family in PARAMETERISED_FAMILIES:
@@ -186,6 +201,11 @@ def validate_reason_code(code: Any, stage: str | None = None) -> str:
         if (param in allowed) if allowed is not None else bool(_PARAM_RE.match(param)):
             return code
     raise ValueError(f"reason_code_unknown:{code}")
+
+
+def taxonomy_version_of(code: str) -> str:
+    """The taxonomy version a record with this code carries (v1 unless the code is a v1.1 addition)."""
+    return TAXONOMY_VERSION_V1_1 if code in REASON_CODES_V1_1 else TAXONOMY_VERSION
 
 
 def stage_of(code: str) -> str:
@@ -345,7 +365,8 @@ class RejectionRecord:
 
     def as_dict(self) -> dict:
         out = {name: _thaw(getattr(self, name)) for name in _RECORD_FIELDS}
-        out.update(schema=SCHEMA, schema_version=SCHEMA_VERSION, taxonomy_version=TAXONOMY_VERSION,
+        out.update(schema=SCHEMA, schema_version=SCHEMA_VERSION,
+                   taxonomy_version=taxonomy_version_of(self.reason_code),
                    record_id=self.record_id)
         return out
 
@@ -354,8 +375,9 @@ class RejectionRecord:
 
     @classmethod
     def from_dict(cls, data: Mapping) -> "RejectionRecord":
-        if (data.get("schema"), data.get("schema_version"), data.get("taxonomy_version")) != \
-                (SCHEMA, SCHEMA_VERSION, TAXONOMY_VERSION):
+        if (data.get("schema"), data.get("schema_version")) != (SCHEMA, SCHEMA_VERSION) \
+                or data.get("taxonomy_version") not in TAXONOMY_VERSIONS \
+                or data.get("taxonomy_version") != taxonomy_version_of(data.get("reason_code")):
             raise ValueError("schema_mismatch")
         unknown = set(data) - set(_RECORD_FIELDS) - {"schema", "schema_version", "taxonomy_version", "record_id"}
         if unknown:

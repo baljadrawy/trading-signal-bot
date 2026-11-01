@@ -5,6 +5,7 @@ central property: with FUNNEL_RECORDING off or on, every database call, saved si
 heartbeat (minus its added 'funnel' entry) is identical, and the recording is conserved.
 """
 import copy
+import hashlib
 import json
 import os
 import random
@@ -82,8 +83,18 @@ def test_engine_label_map_uses_only_documented_mappings():
     assert fh.engine_label_code("not_selected_capacity") == ("F6", "F6.rank_below_cap", None)
     assert fh.engine_label_code("duplicate_setup_key") == ("F4", "F4.duplicate_setup", "shared.identity")
     assert fh.engine_label_code("superseded_by_newer_candle") == ("F4", "F4.bar_stale", "shared.identity")
-    for unmapped in ("open_trade_exists", "learned_gate_throttled", "macro_block",
-                     "safety_state_unverified:open_positions", "stop_rejected:Bad Reason", None, ""):
+    # every label the live selector sets (signal_logic.py @ ea8ae4f) now has a code
+    assert fh.engine_label_code("open_trade_exists") == ("F7", "F7.exposure_symbol", "shared.admission")
+    assert fh.engine_label_code("duplicate_setup") == ("F4", "F4.duplicate_setup", "shared.identity")
+    assert fh.engine_label_code("learned_gate_throttled") == ("F4", "F4.learned_gate_throttled", None)
+    assert fh.engine_label_code("learned_gate_exploration") == ("F4", "F4.learned_gate_exploration", None)
+    assert fh.engine_label_code("freshness:superseded_by_newer_candle") == ("F4", "F4.bar_stale", "shared.identity")
+    assert fh.engine_label_code("freshness:decision_before_candle_close") == (
+        "F4", "F4.bar_not_closed", "shared.identity")
+    assert fh.engine_label_code("identity:candle_identity_missing") == ("F4", "F4.data_quality", "shared.identity")
+    assert fh.engine_label_code("safety_state_unverified:open_positions") == ("F4", "F4.state_read_failed", None)
+    for unmapped in ("macro_block", "stop_rejected:Bad Reason", "freshness:unknown_rule", "identity:",
+                     "something_new", None, ""):
         assert fh.engine_label_code(unmapped) is None, unmapped
 
 
@@ -291,7 +302,7 @@ def test_scanner_mirror_disagreement_is_counted_and_invalidates(monkeypatch):
         verdict = await stub._passes_initial_filter("AAAUSDT", tickers["AAAUSDT"])
         return await tap.end([{"symbol": "AAAUSDT"}] if verdict else [])
     env = asyncio.run(cycle())
-    assert env["valid"] is False and ["f2_mirror_mismatch", 1] in env["integration_failures"]
+    assert env["observation_complete"] is False and ["f2_mirror_mismatch", 1] in env["integration_failures"]
 
 
 # ── analyzer (F4 bar/data) ──────────────────────────────────────────────────────────────────
@@ -444,8 +455,11 @@ def _engine_env(monkeypatch, sc, extra_env=None):
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(config, "LIVE_LEARNING_MODE", True)
     monkeypatch.setattr(config, "ENABLE_EVIDENCE_RECORDER", False)
-    monkeypatch.setattr(config, "LEARNING_GATES_ENABLED", False)
+    monkeypatch.setattr(config, "LEARNING_GATES_ENABLED", bool(sc.get("throttled")))
     monkeypatch.setattr(config, "SIGNAL_INTEGRITY_MODE", "off")
+    if sc.get("throttled"):                    # deterministic exploration (the hour bucket is the clock's)
+        monkeypatch.setattr(logic, "exploration_selected",
+                            lambda key, bucket, rate: int(hashlib.sha256(key.encode()).hexdigest(), 16) % 2 == 0)
     ordered = legacy_order(sc["rows"])
 
     def route(kind, sql, args):
@@ -459,6 +473,8 @@ def _engine_env(monkeypatch, sc, extra_env=None):
             return copy.deepcopy(sc["rows"])
         if "OFFSET" in sql:
             return [{"symbol": r["symbol"], "timeframe": r["timeframe"]} for r in ordered[200:700]]
+        if "learned_gates" in sql:
+            return [dict(c) for c in sc.get("throttled", ())]
         if "active_trades" in sql:
             return [{"symbol": s} for s in sorted(sc["open"])]
         return []
@@ -535,11 +551,9 @@ def test_signal_engine_decisions_identical_off_and_on_and_conserved(seed, monkey
         assert cycles == []
         return
     env = cycles[0]["payload"]
-    failures = dict(map(tuple, env["integration_failures"]))
-    assert set(failures) <= {"legacy_label_unmapped:open_trade_exists"}, failures
-    assert env["valid"] == (not failures)
-    if not failures:
-        assert env["report"]["conservation"]["ok"], env["report"]["conservation"]
+    assert env["integration_failures"] == [] and env["observation_complete"]
+    assert env["valid"] and env["report"]["conservation"]["ok"], env["report"]["conservation"]
+    assert env["unattributed"] == 0
     recs = [e["payload"] for e in events(on["rec"], "funnel.rejection")]
     n = len(sc["rows"])
     cut = [r for r in recs if r["reason_code"] == "F6.legacy_alphabetical_cut"]
@@ -835,3 +849,77 @@ def test_series_held_back_by_the_cap_is_recorded_the_next_day(monkeypatch):
         cyc.finish(close_series=True)
     opened = sorted(e["payload"]["symbol"] for e in events(rec, "funnel.rejection"))
     assert opened == ["AUSDT", "BUSDT"]                              # B waited for the next UTC day
+
+
+# ── every live-selector label is attributed; nothing unmapped invalidates a cycle ───────────
+
+@pytest.mark.parametrize("seed", range(25))
+def test_parity_and_conservation_with_every_live_label(seed, monkeypatch):
+    sc = engine_scenario(seed)
+    names = sorted({r["symbol"] for r in sc["rows"]})
+    rng = random.Random(1000 + seed)
+    sc["open"] = set(rng.sample(names, min(4, len(names))))           # the query's NOT IN raced
+    sc["throttled"] = [{"trade_type": "momentum", "timeframe": "4h"}, {"trade_type": "reversion", "timeframe": "1d"}]
+    sc["macro"] = "ok"
+    off = run_engine(monkeypatch, sc, on=False)
+    on = run_engine(monkeypatch, sc, on=True)
+    assert on["trace"] == off["trace"] and on["saved"] == off["saved"] and on["health"] == off["health"]
+    assert len(on["db"].calls) == len(off["db"].calls)
+    if not sc["rows"]:
+        return
+    env = events(on["rec"], "funnel.cycle")[0]["payload"]
+    assert env["valid"] and env["observation_complete"], env["integration_failures"]
+    assert env["report"]["conservation"]["ok"] and env["unattributed"] == 0
+    codes = {e["payload"]["reason_code"] for e in events(on["rec"], "funnel.rejection")}
+    assert "F4.unattributed" not in codes
+
+
+LABELS = {
+    "AUSDT": "open_trade_exists", "BUSDT": "duplicate_setup", "CUSDT": "learned_gate_throttled",
+    "DUSDT": "freshness:superseded_by_newer_candle", "EUSDT": "freshness:decision_before_candle_close",
+    "FUSDT": "identity:candle_identity_missing", "GUSDT": "safety_state_unverified:open_positions",
+    "HUSDT": None, "IUSDT": "brand_new_label", "JUSDT": "learned_gate_exploration",
+    "KUSDT": "no_trade_setup", "LUSDT": "selected",
+}
+EXPECTED = {
+    "AUSDT": "F7.exposure_symbol", "BUSDT": "F4.duplicate_setup", "CUSDT": "F4.learned_gate_throttled",
+    "DUSDT": "F4.bar_stale", "EUSDT": "F4.bar_not_closed", "FUSDT": "F4.data_quality",
+    "GUSDT": "F4.state_read_failed", "HUSDT": "F4.unattributed", "IUSDT": "F4.unattributed",
+    "JUSDT": "F4.unattributed", "KUSDT": "F4.no_setup",
+}
+
+
+def test_every_label_maps_and_missing_or_unknown_is_counted_once(monkeypatch):
+    rec = set_recording(monkeypatch, "signal_engine", True)
+    tap = fh.SignalEngineTap(type("E", (), {"_fixed_candidate_key": staticmethod(lambda s: ())})(),
+                             limit=200, cut_list_rows=500)
+    rows = [{"symbol": s, "timeframe": "4h", "analysis_data": {"symbol": s, "timeframe": "4h"}} for s in LABELS]
+    decisions = {s: v for s, v in LABELS.items() if v is not None}
+    tap.begin(1_767_225_600_000)
+    tap.observe_legacy_cut(rows, None)
+    tap.start_decision()
+    best = {"symbol": "LUSDT", "timeframe": "4h"}
+    tap._see_candidate(best, (0.01, -1.0, "LUSDT", "4h"))
+    tap.observe_decision(rows, decisions, best, EngineMacro("ok"), True)
+    env = tap.end()
+    got = {r.symbol: r.reason_code for r in tap.service.last_records}
+    assert got == EXPECTED
+    assert env["valid"] and env["report"]["conservation"]["ok"] and env["unattributed"] == 3
+    assert env["integration_failures"] == [] and env["observation_complete"]
+    by_stage = {c["stage"]: c for c in env["report"]["stage_counts"]}
+    assert by_stage["F7"]["n_in"] - by_stage["F7"]["passed"] == 1
+    payloads = [e["payload"] for e in events(rec, "funnel.rejection")]
+    versions = {p["reason_code"]: p["taxonomy_version"] for p in payloads}
+    assert versions["F4.unattributed"] == versions["F4.learned_gate_throttled"] == "of-taxonomy-v1.1"
+    assert versions["F7.exposure_symbol"] == "of-taxonomy-v1"
+    from shared.funnel_records import RejectionRecord
+    for p in payloads:                                                 # v1.1 records round-trip
+        RejectionRecord.from_dict({k: v for k, v in p.items() if k != "series"})
+
+
+def test_taxonomy_v1_1_is_additive():
+    import shared.funnel_records as fr
+    assert fr.TAXONOMY_VERSION == "of-taxonomy-v1" and fr.REASON_CODES.isdisjoint(fr.REASON_CODES_V1_1)
+    assert fr.REASON_CODES_V1_1 == {"F4.learned_gate_throttled", "F4.learned_gate_exploration", "F4.unattributed"}
+    assert fr.is_annotation("F4.learned_gate_exploration") and not fr.is_annotation("F4.unattributed")
+    assert fr.taxonomy_version_of("F4.no_setup") == "of-taxonomy-v1"
