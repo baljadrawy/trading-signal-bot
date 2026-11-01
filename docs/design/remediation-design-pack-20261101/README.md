@@ -64,6 +64,8 @@ WP2 status file (added 2026-11-01): [WP2_ENGINEERING_FOUNDATION_STATUS.md](WP2_E
 
 WP2 review handoff (added 2026-11-01): [WP2_INDEPENDENT_REVIEW_HANDOFF.md](WP2_INDEPENDENT_REVIEW_HANDOFF.md) states that independent review of WP2 is PENDING and hands it over: scope, review questions, claims to verify, reproduction commands, reported gaps and what the reviewer must not do.
 
+WP2 activation plan (added 2026-11-01): [WP2_ACTIVATION_PLAN.md](WP2_ACTIVATION_PLAN.md) plans how the default-off WP2 features could be activated one bounded increment at a time, in the functional order of the owner's activation decision. It covers each feature's service, dependencies, behavioural change, boundary, rollback and remaining approvals, and gives the first increment, funnel recording on the signal engine, in full. It authorizes no operation.
+
 ## Reading order
 
 1. **This README**, for scope and authority.
