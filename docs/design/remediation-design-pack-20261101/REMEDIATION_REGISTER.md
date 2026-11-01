@@ -1,5 +1,13 @@
 # Remediation Register R1–R9 (WP0)
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. This file now uses the canonical interfaces of [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) section 8. No item's status, gate or priority changes. What changed:
+> - **Stage names.** R1.f and R6.c no longer name the stages `selection_capacity` and `portfolio_capacity`, which are not in the funnel's F0–F7 enumeration. They name F6 codes (`F6.legacy_alphabetical_cut` in shadow, `F6.resource_cap`, `F6.rank_below_cap`) and the F7 code `F7.capacity_full` from the single capacity authority (WP-IR-03, WP-IR-04).
+> - **R6 test 2.** It now uses the canonical `RejectionRecord` fields: `stage` F0–F7, a closed `sub_stage`, a taxonomy v1 code whose prefix equals `stage`, and subject fields nullable by scope (WP-IR-01).
+> - **R4.a and R4 test 1.** They name `cost_model_id` and `legacy_tracker_v1` beside `label_policy` (WP-IR-07).
+> - **R5.d and R3.d.** They state the five-field `StrategyVersion` identity with `lineage` as metadata (WP-IR-09).
+> - **Inconsistency table.** The OF-07 row names its target code.
+> - **Line citations.** Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 > **Status: documentation only (charter §4, §5 WP0).** This is the single deduplicated tracker of the nine remediation items that the charter defines (`CH:L33-46`). It consolidates audit, ERG-01 and governance findings and re-checks code locations at the documented-deployed commits and at `main` `46578aa`. It runs nothing, changes nothing and authorizes nothing. **No item here, once fixed, establishes profitability** (`CH:L46`; DFP:L31).
 
 ## Document control
@@ -130,7 +138,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 | R1.c | same | activate the new selection on Paper | Strategy-version-changing correction |
 | R1.d | lexical tie-breaks | declare the tie-break key in the `StrategyVersion` contract; no symbol-name order (the A44 `execution_quality_v2` hash tie-break, OF-23, is one option) | Documentation/design |
 | R1.e | frozen weights steer survival and order (OQ-09) | remove `total_score` from the selection order as part of R1.c; until then, record the weights as a fixed, data-mined input | Documentation/design |
-| R1.f | truncated rows get no DB decision reason | cross-reference R6.c (shadow `RejectionRecord` with stage `selection_capacity`) | Safe development-only correction |
+| R1.f | truncated rows get no DB decision reason | cross-reference R6.c: a shadow `RejectionRecord` at stage F6, `F6.legacy_alphabetical_cut` for today's cut (shadow only, retired at R1.c), and `F6.resource_cap` or `F6.rank_below_cap` in a target selection version (WP-IR-04) | Safe development-only correction |
 
 **Tests and acceptance criteria** (synthetic inputs only)
 1. *Name-order invariance (property test):* for random candidate sets of size 0, 1, 199, 200, 201 and 1,000 with fixed features, any permutation or renaming of symbol names leaves the selected candidate (identified by its features) unchanged, except for exact ties. Exact ties follow the declared `tie_break_key`, and the tie is recorded.
@@ -254,7 +262,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 | R3.a | signal-level re-fire | enable insert-once identity (enforce mode, or an identity-only mode split out of it) | Strategy-version-changing correction |
 | R3.b | admission by wall-clock window | admit by setup key: at most one trade per key, ever | Strategy-version-changing correction |
 | R3.c | cooldown read fails open | a read error blocks the cycle and is recorded | Strategy-version-changing correction |
-| R3.d | key relies on `APP_VERSION` | derive the key from `StrategyVersion` (R5.d; OF-T09) | Safe development-only correction (until activated) |
+| R3.d | key relies on `APP_VERSION` | derive the key from the five `StrategyVersion` identity fields, `lineage` excluded (R5.d; OF-T09; WP-IR-09) | Safe development-only correction (until activated) |
 | R3.e | enforce mode bundles identity, a one-bar freshness bound, fail-closed reads and tracker refusals in one switch | document each behaviour separately, so the owner can decide whether to declare one boundary or several | Documentation/design |
 | R3.f | regression coverage | the tests below, default-off | Safe development-only correction |
 
@@ -315,7 +323,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 
 | Sub-item | Finding | Proposed change | Change class |
 |---|---|---|---|
-| R4.a | accounting double count | add a single-count, per-leg cost ledger under a new `label_policy`, computed alongside the legacy fields; legacy fields stay byte-identical and history is never rewritten | Safe development-only correction |
+| R4.a | accounting double count | add a single-count, per-leg cost ledger under a new `label_policy`, computed alongside the legacy fields; every entry names its `cost_model_id` (`legacy_tracker_v1`, `research_baseline_v1` or `research_stress_v1`), and `label_policy` stays a separate field (WP-IR-07); the policy in force is `net_after_modeled_cost_v1` (`shared/fees.py:L41 @ bb7825f`); legacy fields stay byte-identical and history is never rewritten | Safe development-only correction |
 | R4.b | break-even stop uses both terms | change the break-even formula only as a declared geometry change | Strategy-version-changing correction |
 | R4.c | runtime 0.30% vs research 0.40% / 0.60% | report both, side by side and labelled; the choice for Paper accounting is OQ-08 | Documentation/design |
 | R4.d | gross/net label mixing | one net label per surface, with the label policy named | Safe development-only correction |
@@ -323,7 +331,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 | R4.f | writing the R4.a fields on the host | deploy the ledger fields | Production/runtime change |
 
 **Tests and acceptance criteria**
-1. *Single count:* for a full stop exit at S with slippage s, the R4.a ledger charges fee per side plus s once; the legacy ledger reproduces flat 0.30% plus s exactly.
+1. *Single count:* for a full stop exit at S with slippage s, the R4.a ledger charges fee per side plus s once; the legacy model `legacy_tracker_v1` reproduces flat 0.30% plus s exactly.
 2. *Component uniqueness (property):* over random synthetic paths (targets, stop, expiry, mixed partial exits), each cost component identifier appears once per leg, and Σ leg costs = ledger total.
 3. *No rewrite:* existing `trade_results` rows and their labels are unchanged by any migration (disposable-database test).
 4. *Label policy:* every result row names its `label_policy`; aggregation across policies without stratification is refused.
@@ -379,7 +387,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 | R5.a | image content not re-verified | owner-approved `drift_check.py check --deep` (or `runtime_manifest.py verify`) per service against a committed or redacted manifest; read-only, outside Class A | Production/runtime change |
 | R5.b | labels `revision=unknown`, collector unlabelled | wire source-revision labels into future builds and refuse a build without them | Safe development-only correction |
 | R5.c | scanner assembled from older blobs | a scanner release from one commit, in a later release cycle | Production/runtime change |
-| R5.d | no real strategy identity | specify `StrategyVersion` (strategy_id, semantic version, `source_hash` over the decision closure, `config_hash` over every decision key including `T1_CAP_POLICY` and `SIGNAL_INTEGRITY_MODE`, `contract_hash`); emit it on every `DecisionRecord` behind a default-off flag | Documentation/design (spec), then Safe development-only correction (code) |
+| R5.d | no real strategy identity | specify `StrategyVersion` (strategy_id, semantic version, `source_hash` over the decision closure, `config_hash` over every decision key including `T1_CAP_POLICY` and `SIGNAL_INTEGRITY_MODE`, `contract_hash`), the five identity fields, with `lineage` as recorded metadata outside the identity (WP-IR-09); emit it on every `DecisionRecord` behind a default-off flag | Documentation/design (spec), then Safe development-only correction (code) |
 | R5.e | boundary record incomplete on `main` | integrate amendments A1/A2 after owner review of their protected content; fill the PENDING fields by amendment, never by rewriting (`deploy/VERSION_BOUNDARY.md:L44-46`) | Documentation/design |
 | R5.f | pause-to-resume transition unrecorded | owner-approved read of the pause-decision row history, metadata only, recorded as a dated note | Production/runtime change |
 | R5.g | historical lineage | keep G2 attributions; label every historical figure with its version window; no pooling | Documentation/design |
@@ -436,7 +444,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 |---|---|---|---|
 | R6.a | scanner and analyzer drops are silent | shadow `RejectionRecord` writer with closed reason taxonomy and per-stage counters (OF-T01) | Safe development-only correction |
 | R6.b | per-symbol reason collapse | per-(symbol, strategy, timeframe, bar) decision keys (OF-T02) | Safe development-only correction |
-| R6.c | limit-cut and capacity drops unrecorded in the DB | covered by R6.a stages `selection_capacity` and `portfolio_capacity`; the unmerged shadow ledger is the reference for capacity-blocked candidates | Safe development-only correction |
+| R6.c | limit-cut and capacity drops unrecorded in the DB | covered by R6.a: the limit cut at stage F6 (`F6.legacy_alphabetical_cut` today, in shadow; `F6.resource_cap` or `F6.rank_below_cap` in a target version) and capacity drops at stage F7 (`F7.capacity_full`, from the single capacity authority, WP-IR-03); a rank loss is never labelled as capacity (WP-IR-04); the unmerged shadow ledger is the reference for capacity-blocked candidates | Safe development-only correction |
 | R6.d | no decision-bar age bound in off mode; host clock | venue-synchronised closed-bar rule and freshness bound (OF-T08) | Strategy-version-changing correction |
 | R6.e | three fail-open reads | make each explicit and recorded, fail-closed or flagged as the owner decides (OF-T07) | Strategy-version-changing correction |
 | R6.f | eligibility gaps (venue filters, stablecoins, depth) | `EligibilityResult` rule set (OF-T04, OF-T05) | Strategy-version-changing correction |
@@ -445,7 +453,7 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 
 **Tests and acceptance criteria**
 1. *Conservation (property):* for every stage, `count_in = count_out + Σ count(RejectionRecord by reason)`; any silent drop fails the test.
-2. *Record completeness:* each `RejectionRecord` has `stage`, `reason_code` from a closed enumeration, `symbol`, `timeframe`, `strategy_id` and `as_of`; an unknown code is refused.
+2. *Record completeness:* each `RejectionRecord` has `stage` F0 to F7, a `reason_code` from the closed taxonomy v1 whose prefix equals `stage`, a `sub_stage` from its closed enumeration or null, the subject fields `symbol`, `timeframe` and `strategy_id` nullable by scope, and `as_of` in integer UTC epoch milliseconds (OPPORTUNITY_FUNNEL.md §8.1; WP-IR-01); an unknown code or `sub_stage` is refused.
 3. *Per-timeframe reasons:* one symbol with different outcomes on 15m, 4h and 1d keeps three reasons.
 4. *Freshness:* a bar older than the bound is rejected with a reason; a forming bar is never used; a simulated host-clock skew is detected.
 5. *Fail-open removal:* each of the three reads, when failing, produces a recorded outcome, never a silent default.
@@ -667,6 +675,6 @@ Runtime context: `TIMEFRAMES=15m,4h,1d` (VER-06, ADD:L98) and `EVIDENCE_V2_ENABL
 | Observation | Class |
 |---|---|
 | HIS-27 / CON-32: a test file calls the cooldown fail-open fixed, but the off path still returns an empty set (`signal_engine/signal_logic.py:431 @ ea8ae4f`, `:432 @ 46578aa`) | CONTRADICTORY |
-| OF-07: eligible losers are labelled `not_selected_capacity`, although they lost on rank, not on capacity (`signal_engine/signal_logic.py:853 @ ea8ae4f`) | SOURCE_VERIFIED |
+| OF-07: eligible losers are labelled `not_selected_capacity`, although they lost on rank, not on capacity (`signal_engine/signal_logic.py:853 @ ea8ae4f`); the target code is `F6.rank_below_cap` (WP-IR-04) | SOURCE_VERIFIED |
 | The `trade.closed` evidence event labels the result from gross P&L while the stored economic result is net (`trade_tracker/main.py:405-418 @ bb7825f`; CON-09) | CONTRADICTORY |
 | The setup key in `shared/signal_identity.py` is anchored on `APP_VERSION`, which does not identify implementations (R3.d; G2-02) | INFERRED |

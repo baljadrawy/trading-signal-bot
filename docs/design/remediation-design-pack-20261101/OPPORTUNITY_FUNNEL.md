@@ -1,5 +1,15 @@
 # Opportunity Funnel: Current State and Target Design (WP1-A)
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. This file now uses the canonical interfaces of [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) section 8 (WP-IR-01 to WP-IR-09). No definition is new, no option is chosen and no decision is recorded. What changed:
+> - **Stage naming (F0–F8) and records.** `stage` is F0–F7, the stage at which a record is counted. F8 is the per-cycle `DecisionRecord` of `decision_type` `opportunity_rank` (WP-IR-01, WP-IR-08): see the section 7 diagram, F8 and section 8.1.
+> - **`RejectionRecord` fields (section 8.1).** `sub_stage` is a closed enumeration, no longer "null otherwise". Times are integer UTC epoch milliseconds. `cycle_id` is the `decision_id` of the cycle record. `strategy_version` is derived from the five identity fields. A strategy's own code goes in `detail.strategy_code` (WP-IR-01, WP-IR-08, WP-IR-09).
+> - **Reason codes (section 8.2).** Codes are written `F<n>.<reason>`, and the prefix always equals `stage`. The taxonomy v1 additions are listed. The alignment table now maps each strategy-contract name onto one canonical code and moves the strategy stage names into `sub_stage`.
+> - **`regime_veto` (F3, F4 and section 8.2).** `F3.regime_veto:<series>` is reserved for a declared context-series veto. A strategy's own regime routing is `F4.regime_not_accepted`. Before, the taxonomy listed `regime_veto` under F3 while the alignment table filed it under F4.
+> - **`risk_plan` (F5, F6).** It belongs to the `Candidate`. `Opportunity.risk_plan` is a read-only alias with the same hash (WP-IR-02).
+> - **Capacity (F6, F7, OF-OD-15, section 12).** There is one capacity authority, the F7 check. `F6.rank_below_cap` stays separate from `F7.capacity_full`, and F6 never reads portfolio state. Today's cut is recorded in shadow only, as `F6.legacy_alphabetical_cut` (WP-IR-03, WP-IR-04).
+> - **F7 codes, cost models and strategy identity.** The F7 codes follow WP-IR-05. The F5 cost model is named by `cost_model_id` (`research_baseline_v1`, `research_stress_v1` or `legacy_tracker_v1`; WP-IR-07). The `setup_key` and `strategy_version` identifier use the five `StrategyVersion` identity fields; `lineage` is excluded (WP-IR-09).
+> - **Line citations.** Line numbers of pack documents (for example `OPPORTUNITY_FUNNEL.md L402`) refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 **Consolidated Remediation & Design Pack, work package WP1-A.** This document traces how an exchange universe becomes, or fails to become, an executable opportunity. Part A records the current funnel exactly as the documented-deployed source implements it, including every point where a candidate is dropped without a durable explanation. Part B specifies a target funnel that removes those defects, using the shared interface glossary of this pack.
 
 ## Document control
@@ -45,7 +55,7 @@ Audit finding IDs (UNI-, MKT-, STR-, EXE-, RSK-, HIS-, ARC-, IND-, CON-, OQ-) an
 | [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md) | Owns R1–R9 and their sub-item numbering; OF-T items map onto it |
 | [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) | Owns each strategy's setup, score definition, geometry, exits, costs and `StrategyVersion` |
 | [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md) | Owns `RiskBudget`, `SizingDecision`, `LedgerEntry`, capacity and admission limits (stage F7 hands off to it) |
-| [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) | Sequences the OF-T changes into WP2 work |
+| [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) | Sequences the OF-T changes into WP2 work. Its section 8 (WP-IR-01 to WP-IR-09) fixes the canonical interface names that this document follows |
 | [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) | Collects the owner decisions listed in section 10 |
 
 ## Contents
@@ -237,10 +247,12 @@ Data flow, with the glossary entity each stage emits:
 F0 MarketSnapshot ─► F1 EligibilityResult ─► F2 liquidity/spread/volatility ─► F3 RegimeContext
       │                     │                          │                              │
       └──────────── RejectionRecord at every stage (F0–F7), counters per cycle ───────┘
-F4 CandleSet → Candidate(setup_key) ─► F5 execution feasibility ─► F6 Opportunity(score, rank, tie_break_key)
-      ─► F7 portfolio handoff (RiskBudget, SizingDecision) ─► OrderIntent → Fill
-F8 DecisionRecord: one per cycle, all inputs and hashes
+F4 CandleSet → Candidate(setup_key, risk_plan) ─► F5 execution feasibility ─► F6 Opportunity(candidate, score, rank, tie_break_key)
+      ─► F7 portfolio handoff (single capacity authority, RiskBudget, SizingDecision) ─► OrderIntent → Fill
+F8 DecisionRecord: one per decision; per cycle, one opportunity_rank record with all inputs and hashes
 ```
+
+`RejectionRecord.stage` takes the values F0 to F7 only. F8 is not a rejection stage: it is the per-cycle `DecisionRecord` (WP-IR-01, WP-IR-08). F2a and F2b below are parts of stage F2: their records carry `stage` F2 and an `F2.` code, wherever the check runs.
 
 Each stage below states its rules, its reason codes (section 8.2 lists them all), its failure semantics, and its link to the change register (section 9).
 
@@ -295,7 +307,7 @@ F2 runs in two places. **F2a** applies universe-level checks to every eligible s
 
 - **Output.** One `RegimeContext` per cycle: each declared context series, its label, the `as_of` of the last closed bar it used, `staleness` = decision time − `as_of`, the refresh time, and a validity flag.
 - **Single BTC trend.** Exactly one BTC trend definition exists in the target funnel, with one label set, one window, one threshold set and closed bars only. The current pair of definitions (36 h at ±1/±3 and 68 h at ±1/±5, OF-19) collapses into the one the owner selects (OF-OD-09). The scanner's stress rule, which today hides a BTC dependence inside universe selection, becomes either a declared regime rule or is removed (OF-OD-09).
-- **Role is per strategy.** Each strategy contract declares how it uses each series: veto, filter, ranking feature or none (see [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md)). The funnel applies a veto only to the strategies that declare it, not to the whole cycle. The per-symbol regime (`classify_regime`, STR-09) is a strategy routing rule and travels in `Candidate.features`.
+- **Role is per strategy.** Each strategy contract declares how it uses each series: veto, filter, ranking feature or none (see [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md)). The funnel applies a veto only to the strategies that declare it, not to the whole cycle. Such a declared context-series veto is recorded as `F3.regime_veto:<series>`. The per-symbol regime (`classify_regime`, STR-09) is a strategy routing rule and travels in `Candidate.features`. A candidate whose regime label its strategy does not accept is recorded at F4 as `F4.regime_not_accepted`, with `sub_stage` `strategy.regime`, and never as a veto (WP-IR-01).
 - **Staleness.** Staleness is measured from bar time (P4), so a refresh of old bars cannot look fresh (fixes OF-12). Refresh is independent of whether the engine has rows, so idle periods do not skip refreshes (MKT-15).
 - **Failure semantics, explicit.** For each series and each strategy that uses it, the contract records one of:
   - **fail-closed**: no new entries for that strategy while the series is stale or invalid; one cycle-level `RejectionRecord` per affected strategy (`F3.regime_stale`, `F3.regime_unavailable`);
@@ -309,12 +321,18 @@ F2 runs in two places. **F2a** applies universe-level checks to every eligible s
 
 - **CandleSet.** For each eligible symbol and each timeframe that some strategy uses: closed bars only, `last_close_time`, and `completeness` (no gaps, duplicates, impossible bars or NaN, as `shared/ohlcv.py` already enforces, ARC-13). A bar is closed when its venue close time is earlier than venue-synchronised decision time (F0), not the raw host clock (fixes the EXE-06 risk).
 - **Warm-up.** Each strategy contract states its warm-up bars per timeframe. A symbol below it gets `F4.history_insufficient` for that strategy and timeframe instead of today's silent skip (OF-05).
+- **Strategy input guards.** A strategy's own input guards file their records at F4 with `sub_stage` `strategy.input` (WP-IR-01):
+  - incomplete candles give `F4.data_quality`;
+  - too few bars give `F4.history_insufficient`;
+  - a regime input past the strategy's declared bound gives `F4.regime_stale`. This is the candidate-scope record; the cycle-level record stays `F3.regime_stale`.
+
+  The strategy's own code is kept verbatim in `detail.strategy_code`.
 - **Freshness bound on the decision bar.** A candidate is admissible only if decision time − (`last_close_time` + 1 ms) is non-negative and below the bound for its timeframe. The bound is OF-OD-12; the A44 rule (`shared/signal_identity.py:L186-200 @ ea8ae4f`) uses one bar and is the reference implementation. Rejections are `F4.bar_not_closed` and `F4.bar_stale`. This closes OF-17, under which a 1d decision can rest on a bar about 24 h old.
-- **Candidate generation.** Every strategy whose contract admits the symbol, timeframe and regime evaluates its own setup. One `Candidate` exists per (symbol, `strategy_id`, timeframe, `bar_close_time`), carrying `strategy_version`, `setup_key` and `features`. There is no symbol-level overwrite (fixes OF-08). A strategy that finds no setup records `F4.no_setup`.
+- **Candidate generation.** Every strategy whose contract admits the symbol, timeframe and regime evaluates its own setup. One `Candidate` exists per (symbol, `strategy_id`, timeframe, `bar_close_time`), carrying `strategy_version`, `setup_key`, `features` and its `risk_plan`. The `risk_plan` is produced once by the strategy's `evaluate` and then frozen (WP-IR-02). There is no symbol-level overwrite (fixes OF-08). A strategy that finds no setup records `F4.no_setup`, with `sub_stage` `strategy.entry`.
 - **`setup_key`.** `setup_key` = hash of (identity version, venue, symbol, `strategy_id`, `StrategyVersion` identifier, timeframe, `bar_close_time`, direction `long`).
-  - The `StrategyVersion` identifier combines `source_hash`, `config_hash` and `contract_hash` (glossary), not only a release label such as `APP_VERSION`. Neither the label nor the frozen contract hash detects a selection or integrity-mode change (OF-24, G3-08).
+  - The `StrategyVersion` identifier is derived from the five identity fields: `strategy_id`, `version`, `source_hash`, `config_hash` and `contract_hash` (glossary; WP-IR-09). `lineage` is recorded metadata and never enters the identifier or the key. A release label such as `APP_VERSION` is not enough on its own. Neither the label nor the frozen contract hash detects a selection or integrity-mode change (OF-24, G3-08).
   - Bracket prices are not part of the key. A bracket hash is stored beside it, so a recomputation of the same bar with a different bracket is detected as a conflict, as the A44 design does (`shared/signal_identity.py:L62-88 @ ea8ae4f`).
-  - Emission is insert-once under a unique constraint. A repeat evaluation of the same bar yields `F4.duplicate_setup`; a different bracket yields `F4.setup_conflict`. Neither creates a signal (fixes OF-16, R3).
+  - Emission is insert-once under a unique constraint. A repeat evaluation of the same bar yields `F4.duplicate_setup`; a different bracket yields `F4.setup_conflict`. Neither creates a signal (fixes OF-16, R3). Both records carry `sub_stage` `shared.identity`. So does `F4.bar_before_version_activation`, for a bar that closed before the activation minute of the version evaluating it (SE-36).
 - **Cooldown.** The 2 h wall-clock cooldown stops serving as a duplicate guard, which the `setup_key` takes over. Whether a per-symbol or per-strategy cooldown remains as a risk rule is OF-OD-13; if it remains, its read fails closed and is recorded (fixes OF-15).
 - **Changes.** OF-T08, OF-T09.
 
@@ -322,9 +340,13 @@ F2 runs in two places. **F2a** applies universe-level checks to every eligible s
 
 - **Rules.**
   - The F2b checks run on a fresh book (book age, spread, depth).
+  - F5 reads the `Candidate`'s own `risk_plan`, the same frozen object that F7 sizing later reads through the Opportunity (WP-IR-02).
   - A stop plan must be present and valid. A **missing** `stop_valid` rejects as `F5.stop_missing`; today it passes (section 4).
   - The stop-risk cap is the strategy's volatility bound (`F5.stop_risk_above_cap`).
-  - `expected_cost` is computed with the pack's cost model and recorded on the candidate. That model is a research baseline of 0.40% all-in round trip with a stress case of 0.60%, kept separate from the legacy runtime accounting (`CHARTER:L25`); see [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md).
+  - A bracket that breaks the ordering `stop < entry < T1 < T2 < T3` after rounding is `F5.bracket_invalid`.
+  - A T1 below the active cost model's net break-even is `F5.t1_not_cost_feasible`. This code is used only if the owner chooses "reject" under SE-80, and it is distinct from `F5.cost_above_budget`.
+  - Geometry records that a strategy's `evaluate` returns carry `sub_stage` `strategy.geometry`, with the strategy's own code in `detail.strategy_code` (WP-IR-01).
+  - `expected_cost` is computed under a named cost model and recorded on the candidate. The model is named by `cost_model_id` (WP-IR-07). The research models are `research_baseline_v1`, the charter's proposed 0.40% all-in round trip, and `research_stress_v1`, its 0.60% stress case. Both are kept separate from the legacy runtime accounting `legacy_tracker_v1` (`CHARTER:L25`); see [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md). Which model a Paper feasibility check uses is open (DECISIONS_AND_GATES.md section 5, item 5).
   - A candidate whose expected cost exceeds the strategy's cost budget is rejected as `F5.cost_above_budget`. The budget belongs to the strategy contract.
 - **Failure semantics.** Fail-closed per candidate, recorded.
 - **Changes.** OF-T05, OF-T11.
@@ -342,16 +364,22 @@ F2 runs in two places. **F2a** applies universe-level checks to every eligible s
   - raise an operational alert.
 
   A43's `bounded_universe` already drops by hash and returns every dropped pair, so it can serve the second and third conditions (OF-23).
-- **Caps after ranking.** A maximum number of Opportunities per cycle (OF-OD-15) applies only to the complete ranked list. Each candidate below the cap gets `F6.rank_below_cap` with its rank. That code replaces today's mislabelled `not_selected_capacity` (OF-07).
-- **Output.** `Opportunity` = the candidate plus `score`, `rank`, `tie_break_key`, `expected_cost` and `risk_plan` (from the strategy contract), in rank order.
+- **Caps after ranking.** A maximum number of Opportunities per cycle (OF-OD-15) applies only to the complete ranked list. Each candidate below the cap gets `F6.rank_below_cap` with its rank, the offer cap and the selection version in `detail`. That code replaces today's mislabelled `not_selected_capacity` (OF-07).
+- **F6 never reads portfolio state.** The offer count is a constant of the selection version (OF-OD-15). A refusal for lack of capacity is never an F6 record: it is `F7.capacity_full`, issued by the single capacity authority at F7 (WP-IR-03, WP-IR-04).
+- **Today's cut, in shadow only.** While the legacy query is in force, the shadow recorder files every row cut by the alphabetical `LIMIT 200` as `F6.legacy_alphabetical_cut`, with its position in name order and the limit 200. The code is retired when the new selection is activated (R1.c, WP-G01), and no target selection version ever uses it (WP-IR-04).
+- **Output.** An `Opportunity` holds its `Candidate` by reference, plus `score`, `rank`, `tie_break_key` and `expected_cost`, in rank order. The `risk_plan` belongs to the Candidate (WP-IR-02). `Opportunity.risk_plan` is a read-only alias of `Opportunity.candidate.risk_plan`, never a recomputed or edited copy, so both have the same `risk_plan_hash`.
 - **Changes.** OF-T10, OF-T11.
 
 ### F7. Portfolio constraints (handoff)
 
 The funnel ends at a ranked list of Opportunities. Admission, sizing and portfolio limits belong to [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md): `RiskBudget`, `SizingDecision`, `LedgerEntry`, capacity, exposure, correlation, drawdown and the minimum-order check. This document fixes only the interface.
 
+- **One capacity authority** (WP-IR-03). Capacity is decided once per Opportunity, by the F7 capacity check inside the portfolio `decide(state, snapshot)` (PORTFOLIO_RISK_AND_COMPOUNDING.md §5). It runs in the admission-authority service, which the boundary record names as trade_tracker (`deploy/VERSION_BOUNDARY.md:L12 @ 46578aa`). It either admits or refuses with `F7.capacity_full`. The other sites change role:
+  - the delivery gate makes no capacity decision; in shadow it is a recorded mirror of the authority;
+  - the tracker pre-check becomes a configuration ceiling checked at start;
+  - research `REJECT_MAX_TRADES` maps to `F7.capacity_full`.
 - **Order.** Opportunities are offered in rank order, not symbol order (fixes OF-11).
-- **Every refusal is recorded.** Each refusal returns a `RejectionRecord` at stage F7 with a reason code from section 8.2, for example `F7.capacity_full` or `F7.min_notional_infeasible`. The acknowledge-and-lose path disappears (fixes OF-10).
+- **Every refusal is recorded.** Each refusal returns a `RejectionRecord` at stage F7 with a reason code from section 8.2, for example `F7.capacity_full` or `F7.min_notional_infeasible`. The acknowledge-and-lose path disappears (fixes OF-10). The F7 codes and their `sub_stage` values follow WP-IR-05 (section 8.2).
 - **Refusal semantics are explicit** (OF-OD-16): either drop with a record, or hold in a bounded queue whose time limit does not exceed the F4 freshness bound and re-validate every check before admission. A held item is never admitted on stale inputs.
 - **Cooldown.** Whether a refused Opportunity starts any cooldown is declared, not incidental (fixes OF-09).
 - **Idempotent admission.** Admission keys on `setup_key`. Supersession of an older pending Opportunity for the same symbol is recorded as `F7.superseded`, not lost.
@@ -361,65 +389,84 @@ The funnel ends at a ranked list of Opportunities. Admission, sizing and portfol
 
 ### F8. DecisionRecord
 
-One `DecisionRecord` per cycle. It holds the cycle id and decision time, and the hashes of the `MarketSnapshot`, `RegimeContext`, `StrategyVersion` set and configuration. It also holds the candidate-set hash, the ranked list with keys, the selected Opportunities, the per-stage counters, the conservation result and any `ranking_incomplete` flag. Re-evaluating `decide(state, snapshot)` on the recorded inputs, in a test, must reproduce the record exactly (`CHARTER:L29`). Changes: OF-T13.
+One `DecisionRecord` of `decision_type` `opportunity_rank` per cycle (WP-IR-08). It is one of the per-decision records of SE-51 in [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) §E2, carried in the evidence v2 envelope; no second record type exists. It holds the cycle id and decision time, and the hashes of the `MarketSnapshot`, `RegimeContext`, `StrategyVersion` set and configuration. It also holds the candidate-set hash, the ranked list with keys, the selected Opportunities, the per-stage counters, the conservation result and any `ranking_incomplete` flag. Its `decision_id` is the `cycle_id` of every `RejectionRecord` of that cycle. Re-evaluating `decide(state, snapshot)` on the recorded inputs, in a test, must reproduce the cycle record, every per-decision record and the chain exactly (`CHARTER:L29`). Changes: OF-T13.
 
 ## 8. Observability: RejectionRecord, reason codes, counters, sampling
 
 ### 8.1 RejectionRecord schema
 
+This is the one `RejectionRecord` schema of the pack (WP-IR-01). [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) §B3 uses it and does not define a second shape. All times are integer UTC epoch milliseconds. Subject fields are nullable by scope.
+
 | Field | Type | Meaning |
 |---|---|---|
-| `record_id` | string | Deterministic hash of (`cycle_id`, `stage`, `scope`, subject key, `reason_code`) |
-| `cycle_id` | string | The cycle's `DecisionRecord` id |
-| `stage` | enum `F0`…`F7` | Where the drop happened |
-| `sub_stage` | string or null | For a rejection returned by a strategy's own `evaluate`, that contract's stage name (for example `strategy.input`); null otherwise (section 8.2) |
+| `record_id` | string | Deterministic hash of (`cycle_id`, `stage`, `scope`, subject key, `reason_code`): the identity of the drop |
+| `cycle_id` | string | The `decision_id` of the cycle's `DecisionRecord` of `decision_type` `opportunity_rank` (F8; WP-IR-08) |
+| `stage` | enum `F0`…`F7` | The stage at which the record is counted for conservation (section 8.3) |
+| `sub_stage` | closed enum or null | `strategy.input`, `strategy.regime`, `strategy.entry` or `strategy.geometry` for a record that a strategy's `evaluate` returns. `shared.identity`, `shared.sizing`, `shared.order_intent` or `shared.admission` for a shared producer. Null for a funnel rule (section 8.2) |
 | `scope` | enum `cycle`, `symbol`, `candidate`, `opportunity` | A cycle-level record (for example `F0.snapshot_stale`) covers every subject of that cycle and states their number |
-| `reason_code` | enum (section 8.2) | One code per record; a symbol failing several F1 rules gets one record per code |
+| `reason_code` | closed enum, taxonomy v1 (section 8.2) | One code per record, written `F<n>.<reason>`, with its prefix equal to `stage`. A symbol failing several F1 rules gets one record per code |
 | `symbol` | string or null | Null only for cycle scope |
 | `timeframe` | string or null | Null above F4 |
 | `strategy_id` | string or null | Null at F0 to F2a |
-| `strategy_version` | string or null | The `StrategyVersion` identifier, when a strategy is involved |
+| `strategy_version` | string or null | The `StrategyVersion` identifier, derived from the five identity fields with `lineage` excluded (WP-IR-09), when a strategy is involved |
 | `setup_key` | string or null | From F4 onwards |
-| `bar_close_time` | timestamp or null | From F4 onwards |
-| `as_of` | timestamp | Data time of the input that caused the drop (snapshot, bar, book or regime) |
-| `decision_time` | timestamp | Venue-synchronised time of the decision |
+| `bar_close_time` | integer (UTC epoch ms) or null | From F4 onwards |
+| `as_of` | integer (UTC epoch ms) | Data time of the input that caused the drop (snapshot, bar, book or regime) |
+| `decision_time` | integer (UTC epoch ms) | Venue-synchronised time of the decision |
 | `rule_ref` | string | Identifier of the rule and of its owner-decided threshold version |
-| `detail` | bounded object | The observed value or values compared with the rule, for example a spread and its limit |
+| `detail` | bounded object | The observed value or values compared with the rule, for example a spread and its limit. A strategy's own code is kept verbatim in `detail.strategy_code`; it is never rewritten and never used as the aggregation key |
 | `rank` | integer or null | Set for `F6.rank_below_cap`, `F6.resource_cap` and F7 refusals |
 | `snapshot_hash`, `config_hash` | string | Links the record to its inputs |
 
-A record is append-only and never overwritten, unlike today's `decision_reason` column (OF-08).
+A record is append-only and never overwritten, unlike today's `decision_reason` column (OF-08). The `DecisionRecord` of `decision_type` `rejection` that carries a record holds both the record's `record_id`, the identity of the drop, and its own `decision_id`, the identity of the computation (WP-IR-08).
 
 ### 8.2 Reason-code taxonomy
 
-Codes are `stage.reason`. The right-hand column maps today's labels, so that a parity test can show the shadow recorder reproduces current decisions before any behaviour changes.
+This is **taxonomy v1**, one closed enumeration (WP-IR-01). Each code is written `F<n>.<reason>`, and its prefix always equals the record's `stage`. The table lists the reason part of each code by stage. Codes marked † are the taxonomy v1 additions of WP-IR-01, WP-IR-04 and WP-IR-05, recorded by WP-A01. The right-hand column maps today's labels, so that a parity test can show the shadow recorder reproduces current decisions before any behaviour changes.
 
 | Stage | Codes | Today's label or behaviour |
 |---|---|---|
 | F0 | `snapshot_stale`, `snapshot_incomplete`, `clock_offset_exceeded` | Scan aborts; log only |
 | F1 | `status_not_trading`, `quote_not_approved`, `stable_or_pegged`, `leveraged_product`, `filters_missing`, `min_order_infeasible`, `listing_age_insufficient`, `owner_excluded`, `symbol_unsupported` | Silent list filter (S2, S3) |
 | F2 | `volume_below_floor`, `volume_missing`, `move_below_floor`, `book_stale`, `spread_invalid`, `spread_above_limit`, `depth_insufficient`, `book_unavailable` | S5 silent; `order_book_unavailable`, `spread_invalid`, `spread_exceeds_limit` |
-| F3 | `regime_stale`, `regime_unavailable`, `regime_veto:<series>`, `regime_unknown_used` | `macro_block` for the whole cycle |
-| F4 | `history_insufficient`, `data_quality`, `bar_not_closed`, `bar_stale`, `no_setup`, `duplicate_setup`, `setup_conflict`, `cooldown_active`, `state_read_failed` | Silent skip; `no_trade_setup`; `symbol_cooldown`; enforce-mode integrity reasons |
-| F5 | `stop_missing`, `stop_invalid:<reason>`, `stop_risk_above_cap`, `cost_above_budget`, `bracket_invalid` | `stop_rejected:<reason>`; missing value passes |
-| F6 | `rank_below_cap`, `resource_cap` | `not_selected_capacity`; truncated rows unrecorded |
-| F7 | `paused`, `capacity_full`, `exposure_symbol`, `exposure_strategy`, `exposure_regime`, `exposure_correlation`, `risk_state_invalid`, `min_notional_infeasible`, `no_price`, `entry_rejected`, `entry_wait_expired`, `superseded`, `already_registered` | `portfolio_capacity_<n>/<m>` acknowledged and lost; tracker admission reasons in research events only |
+| F3 | `regime_stale`, `regime_unavailable`, `regime_veto:<series>` (a declared context-series veto only), `regime_unknown_used` | `macro_block` for the whole cycle |
+| F4 | `history_insufficient`, `data_quality`, `bar_not_closed`, `bar_stale`, `no_setup`, `duplicate_setup`, `setup_conflict`, `cooldown_active`, `state_read_failed`, `regime_stale`†, `regime_not_accepted`†, `bar_before_version_activation`† | Silent skip; `no_trade_setup`; `symbol_cooldown`; enforce-mode integrity reasons |
+| F5 | `stop_missing`, `stop_invalid:<reason>`, `stop_risk_above_cap`, `cost_above_budget`, `bracket_invalid`, `t1_not_cost_feasible`† | `stop_rejected:<reason>`; missing value passes |
+| F6 | `rank_below_cap`, `resource_cap`, `legacy_alphabetical_cut`† (shadow record of today's cut only) | `not_selected_capacity` and the evidence decision `rejected_fixed_policy_rank`, both `F6.rank_below_cap` with offer cap 1; truncated rows unrecorded, `F6.legacy_alphabetical_cut` in shadow |
+| F7 | `paused`, `capacity_full`, `exposure_gross`†, `exposure_symbol`, `exposure_strategy`, `exposure_regime`, `exposure_correlation`, `heat_cap`†, `risk_state_invalid`, `mark_stale`†, `ledger_mismatch`†, `ledger_event_conflict`†, `economic_limit:<rule>`†, `min_notional_infeasible`, `no_price`, `entry_rejected`, `entry_wait_expired`, `superseded`, `already_registered` | `portfolio_capacity_<n>/<m>` acknowledged and lost; tracker admission reasons in research events only |
+
+**F7 and sizing codes** (WP-IR-05). One code exists per cause:
+- **Minimum order.** `F1.min_order_infeasible` is the universe pre-check: the smallest order the `RiskBudget` allows cannot clear the venue floor. `F7.min_notional_infeasible` covers two cases:
+  - a sized quantity, rounded down to the step, is below the venue minimum (`sub_stage` `shared.sizing`; PR's `below_min_notional`);
+  - an `OrderIntent` fails re-validation (`shared.order_intent`; SE's `below_exchange_minimum`).
+- **Technical reasons.** `F7.risk_state_invalid` covers invalid or non-finite risk inputs. The legacy string `invalid_risk_state` stays byte-identical in the legacy `RiskDecision` and is kept in `detail.legacy_reason`. `F7.mark_stale`, `F7.ledger_mismatch` and `F7.ledger_event_conflict` are the technical refusals of PORTFOLIO_RISK_AND_COMPOUNDING.md §3.4–§3.5. All four carry `sub_stage` `shared.admission`.
+- **Economic limits.** `F7.economic_limit:<rule>` applies in enforce mode only. The rule is one of `daily_loss_limit`, `weekly_loss_limit`, `max_drawdown_limit` and `loss_streak_halt`. In observe mode there is no `RejectionRecord`, only the `DecisionRecord` annotation `observed:<rule>`.
+- **Exposure and heat.** `F7.exposure_gross` maps today's `gross_exposure_limit`. `F7.exposure_symbol`, `F7.exposure_strategy` and `F7.exposure_regime` map the `*_concentration_limit` reasons. `F7.exposure_correlation` is the correlated-cluster cap; `cluster_cap` stays the `RiskBudget` field name, not a code. `F7.heat_cap` (`shared.sizing`) means the portfolio heat cap leaves no feasible size.
+- **Capacity and pause.** `F7.capacity_full` (WP-IR-03) and `F7.paused` carry `sub_stage` `shared.admission`. A legacy ladder reason that labels a capacity refusal is kept in `detail` (WP-IR-04).
 
 New codes may be added only with a version bump of the taxonomy; a code is never reused with a different meaning.
 
-**Alignment with the strategy contract.** [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) has each strategy's `evaluate` return either a `Candidate` or a `RejectionRecord`, with its own stage names (`strategy.input`, `strategy.regime`, `strategy.entry`, `strategy.geometry`) and codes such as `incomplete_candles`, `insufficient_history` and `stale_regime`. The funnel keeps those names in `sub_stage` and `reason_code` and files the record under its funnel stage, so a reason is never rewritten:
+**Alignment with the strategy contract and the shared producers.** [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) has each strategy's `evaluate` return either a `Candidate` or a `RejectionRecord`. Its stage names (`strategy.input`, `strategy.regime`, `strategy.entry`, `strategy.geometry`) go in `sub_stage`. Its own codes, such as `incomplete_candles`, go verbatim in `detail.strategy_code`. The `reason_code` is always the one canonical funnel code below. A reason is therefore never rewritten, and each drop has exactly one aggregation key (WP-IR-01). In the canonical mapping each `sub_stage` value appears at one stage only:
 
-| Strategy-contract stage | Funnel stage | Funnel code it stands in for |
+| `sub_stage` | Funnel stage | Canonical `reason_code` ← strategy, shared or research name |
 |---|---|---|
-| `strategy.input` | F4 | `data_quality`, `history_insufficient`; a per-candidate `stale_regime` complements the cycle-level `F3.regime_stale` |
-| `strategy.regime`, `strategy.entry` | F4 | `regime_veto:<series>`, `no_setup` |
-| `strategy.geometry` | F5 | `stop_missing`, `stop_invalid:<reason>`, `stop_risk_above_cap`, `bracket_invalid` |
+| `strategy.input` | F4 | `F4.data_quality` ← `incomplete_candles`, research `REJECT_DATA_QUALITY`; `F4.history_insufficient` ← `insufficient_history`, research `NOT_ELIGIBLE_INSUFFICIENT_HISTORY`; `F4.regime_stale` ← `stale_regime`, candidate scope only, while the cycle-level record stays `F3.regime_stale` |
+| `strategy.regime` | F4 | `F4.regime_not_accepted` ← the strategy's own regime routing, research `REJECT_REGIME`. `F3.regime_veto:<series>` stays reserved for a declared context-series veto |
+| `strategy.entry` | F4 | `F4.no_setup` ← research `REJECT_ENTRY`; legacy label `no_trade_setup` |
+| `strategy.geometry` | F5 | `F5.stop_risk_above_cap` ← `structural_risk_exceeds_cap`, research `REJECT_STOP_DISTANCE`, legacy label `stop_rejected:<reason>`; `F5.bracket_invalid` ← `invalid_geometry`; `F5.t1_not_cost_feasible` ← `t1_not_cost_feasible`, only if SE-80 chooses "reject"; `F5.stop_missing` ← a missing stop plan |
+| `shared.identity` | F4 | `F4.duplicate_setup` ← `duplicate_setup_key` (a different bracket on the same key is `F4.setup_conflict`); `F4.bar_before_version_activation` ← `bar_before_version_activation` (SE-36) |
+| `shared.order_intent` | F7 | `F7.entry_rejected` ← `signal_invalidated_before_fill`, with `detail.rule` keeping the SE name; `F7.entry_wait_expired` ← the transition to `EXPIRED_UNFILLED`; `F7.min_notional_infeasible` ← `below_exchange_minimum` |
+| `shared.sizing` | F7 | `F7.min_notional_infeasible` ← PR `below_min_notional`; `F7.heat_cap` |
+| `shared.admission` | F7 | `F7.capacity_full`, also for today's `delivery.refused` with `portfolio_capacity_<n>/<m>` and for research `REJECT_MAX_TRADES`; `F7.paused`; `F7.risk_state_invalid`; `F7.mark_stale`; `F7.ledger_mismatch`; `F7.ledger_event_conflict`; `F7.economic_limit:<rule>` ← research `REJECT_DAILY_RISK`, `REJECT_WEEKLY_RISK`, `REJECT_DRAWDOWN`; the exposure codes. The research catch-all `REJECT_PORTFOLIO_CAP` is split by its `detail.reason` |
+
+Research `REJECT_RANK_CAPACITY` is not reused. It conflates a rank loss with capacity, as OF-07 does, and it maps to `F6.rank_below_cap` (WP-IR-04). The tracker pre-check stop maps to `F7.capacity_full`, with `detail.check` naming the tracker pre-check.
 
 ### 8.3 Counters and the conservation check
 
 For every cycle and stage, counters record the inputs `in`, those passed, and those rejected per reason code. The `DecisionRecord` carries them.
 - **Per-stage conservation:** `in = passed + Σ rejected`. A stage whose input splits into several subjects (one symbol into several strategy × timeframe candidates) states its expansion count explicitly.
-- **Ranking conservation:** `ranked = Opportunities offered + rank_below_cap + resource_cap`.
+- **Ranking conservation:** `ranked = Opportunities offered + rank_below_cap + resource_cap`. In the shadow record of today's funnel only, `F6.legacy_alphabetical_cut` is also an F6 outcome.
+- **One stage per record.** Each record is counted under its own `stage` only (WP-IR-01).
 - **Handoff conservation:** `Opportunities offered = admitted + Σ F7 refusals + held`.
 - **Violation.** A violated equation marks the cycle invalid for evidence purposes and raises an operational alert. It does not silently pass.
 
@@ -451,7 +498,7 @@ Every change carries exactly one change class. "Safe development-only correction
 | OF-T10 | Removal of `ORDER BY symbol … LIMIT 200`; complete ranking; hash tie-break; caps only after ranking; resource guard with records | Strategy-version-changing correction | R1 | OF-03, OF-04, OF-06, OF-21 | OF-OD-15 |
 | OF-T11 | Score per strategy contract; frozen `total_score` removed from ordering; `expected_cost` on every candidate | Strategy-version-changing correction | R1 | OF-20, STR-13 objective gap | OF-OD-14 |
 | OF-T12 | F7 interface: rank-order offering, recorded refusals, explicit refusal semantics, declared cooldown effect, `setup_key` admission | Strategy-version-changing correction | R6, R7 | OF-09, OF-10, OF-11 | OF-OD-16 |
-| OF-T13 | `DecisionRecord` per cycle with input hashes and deterministic `decide(state, snapshot)` | Safe development-only correction (default-off, no runtime effect) | R6, R5 | traceability | — |
+| OF-T13 | Per-cycle `DecisionRecord` (`decision_type` `opportunity_rank`, WP-IR-08) with input hashes, and deterministic `decide(state, snapshot)` | Safe development-only correction (default-off, no runtime effect) | R6, R5 | traceability | — |
 | OF-T14 | Measurement of how often each drop occurred (truncation frequency, refusals, stale blocks) on recorded runtime or historical data | Protected research or simulation | R1, R6 | UNI-17 and section 11 unknowns | OF-OD-17 |
 | OF-T15 | Activation in Paper of any change above, as a declared window | Production/runtime change | per item | — | per item, plus window declaration |
 
@@ -483,7 +530,7 @@ All tests below run on synthetic fixtures with injected clocks. None reads produ
 
 **OF-T12.** Tests: three Opportunities and one free slot; a refusal with a bounded hold that expires; two pending Opportunities on one symbol. Acceptance: admission follows rank; every refusal has a record; a held item is re-validated or dropped with a record; supersession is recorded; refusal starts a cooldown only if declared.
 
-**OF-T13.** Tests: re-evaluate recorded synthetic inputs. Acceptance: an identical `DecisionRecord`, including the ranked list and counters.
+**OF-T13.** Tests: re-evaluate recorded synthetic inputs. Acceptance: an identical `opportunity_rank` cycle record, including the ranked list and counters, and identical per-decision records, identifiers and chain (WP-IR-08).
 
 **OF-T14.** Not designed here beyond its gate. It may run only after the owner grants the data permission (OD-DF-1, `DFP:L113`) and under a preregistered protocol. A finding of frequent truncation would describe evidence validity, not profitability (`DIA:L206-215`).
 
@@ -507,7 +554,7 @@ Each item below is **OWNER DECISION REQUIRED**. The options are not ranked, and 
 | OF-OD-12 | Freshness bound on the decision bar | (a) One bar (the A44 reference): for 1d, a 24 h-old bar can still decide. (b) A fraction of a bar per timeframe: fresher decisions, but late detections are lost. (c) A fixed duration across timeframes: simple, but it treats 15m and 1d alike |
 | OF-OD-13 | Cooldown once `setup_key` exists | (a) None: `setup_key` alone prevents duplicates. (b) A per-symbol cooldown as a risk rule: limits repeated exposure to one coin, but blocks distinct setups. (c) A per-strategy cooldown |
 | OF-OD-14 | Ranking objective and cross-strategy comparison | (a) Execution quality (current: spread, then volume). (b) Each contract's own score, with separate per-strategy lists and allocation across strategies in [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md). (c) A common unit for all strategies, such as expected cost in R. No option is preferred here, and none implies a profitable strategy |
-| OF-OD-15 | Opportunities offered per cycle | (a) One (current): entries are spaced out, but good candidates wait. (b) Every ranked Opportunity up to free capacity: no waiting, but entries cluster in time; a code comment records that the legacy inter-signal cooldown was added after a burst of entries within about half an hour (`signal_engine/signal_logic.py:L433-438 @ ea8ae4f`; DOCUMENTED_ONLY). (c) A fixed number per cycle |
+| OF-OD-15 | Opportunities offered per cycle | (a) One (current): entries are spaced out, but good candidates wait. (b) Every ranked Opportunity up to free capacity: no waiting, but entries cluster in time; a code comment records that the legacy inter-signal cooldown was added after a burst of entries within about half an hour (`signal_engine/signal_logic.py:L433-438 @ ea8ae4f`; DOCUMENTED_ONLY). (c) A fixed number per cycle. Canonical reading of option (b) (WP-IR-04): F6 never reads portfolio state; it offers every ranked Opportunity, and the F7 capacity authority refuses the excess with `F7.capacity_full`, each record carrying its rank |
 | OF-OD-16 | Refusal semantics at F7 | (a) Drop with a record: simple, and no stale admission. (b) A bounded hold, re-validated, with a time limit no longer than the freshness bound: fewer lost opportunities, at the cost of more state and recovery logic |
 | OF-OD-17 | Permission to measure drop frequencies (OF-T14) | (a) None: frequencies stay NOT_VERIFIED. (b) Licence-cleared data entirely outside every holdout, under OD-DF-1 (`DFP:L113`). (c) Named runtime tables before the freeze only, if any exist. Each option is a protected-data decision |
 | OF-OD-18 | Retention, compaction and read access for `RejectionRecord` | Retention duration; whether universe-level compaction (section 8.4) is allowed; storage budget; and who may read counts (P12) |
@@ -537,14 +584,14 @@ Each item below is **OWNER DECISION REQUIRED**. The options are not ranked, and 
 **Governance note, not a deviation.** OF-T12 changes Paper admission behaviour. The development-first approval matrix lists "changing Paper admission … outside its runbook" as forbidden under current governance (`DFP:L104`). OF-T12 therefore stays a design until the owner decides it and a runbook exists.
 
 **Inconsistencies found in the current state** (all SOURCE_VERIFIED unless stated):
-- Rank losers are labelled `not_selected_capacity` although no capacity check was made (OF-07).
+- Rank losers are labelled `not_selected_capacity` although no capacity check was made (OF-07). Their target code is `F6.rank_below_cap` (WP-IR-04).
 - The code compares `'strong_bearish'`; audit tables use the shorthand `strong_bear` (`MCAS:L168`; DOCUMENTED_ONLY).
 - Capacity is checked in three places with different inputs:
   - the delivery gate uses min(10, 2);
   - the tracker loop uses `MAX_OPEN_TRADES` = 10;
   - the risk policy uses min(10, 2).
 
-  The effective limit is 2 (VER-12), but the duplication is a parity risk for F7 (`telegram/main.py:L379 @ bb7825f`; `trade_tracker/main.py:L708-716, L979 @ bb7825f`).
+  The effective limit is 2 (VER-12), but the duplication is a parity risk for F7 (`telegram/main.py:L379 @ bb7825f`; `trade_tracker/main.py:L708-716, L979 @ bb7825f`). A zero limit also means different things. It means "unlimited" at the delivery gate and the tracker pre-check, which check only a limit above zero (`telegram/main.py:L380 @ bb7825f`; `trade_tracker/main.py:L708, L752 @ bb7825f`). The risk policy refuses it as `invalid_risk_state` (`shared/risk_management.py:L71-76 @ bb7825f`). This list describes today. The target has one capacity authority at F7, where an invalid limit always refuses with `F7.risk_state_invalid` (WP-IR-03; section 7, F7).
 - The A44 setup key uses a release label as its strategy version. The frozen contract hash does not register a change of the selection cut or of the integrity mode (OF-24; `DIA:L272-277`). The target's `StrategyVersion` needs both content hashes and declared boundaries.
 
 **Cross-document dependencies.**
@@ -553,3 +600,4 @@ Each item below is **OWNER DECISION REQUIRED**. The options are not ranked, and 
 - The R-item sub-numbering comes from [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md).
 - The owner decisions are collected in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md).
 - If any of these documents settles a point differently, that document governs its own domain, and this one must be aligned to it.
+- Interface names follow the canonical choices WP-IR-01 to WP-IR-09 of [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) section 8, applied here on 2026-11-01 (WP2).

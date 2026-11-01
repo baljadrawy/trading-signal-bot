@@ -1,5 +1,12 @@
 # Baseline and Evidence Reconciliation (WP0)
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. No finding, class or verdict changes. What changed:
+> - **Pack state.** Anti-drift item 6 no longer says this file stays uncommitted. The pack is committed and pushed at `5cd1a61` on `docs/wp0-wp1-remediation-design-20261101` (not merged into `main`).
+> - **BL-13.** It now states that ERG-01 is committed and pushed at `0729a5f` on `docs/evidence-resolution-20261031`. ERG-01's own README still calls its files uncommitted; that README is stale, and the verdict is unaffected.
+> - **BL-14.** It now names the missing `docs/` prefix in charter §9 as a charter path issue. The charter is not edited (`CH:L69`).
+> - **Section 9 (process deviations).** It is a historical snapshot of the WP0 phase and is kept as written.
+> - **Line citations.** Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 > **Status: documentation only (charter §5, WP0).** This file reconciles the current default branch with the 2026-10-31 audit and the ERG-01 package. It is not a new audit. Everything here was read from local git objects with `git log`, `git diff`, `git show`, `git merge-base` and `grep`. No backtest, simulation, replay, test, repository script, container, database, log or protected-data read was performed. Nothing here authorizes a merge, deployment, strategy activation or research run. Correcting an implementation defect is never evidence of profitability.
 
 ## Document control
@@ -24,7 +31,7 @@
 3. **Scope.** WP0 only. R1–R9 are carried in [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md). Exclusion: no generic re-audit (`CH:L16`, `CH:L49`).
 4. **Evidence class.** Every finding carries one class from charter §7.4 (`CH:L64`).
 5. **Permission class.** Read-only documentation. No change of any other class is made.
-6. **Deliverable and acceptance.** This file; acceptance is a clean pack self-check. No owner gate applies to writing it; it stays uncommitted on the working branch.
+6. **Deliverable and acceptance.** This file; acceptance is a clean pack self-check. No owner gate applies to writing it. It was committed and pushed at `5cd1a61` on `docs/wp0-wp1-remediation-design-20261101` (not merged into `main`).
 7. **DEVIATION ALERT.** None raised; see [section 8](#8-deviation-alert-check).
 
 ### Source aliases
@@ -233,8 +240,8 @@ The charter forbids a generic re-audit (`CH:L16`, `CH:L49`). The brief forbids r
 
 | ID | Observation | Class |
 |---|---|---|
-| BL-13 | ERG-01's README says its seven files "sit uncommitted" and that its branch "has no remote-tracking ref" (ERG:L44, L217). They are committed at `0729a5f`, and `origin/docs/evidence-resolution-20261031` points to it. The text predates the commit; the verdict is unaffected | CONTRADICTORY |
-| BL-14 | The charter's source anchors write `governance/…` and `strategy/…` without the `docs/` prefix (`CH:L77`). The files are at `docs/governance/` and `docs/strategy/` | SOURCE_VERIFIED |
+| BL-13 | ERG-01's README says its seven files "sit uncommitted" and that its branch "has no remote-tracking ref" (ERG:L44, L217). ERG-01 is committed and pushed: the files are at `0729a5f` on `docs/evidence-resolution-20261031`, and `origin/docs/evidence-resolution-20261031` points to it. The README text predates the commit and is stale; the verdict is unaffected | CONTRADICTORY |
+| BL-14 | Charter path issue: the charter's §9 source anchors write `governance/…` and `strategy/…` without the `docs/` prefix (`CH:L77`). The files are at `docs/governance/` and `docs/strategy/`. The pack cites the full paths; the charter is not edited here, because it is not silently rewritten (`CH:L69`) | SOURCE_VERIFIED |
 | BL-15 | RT-41's list of unmerged branches omits `remediation/od7-review` (+6) and `review/lce-2` (+10), both created before the audit (BL-08). RT-41 is therefore incomplete as an inventory; no audit conclusion depends on those branches | SOURCE_VERIFIED |
 | BL-16 | The audit read repository documents at `ebf8d8a` (`feature/design-a-v1`, `main` plus 13 Design A files; AUD:L18). Design A citations (STR-39, HIS-16) therefore refer to a branch that is still unmerged (BL-08) | SOURCE_VERIFIED |
 | BL-17 | The canonical runbook still states that telegram and trade_tracker run the `tsb-a561` images "verified against the running containers" (`docs/ops/COMPOSE_OPERATIONS.md:L40-42 @ 46578aa`), against CLAUDE.md:L42 and the observed `tsb-obs` images (CON-01). Carried as R9.c | CONTRADICTORY |

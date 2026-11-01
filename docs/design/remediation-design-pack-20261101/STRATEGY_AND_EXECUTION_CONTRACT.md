@@ -1,5 +1,14 @@
 # Strategy and Execution Contract
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. This file now uses the canonical interfaces of [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) section 8 (WP-IR-01 to WP-IR-09). No definition is new and no option is chosen. What changed:
+> - **`RejectionRecord` (§B3).** SE no longer defines its own record type; it uses the schema of [OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md) §8.1. The SE stage names move into `sub_stage`, the SE codes into `detail.strategy_code`, and every `reason_code` is a canonical `F<n>.<reason>` code. This covers the input-guard clause, SE-40, SE-42, the §B6 transitions, SE-50 and SE-52 (WP-IR-01, WP-IR-05).
+> - **SE-52.** It no longer reuses research names wholesale. `REJECT_RANK_CAPACITY` is excluded and maps to `F6.rank_below_cap`; `REJECT_MAX_TRADES` maps to `F7.capacity_full` (WP-IR-03, WP-IR-04).
+> - **`risk_plan` (§B3).** It stays on `Candidate`, frozen. `Opportunity.risk_plan` is a read-only alias with the same `risk_plan_hash` (WP-IR-02).
+> - **Strategy identity (§B3, §B4).** The identity is the five fields; `lineage` is metadata (WP-IR-09).
+> - **Position states, records and cost models.** `Position.state` is a projection of the §B6 states (WP-IR-06). The funnel's per-cycle record is the `opportunity_rank` record (WP-IR-08). `cost_model_id` and the three identifiers are canonical (§C4; WP-IR-07).
+> - **Citations.** SE-12 now cites the charter's R4 row as `CH:L39`, not L41. SE-19 now anchors the cost and fill model on `CH:L52`, not L57 (DECISIONS_AND_GATES.md section 5, items 1 and 2).
+> - **Line citations.** Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 **Pack:** Consolidated Remediation & Design Pack (2026-11-01), WP1-B (strategy and signal architecture), WP1-C (economic and execution model) and WP1-E (evidence and reproducibility).
 **Baseline:** `main` = `46578aa`. Code read at the documented-deployed commits `ea8ae4f` (analyzer, signal_engine, shared) and `bb7825f` (telegram, trade_tracker).
 **Status:** Documentation/design only. Nothing here authorizes protected research, simulation, tuning, strategy activation, merging, deployment or real-money trading ([charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md) authority note, L80 @ 46578aa).
@@ -153,7 +162,8 @@ class StrategyVersion:
     source_hash: str          # sha256 over the sorted (path, sha256(bytes)) of the declared source closure
     config_hash: str          # sha256(canonical_json(resolved effective parameters))
     contract_hash: str        # sha256(canonical_json(StrategyContract descriptor))
-    lineage: tuple[str, ...]  # identities this version descends from; never a claim of inherited evidence
+    lineage: tuple[str, ...]  # recorded metadata, NOT identity (WP-IR-09): ancestry only, never a claim of inherited
+                              # evidence; excluded from identity comparison, setup_key and RejectionRecord.strategy_version
 
 @dataclass(frozen=True)
 class CandleSet:
@@ -190,17 +200,13 @@ class Candidate:
     setup_key: str             # defined in OPPORTUNITY_FUNNEL.md (F4)
     bar_close_time: int
     features: Mapping[str, float | str]
-    risk_plan: "RiskPlan"      # entry reference, stop, targets, holding policy (B6)
+    risk_plan: "RiskPlan"      # entry reference, stop, targets, holding policy (B6); owned by the Candidate, produced once
+                               # by evaluate and frozen; Opportunity.risk_plan is a read-only alias, same risk_plan_hash (WP-IR-02)
 
-@dataclass(frozen=True)
-class RejectionRecord:
-    stage: str                 # "strategy.regime", "strategy.entry", "strategy.geometry", ...
-    reason_code: str
-    symbol: str
-    timeframe: Timeframe
-    strategy_id: str
-    as_of: int
-    detail: Mapping[str, float | str]
+# RejectionRecord: the schema of OPPORTUNITY_FUNNEL.md section 8.1; not redefined here (WP-IR-01).
+# A record returned by evaluate has stage "F4" or "F5"; sub_stage "strategy.input", "strategy.regime",
+# "strategy.entry" or "strategy.geometry"; a reason_code from taxonomy v1 written "F<n>.<reason>" whose prefix
+# equals stage; the strategy's own code verbatim in detail["strategy_code"]; integer UTC epoch-ms times.
 
 class Strategy(Protocol):
     version: StrategyVersion
@@ -212,15 +218,15 @@ class Strategy(Protocol):
 
 Contract clauses:
 - **Single entry point per decision.** `evaluate` returns exactly one `Candidate` or one `RejectionRecord` for a (symbol, timeframe, `bar_close_time`). A strategy never returns both, and never returns nothing.
-- **Input guards before rules.** `completeness != "complete"`, fewer bars than `required_inputs()` declares, or a regime input whose `staleness_ms` exceeds the declared bound produce a `RejectionRecord` at stage `strategy.input` (reason codes `incomplete_candles`, `insufficient_history`, `stale_regime`). This covers the immature EMA200 case, where only 200 bars are fetched (INFERRED; REP:L431 @ 5d977f2, STR-22).
+- **Input guards before rules.** `completeness != "complete"`, fewer bars than `required_inputs()` declares, or a regime input whose `staleness_ms` exceeds the declared bound produce a `RejectionRecord` at stage F4 with `sub_stage` `strategy.input`: `F4.data_quality` (strategy code `incomplete_candles`), `F4.history_insufficient` (`insufficient_history`) or `F4.regime_stale` (`stale_regime`) (WP-IR-01). This covers the immature EMA200 case, where only 200 bars are fetched (INFERRED; REP:L431 @ 5d977f2, STR-22).
 - **Point-in-time flag.** A strategy that uses a `RegimeContext` with `point_in_time = False` is replayable only from forward-captured inputs, and its contract says so (SE-06).
 - **`manage` is also pure.** It maps (position view, one event) to actions: move stop, exit fraction, close. It cannot fetch a price; the shared tracker supplies the event (§B6).
-- **No sizing.** A strategy proposes a `risk_plan` in price terms; quantity, notional and capital are the `SizingDecision` of [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md).
+- **No sizing.** A strategy proposes a `risk_plan` in price terms; quantity, notional and capital are the `SizingDecision` of [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md). The plan is a field of the `Candidate`, produced once by `evaluate` and frozen. One `risk_plan_hash` enters both the candidate `DecisionRecord` and the `SizingDecision` inputs (WP-IR-02).
 - **Ranking.** A strategy may expose a `score` feature with a declared direction. Cross-strategy ranking into `Opportunity` is a funnel function ([OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md), F6), not a strategy function.
 
 ## B4. StrategyVersion identity and its relation to the freeze and to version boundaries
 
-**SE-37. Hash definitions.**
+**SE-37. Hash definitions.** The identity of a `StrategyVersion` is its five fields `strategy_id`, `version`, `source_hash`, `config_hash` and `contract_hash`. `lineage` is recorded metadata outside the identity, so re-parenting a version never creates a new identity (WP-IR-09).
 - `source_hash` covers the declared **closure** of every module that can change a `Candidate`, `RejectionRecord` or `PositionAction` of that strategy: entry, regime provider, geometry and T1 policy, identity, exit and holding code. The current 9-file list (SE-04) is not sufficient: under this contract the closure for the current families must also include `analyzer/technical_analyzer.py` (or the module that replaces `_calculate_levels`), `shared/t1_cap.py` and `shared/signal_identity.py`.
 - `config_hash` covers the **effective** parameter values, wherever they come from. Live thresholds held in the database override `.env` (CLAUDE.md:L48 @ 46578aa; contradicted for some keys, REP:L1464 @ 5d977f2, CON-11), and these tables have no lineage (SOURCE_VERIFIED; REP:L762 @ 5d977f2, CAL-09). A config hash computed from environment values alone would therefore be incomplete (INFERRED).
 - `contract_hash` covers the `StrategyContract` descriptor: input specification, output schema versions, regime providers, `cost_model_id`, `fill_model_id`, holding policy and the declared failure criteria. It changes when the promise changes, even if the code is identical.
@@ -245,7 +251,7 @@ A version whose `source_hash`, `config_hash` or `contract_hash` differs from the
 **SE-36. Version boundaries in Paper.**
 - [VERSION_BOUNDARY.md](../../../deploy/VERSION_BOUNDARY.md) is append-only; versions are never pooled without stratification, and nothing is attributed retroactively (SOURCE_VERIFIED; `deploy/VERSION_BOUNDARY.md:L3-5 @ 46578aa`). Its only entry, VB-2026-10-27-01, is a risk-policy boundary whose `config_hash_after` and `code_sha_after` are still PENDING (SOURCE_VERIFIED; `deploy/VERSION_BOUNDARY.md:L7-35 @ 46578aa`).
 - A strategy boundary entry adds: `boundary_id`, `strategy_id`, version before and after, the three hashes before and after, `fill_model_id`, `cost_model_id`, the activation minute, the admission-authority service, image identifiers and the stratification rule.
-- **No re-fire across a boundary.** A new version evaluates only bars whose `bar_close_time` is at or after its activation minute. A bar already evaluated under the old version is never re-evaluated under the new one. This prevents a version change from re-keying, and so re-emitting, the same candle, a risk that exists today because `APP_VERSION` is part of the enforce-mode key (SOURCE_VERIFIED; `shared/signal_identity.py:L75, L86-88 @ ea8ae4f`).
+- **No re-fire across a boundary.** A new version evaluates only bars whose `bar_close_time` is at or after its activation minute. A bar already evaluated under the old version is never re-evaluated under the new one. A bar that closed before the activation minute is recorded as `F4.bar_before_version_activation` (`sub_stage` `shared.identity`). This prevents a version change from re-keying, and so re-emitting, the same candle, a risk that exists today because `APP_VERSION` is part of the enforce-mode key (SOURCE_VERIFIED; `shared/signal_identity.py:L75, L86-88 @ ea8ae4f`).
 - An entry is written only for an owner-approved activation. This document creates no entry.
 
 ## B5. Mapping the existing families onto the interface
@@ -288,15 +294,22 @@ The state machine is shared infrastructure. The strategy supplies its parameters
 | `REJECTED` | Terminal before fill: invalidated, infeasible after rounding, or refused by risk. | `paper_entry_orders.status = 'rejected'` |
 | `EXPIRED_UNFILLED` | Terminal before fill: entry wait elapsed. | `entry.expired` evidence event (`trade_tracker/main.py:L233-439 @ bb7825f`) |
 
-**Transitions.** Each transition is one `DecisionRecord` (§E2).
+**Projection.** This is the only state machine. The `Position.state` of [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md) §3.2 is a derived projection of it, never an independent truth (WP-IR-06):
+- `PLANNED` and `WORKING` project to `pending` (ledger `RESERVE` at intent);
+- `OPEN` projects to `open` (`ENTRY_FILL`);
+- `PARTIAL_T1` and `PARTIAL_T2` project to `partially_exited` (`EXIT_FILL` per leg);
+- `CLOSED` projects to `closed` (final `EXIT_FILL`);
+- `REJECTED` and `EXPIRED_UNFILLED` create no position (`RELEASE` of the reservation).
+
+**Transitions.** Each transition is one `DecisionRecord` (§E2). Refusals before fill are recorded at F7 with `sub_stage` `shared.order_intent` (WP-IR-01, WP-IR-05).
 
 | From | Event | Guard | Action | To | Owner |
 |---|---|---|---|---|---|
-| `PLANNED` | entry observation | price ≤ max(stop, invalidation) | reject `signal_invalidated_before_fill` | `REJECTED` | shared (current rule, `shared/entry_execution.py:L12-20 @ bb7825f`) |
+| `PLANNED` | entry observation | price ≤ max(stop, invalidation) | reject: `F7.entry_rejected`, `detail.rule` = `signal_invalidated_before_fill` | `REJECTED` | shared (current rule, `shared/entry_execution.py:L12-20 @ bb7825f`) |
 | `PLANNED` | entry observation | price ≤ planned entry | fill under the active fill model | `OPEN` | shared |
 | `PLANNED` | entry observation | price > planned entry | rest at planned entry | `WORKING` | strategy declares chase policy; shared executes |
-| `WORKING` | time | wait > declared entry window | cancel | `EXPIRED_UNFILLED` | strategy declares window |
-| `PLANNED`/`WORKING` | rounding | quantity < stepSize or notional < minNotional | reject `below_exchange_minimum` | `REJECTED` | shared (SE-50) |
+| `WORKING` | time | wait > declared entry window | cancel: `F7.entry_wait_expired` | `EXPIRED_UNFILLED` | strategy declares window |
+| `PLANNED`/`WORKING` | rounding | quantity < stepSize or notional < minNotional | reject: `F7.min_notional_infeasible` (SE name `below_exchange_minimum`) | `REJECTED` | shared (SE-50) |
 | `OPEN`/`PARTIAL_*` | price ≤ effective stop | — | exit remaining quantity at the stop fill model | `CLOSED` | shared mechanics; strategy sets level |
 | `OPEN` | closed bar | close ≤ invalidation (pre-T1) | exit remaining at next observation | `CLOSED` | strategy rule, evaluated on closed bars on **one** path (fixes the REST-only split in SE-10) |
 | `OPEN` | price ≥ T1 | target fill rule met | sell T1 fraction; apply post-T1 stop policy | `PARTIAL_T1` | shared fill; strategy fraction and stop policy |
@@ -308,7 +321,7 @@ The state machine is shared infrastructure. The strategy supplies its parameters
 **SE-41. Same-observation conflicts.** When one observation or bar satisfies both the stop and a target, the stop already in force wins. This is the current convention (SOURCE_VERIFIED; `shared/triple_barrier.py:L194-202 @ bb7825f`) and is pessimistic. A research replay on bars must instead use a declared interval model; the A48 `ohlc_uncertainty_v1` mode is the existing candidate (DOCUMENTED_ONLY; [A48](../../a48/A48_REPLAY_FIDELITY.md), `docs/a48/A48_REPLAY_FIDELITY.md:L87-140 @ 46578aa`).
 
 **SE-42. Stops, break-even and trailing.**
-- The initial stop comes from the strategy's thesis level and buffer, bounded by the strategy's maximum structural risk; a plan above the bound is a `RejectionRecord` (`structural_risk_exceeds_cap`), as today (`shared/signal_stop.py:L16-46 @ ea8ae4f`).
+- The initial stop comes from the strategy's thesis level and buffer, bounded by the strategy's maximum structural risk; a plan above the bound is a `RejectionRecord` `F5.stop_risk_above_cap` with `sub_stage` `strategy.geometry` and `detail.strategy_code` `structural_risk_exceeds_cap`, as today (`shared/signal_stop.py:L16-46 @ ea8ae4f`).
 - Break-even after T1 is allowed only where the strategy declares it. Under a research cost model, the net break-even level is `entry × (1 + c_entry) / (1 − c_exit)`, with `c_entry` and `c_exit` the per-side costs of §C2. The current formula `entry × 1.003 / 0.999` embeds the R4 double count (SE-12) and belongs to the legacy model only.
 - Trailing is allowed only where the strategy declares it with a rationale, and its distance is part of `config_hash`. The current 2.5% trail after T2 is a hand-set value, not evidence (STR-23).
 - Partial fractions are strategy parameters, sum to 1, and are validated against exchange minimums after rounding. A tranche below the minimum merges as today (`shared/partial_exits.py:L14-44 @ bb7825f`); unsold dust is inventory, not cost (`docs/a48/A48_REPLAY_FIDELITY.md:L142-174 @ 46578aa`).
@@ -342,8 +355,8 @@ Rule: a strategy contract may not override a shared component. A strategy that n
 1. **Independence.** The reference is computed only from bars that closed **before** the decision bar, or from a declared independent source. It is never the decision bar's own high, low or close.
 2. **Provenance.** Every `risk_plan` records `t1_reference_policy`, `t1_reference_value`, `t1_reference_bar_close_time` (or `none`) and `t1_source` ∈ {`structure`, `r_multiple_fallback`}.
 3. **Defined fallback.** When no admissible reference above entry exists, T1 takes the declared fallback; the fallback is part of the contract, never an implicit default.
-4. **Ordering.** `stop < entry < T1 < T2 < T3` after exchange rounding; otherwise `RejectionRecord` (`invalid_geometry`).
-5. **Cost feasibility.** T1 must lie above the net break-even level of the active cost model. If it does not, the outcome is either a `RejectionRecord` (`t1_not_cost_feasible`) or a declared fallback; which one is an owner decision (SE-80). Today T1 can sit below net break-even (SOURCE_VERIFIED; REP:L527-531 @ 5d977f2, STR-21).
+4. **Ordering.** `stop < entry < T1 < T2 < T3` after exchange rounding; otherwise `RejectionRecord` `F5.bracket_invalid` (strategy code `invalid_geometry`).
+5. **Cost feasibility.** T1 must lie above the net break-even level of the active cost model. If it does not, the outcome is either a `RejectionRecord` `F5.t1_not_cost_feasible`, distinct from `F5.cost_above_budget`, or a declared fallback; which one is an owner decision (SE-80). Today T1 can sit below net break-even (SOURCE_VERIFIED; REP:L527-531 @ 5d977f2, STR-21).
 
 **Available references** (CONTRADICTORY: two corrections are documented, ERG-G1:L192-195 @ 0729a5f, G1-10):
 
@@ -371,7 +384,7 @@ Rule: a strategy contract may not override a shared component. A strategy that n
 - A stop exit fills at `stop × (1 − 0.001)` (SOURCE_VERIFIED; `shared/triple_barrier.py:L308-322 @ bb7825f`), and the flat 0.3%, which already contains a 0.1% slippage allowance, is deducted afterwards (SE-11).
 - The repository states this itself: "slippage on the stop fraction is charged twice: once in the fill price, once in the flat allowance. Targets are filled exactly at the target, so their share of the allowance is a pure cushion" (SOURCE_VERIFIED; `shared/execution_calibration.py:L349-362 @ bb7825f`).
 - Net effect: about 0.40% on stop exits versus 0.30% on target exits (INFERRED; REP:L835 @ 5d977f2, EXE-15; ERG-G3:L243-251 @ 0729a5f, G3-04). Direction conservative; realized size UNKNOWN.
-- The double count is also inside the geometry: the post-T1 break-even stop is `entry × (1 + 0.003) / (1 − 0.001)` ≈ entry × 1.004 (SOURCE_VERIFIED; `shared/triple_barrier.py:L92-96 @ bb7825f`). Correcting the accounting alone would leave this level unchanged; correcting the level changes geometry. This is why the charter separates the R4 accounting correction from stop-geometry corrections ([charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md) §4, L41).
+- The double count is also inside the geometry: the post-T1 break-even stop is `entry × (1 + 0.003) / (1 − 0.001)` ≈ entry × 1.004 (SOURCE_VERIFIED; `shared/triple_barrier.py:L92-96 @ bb7825f`). Correcting the accounting alone would leave this level unchanged; correcting the level changes geometry. This is why the charter separates the R4 accounting correction from stop-geometry corrections ([charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md) §4, L39).
 
 **SE-13. Entry fills: `observed_price_v0`.**
 - Default fill model `observed_price_v0`; `resting_limit_v1` exists but is off (SOURCE_VERIFIED; `shared/config.py:L112 @ bb7825f`; `shared/entry_execution.py:L30-40 @ bb7825f`). Runtime default confirmed (RUNTIME_VERIFIED; VERA:L103 @ 5d977f2, VER-11).
@@ -400,7 +413,7 @@ Rule: a strategy contract may not override a shared component. A strategy that n
 | Evidence Ladder | STRESS costs (10 + 10 bps planning fee baseline, account fee unverified) plus an MES charge per position | ELP:L81 @ 46578aa | DOCUMENTED_ONLY |
 | HIS-05 engine | flat 0/0.3/0.6%, stops fill exactly | ERG-G1:L103-104, L243 @ 0729a5f | HISTORICAL_REPORTED |
 
-**SE-19. Reconciliation item: the stress level.** The charter's proposed 0.60% stress is above every documented stress level of the S4 model (ERG-CDM:L294, L454 @ 0729a5f). The Evidence Ladder defines STRESS differently, with an MES charge per position (ELP:L81 @ 46578aa), and the half-spread figures conflict between sources (CONTRADICTORY; REP:L1498 @ 5d977f2, CON-45). The charter asks for reconciliation at WP3 (L57); this is recorded as an owner decision (SE-81), not as a DEVIATION ALERT.
+**SE-19. Reconciliation item: the stress level.** The charter's proposed 0.60% stress is above every documented stress level of the S4 model (ERG-CDM:L294, L454 @ 0729a5f). The Evidence Ladder defines STRESS differently, with an MES charge per position (ELP:L81 @ 46578aa), and the half-spread figures conflict between sources (CONTRADICTORY; REP:L1498 @ 5d977f2, CON-45). The charter makes the cost and fill model a WP3 decision (L52); this is recorded as an owner decision (SE-81), not as a DEVIATION ALERT.
 
 ## C2. Research cost model (proposed; OWNER DECISION REQUIRED, SE-81)
 
@@ -444,7 +457,7 @@ This decomposition reproduces the charter's 0.40%/0.60% with the standard 0.10% 
 - Source: the `exchangeInfo` filters captured in `MarketSnapshot` with its `as_of`. The filter set is recorded by hash in the `DecisionRecord`, so a replay uses the filters in force at decision time.
 - `LOT_SIZE.stepSize`: quantity is floored to a multiple of `stepSize`. Exposure is never rounded up.
 - `PRICE_FILTER.tickSize`: limit and stop prices are rounded to a multiple of `tickSize` in the direction that does not improve the plan's P&L. The direction per order type is part of the fill model version and is covered by tests.
-- `NOTIONAL` / `MIN_NOTIONAL.minNotional`: an intent below the minimum after rounding is a `RejectionRecord` (`below_exchange_minimum`), never a silent resize.
+- `NOTIONAL` / `MIN_NOTIONAL.minNotional`: an intent below the minimum after rounding is a `RejectionRecord` `F7.min_notional_infeasible` (`sub_stage` `shared.order_intent`; SE name `below_exchange_minimum`), never a silent resize (WP-IR-05).
 - Any other filter present in `exchangeInfo` is either enforced or listed in the fill model as "not modelled". There is no implicit pass.
 - The reference implementation is `shared/exchange_rules.py` (`check_order`, `round_to`, `plan_bracket_orders`; SE-09). Wiring it into Paper changes fills and geometry after rounding, so it is a measurement boundary (SE-69).
 
@@ -452,12 +465,14 @@ This decomposition reproduces the charter's 0.40%/0.60% with the standard 0.10% 
 
 | Context | Cost model | Fill model | Status | Who may change it |
 |---|---|---|---|---|
-| Paper runtime (tracker `bb7825f`) | `legacy_tracker_v1` (proposed identifier for the existing rule): flat 0.30% on `TRADE_AMOUNT_USDT` + `STOP_SLIPPAGE` 0.001 in stop fills (SE-11, SE-12) | `observed_price_v0`; touch-fill targets; stop-first; gap at observed price | In force (RUNTIME_VERIFIED, VER-11, VER-19) | Owner only: a strategy-version and measurement boundary (SE-68) |
-| Paper reporting | Legacy net, labelled `net_after_modeled_cost_v1` | as above | In force | Same as above. A research-model view of Paper trades admitted after the freeze would read FORWARD_HOLDOUT outcomes and is forbidden without an OD-7 unlock (DFP:L57 @ 46578aa) |
+| Paper runtime (tracker `bb7825f`) | `legacy_tracker_v1` (the canonical identifier of the existing rule, WP-IR-07): flat 0.30% on `TRADE_AMOUNT_USDT` + `STOP_SLIPPAGE` 0.001 in stop fills (SE-11, SE-12) | `observed_price_v0`; touch-fill targets; stop-first; gap at observed price | In force (RUNTIME_VERIFIED, VER-11, VER-19) | Owner only: a strategy-version and measurement boundary (SE-68) |
+| Paper reporting | `legacy_tracker_v1`; legacy net with `label_policy` `net_after_modeled_cost_v1` | as above | In force | Same as above. A research-model view of Paper trades admitted after the freeze would read FORWARD_HOLDOUT outcomes and is forbidden without an OD-7 unlock (DFP:L57 @ 46578aa) |
 | Research replays (A48 harness) | `a48-cost-v1` | `legacy_bar_v1`, `tracker_event_v1`, `ohlc_uncertainty_v1` | Levels 1–2 only (SE-17) | Protected research or simulation; needs OD-DF-1 for real data (DFP:L42, L113 @ 46578aa) |
-| Preregistered evaluation (WP4) | Research baseline 0.40% and stress 0.60% (SE-44), once adopted | Research fill model (SE-46) | Proposed only | Owner, at preregistration (charter §5 WP3, L52) |
+| Preregistered evaluation (WP4) | `research_baseline_v1` (0.40%) and `research_stress_v1` (0.60%) (SE-44), once adopted | Research fill model (SE-46) | Proposed only | Owner, at preregistration (charter §5 WP3, L52) |
 | Design A | Its own 0.40%/0.60% decomposition | Tuesday-open execution with deferral | Unmerged, review only | Owner decisions E1–E8 |
 | Evidence Ladder admissions | STRESS + MES per position (ELP:L81 @ 46578aa) | Not specified | CONFIRMATORY-ONLY, HOLD | Owner; reconcile at WP3 (SE-19) |
+
+**Identifiers (WP-IR-07).** The field is `cost_model_id`, on every `LedgerEntry`, `Fill`, `SizingDecision`, `DecisionRecord` and `StrategyContract`. The identifiers are `legacy_tracker_v1`, `research_baseline_v1` and `research_stress_v1`. Numeric parameters live in the model's configuration and enter `config_hash`; they never form part of an identifier. `label_policy` stays a separate field that names the reporting rule.
 
 Explicit statement: the legacy Paper accounting stays exactly as it is until the owner approves a change. Changing it, including removing the R4 double count, changing the notional basis, adding spread or wiring exchange rounding, is a strategy-version and measurement boundary. Results before and after such a change are never pooled, and historical counters and labels are not rewritten (OOC:L24-28, L36 @ 46578aa; `deploy/VERSION_BOUNDARY.md:L3-5 @ 46578aa`). The research model is never retrofitted onto stored Paper rows as if it had been in force.
 
@@ -495,7 +510,13 @@ The chain that makes a decision attributable is: `StrategyVersion` (three hashes
 | Output | canonical output (`Candidate`, `RejectionRecord`, `Opportunity`, `SizingDecision`, `OrderIntent`, `Fill`, transition or `LedgerEntry`) |
 | Chain | `prev_record_hash` per (service, UTC day); `record_hash` = sha256(canonical record without `record_hash`) |
 
-**SE-52. Opportunity and rejection logs.** Every `Candidate` and every `RejectionRecord` is logged, with no sampling. Strategy-stage reason codes extend the funnel's list ([OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md)) and reuse the research `RejectionCode` names where they exist (`REJECT_REGIME`, `REJECT_ENTRY`, `REJECT_STOP_DISTANCE`, `NOT_ELIGIBLE_INSUFFICIENT_HISTORY`, `REJECT_DATA_QUALITY`). New strategy-stage codes: `incomplete_candles`, `stale_regime`, `structural_risk_exceeds_cap` (existing string), `invalid_geometry`, `t1_not_cost_feasible`, `below_exchange_minimum`, `duplicate_setup_key`, `bar_before_version_activation` (SE-36).
+Granularity (WP-IR-08): one record per decision. The funnel's per-cycle record (OPPORTUNITY_FUNNEL.md F8) is the record of `decision_type` `opportunity_rank`, one per cycle; `RejectionRecord.cycle_id` is its `decision_id`. A `rejection` record carries both the `RejectionRecord`'s `record_id` and its own `decision_id`.
+
+**SE-52. Opportunity and rejection logs.** Every `Candidate` and every `RejectionRecord` is logged, with no sampling. Every `reason_code` comes from the funnel's closed taxonomy v1 ([OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md) §8.2). A strategy stage name goes in `sub_stage`, and a strategy or research name is kept verbatim in `detail` and never used as the aggregation key (WP-IR-01). The names map as follows:
+- **Research `RejectionCode` names.** `REJECT_REGIME` → `F4.regime_not_accepted`; `REJECT_ENTRY` → `F4.no_setup`; `REJECT_STOP_DISTANCE` → `F5.stop_risk_above_cap`; `NOT_ELIGIBLE_INSUFFICIENT_HISTORY` → `F4.history_insufficient`; `REJECT_DATA_QUALITY` → `F4.data_quality`.
+- **Rank and capacity.** `REJECT_RANK_CAPACITY` is **not** reused, because it repeats the rank-versus-capacity conflation of OF-07; it maps to `F6.rank_below_cap` (WP-IR-04). `REJECT_MAX_TRADES` maps to `F7.capacity_full` (WP-IR-03).
+- **Risk.** `REJECT_DAILY_RISK`, `REJECT_WEEKLY_RISK` and `REJECT_DRAWDOWN` map to `F7.economic_limit:<rule>`. `REJECT_PORTFOLIO_CAP` is split by its `detail.reason` (WP-IR-05).
+- **Strategy and shared codes, kept in `detail`.** `incomplete_candles` → `F4.data_quality`; `stale_regime` → `F4.regime_stale`; `structural_risk_exceeds_cap` (existing string) → `F5.stop_risk_above_cap`; `invalid_geometry` → `F5.bracket_invalid`; `t1_not_cost_feasible` → `F5.t1_not_cost_feasible`; `below_exchange_minimum` → `F7.min_notional_infeasible`; `duplicate_setup_key` → `F4.duplicate_setup`; `bar_before_version_activation` (SE-36) → `F4.bar_before_version_activation`.
 
 **SE-53. Signal and order audit trail.** `Candidate` → `Opportunity` → `SizingDecision` → `OrderIntent` (side, type, quantity, price, rounding applied, `filters_hash`) → `Fill` (quantity, price, reference price and source, *f*, *h*, *s* amounts, partial flag, `fill_time`) → position transitions (§B6) → `LedgerEntry`. Each arrow is a `DecisionRecord` that cites the parent's `decision_id`. The ledger side, including reconciliation with stored Paper results, is specified in [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md) (PR-I11, PR-I13) and not repeated here.
 

@@ -1,5 +1,13 @@
 # Portfolio Risk and Compounding — Ledger, Risk Budget and Sizing Contract
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. This file now uses the canonical interfaces of [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) section 8. No definition is new, no option is chosen and no value is set. What changed:
+> - **`risk_plan`** (§3.1 item 7, §3.2, §12). Sizing reads `Opportunity.risk_plan`, the read-only alias of the Candidate's plan, and `risk_plan_hash` enters the `SizingDecision` inputs (WP-IR-02).
+> - **Capacity** (PR-14, §5, PR-OD16, PR-C09). There is one capacity authority, the F7 check in §5 steps 4–5. PR-14 now also records the zero-limit and ladder-label facts (WP-IR-03, WP-IR-04).
+> - **Reason codes** (§3.4, §3.5, §4.1, §4.4, §4.5, §5, §8). The canonical F7 codes replace the free-standing names `mark_stale`, `ledger_mismatch`, `ledger_event_conflict` and `below_min_notional`. The legacy string `invalid_risk_state` is kept (WP-IR-05).
+> - **Cost models** (§3.2, §3.6, PR-OD7, PR-C03). The field is `cost_model_id`, not `cost_model_version`. The legacy identifier is `legacy_tracker_v1`, not `legacy_tracker_30bps`. The research models are `research_baseline_v1` and `research_stress_v1` (WP-IR-07).
+> - **Identity and state.** `Position.state` is a projection of the STRATEGY_AND_EXECUTION_CONTRACT.md §B6 machine (WP-IR-06). `strategy_version` is the five-field identity (WP-IR-09).
+> - **Line citations.** Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 **Pack:** Consolidated Remediation & Design Pack, 2026-11-01 · **Work package:** WP1-D · **Remediation item:** R7 (equity ledger and realized-profit compounding)
 **Branch:** `docs/wp0-wp1-remediation-design-20261101`, from `main` `46578aa` · **Nature:** documentation and design only.
 **Change class of this document:** Documentation/design.
@@ -122,6 +130,9 @@ All code citations in this section are `@ bb7825f`, unless marked otherwise, and
   - `enforce_max_open_trades` force-closes the most-losing positions only above `MAX_OPEN_TRADES`, labelling them by gross sign (`trade_tracker/main.py:L508-L556 @ bb7825f`).
   - Runtime: canary 2, `MAX_OPEN_TRADES` unset → 10, so the effective capacity is 2. RUNTIME_VERIFIED (`docs/audits/2026-10-31-trading-system-review/RUNTIME_CONFIG_VERIFICATION_ADDENDUM.md:L104 @ 5d977f2`, VER-12).
   - The code default for the canary is 1 (`shared/config.py:L150 @ bb7825f`).
+  - A zero limit means different things. The delivery gate and the tracker pre-checks check only a limit above zero, so zero means "unlimited" there (`telegram/main.py:L380 @ bb7825f`; `trade_tracker/main.py:L708`, `L752 @ bb7825f`). The risk policy refuses a limit of zero or less as `invalid_risk_state` (`shared/risk_management.py:L71-L76 @ bb7825f`).
+  - When a ladder multiplier has lowered the slot count, the risk policy labels a capacity refusal with the first ladder reason, and with `max_open_trades` only when no ladder reason exists (`shared/risk_management.py:L141-L142 @ bb7825f`). Capacity is then reported under a sizing label.
+  - This finding describes today. The target has one capacity authority (§5; WP-IR-03), and its refusal is `F7.capacity_full` with any ladder reason kept in `detail` (WP-IR-04).
 - **PR-21 — correlated exposure is not live.**
   - `CorrelatedExposurePolicy` (A42-C2) caps BTC-beta-weighted long notional. It is defined with `enabled=False`, a 75 USDT cap and an unknown-beta assumption of 1.5 (`shared/signal_quality.py:L357-L386 @ bb7825f`).
   - Beta comes from aligned closed-bar log returns with at least 30 observations (`shared/signal_quality.py:L329-L345 @ bb7825f`).
@@ -235,7 +246,7 @@ All code citations in this section are `@ bb7825f`, unless marked otherwise, and
 6. **Fail closed on uncertainty.**
    - An unreconciled ledger, a stale or missing mark, or a duplicate-conflicting event is a technical halt reason for new admissions, never an economic observation.
    - This keeps the owner contract's rule that technical safeguards stay fail-closed (`docs/governance/OWNER_OPERATING_CONTRACT.md:L26 @ 46578aa`, DOCUMENTED_ONLY).
-7. **Deterministic decisions.** `SizingDecision = size(ledger_state_hash, RiskBudget, Opportunity.risk_plan, MarketSnapshot)`, recorded as a `DecisionRecord` with all input hashes (charter §3 E).
+7. **Deterministic decisions.** `SizingDecision = size(ledger_state_hash, RiskBudget, Opportunity.risk_plan, MarketSnapshot)`, recorded as a `DecisionRecord` with all input hashes (charter §3 E). `Opportunity.risk_plan` is the read-only alias of `Opportunity.candidate.risk_plan`; the plan is owned by the `Candidate`, and its `risk_plan_hash` is a `SizingDecision` input (WP-IR-02).
 8. **Legacy tables remain the legacy record.**
    - The ledger is additive. `trade_results`, `active_trades` and `risk_management` keep their meaning, so history stays interpretable.
    - The ledger reconciles to them (PR-I13). It does not replace them silently.
@@ -244,10 +255,10 @@ All code citations in this section are `@ bb7825f`, unless marked otherwise, and
 
 | Entity | Key fields in this contract |
 |---|---|
-| `LedgerEntry` | Identity and ordering: `entry_id`, `ledger_id`, `sequence` (gap-free), `event_id` (idempotency key), `event_type`, `as_of` (UTC, tz-aware), `cost_model_version`, `strategy_id`/`strategy_version`, `position_id`/`intent_id`. Balance deltas: `Δcash_free`, `Δreserved`, `Δcommitted_cost`, `Δrealized_gross`, `Δfees`. Leg detail: `qty`, `ref_price`, `fill_price`, `fee_rate`, `fee_amount`, `fee_asset`, attribution (`spread_cost`, `slippage_cost`; balance-neutral). Integrity: `prev_state_hash`, `state_hash`, `corrects_entry_id` (corrections only). |
-| `Position` | `position_id`, `symbol`, `strategy_id`, `strategy_version`, `regime_label`, `opened_at`, `qty_open`, `avg_entry_price`, `cost_basis`, `qty_exited`, `legs[]`, `stop_level`, `stop_fill_model`, `targets[]`, `holding_policy`, `state` (`pending` → `open` → `partially_exited` → `closed`), `risk_at_stop`, `last_mark` (`price`, `as_of`, `source`). |
-| `RiskBudget` | `budget_version`. Portfolio and per-trade limits: `sizing_base_rule`, `per_trade_risk` or `per_trade_notional_fraction`, `portfolio_heat_cap`. Exposure caps: `gross_cap`, `symbol_cap`, `strategy_cap`, `regime_cap`, `cluster_cap`, `max_positions`, `cash_reserve`, `liquidity_cap`. Controls: `drawdown_ladder[]`, `loss_streak_ladder[]`, `period_loss_limits`, `mark_max_age`, `mode` (`enforce`/`observe` for economic limits only). All values come from §6 owner decisions. |
-| `SizingDecision` | Inputs: `decision_id`, `opportunity_ref`, `ledger_state_hash`, `budget_version`, `sizing_base` and its components, `ladder_multiplier` with reasons. Sizing: `raw_size`, then the constraint stages with the binding constraint named (risk, notional cap, heat, cash, liquidity, min-notional, step size), `final_qty`, `final_notional`, `expected_entry_cost`. Outcome: `outcome` (`size` / `reject` with `RejectionRecord` reason code). |
+| `LedgerEntry` | Identity and ordering: `entry_id`, `ledger_id`, `sequence` (gap-free), `event_id` (idempotency key), `event_type`, `as_of` (UTC, tz-aware), `cost_model_id` (WP-IR-07), `strategy_id`/`strategy_version` (the five-field identity, WP-IR-09), `position_id`/`intent_id`. Balance deltas: `Δcash_free`, `Δreserved`, `Δcommitted_cost`, `Δrealized_gross`, `Δfees`. Leg detail: `qty`, `ref_price`, `fill_price`, `fee_rate`, `fee_amount`, `fee_asset`, attribution (`spread_cost`, `slippage_cost`; balance-neutral). Integrity: `prev_state_hash`, `state_hash`, `corrects_entry_id` (corrections only). |
+| `Position` | `position_id`, `symbol`, `strategy_id`, `strategy_version`, `regime_label`, `opened_at`, `qty_open`, `avg_entry_price`, `cost_basis`, `qty_exited`, `legs[]`, `stop_level`, `stop_fill_model`, `targets[]`, `holding_policy`, `state` (`pending` → `open` → `partially_exited` → `closed`: a derived projection of the STRATEGY_AND_EXECUTION_CONTRACT.md §B6 states, never an independent truth, WP-IR-06), `risk_at_stop`, `last_mark` (`price`, `as_of`, `source`). |
+| `RiskBudget` | `budget_version`. Portfolio and per-trade limits: `sizing_base_rule`, `per_trade_risk` or `per_trade_notional_fraction`, `portfolio_heat_cap`. Exposure caps: `gross_cap`, `symbol_cap`, `strategy_cap`, `regime_cap`, `cluster_cap` (a field name, not a reason code), `max_positions`, `cash_reserve`, `liquidity_cap`. Controls: `drawdown_ladder[]`, `loss_streak_ladder[]`, `period_loss_limits`, `mark_max_age`, `mode` (`enforce`/`observe` for economic limits only). All values come from §6 owner decisions. |
+| `SizingDecision` | Inputs: `decision_id`, `opportunity_ref`, `risk_plan_hash`, `ledger_state_hash`, `budget_version`, `cost_model_id`, `sizing_base` and its components, `ladder_multiplier` with reasons. Sizing: `raw_size`, then the constraint stages with the binding constraint named (risk, notional cap, heat, cash, liquidity, min-notional, step size), `final_qty`, `final_notional`, `expected_entry_cost`. Outcome: `outcome` (`size` / `reject` with a `RejectionRecord` F7 code, WP-IR-05). |
 
 ### 3.3 Ledger state and event effects
 
@@ -271,7 +282,7 @@ Derived quantities:
 - unrealized: `unrealized = Σ qty_open × (mark − avg_entry_price)`, before any haircut;
 - mark-to-market equity: `E_mtm = cash_free + reserved + Σ qty_open × mark = E_cost + unrealized`.
 
-Under the legacy cost model the per-leg fee is zero. One cost entry equal to `notional × FEE_ROUNDTRIP_PCT / 100` is booked at the final close, which reproduces `shared/fees.py:L52-L60 @ bb7825f`. That is the only purpose of the legacy model: reconciling with stored history (PR-I13).
+Under the legacy cost model `legacy_tracker_v1` the per-leg fee is zero. One cost entry equal to `notional × FEE_ROUNDTRIP_PCT / 100` is booked at the final close, which reproduces `shared/fees.py:L52-L60 @ bb7825f`. That is the only purpose of the legacy model: reconciling with stored history (PR-I13).
 
 ### 3.4 Reconciliation invariants (checked after every transition)
 
@@ -283,13 +294,13 @@ Under the legacy cost model the per-leg fee is zero. One cost entry equal to `no
 | PR-I4 | **Quantity conservation:** per position, `Σ entry qty − Σ exit qty = qty_open`. Exit legs never exceed the filled quantity. |
 | PR-I5 | **Cost-basis consistency:** the running `committed_cost` equals `Σ qty_open × avg_entry_price` recomputed from positions. |
 | PR-I6 | **No orphan P&L:** `realized_gross` and `fees` equal the sums of their per-position leg values. Every fee belongs to one leg or one legacy close. |
-| PR-I7 | **Idempotency:** `event_id` is unique per ledger. A repeated `event_id` with an identical payload is a recorded no-op. A repeated `event_id` with a different payload is a technical halt (`ledger_event_conflict`). |
+| PR-I7 | **Idempotency:** `event_id` is unique per ledger. A repeated `event_id` with an identical payload is a recorded no-op. A repeated `event_id` with a different payload is a technical halt (`F7.ledger_event_conflict`). |
 | PR-I8 | **Replay determinism:** the fold of the entry log reproduces the maintained state and its `state_hash` exactly. The hash chain (`prev_state_hash`) is unbroken. |
 | PR-I9 | **Marks never move cash:** no `MARK` sequence changes `cash_free`, `reserved`, `committed_cost`, `realized_gross`, `fees` or the sizing base computed under rule (a) of §4.3. |
 | PR-I10 | **Unrealized gains are never capital:** the sizing base is ≤ `E_cost` under every option allowed in §4.3. |
 | PR-I11 | **Single booking:** per leg and cost model, a cost component appears either in `fill_price` or as `fee_amount`, never both. Attribution entries are balance-neutral. |
 | PR-I12 | **Append-only:** no update or delete of entries. A correction carries `corrects_entry_id` and an approval reference. |
-| PR-I13 | **Legacy reconciliation:** for each position closed under the legacy cost model, ledger realized net equals the stored `trade_results.net_profit_usdt` within the declared quantization. A mismatch is a technical halt (`ledger_mismatch`) plus a discrepancy record, never a silent adjustment. |
+| PR-I13 | **Legacy reconciliation:** for each position closed under the legacy cost model, ledger realized net equals the stored `trade_results.net_profit_usdt` within the declared quantization. A mismatch is a technical halt (`F7.ledger_mismatch`) plus a discrepancy record, never a silent adjustment. |
 | PR-I14 | **Time:** every entry has a tz-aware UTC `as_of` and a strictly increasing `sequence`. Day and week boundaries are UTC. Naive timestamps are rejected. |
 
 ### 3.5 Mark-to-market: source, staleness and the daily series
@@ -297,9 +308,9 @@ Under the legacy cost model the per-leg fee is zero. One cost entry equal to `no
 - **Mark record.** Every mark carries `price`, `as_of` (exchange event time where available, else receipt time, labelled as such) and `source` (stream or REST). Marks come from a `MarketSnapshot` and never from a fill.
 - **Staleness.** A mark is `FRESH` when `now − as_of ≤ mark_max_age`, otherwise `STALE`. If any open position's mark is `STALE` or missing:
   - `E_mtm`, unrealized P&L, drawdown and heat are `UNKNOWN`;
-  - new admissions are refused with the technical reason `mark_stale`.
+  - new admissions are refused with the technical reason `F7.mark_stale` (`sub_stage` `shared.admission`).
 
-  This extends the existing NaN → `invalid_risk_state` behaviour (PR-20) with an explicit age bound. Exit management of open positions is unaffected; it is governed by [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md). The value of `mark_max_age` is PR-OD4.
+  This extends the existing NaN → `invalid_risk_state` behaviour (PR-20; canonical code `F7.risk_state_invalid`, with the legacy string kept byte-identical in the legacy `RiskDecision` and in `detail.legacy_reason`) with an explicit age bound. Exit management of open positions is unaffected; it is governed by [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md). The value of `mark_max_age` is PR-OD4.
 - **Price basis (PR-OD3).** Options are last trade, best bid, or mid.
   - Best bid is the conservative liquidation value for a long book.
   - Last trade matches today's tracker inputs.
@@ -314,14 +325,14 @@ Under the legacy cost model the per-leg fee is zero. One cost entry equal to `no
 
 ### 3.6 Fees and modeled costs per leg
 
-- **Recorded per leg:** `ref_price` (limit, stop level, target or decision price), `fill_price` (modeled), `fee_rate`, `fee_amount`, `fee_asset` and `cost_model_version`.
+- **Recorded per leg:** `ref_price` (limit, stop level, target or decision price), `fill_price` (modeled), `fee_rate`, `fee_amount`, `fee_asset` and `cost_model_id`.
 - **Attribution.** `slippage_cost = qty × |ref_price − fill_price|` in the adverse direction, with spread attribution where a spread is observed. It is attribution only (PR-I11).
-- **Cost models are versioned inputs, not ledger code:**
-  - `legacy_tracker_30bps`: a flat round trip at the close, only for reconciliation (§3.3);
-  - the charter's proposed research baseline, 0.40% all-in round trip;
-  - its 0.60% stress case.
+- **Cost models are versioned inputs, not ledger code** (identifiers per WP-IR-07; numeric parameters live in each model's configuration and enter `config_hash`, never the identifier; `label_policy` is a separate field):
+  - `legacy_tracker_v1`: a flat round trip at the close, only for reconciliation (§3.3);
+  - `research_baseline_v1`: the charter's proposed research baseline, 0.40% all-in round trip;
+  - `research_stress_v1`: its 0.60% stress case.
 
-  Both research models include the 0.10% fee per side and charge it per leg on the leg notional (charter §3 C, DOCUMENTED_ONLY; owner contract §1 `docs/governance/OWNER_OPERATING_CONTRACT.md:L10 @ 46578aa`, DOCUMENTED_ONLY). The existing `CostModel` (`shared/signal_quality.py:L45-L76 @ bb7825f`) already separates fee, entry and exit slippage, stop slippage and spread, and and the A46 `exit_ledger` (PR-24) already books fee per side on each leg's value with stop slippage in the fill. Either can be the source of the per-leg rates; neither is a portfolio ledger.
+  Both research models include the 0.10% fee per side and charge it per leg on the leg notional (charter §3 C, DOCUMENTED_ONLY; owner contract §1 `docs/governance/OWNER_OPERATING_CONTRACT.md:L10 @ 46578aa`, DOCUMENTED_ONLY). The existing `CostModel` (`shared/signal_quality.py:L45-L76 @ bb7825f`) already separates fee, entry and exit slippage, stop slippage and spread, and the A46 `exit_ledger` (PR-24) already books fee per side on each leg's value with stop slippage in the fill. Either can be the source of the per-leg rates; neither is a portfolio ledger.
 - **Stop exits (R4).** Under a research model, stop slippage lives only in the stop `fill_price`, and the fee is the per-side rate. The legacy 0.3% flat charge is never added on top. The defect and its geometry consequences are owned by [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) and [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md) (R4). The ledger only guarantees single booking.
 - **Which model the Paper ledger books (PR-OD7)** is a strategy-version property. Shadow ledgers under the other models are pure folds over the same event stream (PR-T15).
 - **Fee asset (PR-OD8).** Spot venues can charge the fee in the received asset or in a third asset. For an exchange-agnostic design, the convention must be fixed per venue. The Paper default is quote currency, as all current Paper accounting assumes (PR-16).
@@ -341,6 +352,8 @@ Each measure is computed post-trade (including the candidate) and reported at co
 | Correlated cluster | Beta-weighted or cluster-summed notional. The source is PR-OD11. | Disabled policy (PR-21) |
 | Portfolio heat | `Σ risk_at_stop / E_ref`, where `risk_at_stop = qty_open × (avg_entry − modeled stop fill) + modeled exit cost`, floored at 0. Gap risk beyond the modeled stop fill is not covered and must be stated with the number. | none |
 | Reserved | Working intents at their reservation amount (PR-12 remediation). | none |
+
+Refusal codes (WP-IR-05): `F7.exposure_gross`, `F7.exposure_symbol`, `F7.exposure_strategy`, `F7.exposure_regime` and `F7.exposure_correlation` (`cluster_cap` stays the `RiskBudget` field name), all with `sub_stage` `shared.admission`; `F7.heat_cap` with `sub_stage` `shared.sizing` when the heat cap leaves no feasible size.
 
 - **Correlation and beta source (PR-OD11).** Options:
   1. BTC beta from aligned closed-bar log returns, reusing `beta_and_correlation` (`shared/signal_quality.py:L329-L345 @ bb7825f`), with an owner-set window, timeframe and unknown-beta fallback;
@@ -444,7 +457,7 @@ Under both M2 and M3 a small `B` makes the 25/50/25 tranches fall below `m` more
 6. available cash: `cash_free − cash reserve`;
 7. liquidity cap;
 8. round **down** to the venue step size;
-9. if the result is below `m`, reject with `below_min_notional`. It is never rounded up.
+9. if the result is below `m`, reject with `F7.min_notional_infeasible` (`sub_stage` `shared.sizing`; formerly named `below_min_notional`, WP-IR-05). It is never rounded up.
 
 The residual goes back to cash. A rejection is recorded as a `RejectionRecord`, never a silent drop ([OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md)).
 
@@ -456,7 +469,7 @@ The residual goes back to cash. A rejection is recorded as a `RejectionRecord`, 
 | Drawdown | `DD = 1 − E_mtm / H` (H-1 and H-2), or `1 − E_cost / H` (H-3). It is computed only from `FRESH` marks; otherwise it is `UNKNOWN` and the technical refusal applies (§3.5). | follows the basis |
 | Ladder | Thresholds mapped to multipliers on size, on slots, or on both (§4.6). The legacy 5/10/15% and 0.5/0.25 values are the starting record, not a proposal (PR-05). | PR-OD20 |
 | Pause | At a maximum DD, no new admissions. Enforce or observe follows the owner's Paper policy (`docs/governance/DEVELOPMENT_FIRST_POLICY.md:L15 @ 46578aa`, DOCUMENTED_ONLY). | PR-OD20 |
-| Kill switch | Technical, always blocking: `ledger_mismatch`, `ledger_event_conflict`, `mark_stale`, a broken hash chain, an unreconciled restart. Economic: owner-defined, and never automatic liquidation of swing or position holdings unless their own exit policy says so. | PR-OD20 (economic part) |
+| Kill switch | Technical, always blocking: `F7.ledger_mismatch`, `F7.ledger_event_conflict`, `F7.mark_stale`, a broken hash chain, an unreconciled restart. Economic: owner-defined, refused as `F7.economic_limit:<rule>` in enforce mode only (observe mode records `observed:<rule>` in the `DecisionRecord`, WP-IR-05), and never automatic liquidation of swing or position holdings unless their own exit policy says so. | PR-OD20 (economic part) |
 | Re-basing | Whether a recovery acknowledgement moves H (PR-10). Options: R-a, H is continuous and never re-based; R-b, H is re-based at an owner-acknowledged epoch, recorded as a ledger event with an approval reference. | PR-OD18 |
 
 ### 4.6 Loss-driven size reductions (de-risking ladders)
@@ -488,14 +501,24 @@ Under §4.3 a realized loss already shrinks `B`, so every size falls proportiona
 
 ## 5. Deterministic decision flow
 
-`decide(state, snapshot)` for one `Opportunity`. Each step either passes or emits a `RejectionRecord` with a reason code.
+`decide(state, snapshot)` for one `Opportunity`. Each step either passes or emits a `RejectionRecord` at stage F7 with a code from the funnel's taxonomy v1 (OPPORTUNITY_FUNNEL.md §8.2; WP-IR-05).
 
-1. **Verify the ledger.** PR-I1 to PR-I14 hold, the hash chain is intact, and reconciliation is current. Otherwise reject with a technical reason.
-2. **Value.** Collect marks for all open positions. Any `STALE` mark rejects with `mark_stale`, technical. Compute `E_cost`, `E_mtm`, H, DD, heat, exposures, the period P&L (UTC windows) and the streak.
-3. **Apply economic controls.** Evaluate the pause and halt rules under the owner's mode. In observe mode, record `observed:<rule>` exactly as today (`shared/economic_halt_policy.py:L178-L201 @ bb7825f`).
+1. **Verify the ledger.** PR-I1 to PR-I14 hold, the hash chain is intact, and reconciliation is current. Otherwise reject with a technical reason (`F7.ledger_mismatch`, `F7.ledger_event_conflict` or `F7.risk_state_invalid`).
+2. **Value.** Collect marks for all open positions. Any `STALE` mark rejects with `F7.mark_stale`, technical. Compute `E_cost`, `E_mtm`, H, DD, heat, exposures, the period P&L (UTC windows) and the streak.
+3. **Apply economic controls.** Evaluate the pause and halt rules under the owner's mode. In observe mode, record `observed:<rule>` exactly as today (`shared/economic_halt_policy.py:L178-L201 @ bb7825f`); there is no `RejectionRecord`. In enforce mode the refusal is `F7.economic_limit:<rule>`.
 4. **Size.** Compute `B` by rule and settlement, the ladder multiplier, and the method's raw size. Apply the constraint stages of §4.4.
 5. **Reserve.** On success, emit `RESERVE(intent, r)` with `r` = notional at limit + entry fee + an owner-set buffer (PR-OD17), and record the `SizingDecision` and `DecisionRecord` with the input hashes.
 6. **Settle.** Fills, legs, releases and marks are applied as ledger events (§3.3). Each transition re-checks the invariants.
+
+**The single capacity authority** (WP-IR-03) is the F7 capacity check inside steps 4–5. It is implemented once, in `shared/capacity_authority.py`, and evaluated once per Opportunity in the admission-authority service.
+- **Slot limit.** In target mode it is `RiskBudget.max_positions` with `budget_version` (PR-OD16). In `legacy_v1` it is min(`MAX_OPEN_TRADES`, `RISK_CANARY_MAX_OPEN_TRADES`).
+- **Loss-driven reduction.** The chosen ladder (PR-OD21), or L-1 in legacy mode.
+- **Exposure.** Separate F7 exposure checks in target mode; the exposure-derived slot bound in legacy mode.
+- **Occupancy.** Ledger positions with `qty_open > 0` plus active reservations of working intents (PR-I3; PR-C11); open `active_trades` only in legacy mode.
+- **Invalid limit.** A zero, negative, non-integer or missing limit refuses with `F7.risk_state_invalid`, never "unlimited".
+- **Output.** "Admit", or `F7.capacity_full` with `detail` = {open, reserved, limit, multiplier, `budget_version`}.
+
+The delivery gate makes no capacity decision; in shadow it is a recorded mirror. The tracker pre-check becomes a start-up ceiling (`max_positions` ≤ `MAX_OPEN_TRADES`). The force-close above `MAX_OPEN_TRADES` is not a capacity check, and whether it stays is WP-OD-02.
 
 **Legacy mode.**
 - `RiskBudget` mode `legacy_v1` reproduces `evaluate_new_trade` exactly, with M1, L-1, capital 500 and slot exposure.
@@ -513,7 +536,7 @@ None of the following has an approved value. Every row is **OWNER DECISION REQUI
 | PR-OD4 | Mark staleness bound `mark_max_age` | A fixed age, a per-timeframe age, or stream-health-coupled | Too short gives technical refusals. Too long gives decisions on old prices. | PR-C06 |
 | PR-OD5 | Valuation haircut | None, or the modeled exit cost | Conservatism of DD and heat versus comparability with Design A | PR-C06 |
 | PR-OD6 | Daily mark for the A29 series | Closed 1d candle close, or the last fresh mark before the UTC boundary | Reproducibility versus timeliness. It must match the WP3 endpoint definition. | PR-C12 |
-| PR-OD7 | Cost model booked by the Paper ledger | Legacy 0.3% flat (reconciliation only), the research baseline 0.40%, or the stress 0.60% | Booking a research model changes admission inputs, so it is a version boundary. Legacy keeps parity with history. | PR-C07 |
+| PR-OD7 | Cost model booked by the Paper ledger | Legacy 0.3% flat (reconciliation only, `legacy_tracker_v1`), the research baseline 0.40% (`research_baseline_v1`), or the stress 0.60% (`research_stress_v1`) | Booking a research model changes admission inputs, so it is a version boundary. Legacy keeps parity with history. | PR-C07 |
 | PR-OD8 | Fee asset convention per venue | Quote currency, base asset, or third asset | Exchange-agnostic correctness versus simplicity | PR-C02 |
 | PR-OD9 | Sizing base rule, gain settlement and compounding caps | Rule (a) or (b); settlement S1–S4; caps C-1, C-2, C-3 | §4.3 | PR-C08 |
 | PR-OD10 | Exposure denominator and basis | `B`, `E_cost` or `E_mtm`; at cost or at mark | Stability versus responsiveness to open moves | PR-C09 |
@@ -522,7 +545,7 @@ None of the following has an approved value. Every row is **OWNER DECISION REQUI
 | PR-OD13 | Sizing method | M1, M2, M3 or M4 | §4.4 | PR-C08 |
 | PR-OD14 | Per-trade value: `N`, `φ`, `ρ` with `κ`, or `σ*` | Any value, by method | Higher compounds faster with deeper drawdowns. Lower makes min notional bind (§4.4 algebra). | PR-C08 |
 | PR-OD15 | Portfolio heat cap | A value, or none | Bounds the simultaneous loss at stops. It does not bound gaps. | PR-C09 |
-| PR-OD16 | Maximum positions (slots) | Keep the runtime 2, or another count | Concurrency versus concentration. It interacts with the A29 candidate and slot design (≤ 3 candidates, `docs/governance/OWNER_OPERATING_CONTRACT.md:L35 @ 46578aa`, DOCUMENTED_ONLY). | PR-C09 |
+| PR-OD16 | Maximum positions (slots) | Keep the runtime 2, or another count. The value feeds the single F7 capacity authority as `RiskBudget.max_positions` (WP-IR-03) | Concurrency versus concentration. It interacts with the A29 candidate and slot design (≤ 3 candidates, `docs/governance/OWNER_OPERATING_CONTRACT.md:L35 @ 46578aa`, DOCUMENTED_ONLY). | PR-C09 |
 | PR-OD17 | Cash reserve and reservation buffer | A fraction of `B` held unallocated, and a buffer on reservations | Idle capital versus fill and fee shortfall | PR-C11 |
 | PR-OD18 | Recovery epoch and drawdown baseline | R-a continuous H, or R-b re-base at an acknowledged epoch | R-a honours "no resetting" (owner contract L25) but may keep size reduced for long. R-b restores size after a manual acknowledgement. | PR-C13 |
 | PR-OD19 | Liquidity capacity | A cap as a fraction of 24h quote volume, a depth-based cap, or none | Realism for larger `B`. It needs point-in-time liquidity data. | PR-C08 |
@@ -538,13 +561,13 @@ Each change carries exactly one change class. All link to R7. Secondary links ar
 |---|---|---|---|---|---|---|
 | PR-C01 | This contract: ledger, risk budget and sizing design, and the decisions table | Documentation/design | R7 | — | Self-check | Pack review. Every §6 row is recorded in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md). |
 | PR-C02 | A pure ledger library (`Decimal`, event fold, invariants PR-I1 to PR-I14, state hash). No I/O. Not imported by any service. | Safe development-only correction (default-off, no runtime effect) | R7 | PR-OD8 for the fee asset (quote-only until decided) | PR-T01 to PR-T08, PR-T11, PR-T16 | All invariant property tests pass on synthetic events. There is no import from a runtime service (import-graph test). |
-| PR-C03 | A legacy-mode adapter: maps synthetic `active_trades`, `trade_target_fills` and `trade_results` row fixtures into ledger events under `legacy_tracker_30bps`, and reconciles them (PR-I13). | Safe development-only correction (default-off, no runtime effect) | R7 [R5] | PR-C02 | PR-T09, PR-T10, PR-T17 | Fixture reconciliation is exact within quantization. Each PR-07 and PR-17 divergence is reproduced as a named discrepancy. |
+| PR-C03 | A legacy-mode adapter: maps synthetic `active_trades`, `trade_target_fills` and `trade_results` row fixtures into ledger events under `legacy_tracker_v1`, and reconciles them (PR-I13). | Safe development-only correction (default-off, no runtime effect) | R7 [R5] | PR-C02 | PR-T09, PR-T10, PR-T17 | Fixture reconciliation is exact within quantization. Each PR-07 and PR-17 divergence is reproduced as a named discrepancy. |
 | PR-C04 | An additive schema migration: ledger entry table (append-only, unique `event_id`, gap-free `sequence`), and per-position `qty`, `avg_entry_price` and `cost_basis` columns, NULL on history. Authored and tested only on a disposable database. | Safe development-only correction (default-off, no runtime effect) | R7 | PR-C02 | PR-T18 | The migration is idempotent and backward compatible: pre-change code runs against it, as with A38 (`database/migrations/010_a38_execution_integrity.sql:L1-L5 @ bb7825f`). |
 | PR-C05 | A shadow ledger writer in the tracker behind a default-off flag. It writes entries from existing lifecycle events and changes no decision. | Safe development-only correction (default-off, no runtime effect) | R7 [R5] | PR-C03, PR-C04, PR-OD1, PR-OD2 | PR-T02, PR-T04, PR-T09, PR-T19 | With the flag off, behaviour is byte-identical. With the flag on in tests, admission decisions are unchanged on fixtures. |
-| PR-C06 | Mark records with `as_of` and `source`, and the `mark_stale` technical refusal | Strategy-version-changing correction | R7 [R9] | PR-OD3, PR-OD4, PR-OD5 | PR-T08 | No admission on a stale mark. The reason is recorded. Exit management is untouched. |
+| PR-C06 | Mark records with `as_of` and `source`, and the `F7.mark_stale` technical refusal | Strategy-version-changing correction | R7 [R9] | PR-OD3, PR-OD4, PR-OD5 | PR-T08 | No admission on a stale mark. The reason is recorded. Exit management is untouched. |
 | PR-C07 | Risk inputs from the ledger: stored per-position costs instead of recomputed flat fees (PR-06), partial-exit-aware unrealized P&L (PR-07), per-position notional at close (PR-17), UTC-explicit windows (PR-23) | Strategy-version-changing correction | R7 [R4] | PR-C05, PR-OD7, PR-OD22 | PR-T10, PR-T15, PR-T16 | Fixture decisions differ from legacy only where PR-06, PR-07, PR-17 or PR-23 predicts, and each difference is explained. |
 | PR-C08 | A sizing engine producing `SizingDecision` (method, `B` rule, settlement, caps, constraint stages, step rounding, min-notional rejection) | Strategy-version-changing correction | R7 | PR-C02, PR-OD9, PR-OD13, PR-OD14, PR-OD19 | PR-T06, PR-T07, PR-T11, PR-T12, PR-T20 | `B` never includes unrealized gains. Gains enter only after settlement, losses at once. The binding stage is always named. |
-| PR-C09 | Exposure, heat and slot caps on ledger values (gross, symbol, strategy by `strategy_id`, regime) | Strategy-version-changing correction | R7 [R6] | PR-C08, PR-OD10, PR-OD12, PR-OD15, PR-OD16 | PR-T13 | Post-trade caps hold under every synthetic sequence. Legacy mode reproduces slot exposure. |
+| PR-C09 | Exposure, heat and slot caps on ledger values (gross, symbol, strategy by `strategy_id`, regime); the slot cap is the target mode of the single capacity authority (WP-IR-03) | Strategy-version-changing correction | R7 [R6] | PR-C08, PR-OD10, PR-OD12, PR-OD15, PR-OD16 | PR-T13 | Post-trade caps hold under every synthetic sequence. Legacy mode reproduces slot exposure. |
 | PR-C10 | Correlated-cluster exposure on the chosen source | Strategy-version-changing correction | R7 | PR-OD11, PR-OD12 | PR-T14 | Unknown or NaN beta follows the fail-closed rule. The mapping and window are versioned in the budget hash. |
 | PR-C11 | Reservation of capital for working entry intents, with release on fill, reject or expiry (PR-12) | Strategy-version-changing correction | R7 [R6] | PR-C02, PR-OD17 | PR-T03, PR-T05 | `reserved` equals the active intents. A working order can no longer exceed available cash or capacity. |
 | PR-C12 | A daily `E_mtm` snapshot series (UTC) for the governed endpoint, computed from the shadow ledger | Safe development-only correction (default-off, no runtime effect) | R7 [R8] | PR-C05, PR-OD6, WP3 endpoint decision | PR-T16, PR-T19 | One value per UTC day, or `UNKNOWN`. Reproducible from the entry log and marks. |
@@ -560,18 +583,18 @@ Every test uses generated or hand-written synthetic events and fixtures, with fi
 | ID | Test | Asserts |
 |---|---|---|
 | PR-T01 | **Invariant property test.** Random valid sequences of `GENESIS`, `RESERVE`, `RELEASE`, `ENTRY_FILL` (full and partial), `EXIT_FILL` (1–3 legs) and `MARK` | PR-I1 to PR-I6 and PR-I14 hold exactly after **every** transition. Invalid events (overdraw, over-exit, naive time) are refused with a named reason and leave the state unchanged. |
-| PR-T02 | **Idempotency.** Each event of a sequence is applied 1–3 times, in random duplicate positions | The final state and hash equal the single-application result. Duplicates are recorded as no-ops. The same `event_id` with a different payload raises `ledger_event_conflict` (PR-I7). |
+| PR-T02 | **Idempotency.** Each event of a sequence is applied 1–3 times, in random duplicate positions | The final state and hash equal the single-application result. Duplicates are recorded as no-ops. The same `event_id` with a different payload raises `F7.ledger_event_conflict` (PR-I7). |
 | PR-T03 | **Replay determinism.** Fold the entry log from empty and compare it with the incrementally maintained state | The states and `state_hash` are identical, and the hash chain verifies (PR-I8). |
 | PR-T04 | **Crash and restart.** Truncate the log at every prefix, then re-apply the full event stream | Exactly-once outcome. No reservation, fee or leg is lost or doubled. |
 | PR-T05 | **No double booking on legs.** 25/50/25 exits with merged sub-minimum tranches | Σ leg quantities = filled quantity. Fees are charged per leg on the leg notional (research model) or once at close (legacy model), never both (PR-I11). |
 | PR-T06 | **Unrealized never capital.** Hold the realized events fixed and vary the mark paths arbitrarily | `cash_free` and `B` under rule (a) are invariant. Under rule (b), `B ≤ E_cost` always, and `B` never rises above `E_cost` on a mark increase (PR-I9, PR-I10). |
 | PR-T07 | **Compounding from realized net only.** Sequences of net wins and losses under S1–S4 and caps C-1 to C-3 | A gain raises `B` only at its settlement point and only by its net amount (after all fees). A loss lowers `B` at the close. The caps are never exceeded. External deposits never change performance-adjusted `B`. |
-| PR-T08 | **Stale or missing mark fails closed.** Marks older than the bound, missing, NaN, ∞ or ≤ 0 | Admission is refused with `mark_stale` or `invalid_risk_state`. No NaN reaches the ledger. Exits are not blocked. |
+| PR-T08 | **Stale or missing mark fails closed.** Marks older than the bound, missing, NaN, ∞ or ≤ 0 | Admission is refused with `F7.mark_stale` or `F7.risk_state_invalid` (legacy string `invalid_risk_state`). No NaN reaches the ledger. Exits are not blocked. |
 | PR-T09 | **Legacy parity (golden fixtures).** Synthetic `RiskSnapshot` and `RiskLimits` grids through legacy mode | `legacy_fields` are byte-identical to `evaluate_new_trade` at `bb7825f` (`shared/economic_halt_policy.py:L137-L142 @ bb7825f` defines the comparison). The hash of `shared/risk_management.py` is unchanged. |
 | PR-T10 | **Partial-exit-aware unrealized.** A position after T1 and T2 legs, with prices above and below the target | The ledger's unrealized P&L marks only `qty_open`. The legacy formula's divergence equals the PR-07 expression exactly. |
-| PR-T11 | **Quantization and step size.** Random step sizes, min notionals and prices | The size is rounded down, never above the budget. Below minimum gives `below_min_notional`. The residual stays in `cash_free`. |
+| PR-T11 | **Quantization and step size.** Random step sizes, min notionals and prices | The size is rounded down, never above the budget. Below minimum gives `F7.min_notional_infeasible`. The residual stays in `cash_free`. |
 | PR-T12 | **Ladder monotonicity and recovery.** DD, streak and period-loss grids for L-1 to L-4 | The multiplier is non-increasing in each trigger. The recovery rule is applied as specified. Hysteresis prevents oscillation on a boundary-straddling path. |
-| PR-T13 | **Exposure caps post-trade.** Sequences that approach each cap, at cost and at mark | No admission leaves a cap breached. Rejections name the cap. Reserved intents count. |
+| PR-T13 | **Exposure caps post-trade.** Sequences that approach each cap, at cost and at mark | No admission leaves a cap breached. Rejections carry the F7 exposure or heat code of the cap. Reserved intents count. |
 | PR-T14 | **Correlation fallback.** Betas that are unknown, NaN, negative, or computed from fewer observations than required | The documented conservative rule is applied, NaN is refused, and the decision records the source version. |
 | PR-T15 | **Cost-model separation.** One synthetic event stream folded under legacy, baseline and stress models | Three consistent ledgers. Stop slippage appears once per model (R4). The ledgers differ only by the declared cost terms. |
 | PR-T16 | **UTC windows.** Events straddling UTC day and week boundaries, plus inputs with non-UTC offsets | Day and week attribution is by UTC. Naive timestamps are refused. The daily `E_mtm` series has one value per UTC day, or `UNKNOWN`. |
@@ -623,8 +646,8 @@ None of these criteria is a profitability criterion. Closing R7 establishes meas
 
 - [BASELINE_AND_EVIDENCE.md](BASELINE_AND_EVIDENCE.md): commit baseline and runtime-identity confidence used in §0.
 - [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md): R7 status, its sub-items, and the R4 dependency.
-- [OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md): `Opportunity.risk_plan`, capacity rejections and `RejectionRecord` reason codes consumed by §4.4 and §5; its stage F7 hands each ranked `Opportunity` to the `RiskBudget` and `SizingDecision` defined here, including minimum-order feasibility (§4.4, constraint stages 8–9).
+- [OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md): `Opportunity.risk_plan` (the read-only alias of the Candidate's plan, WP-IR-02), the `RejectionRecord` schema and F7 reason codes consumed by §4.4 and §5; its stage F7 hands each ranked `Opportunity` to the `RiskBudget` and `SizingDecision` defined here, including minimum-order feasibility (§4.4, constraint stages 8–9).
 - [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md): stop and target geometry (R2), fills, the cost model and the stop-slippage correction (R4), on which `s`, `risk_at_stop` and per-leg costs depend.
-- [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md): branch sequencing of PR-C02 to PR-C16.
+- [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md): branch sequencing of PR-C02 to PR-C16, and the canonical interface names of its section 8 (WP-IR-01 to WP-IR-09) that this document follows.
 - [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md): records for PR-OD1 to PR-OD22, WP3 endpoint and slot decisions.
 - Governance: [charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md), [owner operating contract](../../governance/OWNER_OPERATING_CONTRACT.md), [development-first policy](../../governance/DEVELOPMENT_FIRST_POLICY.md), [evidence ladder parameters](../../strategy/EVIDENCE_LADDER_PARAMETERS.md).

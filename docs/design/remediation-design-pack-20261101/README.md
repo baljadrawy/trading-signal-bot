@@ -1,5 +1,13 @@
 # Consolidated Remediation and Design Pack (WP0 + WP1)
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. What changed in the pack:
+> - **Interfaces.** OPPORTUNITY_FUNNEL.md, STRATEGY_AND_EXECUTION_CONTRACT.md, PORTFOLIO_RISK_AND_COMPOUNDING.md and REMEDIATION_REGISTER.md now use the canonical interfaces of IMPLEMENTATION_WORKPLAN.md section 8.
+> - **State statements.** Stale ones are corrected across the pack.
+> - **Decision register.** DECISIONS_AND_GATES.md groups its 72 decisions by when each is first needed. Every one stays OPEN.
+> - **Each file** that changed carries its own dated note.
+>
+> In this README, the pack state, rollback and reading-order item 5 are updated. The charter's §9 source anchors still lack the `docs/` prefix. This is a charter path issue (BL-14); the charter is not edited. Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 > **Status: documentation and design only (charter §5 WP0 and WP1, §8).** This pack is the immediate deliverable that the charter names: a baseline comparison, a deduplicated R1–R9 tracker, an opportunity-funnel specification, strategy, exit and cost contracts, an equity and compounding ledger design, a safe engineering plan and the explicit research decisions still pending (`CH:L71-72`). It is not another generic audit (`CH:L16`). Nothing in it was run, measured, simulated or deployed. Correcting an implementation defect is never evidence of profitability (`CH:L46`).
 
 ## Authority of this pack
@@ -15,7 +23,7 @@
 | Base | `main` at `46578aa1ad500456271557be0031d1ca1d826c1b` (46578aa), 2026-11-01 (BL-01 in [BASELINE_AND_EVIDENCE.md](BASELINE_AND_EVIDENCE.md)) |
 | Audit package | `docs/audits/2026-10-31-trading-system-review/ @ 5d977f2`, branch `docs/trading-system-audit-20261031`, **not merged** (BL-02) |
 | ERG-01 package | `docs/research/evidence-resolution-20261031/ @ 0729a5f`, branch `docs/evidence-resolution-20261031`, **not merged** (BL-02); verdict **INCONCLUSIVE** preserved |
-| Pack state | written on 2026-11-01; uncommitted on the working branch |
+| Pack state | written on 2026-11-01; committed and pushed at `5cd1a61` on `docs/wp0-wp1-remediation-design-20261101` (not merged into `main`); reconciled on 2026-11-01 by WP2 (branch `feature/wp2-foundation-20261101`) |
 | Governing documents | [charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md), [CLAUDE.md](../../../CLAUDE.md), [Owner Operating Contract](../../governance/OWNER_OPERATING_CONTRACT.md), [Development-First Policy](../../governance/DEVELOPMENT_FIRST_POLICY.md), [Evidence Ladder parameters](../../strategy/EVIDENCE_LADDER_PARAMETERS.md) |
 
 Alias: `CH` = `docs/governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md @ 46578aa`. The other aliases (OOC, DFP, ELP, REP, ADD, ERG, G1–G5) are defined in each document's "Source aliases" table. Unmerged material is cited as `path @ commit` and never linked, because it does not exist on this branch.
@@ -36,7 +44,7 @@ The charter asks for one integrated design across all workstreams, built on the 
 3. **Scope.** WP0 and WP1 only (`CH:L49-50`), covering R1–R9 (`CH:L36-44`). WP2–WP5 appear only as planned, gated work. Exclusions: no generic re-audit, no protected data, no backtest, simulation, replay, optimisation or calibration, no code, configuration or deployment change.
 4. **Evidence class.** Every material claim carries one class from charter §7.4 (`CH:L64`): SOURCE_VERIFIED, RUNTIME_VERIFIED (by citing the audit or its addendum only), DOCUMENTED_ONLY, HISTORICAL_REPORTED, INFERRED, NOT_VERIFIED, or CONTRADICTORY where sources disagree.
 5. **Permission class.** The pack itself is read-only documentation. Every proposed change carries exactly one change class: Documentation/design; Safe development-only correction; Strategy-version-changing correction; Protected research or simulation; Production/runtime change. None implies another (`CH:L65`).
-6. **Deliverables, acceptance, gates, rollback.** The eight files below. Acceptance for this phase is a clean self-check of each file and owner review. Every proposed change lists its deterministic synthetic tests, acceptance criteria, owner gate and rollback in [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md) and [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md). Rollback for this phase is discarding the uncommitted files.
+6. **Deliverables, acceptance, gates, rollback.** The eight files below. Acceptance for this phase is a clean self-check of each file and owner review. Every proposed change lists its deterministic synthetic tests, acceptance criteria, owner gate and rollback in [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md) and [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md). Rollback for this phase is reverting the documentation commit: `5cd1a61` for WP0/WP1, and the WP2 reconciliation commit for its changes.
 7. **DEVIATION ALERT.** The anti-drift check across the seven pack documents is in [DECISIONS_AND_GATES.md section 4](DECISIONS_AND_GATES.md). Its result is summarised below under "Anti-drift result".
 
 ## The eight files
@@ -58,7 +66,7 @@ The charter asks for one integrated design across all workstreams, built on the 
 2. **BASELINE_AND_EVIDENCE.md**, to know which source, commit and evidence class each later claim rests on.
 3. **REMEDIATION_REGISTER.md**, the summary table and priority ordering first, then the item of interest.
 4. **OPPORTUNITY_FUNNEL.md**, **STRATEGY_AND_EXECUTION_CONTRACT.md** and **PORTFOLIO_RISK_AND_COMPOUNDING.md**, the three WP1 designs, in that order (funnel, then strategy and execution, then capital), which follows the decision flow of `CH:L21-27`.
-5. **IMPLEMENTATION_WORKPLAN.md**. Its interface reconciliation section fixes the canonical names where documents 4–6 diverge; it governs at interface level only and does not edit them.
+5. **IMPLEMENTATION_WORKPLAN.md**. Its interface reconciliation section fixes the canonical names where documents 4–6 diverged; it governs at interface level only. The WP2 reconciliation of 2026-11-01 aligned documents 3–6 with it.
 6. **DECISIONS_AND_GATES.md**, the decisions that unlock each lane and the WP3 research gate.
 
 An owner who wants only the decisions can read this README, then DECISIONS_AND_GATES.md, then the REMEDIATION_REGISTER.md summary.

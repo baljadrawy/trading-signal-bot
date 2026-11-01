@@ -1,5 +1,12 @@
 # Implementation Workplan for WP2 and Later (plan only)
 
+> **Reconciliation 2026-11-01 (WP2).** Documentation only, on branch `feature/wp2-foundation-20261101` from `5cd1a61`. Stale state statements are corrected; no task, gate, canonical choice or decision changes. What changed:
+> - **Pack state.** The pack is committed and pushed at `5cd1a61` on `docs/wp0-wp1-remediation-design-20261101` (not merged into `main`). Statements that called it uncommitted or a working tree are updated (Source aliases note, section 8 scope note).
+> - **Section 8 scope.** On 2026-11-01 the WP2 reconciliation aligned OPPORTUNITY_FUNNEL.md, STRATEGY_AND_EXECUTION_CONTRACT.md, PORTFOLIO_RISK_AND_COMPOUNDING.md and REMEDIATION_REGISTER.md with WP-IR-01 to WP-IR-09. Section 8 stays the canonical reference, and its divergence citations describe the files at `5cd1a61`.
+> - **Companions and NOT VERIFIED.** DECISIONS_AND_GATES.md is no longer "written in parallel". WP-NV-1 is answered by its section 1.7 and rows DG-70 to DG-72.
+> - **Section 11.1.** The resolution column records the WP2 alignment.
+> - **Line citations.** Line numbers of pack documents in citations refer to the files as committed at `5cd1a61`. They are not renumbered.
+
 > **Status: plan only (charter §5 WP2–WP5 and §8, "safe engineering branch plan").** This file turns every proposed change of the pack into concrete, dependency-ordered tasks for WP2 and lists every change that must wait for a later gate. It starts nothing, runs nothing, changes nothing and authorizes nothing. Approval of WP0 or WP1 does **not** authorize the start of WP2, protected-data access, simulation, tuning, strategy activation, merging or deployment (`CH:L3`, `CH:L80`). Fixing a defect is never evidence of profitability (`CH:L46`; DFP:L31).
 
 ## Document control
@@ -10,7 +17,7 @@
 | Baseline | `main` `46578aa`; audit `5d977f2`; ERG-01 `0729a5f`; reconciliation in [BASELINE_AND_EVIDENCE.md](BASELINE_AND_EVIDENCE.md) |
 | Code read | analyzer and signal_engine at `ea8ae4f`; telegram and trade_tracker at `bb7825f`; `main` at `46578aa`. Every existing path named in a task was checked at `46578aa` with `git cat-file`; files that do not exist there are marked "new" |
 | Design inputs | [REMEDIATION_REGISTER.md](REMEDIATION_REGISTER.md) (R1 … R9, sub-items R1.a …), [OPPORTUNITY_FUNNEL.md](OPPORTUNITY_FUNNEL.md) (OF-), [STRATEGY_AND_EXECUTION_CONTRACT.md](STRATEGY_AND_EXECUTION_CONTRACT.md) (SE-), [PORTFOLIO_RISK_AND_COMPOUNDING.md](PORTFOLIO_RISK_AND_COMPOUNDING.md) (PR-), [BASELINE_AND_EVIDENCE.md](BASELINE_AND_EVIDENCE.md) (BL-). None of them is edited by this file |
-| Companions | [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) (DG-; the consolidated owner-decision entries; written in parallel) and [README.md](README.md) (pack index) |
+| Companions | [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) (DG-; the consolidated owner-decision entries, including WP2-START, WP-OD-01 and WP-OD-02 as DG-70 to DG-72) and [README.md](README.md) (pack index) |
 | Governance | [charter](../../governance/TRADING_SYSTEM_MASTER_CHARTER_2026-11-01.md), [Owner Operating Contract](../../governance/OWNER_OPERATING_CONTRACT.md), [Development-First Policy](../../governance/DEVELOPMENT_FIRST_POLICY.md), [Evidence Ladder parameters](../../strategy/EVIDENCE_LADDER_PARAMETERS.md), [version boundaries](../../../deploy/VERSION_BOUNDARY.md) |
 | ID scheme | WP-A01 … WP-F07: schedulable tasks by lane; WP-G01 …: gated items (not scheduled); WP-IR-01 …: interface reconciliation; WP-IT-01 …: tests that enforce it; WP-OD-01 …: owner decisions raised here; WP-N01 …: observations; WP-NV-1 …: not verified |
 
@@ -35,7 +42,7 @@
 | ADD | `docs/audits/2026-10-31-trading-system-review/RUNTIME_CONFIG_VERIFICATION_ADDENDUM.md @ 5d977f2` (VER-xx) |
 | ERG, G1, G2, G3, G4, G5 | `docs/research/evidence-resolution-20261031/` `README.md`, `HIS05_COMPARABILITY.md`, `VERSION_EVIDENCE_LINEAGE.md`, `DEFECT_IMPACT_ASSESSMENT.md`, `POWER_AND_HORIZON_FEASIBILITY.md`, `CANDIDATE_DECISION_MATRIX.md`, all `@ 0729a5f` |
 
-Code is cited with its full path and commit. Pack documents are cited as file, section and line numbers of the working tree of this branch (uncommitted); they are references, not evidence of runtime behaviour.
+Code is cited with its full path and commit. Pack documents are cited as file, section and line numbers of the pack as committed and pushed at `5cd1a61` on `docs/wp0-wp1-remediation-design-20261101` (not merged into `main`); they are references, not evidence of runtime behaviour.
 
 ## Contents
 
@@ -894,7 +901,7 @@ The engineering work is short compared with the decision path. The plan's durati
 
 The pack documents were written in parallel and name some interfaces differently. This section fixes **one canonical name or rule for each divergence**. For each one it gives: the divergence with citations; the canonical choice; the rationale; the wording it supersedes; and the test that enforces it.
 
-**Scope of "supersede".** It is interface-level only. The five documents are **not edited**. Where they differ from this section, implementation tasks follow this section. WP-A01 records the result as the WP2 interface baseline for owner review. Pack citations are file, section and line numbers of this branch's working tree. Their class is DOCUMENTED_ONLY (design text) unless a code citation is given.
+**Scope of "supersede".** It is interface-level only. At `5cd1a61` the five documents were not edited. On 2026-11-01 the WP2 reconciliation aligned OPPORTUNITY_FUNNEL.md, STRATEGY_AND_EXECUTION_CONTRACT.md, PORTFOLIO_RISK_AND_COMPOUNDING.md and REMEDIATION_REGISTER.md with this section. Where any wording still differs, implementation tasks follow this section. WP-A01 records the result as the WP2 interface baseline for owner review. Pack citations below are file, section and line numbers of the pack at `5cd1a61`, so the divergences describe the text before that alignment. Their class is DOCUMENTED_ONLY (design text) unless a code citation is given.
 
 ### WP-IR-01 · RejectionRecord stage and reason-code names
 
@@ -1243,7 +1250,7 @@ The research catch-all `REJECT_PORTFOLIO_CAP` (`research/foundation/runner.py:L1
 
 ## 9. Owner decisions raised by this plan
 
-Both items are **OWNER DECISION REQUIRED**. The options are not ranked and none is chosen. They are raised here because no pack document records them. [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) is written in parallel, so its consolidated entries for them are not verified (WP-NV-1).
+Both items are **OWNER DECISION REQUIRED**. The options are not ranked and none is chosen. They are raised here because no pack document records them. Their consolidated entries in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) are DG-71 and DG-72 (WP-NV-1, answered).
 
 ### WP-OD-01 · Edits to the nine hash-pinned logic files during WP2
 
@@ -1275,7 +1282,7 @@ At the runtime values the trigger cannot fire, because admissions stop at 2 whil
 
 | ID | Question | Blocker |
 |---|---|---|
-| WP-NV-1 | Does [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) carry a consolidated entry for every source decision cited here, including WP2-START, WP-OD-01 and WP-OD-02? | It is written in parallel and was not read |
+| WP-NV-1 | Does [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) carry a consolidated entry for every source decision cited here, including WP2-START, WP-OD-01 and WP-OD-02? | Answered on 2026-11-01: DECISIONS_AND_GATES.md section 1.7 maps every cited source decision, and DG-70 to DG-72 carry WP2-START, WP-OD-01 and WP-OD-02 |
 | WP-NV-2 | Is the CI, or the local CI equivalent, of acceptance criterion 1 available? | `ops/ci/lce.py` exists only on the unmerged branch `review/lce-2` (`fd66219`); the CI state was not observed in this phase |
 | WP-NV-3 | Effort and calendar duration of each lane | Nothing was measured, and no estimate is given |
 | WP-NV-4 | Do the running images contain the code the tasks modify? | Image content not re-verified (RT-17; WP-G09) |
@@ -1289,14 +1296,14 @@ At the runtime values the trigger cannot fire, because admissions stop at 2 whil
 
 | # | Observation | Class | Resolution |
 |---|---|---|---|
-| 1 | Nine interface divergences between the funnel, contract and portfolio documents | DOCUMENTED_ONLY (design text) | WP-IR-01 to WP-IR-09 |
-| 2 | OPPORTUNITY_FUNNEL.md lists `regime_veto:<series>` under F3 in its taxonomy (L402), but files it under F4 in its alignment table (L415) | DOCUMENTED_ONLY | WP-IR-01 |
-| 3 | SE-12 cites the charter's "§4, L41" for separating R4 accounting from stop geometry (STRATEGY_AND_EXECUTION_CONTRACT.md L374). R4 is `CH:L39`; L41 is R6. The content is unaffected | SOURCE_VERIFIED (charter lines) | citation slip; noted only |
+| 1 | Nine interface divergences between the funnel, contract and portfolio documents | DOCUMENTED_ONLY (design text) | WP-IR-01 to WP-IR-09; source documents aligned by WP2 on 2026-11-01 |
+| 2 | OPPORTUNITY_FUNNEL.md lists `regime_veto:<series>` under F3 in its taxonomy (L402), but files it under F4 in its alignment table (L415) | DOCUMENTED_ONLY | WP-IR-01; OPPORTUNITY_FUNNEL.md aligned by WP2 on 2026-11-01 |
+| 3 | SE-12 cites the charter's "§4, L41" for separating R4 accounting from stop geometry (STRATEGY_AND_EXECUTION_CONTRACT.md L374). R4 is `CH:L39`; L41 is R6. The content is unaffected | SOURCE_VERIFIED (charter lines) | citation slip; corrected to `CH:L39` in SE-12 by WP2 on 2026-11-01 |
 | 4 | Two acceptance criteria assume that no pinned file changes: SE-63's "the v1 hash of `current_contract()` unchanged" (L528) and PR-T09's "the hash of `shared/risk_management.py` is unchanged" (L570). Yet OF-T02 and parts of OF-T01, OF-T07 and OF-T10 need hooks inside pinned files. No pack document notes that these files are hash-pinned | INFERRED from SOURCE_VERIFIED code (WP-N02) | WP-OD-01 |
 | 5 | A zero capacity limit means "unlimited" at the delivery gate and the tracker pre-check, but "invalid" in the risk policy. Neither OPPORTUNITY_FUNNEL.md §12 nor PR-14 records this | SOURCE_VERIFIED (code, WP-IR-03) | WP-IR-03 |
 | 6 | When a ladder multiplier lowered the slot count, the risk policy labels a capacity refusal with the ladder reason (`shared/risk_management.py:L141-142 @ bb7825f`). PR-05 and PR-14 do not mention this | SOURCE_VERIFIED | WP-IR-04, WP-IR-05 |
-| 7 | SE-52 proposes reusing the research `RejectionCode` names "where they exist" (L498). That enumeration includes `REJECT_RANK_CAPACITY`, which repeats the OF-07 conflation (`research/foundation/runner.py:L145-148 @ 46578aa`) | SOURCE_VERIFIED | WP-IR-04 |
-| 8 | The register's stage names `selection_capacity` and `portfolio_capacity` (R1.f, R6.c) are not in OPPORTUNITY_FUNNEL.md's stage enumeration | DOCUMENTED_ONLY | WP-IR-04 |
+| 7 | SE-52 proposes reusing the research `RejectionCode` names "where they exist" (L498). That enumeration includes `REJECT_RANK_CAPACITY`, which repeats the OF-07 conflation (`research/foundation/runner.py:L145-148 @ 46578aa`) | SOURCE_VERIFIED | WP-IR-04; SE-52 aligned by WP2 on 2026-11-01 |
+| 8 | The register's stage names `selection_capacity` and `portfolio_capacity` (R1.f, R6.c) are not in OPPORTUNITY_FUNNEL.md's stage enumeration | DOCUMENTED_ONLY | WP-IR-04; R1.f and R6.c aligned by WP2 on 2026-11-01 |
 | 9 | The pack's shared glossary is referenced ("pack glossary", STRATEGY_AND_EXECUTION_CONTRACT.md L136, L141; the PORTFOLIO_RISK_AND_COMPOUNDING.md §3.2 heading, L243), but none of the five documents reproduces it | DOCUMENTED_ONLY | to be carried by [README.md](README.md), or recorded by WP-A01 |
 
 ### 11.2 Governance notes (not deviations)
