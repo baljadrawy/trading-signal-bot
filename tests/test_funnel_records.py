@@ -496,8 +496,8 @@ def _engine_env(monkeypatch, sc, extra_env=None):
     return mod, db, health, saved
 
 
-def run_engine(monkeypatch, sc, on, extra_env=None, cycles=1):
-    rec = set_recording(monkeypatch, "signal_engine", on)
+def run_engine(monkeypatch, sc, on, extra_env=None, cycles=1, cap=None):
+    rec = set_recording(monkeypatch, "signal_engine", on, cap=cap)
     if not on:
         def boom(*a, **k):
             raise AssertionError("SignalEngineTap built with FUNNEL_RECORDING=off")
@@ -754,3 +754,84 @@ def test_signal_engine_truncation_sql_bytes_unchanged():
     assert rendered == " OFFSET 200 LIMIT 500"
     assert len([n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Constant)
                 and isinstance(n.value, str) and "LIMIT 200" in n.value]) == 1
+
+
+# ── FUNNEL_MAX_RECORDS_PER_DAY: required daily storage cap ──────────────────────────────────
+
+@pytest.mark.parametrize("value", [None, "", " ", "0", "-5", "1.5", "1e3", "abc", "10 MB", "\u0663"])
+def test_daily_cap_is_required_when_recording_is_on(value, monkeypatch):
+    from funnel_service_harness import FakeDB
+    mod = load_service("signal_engine")
+    db = FakeDB(lambda *a: [])
+    db.install(monkeypatch)
+    monkeypatch.setattr(config, "EVIDENCE_V2_ENABLED", True)
+    monkeypatch.setenv("FUNNEL_RECORDING", "on")
+    if value is None:
+        monkeypatch.delenv("FUNNEL_MAX_RECORDS_PER_DAY", raising=False)
+    else:
+        monkeypatch.setenv("FUNNEL_MAX_RECORDS_PER_DAY", value)
+    with pytest.raises(RuntimeError, match="FUNNEL_MAX_RECORDS_PER_DAY"):
+        run_main(mod)
+    assert db.calls == []                                              # refused before any I/O
+
+
+def test_daily_cap_is_ignored_when_recording_is_off():
+    from shared.funnel_flags import funnel_max_records_per_day, funnel_recording_config
+    assert funnel_recording_config({"FUNNEL_RECORDING": "off", "FUNNEL_MAX_RECORDS_PER_DAY": "junk"}) == (False, None)
+    assert funnel_recording_config({}) == (False, None)
+    assert funnel_max_records_per_day({"FUNNEL_MAX_RECORDS_PER_DAY": " 25 "}) == 25
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_decisions_identical_at_the_daily_cap(seed, monkeypatch):
+    sc = engine_scenario(seed)
+    off = run_engine(monkeypatch, sc, on=False, cycles=2)
+    capped = run_engine(monkeypatch, sc, on=True, cycles=2, cap=3)
+    assert capped["trace"] == off["trace"] and capped["saved"] == off["saved"]
+    assert capped["health"] == off["health"]
+    assert len(capped["db"].calls) == len(off["db"].calls)            # zero additional statements
+    if not sc["rows"]:
+        return
+    recs = events(capped["rec"], "funnel.rejection") + events(capped["rec"], "funnel.rejection_series_closed")
+    assert len(recs) <= 3
+    envs = [e["payload"] for e in events(capped["rec"], "funnel.cycle")]
+    assert len(envs) == 2 and all(e["max_records_per_day"] == 3 for e in envs)  # envelope continuity
+    total = envs[0]["record_count"]
+    if total > 3:
+        assert envs[0]["cap_reached"] and envs[0]["suppressed_daily_cap"] == total - 3
+        assert envs[1]["suppressed_daily_cap"] >= 1
+        health = capped["funnel_health"][-1]
+        assert health["cap_reached"] and health["suppressed_daily_cap_today"] >= total - 3 + 1
+
+
+def test_daily_cap_resets_at_the_utc_day_boundary(monkeypatch):
+    rec = set_recording(monkeypatch, "signal_engine", True)
+    service = fh.FunnelService("signal_engine", max_records_per_day=2)
+    day0 = 1_767_225_600_000                                       # a UTC midnight
+    outcome = []
+    for t in (day0 + 1_000, day0 + 60_000, fh.DAY_MS + day0 - 1, fh.DAY_MS + day0, fh.DAY_MS + day0 + 5):
+        cyc = service.begin(t)
+        for i in range(2):
+            cyc.add(stage="F4", scope="symbol", reason_code="F4.no_setup", rule_ref="r", symbol=f"S{i}USDT")
+        cyc.count("F4", 2, 0)
+        env = cyc.finish()
+        outcome.append((env["records_emitted_today"], env["suppressed_daily_cap"], env["cap_reached"]))
+    assert outcome == [(2, 0, True), (2, 2, True), (2, 2, True), (2, 0, True), (2, 2, True)]
+    assert len(events(rec, "funnel.rejection")) == 4 and len(events(rec, "funnel.cycle")) == 5
+    assert service.health()["suppressed_daily_cap"] == 6 and service.health()["suppressed_daily_cap_today"] == 2
+    with pytest.raises(ValueError):
+        fh.FunnelService("x", max_records_per_day=0)
+
+
+def test_series_held_back_by_the_cap_is_recorded_the_next_day(monkeypatch):
+    rec = set_recording(monkeypatch, "signal_engine", True)
+    service = fh.FunnelService("signal_engine", compact_stages=("F4",), max_records_per_day=1)
+    day0 = 1_767_225_600_000
+    for t in (day0, day0 + 60_000, day0 + fh.DAY_MS):
+        cyc = service.begin(t)
+        for sym in ("AUSDT", "BUSDT"):
+            cyc.add(stage="F4", scope="symbol", reason_code="F4.no_setup", rule_ref="r", symbol=sym)
+        cyc.count("F4", 2, 0)
+        cyc.finish(close_series=True)
+    opened = sorted(e["payload"]["symbol"] for e in events(rec, "funnel.rejection"))
+    assert opened == ["AUSDT", "BUSDT"]                              # B waited for the next UTC day

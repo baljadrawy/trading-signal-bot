@@ -131,10 +131,16 @@ class Health:
         return [c[2].get("funnel") for c in self.calls if c[0] == "success" and isinstance(c[2], dict)]
 
 
-def set_recording(monkeypatch, service, on):
+def set_recording(monkeypatch, service, on, cap=None):
     """FUNNEL_RECORDING plus an in-memory evidence-v2 recorder (always enabled, so the only
     difference between two runs is the funnel flag). Returns the recorder."""
     monkeypatch.setenv("FUNNEL_RECORDING", "on" if on else "off")
+    if cap is not None:
+        monkeypatch.setenv("FUNNEL_MAX_RECORDS_PER_DAY", str(cap))
+    elif on:
+        monkeypatch.setenv("FUNNEL_MAX_RECORDS_PER_DAY", "1000000")   # far above any fixture
+    else:
+        monkeypatch.delenv("FUNNEL_MAX_RECORDS_PER_DAY", raising=False)
     monkeypatch.setattr(config, "EVIDENCE_V2_ENABLED", True)
     ev2.reset_for_tests()
     rec = ev2.RecorderV2(service, ev2.ListSink(), IDENT)

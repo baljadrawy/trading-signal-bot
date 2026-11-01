@@ -20,7 +20,7 @@ from shared.macro_context import MacroContext
 from signal_logic import SignalEngine, signal_identity
 from shared import evidence_v2
 from shared.signal_identity import integrity_mode
-from shared.funnel_flags import funnel_recording_enabled
+from shared.funnel_flags import funnel_recording_config
 from shared.selection_policy import rank_then_limit, selection_policy_from_env
 
 logger = setup_logger('signal_engine')
@@ -101,7 +101,8 @@ def _v2_cycle(outcome: str, cycle_started_ms: int, results=(), decisions=None, c
 
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
-    funnel_on = funnel_recording_enabled()       # WP-B01: unknown FUNNEL_RECORDING refuses to start
+    # WP-B01: an unknown FUNNEL_RECORDING, or on without a valid FUNNEL_MAX_RECORDS_PER_DAY, refuses
+    funnel_on, funnel_daily_cap = funnel_recording_config()
     selection = selection_policy_from_env()      # R1: unknown/undeclared SELECTION_POLICY refuses
     if not selection.is_legacy:
         logger.warning(f"⚠️ SELECTION_POLICY={selection.name} version={selection.selection_version} "
@@ -121,7 +122,8 @@ async def main():
     tap = None
     if funnel_on:                                # observe-only F3-F6 records (shared/funnel_hooks.py)
         from shared.funnel_hooks import SignalEngineTap
-        tap = SignalEngineTap(engine, limit=SELECTION_LIMIT, cut_list_rows=_TRUNCATION_LIST_ROWS)
+        tap = SignalEngineTap(engine, limit=SELECTION_LIMIT, cut_list_rows=_TRUNCATION_LIST_ROWS,
+                              max_records_per_day=funnel_daily_cap)
     ev2_task = evidence_v2.start_flusher('signal_engine')   # None unless EVIDENCE_V2_ENABLED
 
     # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
