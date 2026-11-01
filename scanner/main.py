@@ -16,11 +16,13 @@ from shared.health import mark_started, mark_success, mark_failure
 from shared.schema import require_schema
 from shared.maintenance import maintain_pipeline
 from scanner_logic import BinanceScanner
+from shared.funnel_flags import funnel_recording_enabled
 
 logger = setup_logger('scanner')
 
 async def main():
     logger.info("🚀 بدء تشغيل Scanner...")
+    funnel_on = funnel_recording_enabled()       # WP-B01: unknown FUNNEL_RECORDING refuses to start
     await Database.connect()
     await require_schema('scanner')
     await mark_started('scanner')
@@ -31,21 +33,36 @@ async def main():
     )
 
     scanner = BinanceScanner(client)
+    tap = None
+    ev2_task = None
+    if funnel_on:                                # observe-only F0-F2 records (shared/funnel_hooks.py)
+        from shared import evidence_v2
+        from shared.funnel_hooks import ScannerTap
+        tap = ScannerTap(scanner)
+        ev2_task = evidence_v2.start_flusher('scanner')
     consecutive_errors = 0
 
     try:
         while True:
             try:
                 logger.info("🔍 بدء دورة المسح...")
+                if tap is not None:
+                    tap.begin()
                 candidates = await scanner.scan()
+                if tap is not None:
+                    await tap.end(candidates)
                 maintenance = await maintain_pipeline()
                 logger.info(f"✅ وجدنا {len(candidates)} عملة مؤهلة للتحليل")
                 consecutive_errors = 0  # reset عند النجاح
-                await mark_success('scanner', {
-                    'candidates': len(candidates), 'maintenance': maintenance})
+                metadata = {'candidates': len(candidates), 'maintenance': maintenance}
+                if tap is not None:
+                    metadata['funnel'] = tap.health()
+                await mark_success('scanner', metadata)
                 await asyncio.sleep(config.SCAN_INTERVAL_SECONDS)
 
             except Exception as e:
+                if tap is not None:
+                    await tap.end(error=e)               # no-op when the cycle was already closed
                 consecutive_errors += 1
                 await mark_failure('scanner', e)
                 network = is_network_error(e)
@@ -64,6 +81,9 @@ async def main():
                 await asyncio.sleep(wait)
                 
     finally:
+        if ev2_task is not None:
+            from shared import evidence_v2
+            await evidence_v2.stop('scanner', ev2_task)
         await client.close_connection()
         await Database.disconnect()
 

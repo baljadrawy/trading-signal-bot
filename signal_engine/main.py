@@ -20,6 +20,8 @@ from shared.macro_context import MacroContext
 from signal_logic import SignalEngine, signal_identity
 from shared import evidence_v2
 from shared.signal_identity import integrity_mode
+from shared.funnel_flags import funnel_recording_enabled
+from shared.selection_policy import rank_then_limit, selection_policy_from_env
 
 logger = setup_logger('signal_engine')
 
@@ -28,6 +30,14 @@ _ELIGIBLE_WHERE = """
     WHERE signal_generated = false
     AND analyzed_at > NOW() - INTERVAL '30 minutes'
     AND symbol NOT IN (SELECT symbol FROM active_trades WHERE status = 'open')"""
+# R1 (SELECTION_POLICY != legacy): every fresh row under the same WHERE clause, ranked in Python.
+_RANKED_CANDIDATES_SQL = "SELECT symbol, timeframe, analysis_data FROM analysis_results" + _ELIGIBLE_WHERE
+# WP-B01 shadow of the legacy cut (FUNNEL_RECORDING=on only, and only when the cut can bind):
+# the same rows in the same order as the candidate query, without its LIMIT.
+_FUNNEL_LEGACY_ORDER_SQL = (
+    "SELECT symbol, timeframe, analysis_data->>'trade_type' AS trade_type,"
+    " (analysis_data->'pit'->>'candle_close_time_ms') AS bar_close_ms FROM analysis_results"
+    + _ELIGIBLE_WHERE + " ORDER BY symbol, (analysis_data->>'total_score')::float DESC")
 
 
 def _with_ev2(metadata: dict) -> dict:
@@ -96,6 +106,11 @@ def _v2_cycle(outcome: str, cycle_started_ms: int, results=(), decisions=None, c
 
 async def main():
     logger.info("🚀 بدء تشغيل Signal Engine...")
+    funnel_on = funnel_recording_enabled()       # WP-B01: unknown FUNNEL_RECORDING refuses to start
+    selection = selection_policy_from_env()      # R1: unknown/undeclared SELECTION_POLICY refuses
+    if not selection.is_legacy:
+        logger.warning(f"⚠️ SELECTION_POLICY={selection.name} version={selection.selection_version} "
+                       f"score_key={selection.score_key} (declared selection boundary, R1.c)")
 
     await Database.connect()
     await require_schema('signal_engine')
@@ -108,6 +123,10 @@ async def main():
     macro_ctx = MacroContext(client)
 
     engine = SignalEngine()
+    tap = None
+    if funnel_on:                                # observe-only F3-F6 records (shared/funnel_hooks.py)
+        from shared.funnel_hooks import SignalEngineTap
+        tap = SignalEngineTap(engine, limit=SELECTION_LIMIT)
     ev2_task = evidence_v2.start_flusher('signal_engine')   # None unless EVIDENCE_V2_ENABLED
 
     # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
@@ -143,7 +162,9 @@ async def main():
                 # ملاحظة: استثناء approval_requests المرفوضة حُذف من هنا —
                 # كل العملات المرفوضة مُضافة لـ symbol_blacklist ومحظورة من Scanner.
                 cycle_started_ms = evidence_v2.now_ms()
-                results = await Database.fetch("""
+                picked = None
+                if selection.is_legacy:
+                    results = await Database.fetch("""
                     SELECT symbol, timeframe, analysis_data FROM analysis_results
                     WHERE signal_generated = false
                     AND analyzed_at > NOW() - INTERVAL '30 minutes'
@@ -153,9 +174,23 @@ async def main():
                     ORDER BY symbol, (analysis_data->>'total_score')::float DESC
                     LIMIT 200
                 """)
+                else:
+                    picked = rank_then_limit(await Database.fetch(_RANKED_CANDIDATES_SQL),
+                                             selection, SELECTION_LIMIT)
+                    results = picked.rows
 
                 consecutive_errors = 0
-                truncation = await _v2_truncation(results)
+                if picked is None:
+                    truncation = await _v2_truncation(results)
+                else:
+                    truncation = picked.truncation_info()
+                if tap is not None and results:
+                    tap.begin(cycle_started_ms)
+                    if picked is None:
+                        await tap.observe_legacy_cut(
+                            results, lambda: Database.fetch(_FUNNEL_LEGACY_ORDER_SQL))
+                    else:
+                        tap.observe_ranked_cut(picked)
 
                 if not results:
                     _v2_cycle('idle_no_fresh_analysis', cycle_started_ms)
@@ -170,12 +205,17 @@ async def main():
                 # إيجاد أفضل فرصة مع تأكيد متعدد الـ Timeframes
                 engine.last_decisions = {}
                 engine.last_v2_context = None
+                if tap is not None:
+                    tap.start_decision()
                 if config.LIVE_LEARNING_MODE:
                     best_signal = await engine.find_best_signal_live(results, macro_ctx)
                 else:
                     best_signal = await engine.find_best_signal(results)
 
                 decisions = getattr(engine, 'last_decisions', {})
+                if tap is not None:
+                    tap.observe_decision(results, decisions, best_signal, macro_ctx,
+                                         config.LIVE_LEARNING_MODE)
                 evaluated_symbols = sorted({row['symbol'] for row in results})
                 await Database.executemany(
                     """UPDATE analysis_results
@@ -229,9 +269,13 @@ async def main():
                         # earlier cycle) — nothing was persisted or published this cycle.
                         _v2_cycle('duplicate_setup_suppressed', cycle_started_ms, results, decisions,
                                   getattr(engine, 'last_v2_context', None), truncation)
-                        await mark_success('signal_engine', _with_ev2({
-                            'results': len(results), 'signal_created': False,
-                            'duplicate_suppressed': getattr(engine, 'last_emission', None)}))
+                        metadata = {'results': len(results), 'signal_created': False,
+                                    'duplicate_suppressed': getattr(engine, 'last_emission', None)}
+                        if tap is not None:
+                            tap.note('post_selection', 'duplicate_setup_suppressed')
+                            tap.end()
+                            metadata['funnel'] = tap.health()
+                        await mark_success('signal_engine', _with_ev2(metadata))
                         await asyncio.sleep(60)
                         continue
 
@@ -252,14 +296,20 @@ async def main():
                                 else 'no_eligible_candidate'),
                           cycle_started_ms, results, decisions, v2_context, truncation,
                           signal_id if best_signal else None)
-                await mark_success('signal_engine', _with_ev2({
+                metadata = {
                     'results': len(results),
                     'signal_created': bool(best_signal),
-                }))
+                }
+                if tap is not None:
+                    tap.end()
+                    metadata['funnel'] = tap.health()
+                await mark_success('signal_engine', _with_ev2(metadata))
 
                 await asyncio.sleep(60)
 
             except Exception as e:
+                if tap is not None:
+                    tap.abort(e)                         # no-op when no cycle is open
                 consecutive_errors += 1
                 await mark_failure('signal_engine', e)
                 network = is_network_error(e)

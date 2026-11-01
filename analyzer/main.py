@@ -18,11 +18,13 @@ from shared.signal_identity import integrity_mode
 from shared.t1_cap import t1_cap_policy
 from technical_analyzer import TechnicalAnalyzer
 from orderbook_analyzer import OrderBookAnalyzer
+from shared.funnel_flags import funnel_recording_enabled
 
 logger = setup_logger('analyzer')
 
 async def main():
     logger.info("🚀 بدء تشغيل Analyzer...")
+    funnel_on = funnel_recording_enabled()       # WP-B01: unknown FUNNEL_RECORDING refuses to start
     logger.info(f"📊 Timeframes المفعّلة: {', '.join(config.TIMEFRAMES)}")
 
     await Database.connect()
@@ -38,6 +40,10 @@ async def main():
 
     tech_analyzer = TechnicalAnalyzer(client)
     ob_analyzer = OrderBookAnalyzer(client)
+    tap = None
+    if funnel_on:                                # observe-only F4 bar/data records (shared/funnel_hooks.py)
+        from shared.funnel_hooks import AnalyzerTap
+        tap = tech_analyzer.funnel = AnalyzerTap()
     ev2_task = evidence_v2.start_flusher('analyzer')   # None unless EVIDENCE_V2_ENABLED
 
     consecutive_errors = 0
@@ -61,6 +67,8 @@ async def main():
                     continue
 
                 consecutive_errors = 0
+                if tap is not None:
+                    tap.begin()
                 logger.info(f"🔬 تحليل {len(candidates)} عملة × {len(config.TIMEFRAMES)} timeframes...")
 
                 # تحليل كل عملة على جميع الـ Timeframes (timeout 60 ثانية لكل عملة)
@@ -77,13 +85,20 @@ async def main():
                         symbol = candidates[i]['symbol']
                         logger.warning(f"⏰ timeout في تحليل {symbol} - تخطي")
 
+                if tap is not None:
+                    tap.end(candidates, results, config.TIMEFRAMES)
+
                 completed = sum(1 for result in results if not isinstance(result, Exception))
-                await mark_success('analyzer', _with_ev2({
-                    'candidates': len(candidates), 'completed': completed}))
+                metadata = {'candidates': len(candidates), 'completed': completed}
+                if tap is not None:
+                    metadata['funnel'] = tap.health()
+                await mark_success('analyzer', _with_ev2(metadata))
 
                 await asyncio.sleep(10)
 
             except Exception as e:
+                if tap is not None:
+                    tap.end((), (), (), error=e)         # no-op when the cycle was already closed
                 consecutive_errors += 1
                 await mark_failure('analyzer', e)
                 wait = min(30 * consecutive_errors, 300)
@@ -176,11 +191,15 @@ async def analyze_symbol_all_timeframes(tech_analyzer, ob_analyzer, row):
             )
 
             results[tf] = combined
+            if tech_analyzer.funnel is not None:
+                tech_analyzer.funnel.written(symbol, tf)
             _record_candidate_analyzed(combined)
             logger.info(f"✅ {symbol} [{tf}] - النقاط: {combined.get('total_score', 0)}/10")
 
         except Exception as e:
             logger.error(f"❌ خطأ في تحليل {symbol} [{tf}]: {e}")
+            if tech_analyzer.funnel is not None:
+                tech_analyzer.funnel.timeframe_error(symbol, tf, e)
 
     # تحديث حالة المرشح بعد تحليل جميع الـ Timeframes
     if results:

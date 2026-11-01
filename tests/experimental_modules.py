@@ -21,8 +21,8 @@ EXPERIMENTAL_SHARED = (
     "strategy_config_snapshot",  # WP2 lane A (R5): versioned decision-config snapshot, dormant
     "decision_metadata",         # WP2 lane A (R5): replay-stable decision records, dormant
     "signal_integrity_v2",       # WP2 lane C (R3): candle/setup identity + freshness, dormant
-    "funnel_records",            # WP2 lane B (R1/R6): RejectionRecord + conservation, dormant
-    "funnel_recorder",           # WP2 lane B (R1/R6): default-off recorder, dormant
+    # funnel_records / funnel_recorder removed (WP-B01 integration): shared/funnel_hooks.py imports
+    # them and scanner/analyzer/signal_engine import funnel_hooks behind FUNNEL_RECORDING=on.
     "portfolio_ledger",          # WP2 lane E (R7): isolated accounting ledger, dormant
     "position_state",            # WP2 WP-D03 (SE-66): pure position lifecycle machine; not yet wired
 )

@@ -34,6 +34,10 @@ def indicator_warmup_bars() -> int:
     )
 
 class TechnicalAnalyzer:
+    # WP-B01: an AnalyzerTap (shared/funnel_hooks.py) only when FUNNEL_RECORDING=on; it observes
+    # the skip points below and never changes what analyze() returns.
+    funnel = None
+
     def __init__(self, client: AsyncClient):
         self.client = client
 
@@ -46,6 +50,9 @@ class TechnicalAnalyzer:
             ev2_on = evidence_v2.enabled()
             klines_fetched_at_ms = evidence_v2.now_ms() if ev2_on else None
             if df is None or len(df) < indicator_warmup_bars():
+                if self.funnel is not None:
+                    self.funnel.too_little_data(symbol, tf, None if df is None else len(df),
+                                                indicator_warmup_bars())
                 return None
             pit = evidence_v2.candle_pit(df, tf, klines_fetched_at_ms) if ev2_on else None   # reads index/close_time only
             # A44: correctness-critical closed-candle identity, independent of instrumentation.
@@ -120,6 +127,8 @@ class TechnicalAnalyzer:
             }
         except Exception as e:
             logger.error(f"خطأ في التحليل الفني لـ {symbol} [{tf}]: {format_error(e)}")
+            if self.funnel is not None:
+                self.funnel.analysis_error(symbol, tf, e)
             return None
 
     async def _get_candles(self, symbol: str, timeframe: str = None) -> Optional[pd.DataFrame]:
@@ -135,6 +144,8 @@ class TechnicalAnalyzer:
             return prepare_ohlcv(klines, tf, limit=config.CANDLES_TO_FETCH)
         except Exception as e:
             logger.error(f"خطأ في جلب الشموع لـ {symbol} [{tf}]: {format_error(e)}")
+            if self.funnel is not None:
+                self.funnel.candles_unavailable(symbol, tf, e)
             return None
 
     def _calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
