@@ -18,7 +18,7 @@
 - **Service:** Compose service `signal_engine` (container `trading_signal_engine`, project `trading-signal-bot`; labels verified read-only on 2026-11-01). The scanner, analyzer, tracker, telegram, the collector and postgres are unchanged.
 - **Base image:** the running `tsb-a561-signal_engine:rel-ea8ae4f-r2`, image ID `sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418`.
   - The running container uses exactly this ID.
-  - Its 55 Python files and its `requirements.txt` hash-match `ea8ae4f` (checked in a disposable, no-network container started from that image ID).
+  - Its 54 `.py` files, `/app/Dockerfile` and `requirements.txt` (56 files) hash-match `ea8ae4f` (corrected after R2) (checked in a disposable, no-network container started from that image ID).
 - **Source:** release commit `7ff582fa43b4fd16042ccb6f71035e4031b67eac` = `ea8ae4f` + six files: `signal_engine/main.py`, `shared/funnel_flags.py`, `shared/funnel_hooks.py`, `shared/funnel_records.py`, `shared/funnel_recorder.py`, `shared/selection_policy.py`. `git diff --stat ea8ae4f 7ff582f` lists exactly 6 files.
 - **Overlay:** [Dockerfile](Dockerfile) copies only those six files, as `1000:1000`, onto the base image ID and adds revision labels. The dependency set is unchanged.
 - **Configuration** (exact strings; any other value refuses at start-up):
@@ -75,60 +75,98 @@
 - Strict flag strings: documented above.
 - Latency, heartbeat, `code_sha`, disk and queue: notes recorded above.
 
-## Independent review (required before any operation)
+## Independent review status
 
-The reviewer must be someone other than this Claude session (for example the owner's integrator). They should:
-1. Review `git diff ea8ae4f 7ff582f` (six files) and [Dockerfile](Dockerfile).
-2. Confirm or refute:
-   - decisions, statements and messages are unchanged when funnel is on;
-   - zero extra database statements;
-   - bounded memory and disk under the cap;
-   - fail-closed start-up;
-   - the overlay paths and ownership.
-3. Reproduce the evidence. Export `git archive 7ff582f`, set `WP2_BEFORE_TREE` to an export of `ea8ae4f`, and run `tests/test_funnel_records.py` and `tests/test_selection_rank_then_limit.py` from the feature branch against the export, excluding the scanner and analyzer cases, which are not in this release.
-4. Record the verdict and any findings in this directory.
+- **Round 1 (2026-11-01).** Three independent-context reviewers on different models, none external, each returned CONDITIONAL GO. The reports and the consolidation are in [docs/reviews/se1-external/](../../docs/reviews/se1-external/CONSOLIDATION_ROUND1.md).
+- **The candidate is unchanged** at `7ff582f`: the conditions below are procedural only.
+- **Not external:** an external reviewer can repeat the audit from [REVIEW_PACKAGE.md](../../docs/reviews/se1-external/REVIEW_PACKAGE.md).
+- **Errata from the review:** the image holds 54 `.py` files plus `/app/Dockerfile` plus `requirements.txt`, and all 56 match `ea8ae4f` (R2). The earlier figure of "55 Python files" was wrong. The strategy-id test cannot run on the release export and is deselected there (R1-06).
 
-## Activation request (only after the review passes)
+## Version boundary: owner declaration required (R2-01)
 
-1. **Owner values:**
-   - `FUNNEL_MAX_RECORDS_PER_DAY`: proposal 20000 (about 36 MB per day worst case);
-   - the monitoring window: proposal 24 hours.
-2. **Class B: release-image build.**
+- **The source changes but the label does not.** The overlay keeps `APP_VERSION=sb-2026.08`, while the strategy `source_hash` changes because `signal_engine/main.py` is ACTIVE. The template classes a changed hash under the same label as UNDECLARED, which means STOP.
+- **`APP_VERSION` must NOT change.** It is the `strategy_version` stamped on signals and an input to setup identity, so changing it would re-key setups.
+- **Proposed classification** for the owner to declare: an **observe-only PATCH boundary** on signal_engine, with no decision-logic change, supported by the parity evidence above.
+- **Boundary entry fields:**
+  - service `signal_engine`;
+  - image before `sha256:c5be4e34…` and image after (the built ID);
+  - source before `ea8ae4f` and source after `7ff582f`;
+  - `APP_VERSION` unchanged;
+  - activation minute (UTC), recorded at the recreate;
+  - flags `FUNNEL_RECORDING=on` and `FUNNEL_MAX_RECORDS_PER_DAY=20000`;
+  - `SELECTION_POLICY`, `SELECTION_VERSION` and `SELECTION_SCORE_KEY` **absent and forbidden** (R1-01);
+  - evidence: this record plus the review.
+
+## Activation request (only after the owner declares the boundary and approves each Class B step)
+
+Owner-selected values: `FUNNEL_RECORDING=on`, `FUNNEL_MAX_RECORDS_PER_DAY=20000`, monitoring window 24 hours.
+
+- **About the cap (R3-B1):** it bounds records per **process** per UTC day. Each restart resets it, so the restart count must stay 0 (see Acceptance).
+
+1. **Build (Class B).**
+   - Refuse if the tag `tsb-se1-signal_engine:7ff582f-r1` already exists.
    - Export `git archive 7ff582f` to a clean directory, never the production checkout.
-   - Verify the base tag resolves to `sha256:c5be4e34…`.
-   - `docker build --network=none --pull=false --build-arg BASE_TAG=<verified tag> --build-arg SOURCE_COMMIT=7ff582fa43b4fd16042ccb6f71035e4031b67eac -t tsb-se1-signal_engine:7ff582f-r1 .`
-   - Then verify the image file hashes against [services.json](services.json).
-3. **Compose change** (reviewed-blob rule; integrated into `main` by the independent reviewer, then installed per COMPOSE_OPERATIONS.md):
-   - signal_engine `image: tsb-se1-signal_engine:7ff582f-r1`, with rollback comment `tsb-a561-signal_engine:rel-ea8ae4f-r2`;
-   - add `FUNNEL_RECORDING: "on"` and `FUNNEL_MAX_RECORDS_PER_DAY: "<value>"`.
-4. **Class B: recreate of signal_engine only.**
-   - Command: `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate signal_engine`.
-   - Capture identity before and after (container ID, image ID, StartedAt, RestartCount, IPs).
-   - Run two fresh health checks.
-   - Check the PAPER_HALTED/B3 gate per COMPOSE_OPERATIONS.md.
-5. **Version-boundary entry** for signal_engine at activation.
+   - Build with [Dockerfile](Dockerfile), whose base is pinned by digest. Use exactly the command in its header: `--network=none --pull=false`, with `SOURCE_COMMIT` set to the full SHA.
+2. **Post-build gates.** Any failure means STOP and remove the new tag.
+   - Layers: 26 in total, with `RootFS.Layers[0..23]` equal to the base's 24 layers.
+   - Configuration: `User` (appuser), `Cmd`, `WorkingDir` (/app) and `Env` are unchanged from the base. The label `org.opencontainers.image.revision` equals `7ff582fa43b4fd16042ccb6f71035e4031b67eac`.
+   - Content: `ops/provenance/runtime_manifest.py generate` with [services.json](services.json) reports **match 61, dormant 2, assembled 0, unknown 0** (R2-06).
+   - Dry run (R2-07, R1-03): a disposable `docker run --rm --network none --read-only` from the new image, with exactly `FUNNEL_RECORDING=on`, `FUNNEL_MAX_RECORDS_PER_DAY=20000`, `EVIDENCE_V2_ENABLED=true` and no `SELECTION_*` keys. It must call `funnel_recording_config()` and `selection_policy_from_env()` and import `shared.funnel_hooks` without error.
+3. **Compose change** (reviewed-blob rule).
+   - In the signal_engine block: `image: tsb-se1-signal_engine:7ff582f-r1` (rollback comment: blob `d1a4b197…`, image `rel-ea8ae4f-r2`), and add `FUNNEL_RECORDING: "on"` and `FUNNEL_MAX_RECORDS_PER_DAY: "20000"`.
+   - No `SELECTION_*` keys.
+   - The independent reviewer integrates it into `main`; it is then installed in the production checkout per COMPOSE_OPERATIONS.md.
+4. **Pre-recreate captures (read-only).**
+   - Identity of all running containers: ID, image ID, StartedAt, RestartCount, config-hash, IPs. The current signal_engine config-hash is `20dcae19…`.
+   - **B3/PAPER_HALTED gate (R2-03):** a named read-only query. Record the pause row and the `risk.halted` outbox row count before the recreate; they must be identical after it. This follows the precedent `deploy/paper-observe-bb7825f/IMAGES.md`.
+   - Record the collector as the expected pre-state: it is currently unhealthy, in a separate project, and must not trigger a STOP.
+5. **Recreate (Class B), signal_engine only.** `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate signal_engine`
+6. **Boundary entry** written with the activation minute.
 
-## Validation (owner-authorized read-only observation, 2026-11-01)
+## Acceptance (owner-authorized read-only observation scope only)
 
-Observation scope: funnel rejection reasons, conservation counts, overflow and drop metrics, and service health only. No trade outcomes, no P&L, no protected or sealed evidence.
+Scope: funnel reasons, conservation, overflow/drop metrics and health. No trade outcomes and no P&L.
 
-- **First 15 minutes:**
-  - RestartCount is unchanged after start and there is no start-up refusal in the log;
-  - the image ID is the new one;
-  - health passes twice;
-  - the heartbeat carries `funnel` health.
-- **During the window:**
-  - every `funnel.cycle` has `valid` true;
-  - `unattributed`, `not_recorded`, `records_overflow`, evidence_v2 `dropped` and `errors` are 0 or explained;
-  - `cap_reached` stays false or is explained;
-  - the analyzer → signal_engine → telegram hand-off continues and the error rate is unchanged.
+1. **Health is not taken from the old heartbeat (R2-02).**
+   - The first health read counts only at least 180 s after the new StartedAt, and the two reads are at least 60 s apart.
+   - One read-only `service_heartbeats` read shows `last_started_at` and `last_success_at` later than the new StartedAt, and the metadata carries `funnel`.
+2. **Restarts and image (R3-B1).**
+   - RestartCount stays 0 for the whole window, with no start-up refusal in the log.
+   - The container `.Image` equals the built ID.
+   - The other containers' identity is unchanged.
+3. **Every `funnel.cycle` envelope in the window (R3-B3) has:**
+   - `valid` true;
+   - `observation_complete` true;
+   - `integration_failures` empty;
+   - no `notes.gate_block`.
+4. **Counters at zero, or explained in the record:**
+   - `not_recorded` is a hard 0 (R3-B2);
+   - `records_overflow`;
+   - `unattributed`;
+   - evidence_v2 `dropped` and `errors`;
+   - `cap_reached`.
+5. **Envelopes and hand-off.**
+   - The envelope count matches the expected cycles.
+   - F-stage reason counts reconcile with the existing `cycle.outcome` decision histogram, within the observation scope.
+   - The analyzer → signal_engine → telegram hand-off continues.
+6. **An idle window** (no candidate cycles) is **insufficient runtime evidence**, not success.
 
-If no candidate cycles occur, the result is **insufficient runtime evidence**, not success.
+**Roll back** on any refusal, restart, health failure, gate failure, non-zero `not_recorded`, an unexplained drop, overflow or invalid envelope, or any STOP condition.
 
-**Accept** when every check above holds for the window. **Roll back** on a refusal or restart loop, a health failure, a non-zero drop, overflow or invalid cycle that cannot be explained, or any STOP condition.
+**What the 24-hour window does not establish** (R3, D): cap behaviour, restart behaviour, queue saturation, rare labels, or count accuracy against ground truth.
 
-## Rollback
+## Rollback (pre-approved as part of the same authorization; R2-04)
 
-Restore the signal_engine `image:` to `tsb-a561-signal_engine:rel-ea8ae4f-r2` and remove the two `FUNNEL_*` keys, through the same Compose path. Then repeat the Class B recreate of signal_engine only, and verify identity and health twice. Funnel events already written remain as evidence. No database change exists to undo.
+- **Target:** the current reviewed Compose blob `d1a4b197…`, already integrated. It gives image `tsb-a561-signal_engine:rel-ea8ae4f-r2` (`sha256:c5be4e34…`), no `FUNNEL_*` keys, and expected config-hash `20dcae19…`, valid only if `.env` is unchanged.
+- **Command:** restore that blob in the production checkout per COMPOSE_OPERATIONS.md, then run the same Class B recreate of signal_engine only. Verify identity, the B3 gate and health as above.
+- **Not a valid SE-1 rollback:** `tsb-p1d-signal_engine` (`80096a98…`). It would also revert later releases, and its schema compatibility is unverified.
+- Funnel events already written remain as evidence. No database change exists to undo.
+
+## Post-deploy provenance (R2-09)
+
+- Archive the new image with SHA256SUMS, following the precedent.
+- Update `deploy/DEPLOYED.json` and add an IMAGES record, through review.
+- Follow the per-update backup governance (CLAUDE.md, R1.3).
+- Record that the source is the unmerged release branch `release/se1-funnel-ea8ae4f` at `7ff582f`.
 
 **STOP rule:** anything unexpected (a hash, a diff, a container identity, a failed gate, a secret in output) means stop and return to the owner.
