@@ -95,7 +95,8 @@ def configure_wp2(environ=None):
     counter_labels = cost_policy.counter_labels_enabled(environ)
     WP2_FLAGS = flags
     COUNTER_LABELS = counter_labels
-    _FUNNEL = funnel_service('trade_tracker') if flags.funnel_recording else None
+    _FUNNEL = (funnel_service('trade_tracker', max_records_per_day=flags.funnel_max_records_per_day)
+               if flags.funnel_recording else None)
     return flags
 
 

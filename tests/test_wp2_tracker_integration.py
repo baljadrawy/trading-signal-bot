@@ -27,7 +27,8 @@ from wp2_service_fakes import (FIXED_NOW, FakeDB, fixed_datetime, load_after_tel
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
-ALL_SHADOWS = AccountingFlags(ledger_shadow=True, position_state_shadow=True, funnel_recording=True)
+ALL_SHADOWS = AccountingFlags(ledger_shadow=True, position_state_shadow=True, funnel_recording=True,
+                              funnel_max_records_per_day=100000)
 RUNTIME = dict(RISK_CAPITAL_USDT=500.0, TRADE_AMOUNT_USDT=50.0, FEE_ROUNDTRIP_PCT=0.3,
                STOP_SLIPPAGE=0.001, MAX_GROSS_EXPOSURE_PERCENT=80.0, MAX_SYMBOL_EXPOSURE_PERCENT=10.0,
                MAX_STRATEGY_EXPOSURE_PERCENT=100.0, MAX_REGIME_EXPOSURE_PERCENT=100.0,
@@ -82,8 +83,9 @@ def set_flags(monkeypatch, after, flags):
     """Flags on the AFTER module; the funnel needs the evidence store (in memory here)."""
     store = Events("trade_tracker", monkeypatch)
     monkeypatch.setattr(after, "WP2_FLAGS", flags)
-    monkeypatch.setattr(after, "_FUNNEL", after.funnel_service("trade_tracker")
-                        if flags.funnel_recording else None)
+    monkeypatch.setattr(after, "_FUNNEL", after.funnel_service(
+        "trade_tracker", max_records_per_day=flags.funnel_max_records_per_day)
+        if flags.funnel_recording else None)
     return store
 
 
@@ -525,7 +527,8 @@ def test_delivery_gate_is_byte_identical(tg_before, tg_after, monkeypatch):
 
 def test_delivery_refusal_is_an_f7_record(tg_after, monkeypatch):
     sink = Events("telegram", monkeypatch)
-    monkeypatch.setattr(tg_after, "_FUNNEL", tg_after.funnel_service("telegram"))
+    monkeypatch.setattr(tg_after, "_FUNNEL", tg_after.funnel_service("telegram",
+                                                                     max_records_per_day=1000))
     sig = {"id": 9, "symbol": "DDDUSDT", "timeframe": "4h", "trade_type": "momentum",
            "telegram_sent": False, "decision_source": "policy_ready", "features_snapshot": None}
     for paused, count, code in ((True, 0, "F7.paused"), (False, 2, "F7.capacity_full")):
@@ -547,9 +550,15 @@ def test_delivery_refusal_is_an_f7_record(tg_after, monkeypatch):
 
 
 def test_telegram_funnel_flag_fails_closed(tg_after, monkeypatch):
+    monkeypatch.setattr(tg_after, "_FUNNEL", None)                     # restored after the test
     with pytest.raises(RuntimeError):
         tg_after.configure_funnel({"FUNNEL_RECORDING": "maybe"})
     assert tg_after.configure_funnel({}) is False
+    monkeypatch.setattr(config, "EVIDENCE_V2_ENABLED", True)
+    with pytest.raises(RuntimeError):
+        tg_after.configure_funnel({"FUNNEL_RECORDING": "on"})          # daily cap required
+    assert tg_after.configure_funnel({"FUNNEL_RECORDING": "on", "FUNNEL_MAX_RECORDS_PER_DAY": "9"})
+    assert tg_after._FUNNEL.max_records_per_day == 9
 
 
 # ── 5. fail-closed start-up ────────────────────────────────────────────────────────────────
@@ -588,7 +597,11 @@ def test_all_flags_resolve(after, monkeypatch):
     flags = after.configure_wp2({"PAPER_COST_LABEL_POLICY": " NET_SINGLE_COUNT_LEGACY_V1 ",
                                  "PAPER_BREAK_EVEN_POLICY": "single_count_legacy_v1",
                                  "LEDGER_SHADOW": "on", "POSITION_STATE_SHADOW": "On",
-                                 "FUNNEL_RECORDING": "on"})
+                                 "FUNNEL_RECORDING": "on", "FUNNEL_MAX_RECORDS_PER_DAY": "5000"})
     assert flags == AccountingFlags(af.SINGLE_COUNT_LABEL_POLICY, af.SINGLE_COUNT_BREAK_EVEN,
-                                    True, True, True)
-    assert after._FUNNEL is not None
+                                    True, True, True, 5000)
+    assert after._FUNNEL is not None and after._FUNNEL.max_records_per_day == 5000
+    for cap in ({}, {"FUNNEL_MAX_RECORDS_PER_DAY": "0"}, {"FUNNEL_MAX_RECORDS_PER_DAY": "x"}):
+        with pytest.raises(RuntimeError):                       # on without a valid daily cap
+            after.configure_wp2({"FUNNEL_RECORDING": "on", **cap})
+    assert after.configure_wp2({"FUNNEL_MAX_RECORDS_PER_DAY": "x"}).funnel_max_records_per_day is None

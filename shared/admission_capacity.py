@@ -195,7 +195,8 @@ def record_delivery_refusal(service, signal, gate: ca.DeliveryGate | None) -> di
         return None
 
 
-def funnel_service(name: str) -> Any:
-    """The evidence-v2 funnel service of a process (``shared/funnel_hooks.FunnelService``)."""
+def funnel_service(name: str, *, max_records_per_day: int | None) -> Any:
+    """The evidence-v2 funnel service of a process (``shared/funnel_hooks.FunnelService``) with
+    the start-up daily record cap (``FUNNEL_MAX_RECORDS_PER_DAY``; required when recording)."""
     from shared.funnel_hooks import FunnelService
-    return FunnelService(name)
+    return FunnelService(name, max_records_per_day=max_records_per_day)

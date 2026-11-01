@@ -27,7 +27,8 @@ environment variable            default (legacy, byte-for-byte) other accepted v
   ``shared/position_state.py``. Enforce mode does not exist.
 
 The funnel flag is ``FUNNEL_RECORDING`` of ``shared/funnel_flags.py`` (one flag for every service);
-``resolve_accounting_flags`` resolves it too, so one start-up call refuses every bad value.
+``resolve_accounting_flags`` resolves it with its required daily cap ``FUNNEL_MAX_RECORDS_PER_DAY``
+(``funnel_recording_config``), so one start-up call refuses every bad value.
 
 No research cost model can be selected by any value here (WP-IR-07; SE-81, SE-87, OQ-08).
 """
@@ -71,6 +72,7 @@ class AccountingFlags:
     ledger_shadow: bool = False
     position_state_shadow: bool = False
     funnel_recording: bool = False
+    funnel_max_records_per_day: int | None = None     # FUNNEL_MAX_RECORDS_PER_DAY, only when on
 
     def __post_init__(self):
         if self.cost_label_policy not in LABEL_POLICIES:
@@ -80,6 +82,10 @@ class AccountingFlags:
         for name in ("ledger_shadow", "position_state_shadow", "funnel_recording"):
             if not isinstance(getattr(self, name), bool):
                 raise RuntimeError(f"{name} must be a bool")
+        cap = self.funnel_max_records_per_day
+        if self.funnel_recording != (cap is not None) or (
+                cap is not None and (isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0)):
+            raise RuntimeError("funnel_max_records_per_day: a positive int exactly when recording")
 
     @property
     def is_legacy(self) -> bool:
@@ -90,7 +96,8 @@ class AccountingFlags:
                 "break_even_policy": self.break_even_policy,
                 "ledger_shadow": self.ledger_shadow,
                 "position_state_shadow": self.position_state_shadow,
-                "funnel_recording": self.funnel_recording}
+                "funnel_recording": self.funnel_recording,
+                "funnel_max_records_per_day": self.funnel_max_records_per_day}
 
 
 LEGACY_FLAGS = AccountingFlags()
@@ -101,12 +108,13 @@ def resolve_accounting_flags(environ: Mapping[str, str] | None = None, *,
     """Read every flag; an unknown value raises RuntimeError (call before any I/O at start-up).
     ``require_store`` is passed to ``funnel_recording_enabled`` (FUNNEL_RECORDING=on needs the
     evidence-v2 store)."""
-    from shared.funnel_flags import funnel_recording_enabled
+    from shared.funnel_flags import funnel_recording_config
     env = os.environ if environ is None else environ
+    funnel_on, funnel_cap = funnel_recording_config(env, require_store=require_store)
     return AccountingFlags(
         cost_label_policy=_choice(env, COST_LABEL_POLICY_ENV, LEGACY_LABEL_POLICY, LABEL_POLICIES),
         break_even_policy=_choice(env, BREAK_EVEN_POLICY_ENV, LEGACY_BREAK_EVEN, BREAK_EVEN_POLICIES),
         ledger_shadow=_choice(env, LEDGER_SHADOW_ENV, "off", SHADOW_MODES) == "on",
         position_state_shadow=_choice(env, POSITION_STATE_SHADOW_ENV, "off", SHADOW_MODES) == "on",
-        funnel_recording=funnel_recording_enabled(env, require_store=require_store),
+        funnel_recording=funnel_on, funnel_max_records_per_day=funnel_cap,
     )

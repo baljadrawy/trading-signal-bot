@@ -33,7 +33,7 @@ from shared.telegram_messages import (
 from shared.trading_state import get_pause_state
 from shared.capacity_authority import delivery_gate, legacy_slot_limit
 from shared.admission_capacity import funnel_service, record_delivery_refusal
-from shared.funnel_flags import funnel_recording_enabled
+from shared.funnel_flags import funnel_recording_config
 from shared.signal_readiness import (
     LEGACY_SIGNAL_REVIEWED_EVENT, READY_SQL_PREDICATE, SIGNAL_READY_EVENT,
     decision_breakdown, decision_breakdown_lines, decision_label, is_deliverable_for_event,
@@ -51,9 +51,10 @@ _LAST_DELIVERY_GATE: list = []   # [DeliveryGate] of the last delivery check, on
 
 
 def configure_funnel(environ=None):
-    """FUNNEL_RECORDING (shared/funnel_flags.py): an unknown value refuses to start."""
+    """FUNNEL_RECORDING and its daily cap (shared/funnel_flags.py): a bad value refuses to start."""
     global _FUNNEL
-    _FUNNEL = funnel_service('telegram') if funnel_recording_enabled(environ) else None
+    enabled, cap = funnel_recording_config(environ)
+    _FUNNEL = funnel_service('telegram', max_records_per_day=cap) if enabled else None
     return _FUNNEL is not None
 
 
