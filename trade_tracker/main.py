@@ -76,6 +76,9 @@ price_stream: BinancePriceStream | None = None
 # resolves the environment; an unknown value refuses to start there.
 WP2_FLAGS = LEGACY_FLAGS
 _FUNNEL = None              # shared.funnel_hooks.FunnelService, only with FUNNEL_RECORDING=on
+# WP-E06: PAPER_COUNTER_LABELS (shared/cost_label_policy.py), default off. On, each recorded close
+# also logs its counter basis: the legacy gross increment and the stored net label beside it.
+COUNTER_LABELS = False
 
 
 def _costs():
@@ -85,11 +88,13 @@ def _costs():
 
 def configure_wp2(environ=None):
     """Resolve and validate the WP2 flags and the cost binding; raises on any invalid value."""
-    global WP2_FLAGS, _FUNNEL
+    global WP2_FLAGS, _FUNNEL, COUNTER_LABELS
     flags = resolve_accounting_flags(environ)
     cost_policy.validate_policies(_costs(), cost_label_policy=flags.cost_label_policy,
                                   break_even_policy=flags.break_even_policy)
+    counter_labels = cost_policy.counter_labels_enabled(environ)
     WP2_FLAGS = flags
+    COUNTER_LABELS = counter_labels
     _FUNNEL = funnel_service('trade_tracker') if flags.funnel_recording else None
     return flags
 
@@ -99,6 +104,8 @@ async def main():
     flags = configure_wp2()                      # WP2: unknown flag or invalid cost config refuses
     if not flags.is_legacy:
         logger.warning(f"WP2 flags not at their legacy defaults: {flags.as_dict()}")
+    if COUNTER_LABELS:
+        logger.warning("WP2 PAPER_COUNTER_LABELS=on: counter-basis log lines enabled")
     await Database.connect()
     await require_schema('trade_tracker')
     integrity_mode(config)                       # A44: unknown SIGNAL_INTEGRITY_MODE refuses to start
@@ -1551,6 +1558,8 @@ async def close_trade_barrier(
             _shadow_reconcile(trade, inserted, target_legs, exit_price, remaining_fraction,
                               profit_usdt, econ)
         result = 'WIN' if profit_usdt > 0 else 'LOSS'
+        if COUNTER_LABELS and inserted:
+            _log_counter_basis(profit_usdt, econ)
     finally:
         _closing.discard(trade_id)
 
@@ -1565,6 +1574,14 @@ async def close_trade_barrier(
         await record_risk_decision(decision)
     except Exception as exc:
         logger.error(f"تعذر تحديث حالة المخاطر بعد الإغلاق: {format_error(exc)}")
+
+
+def _log_counter_basis(profit_usdt, econ) -> None:
+    """WP-E06 (PAPER_COUNTER_LABELS=on): log only; never changes the close."""
+    try:
+        logger.info(cost_policy.close_counter_log(profit_usdt, econ))
+    except Exception as exc:
+        logger.error(f"counter-basis log failed: {format_error(exc)}")
 
 
 async def close_trade(trade: dict, result: str, profit_pct: float,

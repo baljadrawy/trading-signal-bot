@@ -13,6 +13,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from shared.config import config
 from shared.database import Database
 from shared.fees import net_pct, net_usdt, fee_usdt, economic_result_sql
+from shared import cost_label_policy as cost_policy
 from shared.logger import setup_logger
 from shared.alerts import send_alert
 from shared.retry_utils import format_error, is_network_error, compute_backoff, alert_threshold
@@ -54,6 +55,43 @@ def configure_funnel(environ=None):
     global _FUNNEL
     _FUNNEL = funnel_service('telegram') if funnel_recording_enabled(environ) else None
     return _FUNNEL is not None
+
+
+# WP-E06 (R4.d, R7.f): PAPER_COUNTER_LABELS (shared/cost_label_policy.py), default off. Off, every
+# report is byte-identical and makes the same database calls. On, every counter and figure carries
+# its basis tag, and each report with a gross counter also shows the net counters beside it,
+# stratified by label_policy (one extra read of trade_results; nothing is written).
+COUNTER_LABELS = False
+
+
+def configure_counter_labels(environ=None):
+    """PAPER_COUNTER_LABELS: an unknown value refuses to start."""
+    global COUNTER_LABELS
+    COUNTER_LABELS = cost_policy.counter_labels_enabled(environ)
+    return COUNTER_LABELS
+
+
+def _tag(field: str) -> str:
+    """' <basis tag>' with PAPER_COUNTER_LABELS=on, else '' (the legacy text)."""
+    return f" {cost_policy.counter_tag(field)}" if COUNTER_LABELS else ""
+
+
+async def _net_counter_lines(where_sql: str) -> str:
+    """The net counters over ``where_sql``, one line per label_policy (never pooled); '' when off."""
+    if not COUNTER_LABELS:
+        return ""
+    try:
+        rows = await Database.fetch(cost_policy.net_counter_sql(where_sql), fee_usdt())
+        strata = cost_policy.net_counter_strata(rows or [])
+    except Exception as exc:                     # a label never breaks the legacy report
+        logger.error(f"net counters unavailable: {format_error(exc)}")
+        return f"\n  صافي: غير متاح {cost_policy.counter_tag('net_counter')}"
+    if not strata:
+        return f"\n  صافي: لا إغلاقات {cost_policy.counter_tag('net_counter')}"
+    return "".join(
+        f"\n  صافي {c.tag()}: {c.wins} ربح / {c.losses} خسارة / {c.breakeven} تعادل"
+        + (f" / {c.unlabelled} بلا تصنيف" if c.unlabelled else "")
+        for c in strata)
 
 
 def restricted(func):
@@ -131,6 +169,7 @@ def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=No
 async def main():
     logger.info("🚀 بدء تشغيل Telegram Bot...")
     configure_funnel()                           # WP-B01: unknown FUNNEL_RECORDING refuses
+    configure_counter_labels()                   # WP-E06: unknown PAPER_COUNTER_LABELS refuses
     await Database.connect()
     await require_schema('telegram')
     await mark_started('telegram')
@@ -531,6 +570,11 @@ async def deliver_trade_lifecycle_events(bot: Bot, owner: str) -> int:
                     message = closed_message(
                         result, config.FEE_ROUNDTRIP_PCT,
                         config.TRADE_AMOUNT_USDT)
+                    if COUNTER_LABELS:
+                        try:                     # a label never blocks the notification
+                            message += _closed_basis_lines(result)
+                        except Exception as label_error:
+                            logger.error(f"closed basis lines failed: {format_error(label_error)}")
                 await bot.send_message(chat_id=config.TELEGRAM_CHAT_ID, text=message)
                 await ack(event['id'], owner, 'delivered')
                 delivered += 1
@@ -782,13 +826,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"\n⏳ {streak.open_positions} صفقة مفتوحة قد تكسر السلسلة بإغلاق رابح"
             )
     capacity = legacy_slot_limit(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
+    net_lines = await _net_counter_lines("exit_time::date = CURRENT_DATE")
     await update.message.reply_text(
         f"📊 حالة النظام: {status}{reason_line}\n\n"
         f"📅 اليوم:\n"
-        f"  مرشحون اجتازوا الفحص: {risk['signals_sent'] if risk else 0}\n"
+        f"  مرشحون اجتازوا الفحص{_tag('risk_management.signals_sent')}: "
+        f"{risk['signals_sent'] if risk else 0}\n"
         f"  صفقات مفتوحة فعلياً: {open_trades}/{capacity}\n"
-        f"  إغلاقات رابحة: {risk['wins'] if risk else 0}\n"
-        f"  إغلاقات خاسرة: {risk['losses'] if risk else 0}\n\n"
+        f"  إغلاقات رابحة{_tag('status.wins')}: {risk['wins'] if risk else 0}\n"
+        f"  إغلاقات خاسرة{_tag('status.losses')}: {risk['losses'] if risk else 0}{net_lines}\n\n"
         f"🎯 العتبات الحيّة:\n"
         f"  الحد الأدنى للنقاط: {min_score}\n"
         f"  تأكيد Timeframes: {min_tf}\n\n"
@@ -975,16 +1021,17 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = int(stats['total'] or 0)
     avg_net = net_pct(float(stats['avg_profit'] or 0))
     total_net = float(stats['sum_usdt'] or 0) - total * fee_usdt()
+    net_lines = await _net_counter_lines("exit_time > NOW() - INTERVAL '7 days'")
     await update.message.reply_text(
         f"📊 إحصائيات آخر 7 أيام (صافٍ بعد الرسوم):\n\n"
         f"  إجمالي الصفقات: {total}\n"
-        f"  أرباح: {stats['wins']}\n"
-        f"  خسائر: {stats['losses']}\n"
-        f"  تعادل: {stats['breakeven'] or 0}\n"
+        f"  أرباح: {stats['wins']}{_tag('stats.wins_losses_breakeven')}\n"
+        f"  خسائر: {stats['losses']}{_tag('stats.wins_losses_breakeven')}\n"
+        f"  تعادل: {stats['breakeven'] or 0}{_tag('stats.wins_losses_breakeven')}{net_lines}\n"
         f"  (التصنيف الإجمالي القديم قبل الرسوم: {stats['gross_wins'] or 0} ربح / "
-        f"{stats['gross_losses'] or 0} خسارة)\n"
-        f"  متوسط الربح الصافي: {avg_net:.2f}%\n"
-        f"  إجمالي PnL صافٍ: {total_net:+.2f} USDT"
+        f"{stats['gross_losses'] or 0} خسارة){_tag('stats.gross_wins_losses')}\n"
+        f"  متوسط الربح الصافي: {avg_net:.2f}%{_tag('stats.net_pnl')}\n"
+        f"  إجمالي PnL صافٍ: {total_net:+.2f} USDT{_tag('stats.net_pnl')}"
     )
 
 
@@ -1020,7 +1067,7 @@ async def cmd_trades(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"  • {t['symbol']} | T{t['highest_target_hit']} محقق | {hrs:.0f}س")
 
     if closed:
-        lines.append(f"\n📊 آخر النتائج (صافٍ بعد الرسوم):")
+        lines.append(f"\n📊 آخر النتائج (صافٍ بعد الرسوم):{_tag('trades.net')}")
         for t in closed:
             # المخزَّن إجمالي؛ نعرض الصافي بعد الرسوم (shared.fees)
             np_ = net_pct(float(t['profit_percent'] or 0))
@@ -1155,9 +1202,9 @@ async def cmd_performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{decision_lines}\n"
         f"  📤 مرسلة: {sent}\n\n"
         f"📊 نتائج الصفقات (7 أيام):\n"
-        f"  أرباح: {wins} ✅\n"
-        f"  خسائر: {losses} ❌\n"
-        f"  نسبة النجاح: {win_rate}\n"
+        f"  أرباح: {wins} ✅{_tag('performance.wins_losses')}\n"
+        f"  خسائر: {losses} ❌{_tag('performance.wins_losses')}\n"
+        f"  نسبة النجاح: {win_rate}{_tag('performance.wins_losses')}\n"
         f"{'─'*28}"
     )
 
@@ -1245,6 +1292,7 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     losses = risk['losses'] if risk else 0
 
     best_line = f"  🥇 أفضل إشارة: {best['symbol']} ({best['score']}/10)" if best else "  لا توجد بعد"
+    net_lines = await _net_counter_lines("exit_time::date = CURRENT_DATE")
 
     await update.message.reply_text(
         f"📅 ملخص اليوم\n"
@@ -1261,10 +1309,23 @@ async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  فُتحت اليوم: {opened_today}\n"
         f"  مفتوحة الآن: {open_now}\n"
         f"  أُغلقت اليوم: {closed_today}\n"
-        f"  أرباح/خسائر: {wins} ✅ / {losses} ❌\n"
-        f"  الصافي بعد التكلفة: {net_today:+.2f} USDT\n"
+        f"  أرباح/خسائر: {wins} ✅ / {losses} ❌{_tag('daily.wins_losses')}{net_lines}\n"
+        f"  الصافي بعد التكلفة: {net_today:+.2f} USDT{_tag('daily.net')}\n"
         f"{'─'*28}"
     )
+
+
+def _closed_basis_lines(result: dict) -> str:
+    """PAPER_COUNTER_LABELS=on: the basis of each closed-message figure and the stored net fields
+    of the row with their own label_policy (they differ from the recomputed net under
+    net_single_count_legacy_v1)."""
+    policy = result.get('label_policy')
+    stored = (f"\n📐 المخزَّن: {result.get('economic_result')} "
+              f"({float(result['net_profit_usdt']):+.2f} USDT) [{cost_policy.BASIS_NET_STORED} · "
+              f"{cost_policy.LABEL_POLICY_COST_MODEL.get(policy, cost_policy.UNSPECIFIED_COST_MODEL)}"
+              f" · {policy}]" if policy and result.get('net_profit_usdt') is not None else "")
+    return (f"\n\n📐 الإجمالي {cost_policy.counter_tag('closed_message.gross')}"
+            f"\n📐 الصافي {cost_policy.counter_tag('closed_message.net')}{stored}")
 
 
 def format_price(price) -> str:
