@@ -1,6 +1,6 @@
 # WP2 Engineering Foundation Status (2026-11-01)
 
-> **Status: documentation only.** This file records what the WP2 engineering-foundation commits on branch `feature/wp2-foundation-20261101` deliver, measured against [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md). Nothing here is deployed, merged, activated or approved, and no owner decision is recorded. Fixing a defect is never evidence of profitability (`CH:L46`). Aliases follow [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) ("Source aliases"). Pack line citations refer to `5cd1a61`.
+> **Status: documentation only.** This file records what the WP2 engineering-foundation commits on branch `feature/wp2-foundation-20261101` deliver, measured against [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md). Nothing here is deployed, merged or activated. Owner decisions are recorded in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) section 3; sections 1 and 5 refer to them. Fixing a defect is never evidence of profitability (`CH:L46`). Aliases follow [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) ("Source aliases"). Pack line citations refer to `5cd1a61`.
 
 ## 1. Scope and authorization
 
@@ -8,10 +8,12 @@
 |---|---|
 | Branch and base | `feature/wp2-foundation-20261101`, from `5cd1a61` (pack); `main` `46578aa` unchanged |
 | Commits | `b981bfd` (pack reconciliation), `9668485` (lane A, R5), `24340b8` (lane C, R3), `716c5a8` (lanes B, R1 and R6), `d5c1539` (lane E, R7), then the commit adding this file. Pushed to the development branch without force (D0 standing push authorization, `DFP:L41`); no PR, no merge |
-| Authorization | Owner, development-only: new isolated deterministic modules, synthetic tests and documentation fixes |
+| Authorization | Owner, development-only: new isolated deterministic modules, synthetic tests and documentation fixes. This was the authorization for the initial foundation work, the commits listed above |
 | Not done | no deployment, merge, activation, restart, database, container, network or production-host action; no protected data, backtest, simulation, optimisation or calibration; no change to Paper decisions, signals, entries, exits, stops, targets, ranking, the candidate `LIMIT`, sizing or risk limits |
-| Isolation | the eight new modules are registered in `tests/experimental_modules.py`, so the existing isolation tests forbid any production import. No existing production, configuration, deploy, research or `p2_forward` file changed; the only existing file touched is that test registry (SOURCE_VERIFIED, `git diff --name-only 5cd1a61 HEAD`) |
-| Gate WP2-START | the workplan's gate (DG-70) is still **OPEN** in the pack: the development-only authorization of this phase is not recorded there as the WP2-START decision |
+| Isolation | the eight new modules are registered in `tests/experimental_modules.py`, so the existing isolation tests forbid any production import. No existing production, configuration, deploy, research or `p2_forward` file changed; the only existing file touched is that test registry (SOURCE_VERIFIED, `git diff --name-only 5cd1a61 HEAD`). This describes the commits listed above; the integrated-development row below supersedes the dormant rule behind it for source integration only |
+| Gate WP2-START | **APPROVED, development-only**, by the owner on 2026-11-01 (DG-70; DECISIONS_AND_GATES.md section 3, entry DG-L03). The previous owner authorization covered the initial foundation work recorded in this file, and this approval continues the same safe-development scope. It does not unlock protected experiments, production operations, strategy activation or merging |
+| Integrated development | owner decision of 2026-11-01, [WP2_INTEGRATED_DEVELOPMENT_DECISION_2026-11-01.md](../../governance/WP2_INTEGRATED_DEVELOPMENT_DECISION_2026-11-01.md) at `f0c560d` (entry DG-L04). Development targets the existing bot source. The "dormant only" and "no production import" rules are superseded for source integration only, never as permission to deploy or activate (L3, L36). Gates kept: shared-host and live Paper operations stay under `docs/ops/COMPOSE_OPERATIONS.md` Class B with operation-specific authorization, and only isolated, disposable development containers are outside it (L17-18); Paper activation needs its own owner, version and operations decision (L26); research restrictions, PAPER_ONLY and A29 D1/D2 stay binding (L22-24); hash-pinned research contracts and freeze records stay unchanged (L25) |
+| Other owner decisions of 2026-11-01 | DG-69 (WP-A01) APPROVED FOR COMPLETION AND REVIEW; DG-71 (WP-OD-01) HOLD; DG-35 (SE-84) HOLD (section 5) |
 
 **Anti-drift result (charter §7 item 7).** No DEVIATION ALERT. Nothing changes the objective, forces trades, narrows the universe to BTC, transfers another strategy's results, adds tuning, treats unrealized gains as cash (`d5c1539` keeps `compounding_base` on realized net only) or bypasses A29. Every threshold, limit and bound in the new code is an explicit argument without a default; none is chosen.
 
@@ -122,24 +124,24 @@ Runtime status is unchanged for every item, because nothing was deployed or acti
 
 ## 5. Remaining owner decisions, by when they are needed
 
-All 72 decisions (DG-01 to DG-72) stay OPEN. Their grouping is in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md), section 1.0:
+As of 2026-11-01 (DECISIONS_AND_GATES.md section 3, DG-L03), four decisions have an owner status: DG-70 APPROVED, development-only; DG-69 APPROVED FOR COMPLETION AND REVIEW; DG-35 and DG-71 HOLD. The other 68 stay OPEN. The 72 rows are grouped in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md), section 1.0:
 - safe development-only code: 26;
 - a strategy-behaviour change: 6;
 - portfolio-risk activation: 17;
 - protected research: 16;
 - deployment: 7.
 
-**Needed before the next development step:**
+**The step-1 decisions, as of 2026-11-01:**
 
-| Decision | Why it is needed now |
-|---|---|
-| DG-70, WP2-START | recording it (or an explicit statement that the development-only authorization stands in for it) opens the tasks that edit existing files under a flag: WP-A06, WP-B03 hook, WP-B01 hooks, WP-C04, WP-E06 |
-| DG-69, review of WP-A01 | the WP-A01 specification fixes the source-closure and decision-key lists that `9668485` leaves open |
-| DG-71, WP-OD-01 | edits to the nine hash-pinned files: the pinned hooks of WP-B01, WP-B02, WP-B05 and WP-B10 |
-| DG-35, SE-84 | `setup_key` composition for WP-C02 and the chain to WP-B05 |
-| `shared/macro_context.py` in the strategy source closure | an owner confirmation within the WP-A01 review (SE-06, SE-37); not a separate DG row |
+| Decision | Status | What it means for the next development step |
+|---|---|---|
+| DG-70, WP2-START | APPROVED, development-only | Safe development continues in the same scope. Under the integrated-development decision (DG-L04), it is carried out in the existing bot source. Each behaviour-changing integration sits behind a flag that defaults to current behaviour and fails closed on an unknown value (DFP:L87). Not unlocked: protected experiments, production operations, strategy activation, merging |
+| DG-69, review of WP-A01 | APPROVED FOR COMPLETION AND REVIEW | WP-A01 is completed and submitted for review, with a closure that covers every decision-relevant rule and dependency. **Still needed:** the owner's acceptance after that review, which fixes the source-closure and decision-key lists that `9668485` leaves open |
+| `shared/macro_context.py` in the strategy source closure | owner instruction recorded with DG-69 (SE-06, SE-37); not a separate DG row | documented as a potential dependency; part of the active decision closure only where source-level call paths justify it; macro gating neither changed nor activated |
+| DG-71, WP-OD-01 | HOLD | **Still needed:** a decision. Until then no hash-pinned file is modified, and the pinned hooks of WP-B01, WP-B02, WP-B05 and WP-B10 stay unstarted |
+| DG-35, SE-84 | HOLD | Only the final `setup_key` proposal and synthetic conflict cases are prepared. **Still needed:** a decision before `setup_key` composition for WP-C02, any integration of a new `setup_key` and the chain to WP-B05 |
 
-The other group-1 rows gate one named slice each (DECISIONS_AND_GATES.md section 1.1). Group 2 to 5 rows are needed only before activation, protected research or deployment.
+The other 22 group-1 rows stay OPEN and gate one named slice each (DECISIONS_AND_GATES.md section 1.1). Group 2 to 5 rows are needed only before activation, protected research or deployment.
 
 ## 6. Next-phase options for the owner
 

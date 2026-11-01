@@ -64,6 +64,8 @@ Code is cited with its full path and commit. Pack documents are cited as file, s
 
 **What it does not authorize** (DOCUMENTED_ONLY, policy):
 - **WP2 start.** WP2 needs its own owner approval ("approved dev-branch changes", `CH:L51`). Approval of the charter, of WP0 or of WP1 approves direction and documentation only (`CH:L80`). In this file that approval is the gate **WP2-START**; its consolidated entry belongs in [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md).
+  - **Dated note, 2026-11-01 (owner decisions, WP2 iteration 2).** WP2-START (DG-70) is **APPROVED, development-only** (DECISIONS_AND_GATES.md section 3, entry DG-L03). It continues the safe-development scope of the initial foundation work. It does not unlock protected experiments, production operations, strategy activation or merging. The same entry records DG-69 (WP-A01) as APPROVED FOR COMPLETION AND REVIEW, and WP-OD-01 (DG-71) and SE-84 (DG-35) as on HOLD. Task rows are not rewritten.
+  - **Dated note, 2026-11-01 (integrated development).** The owner decision `docs/governance/WP2_INTEGRATED_DEVELOPMENT_DECISION_2026-11-01.md @ f0c560d` (entry DG-L04) makes the existing bot source the development target. Two rules of this plan are superseded for development source integration only, never as permission to deploy or activate (L3, L36 of that file): the "dormant only" reading, and the "no production import" rules. Those rules are the import restriction of section 2.4 criterion 4 and the WP-E01 acceptance "no import from a runtime service". These stay in force: criteria 2 and 3 of section 2.4 (byte-identical outputs at the flag default; an unknown value refuses), the WP-N02 rule (criterion 5), and the activation, shared-host and research gates of that decision (L18, L22-26).
 - **Protected data, simulation, tuning.** No task reads FORWARD_HOLDOUT outcomes, counts or timestamps, the production database, logs or unlicensed data (DFP:L57-58; DFP:L42). No task runs a backtest, replay on real data, optimisation, calibration or ablation. Tests use synthetic fixtures only.
 - **Activation.** A default-off flag never authorizes its own activation, a governed experiment or a production change (`CH:L51`; DFP:L87, L104).
 - **Merging and integration.** Integration into `main` is an owner decision outside this plan (DFP:L41, L102; `CH:L80`). DFP:L5 permits direct integration of low-risk D0 work; this plan follows the narrower gate, as OOC:L44 requires when records diverge.
@@ -129,7 +131,7 @@ For every **Documentation/design** task: owner review. Production-operation defi
 
 | Gate | Meaning | Source |
 |---|---|---|
-| WP2-START | owner approval to start WP2 work under this plan | `CH:L51`, `CH:L80` |
+| WP2-START | owner approval to start WP2 work under this plan; APPROVED, development-only, on 2026-11-01 (section 1, dated note) | `CH:L51`, `CH:L80` |
 | Design decisions | open individual WP2 slices; they are not WP3 decisions: OF-OD-01 … OF-OD-18, PR-OD1 … PR-OD22, SE-80, SE-82, SE-84 … SE-88, the register's bundling decision (REMEDIATION_REGISTER.md "Priority ordering", L81-86), OQ-07, OQ-09, WP-OD-01, WP-OD-02 | the pack documents |
 | WP3 decisions | OD-DF-1, OD-DF-2, candidate slots and slot plan (G4 Q4, Design A E1–E8, SE-89), preregistration, cost and fill model (SE-81, SE-87, OQ-08), in ERG order | `CH:L52`; ERG:L123-131, L207-213 |
 | WP4 | authorized evaluation only | `CH:L53` |
