@@ -59,8 +59,9 @@ from typing import Any, Mapping
 
 from shared import evidence_v2
 from shared.config import config
-from shared.funnel_records import (FRESHNESS_REASON_CODES, SE_NAME_MAP, RejectionRecord,
-                                   canonical_for_legacy, validate_reason_code)
+from shared.funnel_records import (FRESHNESS_REASON_CODES, SE_NAME_MAP, TAXONOMY_VERSION_V1_1,
+                                   RejectionRecord, canonical_for_legacy, is_annotation,
+                                   validate_reason_code)
 from shared.funnel_recorder import FunnelRecorder
 
 ENVELOPE_SCHEMA = "tsb.funnel.cycle_envelope"
@@ -114,19 +115,49 @@ def candidate_fields(data: Mapping | None, symbol: str | None = None,
             "setup_key": setup_key if isinstance(setup_key, str) and setup_key else None}
 
 
+UNATTRIBUTED_CODE = "F4.unattributed"
+# Live-selector labels (signal_engine/signal_logic.py @ ea8ae4f, pinned, read only) that the
+# general maps below do not cover, each with the line that sets it and its canonical code.
+ENGINE_LABEL_CODES = {
+    # L793: the symbol already has an open trade. A one-position-per-symbol limit is a
+    # symbol-exposure rule of the portfolio, so its canonical home is F7 (OF 8.2, WP-IR-05).
+    "open_trade_exists": ("F7", "F7.exposure_symbol", "shared.admission"),
+    # L809: integrity_check reason "duplicate_setup" (shared/signal_identity.py): the setup key
+    # was emitted before (WP-IR-01 maps duplicate_setup_key the same way).
+    "duplicate_setup": ("F4", "F4.duplicate_setup", "shared.identity"),
+    # L826: the (trade_type, timeframe) cell is throttled by the learned gates (taxonomy v1.1).
+    "learned_gate_throttled": ("F4", "F4.learned_gate_throttled", None),
+    # L823: exploration admits a throttled cell. An admit flag, never a drop (annotation, v1.1).
+    "learned_gate_exploration": ("F4", "F4.learned_gate_exploration", None),
+}
+
+
 def engine_label_code(label: Any):
-    """``(stage, reason_code, sub_stage)`` for a signal-engine decision label, or None when the
-    documented maps (WP-IR-01, WP-IR-04, OF section 8.2) give no canonical code. Never guesses."""
+    """``(stage, reason_code, sub_stage)`` for a signal-engine decision label, or None when no
+    documented map (WP-IR-01, WP-IR-04, OF section 8.2, ``ENGINE_LABEL_CODES``) covers it. Never
+    guesses: the caller counts a None as ``F4.unattributed``."""
     if not isinstance(label, str) or not label:
         return None
-    if label.startswith("stop_rejected:"):
-        reason = label.split(":", 1)[1]
-        code = ("F5.stop_risk_above_cap" if reason == "structural_risk_exceeds_cap"
-                else f"F5.stop_invalid:{reason}")
+    if label in ENGINE_LABEL_CODES:
+        return ENGINE_LABEL_CODES[label]
+    head, _, rest = label.partition(":")
+    if head == "stop_rejected" and rest:
+        code = ("F5.stop_risk_above_cap" if rest == "structural_risk_exceeds_cap"
+                else f"F5.stop_invalid:{rest}")
         try:
             return "F5", validate_reason_code(code, "F5"), "strategy.geometry"
         except ValueError:
             return None
+    if head == "freshness" and rest in FRESHNESS_REASON_CODES:
+        # L809: integrity_check "freshness:<reason>" from the A44 rule (freshness_at)
+        return "F4", FRESHNESS_REASON_CODES[rest], "shared.identity"
+    if head == "identity" and rest:
+        # L809: integrity_check "identity:<error>": the candle/setup identity cannot be derived
+        # from the row, i.e. its candle data is incomplete for the identity rule
+        return "F4", "F4.data_quality", "shared.identity"
+    if head == "safety_state_unverified" and rest:
+        # L411: enforce mode, a fail-closed safety read failed, every row gets gate.reason
+        return "F4", "F4.state_read_failed", None
     if label in SE_NAME_MAP:
         stage, code, sub = SE_NAME_MAP[label]
         return stage, code, sub
@@ -279,12 +310,18 @@ class FunnelService:
                             "reason_code": entry["reason_code"], "symbol": entry["symbol"]},
                            {**entry, "closed_in_cycle": cycle.cycle_id}, cycle.decision_time)
         self._day_suppressed += self._cycle_suppressed
-        valid = bool(report is not None and report.valid and not cycle.failures)
+        # valid = the conservation check holds (and the recorder itself never failed). Observation
+        # gaps of the integration (a derived verdict that disagrees, a missing diagnostic) are
+        # reported separately as integration_failures / observation_complete.
+        valid = bool(report is not None and report.valid)
         summary = report.as_dict() if report is not None else {}
         summary.pop("records", None)
         envelope = {"schema": ENVELOPE_SCHEMA, "schema_version": ENVELOPE_VERSION,
                     "service": self.service, "cycle_id": cycle.cycle_id,
                     "decision_time": cycle.decision_time, "valid": valid,
+                    "observation_complete": not cycle.failures,
+                    "unattributed": sum(1 for r in records if r.reason_code == "F4.unattributed"),
+                    "taxonomy_version": TAXONOMY_VERSION_V1_1,
                     "record_count": len(records), "records_overflow": self._overflow,
                     "suppressed_daily_cap": self._cycle_suppressed,
                     "max_records_per_day": self.max_records_per_day,
@@ -730,7 +767,10 @@ class SignalEngineTap:
     RULE_RANK = "signal_logic.SignalEngine._fixed_candidate_key:min"
 
     # Stages whose records are compacted to one per state change (SE-1 volume bound).
-    COMPACT_STAGES = ("F2", "F3", "F4", "F5", "F6")
+    COMPACT_STAGES = ("F2", "F3", "F4", "F5", "F6", "F7")
+    # Virtual order of the pinned gate block for per-symbol accounting: setup and the other F4
+    # labels, book and spread, stop, then the open-position check (signal_logic.py L755-831).
+    GATE_ORDER = ("F4", "F2", "F5", "F7")
 
     def __init__(self, engine, *, limit: int, cut_list_rows: int, max_records_per_day: int | None = None,
                  service: FunnelService | None = None):
@@ -892,7 +932,7 @@ class SignalEngineTap:
             self.chain = ("F3",)
             return
         cyc.count("F3", n, n)
-        drops = {"F4": [], "F2": [], "F5": []}
+        drops = {stage: [] for stage in self.GATE_ORDER}
         for symbol in symbols:
             label = decisions.get(symbol)
             if symbol in ranked_symbols:
@@ -900,24 +940,24 @@ class SignalEngineTap:
                     cyc.fail("ranked_symbol_label_inconsistent")
                 continue
             mapped = engine_label_code(label)
-            if mapped is None or mapped[0] not in drops:
-                head = label.split(":", 1)[0] if isinstance(label, str) else "missing"
-                cyc.fail(f"legacy_label_unmapped:{head}")
-                drops["F4"].append((symbol, None, None, label))
+            if mapped is None or mapped[0] not in drops or is_annotation(mapped[1]):
+                # no label, an unknown label, or an admit flag on a symbol that never reached
+                # ranking: the symbol is still counted once, under an explicit code
+                drops["F4"].append((symbol, UNATTRIBUTED_CODE, None, label))
                 continue
             stage, code, sub = mapped
             drops[stage].append((symbol, code, sub, label))
         remaining = n
-        for stage in ("F4", "F2", "F5"):
+        for stage in self.GATE_ORDER:
             cyc.count(stage, remaining, remaining - len(drops[stage]))
             remaining -= len(drops[stage])
             for symbol, code, sub, label in drops[stage]:
-                if code is None:
-                    continue
+                head = label.split(":", 1)[0] if isinstance(label, str) and label else "missing"
                 cyc.add(stage=stage, scope="symbol", reason_code=code, sub_stage=sub, symbol=symbol,
                         series_identity=identity.get(symbol),
-                        rule_ref=f"signal_logic.find_best_signal_live:{label.split(':', 1)[0]}",
-                        detail={"legacy_reason": label, "attribution": "per_symbol_last_label"})
+                        rule_ref=f"signal_logic.find_best_signal_live:{head}",
+                        detail={"legacy_reason": label if isinstance(label, str) else None,
+                                "attribution": "per_symbol_last_label"})
         if remaining != len(ranked_symbols):
             cyc.fail("gate_count_mismatch")
         ordered = sorted(eligible, key=lambda c: (_nan_safe(c["key"]), c["pos"]))
@@ -934,7 +974,7 @@ class SignalEngineTap:
                             "legacy_reason": "not_selected_capacity",
                             "rank_key": [_num(v) if isinstance(v, float) else v for v in c["key"]]},
                     **c["fields"])
-        self.chain = ("F3", "F4", "F2", "F5", "F6")
+        self.chain = ("F3",) + self.GATE_ORDER + ("F6",)
 
     @staticmethod
     def _symbol_identities(results) -> dict:
