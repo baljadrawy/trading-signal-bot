@@ -62,6 +62,8 @@ The charter asks for one integrated design across all workstreams, built on the 
 
 WP2 status file (added 2026-11-01): [WP2_ENGINEERING_FOUNDATION_STATUS.md](WP2_ENGINEERING_FOUNDATION_STATUS.md) records the WP2 engineering-foundation commits, task status, acceptance gates, R1–R9 status and the open decisions by need.
 
+WP2 review handoff (added 2026-11-01): [WP2_INDEPENDENT_REVIEW_HANDOFF.md](WP2_INDEPENDENT_REVIEW_HANDOFF.md) states that independent review of WP2 is PENDING and hands it over: scope, review questions, claims to verify, reproduction commands, reported gaps and what the reviewer must not do.
+
 ## Reading order
 
 1. **This README**, for scope and authority.
