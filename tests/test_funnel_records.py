@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from funnel_service_harness import ROOT as ROOT_DIR
 from funnel_service_harness import (FakeDB, Health, events, load_service, run_main,
                                     set_recording)
 from shared import evidence_v2 as ev2
@@ -456,10 +457,6 @@ def _engine_env(monkeypatch, sc, extra_env=None):
             return copy.deepcopy(ordered[:200])
         if sql == mod._RANKED_CANDIDATES_SQL:
             return copy.deepcopy(sc["rows"])
-        if sql == mod._FUNNEL_LEGACY_ORDER_SQL:
-            return [{"symbol": r["symbol"], "timeframe": r["timeframe"],
-                     "trade_type": r["analysis_data"].get("trade_type"),
-                     "bar_close_ms": str(r["analysis_data"]["pit"]["candle_close_time_ms"])} for r in ordered]
         if "OFFSET" in sql:
             return [{"symbol": r["symbol"], "timeframe": r["timeframe"]} for r in ordered[200:700]]
         if "active_trades" in sql:
@@ -499,15 +496,15 @@ def _engine_env(monkeypatch, sc, extra_env=None):
     return mod, db, health, saved
 
 
-def run_engine(monkeypatch, sc, on, extra_env=None):
+def run_engine(monkeypatch, sc, on, extra_env=None, cycles=1):
     rec = set_recording(monkeypatch, "signal_engine", on)
     if not on:
         def boom(*a, **k):
             raise AssertionError("SignalEngineTap built with FUNNEL_RECORDING=off")
         monkeypatch.setattr(fh, "SignalEngineTap", boom)
     mod, db, health, saved = _engine_env(monkeypatch, sc, extra_env)
-    run_main(mod, cycles=1)
-    result = {"trace": db.trace(exclude=(mod._FUNNEL_LEGACY_ORDER_SQL,)), "saved": list(saved),
+    run_main(mod, cycles=cycles)
+    result = {"trace": db.trace(), "saved": list(saved),
               "health": health.without_funnel(), "rec": rec, "db": db, "mod": mod,
               "funnel_health": health.funnel_health()}
     monkeypatch.undo()
@@ -531,7 +528,7 @@ def test_signal_engine_decisions_identical_off_and_on_and_conserved(seed, monkey
     assert on["trace"] == off["trace"]
     assert on["saved"] == off["saved"]
     assert on["health"] == off["health"]
-    assert not any(c[1] == off["mod"]._FUNNEL_LEGACY_ORDER_SQL for c in off["db"].calls)
+    assert len(on["db"].calls) == len(off["db"].calls)                # zero additional statements
     assert [e for e in events(off["rec"]) if e["event_type"].startswith("funnel.")] == []
     cycles = events(on["rec"], "funnel.cycle")
     if not sc["rows"]:
@@ -614,7 +611,7 @@ def _with_before_tree(service):
         before = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(before)
         if service == "signal_engine":
-            before._RANKED_CANDIDATES_SQL = before._FUNNEL_LEGACY_ORDER_SQL = "<absent>"
+            before._RANKED_CANDIDATES_SQL = "<absent>"
         load_service(service)
         saved = _LOADED[service]
         _LOADED[service] = before
@@ -668,3 +665,92 @@ def test_analyzer_off_equals_pre_change_tree(seed, monkeypatch):
             run_main(mod, cycles=1)
         out.append((db.trace(), health.calls))
     assert out[0] == out[1]
+
+
+# ── SE-1 activation guards: compaction, per-cycle bound, no extra statement ─────────────────
+
+@pytest.mark.parametrize("seed", [5, 10, 17, 19, 24])
+def test_identical_cycles_are_compacted_but_counted(seed, monkeypatch):
+    sc = engine_scenario(seed)
+    off = run_engine(monkeypatch, sc, on=False, cycles=3)
+    on = run_engine(monkeypatch, sc, on=True, cycles=3)
+    assert on["trace"] == off["trace"] and on["saved"] == off["saved"]
+    assert len(on["db"].calls) == len(off["db"].calls)                # zero additional statements
+    cycles = [e["payload"] for e in events(on["rec"], "funnel.cycle")]
+    assert len(cycles) == 3 and len({json.dumps(c["report"]["stage_counts"]) for c in cycles}) == 1
+    assert all(c["report"]["conservation"]["ok"] for c in cycles if c["valid"])
+    emitted = events(on["rec"], "funnel.rejection")
+    assert len(emitted) == cycles[0]["record_count"]                   # repeats not re-emitted
+    assert all(e["payload"]["series"]["compaction"] == "state_change_v1" for e in emitted)
+    assert on["funnel_health"][-1]["compacted_repeats"] == 2 * cycles[0]["record_count"]
+
+
+def test_reanalysed_bar_opens_a_new_series(monkeypatch):
+    sc = engine_scenario(1)
+    tap = fh.SignalEngineTap(type("E", (), {"_fixed_candidate_key": staticmethod(lambda s: ())})(),
+                             limit=200, cut_list_rows=500)
+    set_recording(monkeypatch, "signal_engine", True)
+    rows = copy.deepcopy(sc["rows"])
+    decisions = {r["symbol"]: "no_trade_setup" for r in rows}
+    sent = []
+    for change in (False, False, True):
+        if change:
+            rows[0]["analysis_data"]["pit"]["candidate_id"] = "re-analysed"
+        tap.begin(1_767_225_600_000)
+        tap.observe_legacy_cut(rows, None)
+        tap.start_decision()
+        tap.observe_decision(rows, decisions, None, EngineMacro("ok"), True)
+        sent.append(tap.end()["record_count"])
+    rec = ev2._RECORDERS["signal_engine"]
+    opened = [e for e in events(rec, "funnel.rejection")]
+    assert len(opened) == len(decisions) + 1                           # one new series for one symbol
+    assert len(events(rec, "funnel.rejection_series_closed")) == 1
+
+
+def test_per_cycle_record_bound_counts_overflow(monkeypatch):
+    rec = set_recording(monkeypatch, "signal_engine", True)
+    service = fh.FunnelService("signal_engine", compact_stages=("F4",), max_records_per_cycle=2)
+    for _ in range(2):
+        cyc = service.begin(1_767_225_600_000)
+        for i in range(5):
+            cyc.add(stage="F4", scope="symbol", reason_code="F4.no_setup", rule_ref="r", symbol=f"S{i}USDT")
+        cyc.count("F4", 5, 0)
+        env = cyc.finish(close_series=True)
+        assert env["record_count"] == 5 and env["report"]["conservation"]["ok"]
+    assert len(events(rec, "funnel.rejection")) == 4                   # 2 per cycle, overflow retried
+    assert service.health()["records_overflow"] == 3 + 1
+    with pytest.raises(ValueError):
+        fh.FunnelService("x", max_records_per_cycle=0)
+    tap = fh.SignalEngineTap(type("E", (), {"_fixed_candidate_key": staticmethod(lambda s: ())})(),
+                             limit=200, cut_list_rows=500)
+    assert tap.service.max_records_per_cycle == 901
+
+
+def test_cut_beyond_the_listed_rows_is_one_cycle_record(monkeypatch):
+    set_recording(monkeypatch, "signal_engine", True)
+    tap = fh.SignalEngineTap(type("E", (), {"_fixed_candidate_key": staticmethod(lambda s: ())})(),
+                             limit=3, cut_list_rows=2)
+    rows = [{"symbol": f"S{i}USDT", "timeframe": "4h", "analysis_data": {}} for i in range(3)]
+    tap.begin(1_767_225_600_000)
+    tap.observe_legacy_cut(rows, {"truncated": True, "eligible_total": 9,
+                                  "truncated_rows": [["X1USDT", "4h"], ["X2USDT", "1d"]]})
+    env = tap.end()
+    cut = sorted((r for r in tap.service.last_records if r.reason_code == "F6.legacy_alphabetical_cut"),
+                 key=lambda r: r.rank)
+    assert [(r.scope, r.rank) for r in cut] == [("candidate", 4), ("candidate", 5), ("cycle", 6)]
+    assert cut[2].detail["subject_count"] == 4 and env["valid"]
+    tap.begin(1_767_225_600_000)
+    tap.observe_legacy_cut(rows, None)                                 # diagnostic unavailable
+    assert ["legacy_cut_unavailable", 1] in tap.end()["integration_failures"]
+
+
+def test_signal_engine_truncation_sql_bytes_unchanged():
+    import ast
+    src = (ROOT_DIR / "signal_engine" / "main.py").read_text(encoding="utf-8")
+    assert "_FUNNEL_LEGACY_ORDER_SQL" not in src and "LIMIT 500" not in src
+    mod = load_service("signal_engine")
+    assert mod._TRUNCATION_LIST_ROWS == 500 and mod.SELECTION_LIMIT == 200
+    rendered = f" OFFSET {mod.SELECTION_LIMIT} LIMIT {mod._TRUNCATION_LIST_ROWS}"
+    assert rendered == " OFFSET 200 LIMIT 500"
+    assert len([n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Constant)
+                and isinstance(n.value, str) and "LIMIT 200" in n.value]) == 1

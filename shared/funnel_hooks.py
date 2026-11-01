@@ -20,8 +20,10 @@ Stages recorded (OPPORTUNITY_FUNNEL.md section 7; taxonomy v1 of ``shared/funnel
   ``analyzer/main.py`` call the tap at their skip points. Today those points are silent (OF-05).
 * **Signal engine, F3 to F6 (``SignalEngineTap``).**
   - The candidate query's cut is recorded in shadow. Under the legacy policy it is
-    ``F6.legacy_alphabetical_cut``, read again (only when the cut can bind) in the same order.
-    Under a declared policy it is ``F6.rank_below_cap``.
+    ``F6.legacy_alphabetical_cut``, taken from the rows the evidence-v2 truncation diagnostic
+    (``_v2_truncation``) already reads: no statement of its own. Rows beyond that diagnostic's
+    list are one cycle-scope record with their count. Under a declared policy the cut is
+    ``F6.rank_below_cap``.
   - The live selector in ``signal_engine/signal_logic.py`` is pinned. Its gate outcomes are read
     from ``engine.last_decisions``, which the pinned code keys by symbol only (OF-08). So F2 to F5
     are recorded at symbol scope, in the pinned gate order, and attributed by each symbol's last
@@ -32,9 +34,13 @@ Stages recorded (OPPORTUNITY_FUNNEL.md section 7; taxonomy v1 of ``shared/funnel
   - The macro veto is one cycle-scope F3 record, and its cause is read from the macro context.
 
 Records and per-cycle counters go to the existing evidence-v2 store (``funnel.rejection``,
-``funnel.rejection_series_closed``, ``funnel.cycle``). Counters are never sampled. The scanner's
-universe-level F0 to F2 records are compacted, one per (subject, code) state change, with
-``first_seen``, ``last_seen`` and ``repeat_count`` (OF section 8.4). A failed or dropped emit is
+``funnel.rejection_series_closed``, ``funnel.cycle``). Counters are never sampled: every cycle's
+envelope carries the complete stage counts and conservation result. Records are compacted to one
+event per state change of (stage, scope, subject, reason, analysis identity), with
+``first_seen``, ``last_seen`` and ``repeat_count`` on the closing event (OF section 8.4). This
+covers the scanner's F0 to F2 and the signal engine's F2 to F6. A per-cycle emission bound
+(``max_records_per_cycle``) stops a pathological cycle from flooding the queue; the excess is
+counted as ``records_overflow`` and retried on the next cycle. A failed or dropped emit is
 counted as ``not_recorded``.
 
 Identity fields are labels, not the WP-IR-09 identifier:
@@ -45,7 +51,9 @@ Identity fields are labels, not the WP-IR-09 identifier:
 """
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 import math
 from typing import Any, Mapping
 
@@ -136,9 +144,14 @@ def engine_label_code(label: Any):
 class FunnelService:
     """Per-process funnel state of one service: cycle numbering, compaction, health counters."""
 
-    def __init__(self, service: str, *, compact_stages=()):
+    def __init__(self, service: str, *, compact_stages=(), max_records_per_cycle: int | None = None):
         self.service = service
         self.compact_stages = frozenset(compact_stages)
+        if max_records_per_cycle is not None and (isinstance(max_records_per_cycle, bool)
+                                                  or not isinstance(max_records_per_cycle, int)
+                                                  or max_records_per_cycle < 1):
+            raise ValueError("max_records_per_cycle must be a positive int or None")
+        self.max_records_per_cycle = max_records_per_cycle
         try:
             self.config_hash = evidence_v2.compute_config_hash(config)
         except Exception:
@@ -148,9 +161,11 @@ class FunnelService:
         self._series_cap = int(getattr(config, "EVIDENCE_V2_STATE_CACHE", 50000) or 50000)
         self.stats = {"cycles": 0, "valid_cycles": 0, "invalid_cycles": 0, "records": 0,
                       "events_recorded": 0, "not_recorded": 0, "compacted_repeats": 0,
-                      "series_closed": 0, "publish_failures": 0}
+                      "series_closed": 0, "publish_failures": 0, "records_overflow": 0}
         self.last_envelope: dict | None = None
         self.last_records: tuple = ()
+        self._budget: int | None = None
+        self._overflow = 0
 
     def begin(self, decision_time_ms: int | None = None) -> "FunnelCycle":
         t = decision_time_ms if decision_time_ms is not None else evidence_v2.now_ms()
@@ -169,6 +184,11 @@ class FunnelService:
         return ok
 
     def _emit_record(self, record: RejectionRecord, series: dict | None = None) -> None:
+        if self._budget is not None:
+            if self._budget <= 0:
+                self._overflow += 1
+                return
+            self._budget -= 1
         payload = record.as_dict()
         if series is not None:
             payload["series"] = series
@@ -179,12 +199,15 @@ class FunnelService:
     def publish(self, cycle: "FunnelCycle", *, chain=(), close_series: bool = False) -> dict:
         report = cycle.recorder.report(chain=tuple(chain))
         records = report.records if report is not None else ()
+        self._budget, self._overflow = self.max_records_per_cycle, 0
         seen = set()
         for r in records:
             if r.stage not in self.compact_stages:
                 self._emit_record(r)
                 continue
-            key = (r.stage, r.scope, r.subject_key(), r.reason_code)
+            # one series per (stage, scope, subject, reason, analysis identity); the subject of a
+            # candidate-scope record already carries its bar_close_time and setup_key
+            key = (r.stage, r.scope, r.subject_key(), r.reason_code, cycle.identities.get(r.record_id))
             seen.add(key)
             entry = self._series.get(key)
             if entry is not None:
@@ -193,6 +216,10 @@ class FunnelService:
                 self.stats["compacted_repeats"] += 1
                 continue
             series = {"compaction": "state_change_v1", "first_seen_ms": r.decision_time}
+            if self._budget is not None and self._budget <= 0:
+                self._overflow += 1                    # not tracked: retried on the next cycle
+                seen.discard(key)
+                continue
             if len(self._series) < self._series_cap:
                 self._series[key] = {"first_seen_ms": r.decision_time, "last_seen_ms": r.decision_time,
                                      "repeat_count": 1, "first_record_id": r.record_id,
@@ -202,6 +229,10 @@ class FunnelService:
             self._emit_record(r, series)
         if close_series:
             for key in [k for k in self._series if k not in seen]:
+                if self._budget is not None:
+                    if self._budget <= 0:
+                        break                          # closed on a later cycle (still absent)
+                    self._budget -= 1
                 entry = self._series.pop(key)
                 self.stats["series_closed"] += 1
                 self._emit("funnel.rejection_series_closed",
@@ -214,7 +245,8 @@ class FunnelService:
         envelope = {"schema": ENVELOPE_SCHEMA, "schema_version": ENVELOPE_VERSION,
                     "service": self.service, "cycle_id": cycle.cycle_id,
                     "decision_time": cycle.decision_time, "valid": valid,
-                    "record_count": len(records), "report": summary,
+                    "record_count": len(records), "records_overflow": self._overflow,
+                    "report": summary,
                     "integration_failures": [list(x) for x in sorted(cycle.failures.items())],
                     "notes": dict(cycle.notes), "snapshot_hash": SNAPSHOT_HASH_UNAVAILABLE}
         self._emit("funnel.cycle", {"stream": f"{self.service}.funnel", "cycle_id": cycle.cycle_id},
@@ -222,6 +254,7 @@ class FunnelService:
         self.stats["cycles"] += 1
         self.stats["valid_cycles" if valid else "invalid_cycles"] += 1
         self.stats["records"] += len(records)
+        self.stats["records_overflow"] += self._overflow
         self.last_envelope, self.last_records = envelope, records
         return envelope
 
@@ -234,6 +267,7 @@ class FunnelCycle:
         self.recorder = FunnelRecorder(enabled=True, cycle_id=cycle_id)
         self.failures: dict = {}
         self.notes: dict = {}
+        self.identities: dict = {}                 # record_id -> analysis identity (compaction key)
         self.closed = False
 
     def fail(self, kind: str) -> None:
@@ -243,7 +277,7 @@ class FunnelCycle:
             pass
 
     def add(self, *, stage: str, scope: str, reason_code: str, rule_ref: str, as_of: int | None = None,
-            **fields) -> RejectionRecord | None:
+            series_identity: str | None = None, **fields) -> RejectionRecord | None:
         try:
             record = RejectionRecord(cycle_id=self.cycle_id, stage=stage, scope=scope,
                                      reason_code=reason_code, as_of=as_of or self.decision_time,
@@ -253,6 +287,8 @@ class FunnelCycle:
         except Exception as exc:
             self.fail(f"record_refused:{type(exc).__name__}")
             return None
+        if series_identity is not None:
+            self.identities[record.record_id] = series_identity
         self.recorder.record(record)
         return record
 
@@ -649,9 +685,19 @@ class SignalEngineTap:
     RULE_MACRO = "macro_context.should_block_now"
     RULE_RANK = "signal_logic.SignalEngine._fixed_candidate_key:min"
 
-    def __init__(self, engine, *, limit: int, service: FunnelService | None = None):
-        self.service = service or FunnelService("signal_engine")
+    # Stages whose records are compacted to one per state change (SE-1 volume bound).
+    COMPACT_STAGES = ("F2", "F3", "F4", "F5", "F6")
+
+    def __init__(self, engine, *, limit: int, cut_list_rows: int, service: FunnelService | None = None):
+        # Per cycle at most: one record per symbol of the <= limit rows (F2-F5 or F3), one per
+        # ranked loser (<= limit), the listed cut rows (<= cut_list_rows) and one record for an
+        # unlisted cut tail. A larger emission is a pathological cycle: the excess is counted
+        # (records_overflow), never emitted. Both numbers are the caller's existing bounds.
+        self.service = service or FunnelService(
+            "signal_engine", compact_stages=self.COMPACT_STAGES,
+            max_records_per_cycle=2 * limit + cut_list_rows + 1)
         self.limit = limit
+        self.cut_list_rows = cut_list_rows
         self.cycle: FunnelCycle | None = None
         self.chain: tuple = ()
         self._eligible: list | None = None
@@ -689,7 +735,10 @@ class SignalEngineTap:
             self.cycle = None
 
     # selection stage (candidate query)
-    async def observe_legacy_cut(self, results, fetch_ordered) -> None:
+    def observe_legacy_cut(self, results, truncation) -> None:
+        """Record the legacy cut from the rows the evidence-v2 truncation diagnostic already read
+        (``signal_engine/main.py`` ``_v2_truncation``: a count and the first ``cut_list_rows`` rows
+        beyond the limit, in the query's order). No statement of its own."""
         cyc = self.cycle
         if cyc is None:
             return
@@ -699,24 +748,32 @@ class SignalEngineTap:
                 cyc.count("F6", n, n)
                 cyc.notes["selection"] = {"policy": "legacy", "fetched": n, "cut": 0}
                 return
-            rows = list(await fetch_ordered())
-            head = [(r["symbol"], r["timeframe"]) for r in rows[:self.limit]]
-            if head != [(r["symbol"], r["timeframe"]) for r in results]:
-                cyc.fail("cut_snapshot_mismatch")
+            if not isinstance(truncation, Mapping) or "eligible_total" not in truncation:
+                cyc.fail("legacy_cut_unavailable")
                 return
-            for position, row in enumerate(rows[self.limit:], start=self.limit + 1):
-                data = {"symbol": row["symbol"], "timeframe": row["timeframe"],
-                        "trade_type": row.get("trade_type"),
-                        "pit": {"candle_close_time_ms": row.get("bar_close_ms")}}
+            total = int(truncation["eligible_total"])
+            listed = list(truncation.get("truncated_rows") or ())[:self.cut_list_rows]
+            if total < n + len(listed):
+                cyc.fail("cut_count_inconsistent")         # count and list are separate statements
+                return
+            for position, (symbol, timeframe) in enumerate(listed, start=self.limit + 1):
                 cyc.add(stage="F6", scope="candidate", reason_code="F6.legacy_alphabetical_cut",
                         rule_ref=self.RULE_CUT, rank=position,
-                        detail={"position": position, "limit": self.limit, "order": "name"},
-                        **candidate_fields(data))
-            cyc.count("F6", len(rows), self.limit)
-            cyc.notes["selection"] = {"policy": "legacy", "fetched": len(rows),
-                                      "cut": len(rows) - self.limit}
+                        detail={"position": position, "limit": self.limit, "order": "name",
+                                "source": "selection.truncation"},
+                        **candidate_fields({"symbol": symbol, "timeframe": timeframe}))
+            unlisted = total - n - len(listed)
+            if unlisted:
+                first = self.limit + len(listed) + 1
+                cyc.add(stage="F6", scope="cycle", reason_code="F6.legacy_alphabetical_cut",
+                        rule_ref=self.RULE_CUT, rank=first,
+                        detail={"subject_count": unlisted, "positions_from": first, "limit": self.limit,
+                                "order": "name", "rows_unlisted": True})
+            cyc.count("F6", total, n)
+            cyc.notes["selection"] = {"policy": "legacy", "fetched": total, "cut": total - n,
+                                      "cut_listed": len(listed), "cut_unlisted": unlisted}
         except Exception as exc:
-            cyc.fail(f"legacy_cut_read_failed:{type(exc).__name__}")
+            cyc.fail(f"legacy_cut_failed:{type(exc).__name__}")
 
     def observe_ranked_cut(self, picked) -> None:
         cyc = self.cycle
@@ -774,6 +831,7 @@ class SignalEngineTap:
     def _decision(self, cyc, results, decisions, best, macro, live, eligible):
         symbols = list(dict.fromkeys(row["symbol"] for row in results))
         n = len(symbols)
+        identity = self._symbol_identities(results)
         if not live:
             cyc.notes["gate_block"] = "unobserved_legacy_score_path"
             return
@@ -812,6 +870,7 @@ class SignalEngineTap:
                 if code is None:
                     continue
                 cyc.add(stage=stage, scope="symbol", reason_code=code, sub_stage=sub, symbol=symbol,
+                        series_identity=identity.get(symbol),
                         rule_ref=f"signal_logic.find_best_signal_live:{label.split(':', 1)[0]}",
                         detail={"legacy_reason": label, "attribution": "per_symbol_last_label"})
         if remaining != len(ranked_symbols):
@@ -832,19 +891,39 @@ class SignalEngineTap:
                     **c["fields"])
         self.chain = ("F3", "F4", "F2", "F5", "F6")
 
+    @staticmethod
+    def _symbol_identities(results) -> dict:
+        """Per symbol, a digest of its rows' analysis identities (pit candidate_id, else the row
+        content), so a re-analysed bar opens a new series while an unchanged one is compacted."""
+        parts: dict = {}
+        for row in results:
+            data = row["analysis_data"]
+            raw = data if isinstance(data, str) else None
+            if raw is not None:
+                try:
+                    data = json.loads(raw)
+                except ValueError:
+                    data = None
+            pit = data.get("pit") if isinstance(data, Mapping) else None
+            cid = pit.get("candidate_id") if isinstance(pit, Mapping) else None
+            basis = cid or raw or json.dumps(data, sort_keys=True, default=str)
+            parts.setdefault(row["symbol"], []).append(f"{row['timeframe']}|{basis}")
+        return {s: hashlib.sha256("\n".join(sorted(v)).encode()).hexdigest()[:32]
+                for s, v in parts.items()}
+
     def note(self, key: str, value) -> None:
         if self.cycle is not None:
             self.cycle.notes[key] = value
 
-    def end(self) -> dict | None:
+    def end(self, *, complete: bool = True) -> dict | None:
         cyc = self.cycle
         self.cycle, self._eligible = None, None
         if cyc is None:
             return None
-        return cyc.finish(chain=self.chain)
+        return cyc.finish(chain=self.chain, close_series=complete)
 
     def abort(self, exc: BaseException) -> dict | None:
         if self.cycle is not None:
             self.cycle.fail(f"cycle_exception:{type(exc).__name__}")
             self.chain = ()
-        return self.end()
+        return self.end(complete=False)

@@ -26,18 +26,13 @@ from shared.selection_policy import rank_then_limit, selection_policy_from_env
 logger = setup_logger('signal_engine')
 
 SELECTION_LIMIT = 200          # the LIMIT of the candidate query below (unchanged)
+_TRUNCATION_LIST_ROWS = 500    # rows listed beyond the LIMIT by _v2_truncation (unchanged value)
 _ELIGIBLE_WHERE = """
     WHERE signal_generated = false
     AND analyzed_at > NOW() - INTERVAL '30 minutes'
     AND symbol NOT IN (SELECT symbol FROM active_trades WHERE status = 'open')"""
 # R1 (SELECTION_POLICY != legacy): every fresh row under the same WHERE clause, ranked in Python.
 _RANKED_CANDIDATES_SQL = "SELECT symbol, timeframe, analysis_data FROM analysis_results" + _ELIGIBLE_WHERE
-# WP-B01 shadow of the legacy cut (FUNNEL_RECORDING=on only, and only when the cut can bind):
-# the same rows in the same order as the candidate query, without its LIMIT.
-_FUNNEL_LEGACY_ORDER_SQL = (
-    "SELECT symbol, timeframe, analysis_data->>'trade_type' AS trade_type,"
-    " (analysis_data->'pit'->>'candle_close_time_ms') AS bar_close_ms FROM analysis_results"
-    + _ELIGIBLE_WHERE + " ORDER BY symbol, (analysis_data->>'total_score')::float DESC")
 
 
 def _with_ev2(metadata: dict) -> dict:
@@ -59,7 +54,7 @@ async def _v2_truncation(results) -> dict | None:
             cut = await Database.fetch(
                 "SELECT symbol, timeframe FROM analysis_results" + _ELIGIBLE_WHERE +
                 " ORDER BY symbol, (analysis_data->>'total_score')::float DESC"
-                f" OFFSET {SELECTION_LIMIT} LIMIT 500")
+                f" OFFSET {SELECTION_LIMIT} LIMIT {_TRUNCATION_LIST_ROWS}")
             cut_rows = [[r['symbol'], r['timeframe']] for r in cut]
             info = {'truncated': int(total or 0) > SELECTION_LIMIT, 'returned': len(results),
                     'eligible_total': int(total or 0), 'truncated_count': max(0, int(total or 0) - len(results)),
@@ -126,7 +121,7 @@ async def main():
     tap = None
     if funnel_on:                                # observe-only F3-F6 records (shared/funnel_hooks.py)
         from shared.funnel_hooks import SignalEngineTap
-        tap = SignalEngineTap(engine, limit=SELECTION_LIMIT)
+        tap = SignalEngineTap(engine, limit=SELECTION_LIMIT, cut_list_rows=_TRUNCATION_LIST_ROWS)
     ev2_task = evidence_v2.start_flusher('signal_engine')   # None unless EVIDENCE_V2_ENABLED
 
     # Evidence flight-recorder: start the async flusher ONLY when enabled (guarded; any
@@ -186,9 +181,8 @@ async def main():
                     truncation = picked.truncation_info()
                 if tap is not None and results:
                     tap.begin(cycle_started_ms)
-                    if picked is None:
-                        await tap.observe_legacy_cut(
-                            results, lambda: Database.fetch(_FUNNEL_LEGACY_ORDER_SQL))
+                    if picked is None:              # no statement of its own: reuses _v2_truncation
+                        tap.observe_legacy_cut(results, truncation)
                     else:
                         tap.observe_ranked_cut(picked)
 
