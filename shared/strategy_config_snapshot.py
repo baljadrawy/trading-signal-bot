@@ -29,7 +29,7 @@ from shared.strategy_identity import (HEX64, STRATEGY_ID, ClosureError, canonica
 # Copies of shared.t1_cap.T1_CAP_POLICIES and shared.signal_identity.INTEGRITY_MODES. They are not
 # imported, so the A43/A44 import-isolation contract (tests/test_a43_signal_integrity.py) is
 # unchanged; tests/test_wp2_strategy_identity.py asserts that the copies are equal.
-T1_CAP_POLICY_CHOICES = ("legacy_window_v1", "independent_swing_v1")
+T1_CAP_POLICY_CHOICES = ("legacy_window_v1", "independent_swing_v1", "prior_window_v1", "no_cap_v1")
 SIGNAL_INTEGRITY_MODE_CHOICES = ("off", "enforce")
 
 CONFIG_SCHEME = "tsb-strategy-config/1"

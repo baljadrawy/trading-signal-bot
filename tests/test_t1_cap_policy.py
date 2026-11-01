@@ -18,7 +18,8 @@ from technical_analyzer import TechnicalAnalyzer
 from shared.config import config
 from shared.signal_stop import plan_signal_stop
 from shared.strategy_math import calculate_signal_levels
-from shared.t1_cap import (INDEPENDENT_SWING_V1, LEGACY_WINDOW_V1, T1_CAP_POLICIES, capped_t1,
+from shared.t1_cap import (INDEPENDENT_SWING_V1, LEGACY_WINDOW_V1, NO_CAP_V1, PRIOR_WINDOW_V1,
+                           T1_CAP_POLICIES, capped_t1,
                            independent_swing_resistance, legacy_window_resistance, resistance_for,
                            t1_cap_policy)
 from shared.trade_geometry import baseline_bracket, g1_bracket, independent_resistance
@@ -198,9 +199,26 @@ def test_policy_changes_only_t1_never_entry_stop_or_t2_t3(policy):
                 assert b["t1"] > b["entry"] or not b["stop_valid"]
 
 
+@pytest.mark.parametrize("pol", [PRIOR_WINDOW_V1, NO_CAP_V1])
+def test_options_a_and_c_analyzer_equals_research_copy(policy, pol):
+    """WP-D02: the SE-40 options a and c reach the analyzer and the strategy_math research copy
+    through the same resistance_for dispatch; only T1 and the provenance key differ from legacy."""
+    for name, df in _frames():
+        for tf in TFS:
+            for tt in ("momentum", "reversion"):
+                policy(pol)
+                lv = TA._calculate_levels(df, tf, tt)
+                assert calculate_signal_levels(df, tf, tt, t1_cap_policy=pol) == lv, (name, tf, tt)
+                assert lv["t1_cap_policy"] == pol
+                policy(LEGACY_WINDOW_V1)
+                legacy = TA._calculate_levels(df, tf, tt)
+                assert {k: v for k, v in lv.items() if k not in ("t1", "t1_cap_policy")} == \
+                    {k: v for k, v in legacy.items() if k != "t1"}
+
+
 # 4 ── fail closed ─────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("bad", ["", "independent", "LEGACY", "g1", "off"])
+@pytest.mark.parametrize("bad", ["", "independent", "LEGACY", "g1", "off", "prior_window", "no_cap"])
 def test_unknown_policy_refuses(policy, bad):
     if bad.strip().lower() in T1_CAP_POLICIES:
         pytest.skip("case-insensitive alias of a valid policy")
