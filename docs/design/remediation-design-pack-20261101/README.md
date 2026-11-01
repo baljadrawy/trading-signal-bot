@@ -60,6 +60,8 @@ The charter asks for one integrated design across all workstreams, built on the 
 | 7 | [IMPLEMENTATION_WORKPLAN.md](IMPLEMENTATION_WORKPLAN.md) | WP- | WP1 plan for WP2+ | implementation tasks in parallel lanes; per-task class, files, dependencies, tests, acceptance, gate, rollback; gated items not scheduled; dependency graph and critical path; interface reconciliation |
 | 8 | [DECISIONS_AND_GATES.md](DECISIONS_AND_GATES.md) | DG- | WP1 for WP3 | consolidated owner-decision table; WP3 research-gate map; decision and remediation log entry of 2026-11-01; anti-drift check |
 
+WP2 status file (added 2026-11-01): [WP2_ENGINEERING_FOUNDATION_STATUS.md](WP2_ENGINEERING_FOUNDATION_STATUS.md) records the WP2 engineering-foundation commits, task status, acceptance gates, R1–R9 status and the open decisions by need.
+
 ## Reading order
 
 1. **This README**, for scope and authority.
