@@ -1,9 +1,9 @@
 # SE-1 overlay: the running signal_engine release plus the six SE-1 files, nothing else.
-# Build context = a clean `git archive ee042f6` export (never the production checkout).
+# Build context = a clean `git archive 7ff582f` export (never the production checkout).
 # BASE_TAG must be a temporary local tag proven to resolve to the running image ID
 #   sha256:c5be4e34c064c707cb421c2f5d26c38dfee8ad75f36d7e3b177be88d4a825418 (tsb-a561-signal_engine:rel-ea8ae4f-r2).
 # Build (Class B, owner-approved only): docker build --network=none --pull=false --build-arg BASE_TAG=... \
-#   --build-arg SOURCE_COMMIT=ee042f6420be2a267295c173232d451a17aacbd6 -f <this file> -t tsb-se1-signal_engine:ee042f6-r1 <export>
+#   --build-arg SOURCE_COMMIT=7ff582fa43b4fd16042ccb6f71035e4031b67eac -f <this file> -t tsb-se1-signal_engine:7ff582f-r1 <export>
 ARG BASE_TAG
 FROM ${BASE_TAG}
 ARG SOURCE_COMMIT
