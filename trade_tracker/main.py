@@ -24,13 +24,17 @@ from shared.schema import require_schema
 from shared.outbox import worker_id, claim, ack, fail, enqueue, defer
 from shared.outbox_watch import DeadLetterWatch, previous_watermark
 from shared.delivery_policy import bounded_delay
-from shared.fees import economic_close
+from shared import capacity_authority as capacity
+from shared import cost_label_policy as cost_policy
+from shared import ledger_legacy_adapter, position_state_shadow
+from shared.accounting_flags import LEGACY_FLAGS, resolve_accounting_flags
+from shared.admission_capacity import TrackerAdmissionFunnel, funnel_service, routed_risk_decision
 from shared.candle import candle_interval_case_sql
 from shared.execution import rebase_long_bracket
 from shared.entry_execution import decide_long_entry, resolve_entry_fill, FILL_MODELS
 from shared.partial_exits import aggregate_close, fills_between
 from shared.signal_stop import candle_invalidated
-from shared.risk_management import RiskLimits, RiskSnapshot
+from shared.risk_management import RiskSnapshot
 from shared.economic_halt_policy import (
     OBSERVED_OUTBOX_AGGREGATE, OBSERVED_OUTBOX_EVENT, economic_halt_blocks, economic_halt_mode,
     evaluate_with_policy, observation_transition, observed_codes, persisted_halt_reasons,
@@ -68,10 +72,33 @@ _trade_locks: dict[int, asyncio.Lock] = {}
 _closing: set[int] = set()
 _min_notional_cache: dict[str, float] = {}
 price_stream: BinancePriceStream | None = None
+# WP2 accounting/capacity flags (shared/accounting_flags.py). The legacy values until main()
+# resolves the environment; an unknown value refuses to start there.
+WP2_FLAGS = LEGACY_FLAGS
+_FUNNEL = None              # shared.funnel_hooks.FunnelService, only with FUNNEL_RECORDING=on
+
+
+def _costs():
+    """legacy_tracker_v1 bound to the current config (read at the call site, as before)."""
+    return cost_policy.bound_costs(config)
+
+
+def configure_wp2(environ=None):
+    """Resolve and validate the WP2 flags and the cost binding; raises on any invalid value."""
+    global WP2_FLAGS, _FUNNEL
+    flags = resolve_accounting_flags(environ)
+    cost_policy.validate_policies(_costs(), cost_label_policy=flags.cost_label_policy,
+                                  break_even_policy=flags.break_even_policy)
+    WP2_FLAGS = flags
+    _FUNNEL = funnel_service('trade_tracker') if flags.funnel_recording else None
+    return flags
 
 
 async def main():
     logger.info("🚀 بدء تشغيل Trade Tracker...")
+    flags = configure_wp2()                      # WP2: unknown flag or invalid cost config refuses
+    if not flags.is_legacy:
+        logger.warning(f"WP2 flags not at their legacy defaults: {flags.as_dict()}")
     await Database.connect()
     await require_schema('trade_tracker')
     integrity_mode(config)                       # A44: unknown SIGNAL_INTEGRITY_MODE refuses to start
@@ -116,7 +143,9 @@ async def main():
                     'delivery_events': len(delivery_events), 'delivery': delivery,
                     'dead_letters': dead_watch.snapshot(),
                     'entry_fill_model': config.PAPER_ENTRY_FILL_MODEL,
-                    'price_stream': price_stream.snapshot() if price_stream else None}))
+                    'price_stream': price_stream.snapshot() if price_stream else None,
+                    **({'wp2': {'flags': WP2_FLAGS.as_dict(), 'shadow': dict(WP2_SHADOW_STATS)}}
+                       if not WP2_FLAGS.is_legacy else {})}))
                 # REST backup checker: catches missed WebSocket events and fills
                 # waiting limit candidates without making REST the primary feed.
                 await asyncio.sleep(config.PRICE_BACKUP_CHECK_SECONDS)
@@ -406,14 +435,15 @@ def _v2_trade_closed(trade, trade_result_id, reason, exit_price, weighted_exit, 
     if not evidence_v2.enabled():
         return
     try:
-        fee_usdt = config.TRADE_AMOUNT_USDT * config.FEE_ROUNDTRIP_PCT / 100.0
+        costs = _costs()
+        fee_usdt = costs.fee_usdt()
         evidence_v2.emit('trade_tracker', 'trade.closed', {
             'active_trade_id': int(trade['id']), 'signal_id': trade.get('signal_id'),
             'trade_result_id': trade_result_id}, {
             'symbol': trade.get('symbol'), 'timeframe': trade.get('timeframe'),
             'exit_reason': reason, 'trigger_price': exit_price, 'weighted_exit_price': weighted_exit,
             'gross_profit_pct': profit_pct, 'gross_profit_usdt': profit_usdt,
-            'fee_roundtrip_usdt': fee_usdt, 'net_profit_usdt': profit_usdt - fee_usdt,
+            'fee_roundtrip_usdt': fee_usdt, 'net_profit_usdt': costs.net_usdt(profit_usdt),
             'result_label': 'WIN' if profit_usdt > 0 else 'LOSS',
             'hours_open': hours_open, 'target_reached': target_reached, 'stop_hit': stop_hit,
             'result_row_inserted': trade_result_id is not None})
@@ -443,6 +473,85 @@ def _v2_risk_state(decision, paused: bool, was_paused: bool) -> None:
                              dedup_key='risk.observed', transition=True)
     except Exception as exc:
         evidence_v2.hook_error('trade_tracker', exc)
+
+
+# ── WP2 shadows (default off): position-state validation and ledger reconciliation. Each runs
+# after the tracker's own committed step, reads only what that step already holds, never raises,
+# and never changes a decision or a database write. Results go to the log and, when the
+# evidence-v2 store is on, to it (no new table: persistence is WP-E03/WP-E04).
+WP2_SHADOW_STATS = {'position_state_checked': 0, 'position_state_refusals': 0,
+                    'ledger_reconciled': 0, 'ledger_mismatches': 0, 'shadow_errors': 0}
+
+
+def _shadow_emit(event_type: str, subject: dict, payload: dict) -> None:
+    if evidence_v2.enabled():
+        evidence_v2.emit('trade_tracker', event_type, subject, payload)
+
+
+def _shadow_min_notional(trade) -> float:
+    return float(trade.get('min_order_notional_usdt') or config.MIN_ORDER_NOTIONAL_USDT)
+
+
+def _shadow_position_result(result) -> None:
+    WP2_SHADOW_STATS['position_state_checked'] += 1
+    if not result.ok:
+        WP2_SHADOW_STATS['position_state_refusals'] += 1
+        logger.warning(f"position_state shadow refusal (trade {result.trade_id}, {result.site}): "
+                       f"{[r.as_dict() for r in result.refusals]}")
+    _shadow_emit('position_state.shadow', {'active_trade_id': result.trade_id, 'site': result.site},
+                 result.as_dict())
+
+
+def _shadow_target_hits(trade, cfg, state, prev_highest, partial_fills) -> None:
+    try:
+        entry = float(trade['entry_price'])
+        result = position_state_shadow.validate_target_hits(
+            trade, cfg=cfg, peak_before=max(float(trade.get('peak_price') or entry), entry),
+            peak=state.peak, prev_highest=prev_highest, new_highest=state.highest_target,
+            fills=partial_fills, notional=config.TRADE_AMOUNT_USDT,
+            min_notional=_shadow_min_notional(trade))
+        _shadow_position_result(result)
+    except Exception as exc:
+        WP2_SHADOW_STATS['shadow_errors'] += 1
+        logger.error(f"position_state shadow failed (no effect): {format_error(exc)}")
+
+
+def _shadow_close(trade, reason, exit_price) -> None:
+    try:
+        result = position_state_shadow.validate_close(
+            trade, reason=reason, exit_price=exit_price, notional=config.TRADE_AMOUNT_USDT,
+            min_notional=_shadow_min_notional(trade))
+        _shadow_position_result(result)
+    except Exception as exc:
+        WP2_SHADOW_STATS['shadow_errors'] += 1
+        logger.error(f"position_state shadow failed (no effect): {format_error(exc)}")
+
+
+def _shadow_reconcile(trade, trade_result_id, target_legs, exit_price, remaining_fraction,
+                      profit_usdt, econ) -> None:
+    """PR-I13 shadow: ledger realized net against the net this close just booked."""
+    try:
+        opened = trade['opened_at']
+        opened = opened.replace(tzinfo=timezone.utc) if opened.tzinfo is None else opened
+        closed = max(datetime.now(timezone.utc), opened)
+        close = ledger_legacy_adapter.TrackerClose(
+            trade_id=int(trade['id']), symbol=str(trade['symbol']), strategy_id='unassigned',
+            opened_at=opened, closed_at=closed, entry_price=float(trade['entry_price']),
+            notional=config.TRADE_AMOUNT_USDT, target_fills=tuple(target_legs),
+            final_exit_price=float(exit_price), remaining_fraction=float(remaining_fraction),
+            booked_profit_usdt=round(profit_usdt, 4), booked_cost_usdt=econ['cost_usdt'],
+            booked_net_profit_usdt=econ['net_profit_usdt'], label_policy=econ['label_policy'])
+        rec = ledger_legacy_adapter.reconcile(close, _costs())
+        WP2_SHADOW_STATS['ledger_reconciled'] += 1
+        if not rec.ok:
+            WP2_SHADOW_STATS['ledger_mismatches'] += 1
+            logger.error(f"ledger shadow {rec.reason_code} for trade {rec.trade_id} "
+                         f"(shadow only, no halt): {rec.as_dict()}")
+        _shadow_emit('ledger.reconciliation', {'active_trade_id': int(trade['id']),
+                                               'trade_result_id': trade_result_id}, rec.as_dict())
+    except Exception as exc:
+        WP2_SHADOW_STATS['shadow_errors'] += 1
+        logger.error(f"ledger shadow failed (no effect): {format_error(exc)}")
 
 
 async def get_open_symbols() -> set[str]:
@@ -705,13 +814,18 @@ def integrity_admission_refusal(sig, now_ms: int | None = None) -> str | None:
 async def register_new_signals():
     """تسجيل الإشارات المرسلة حديثاً كصفقات نشطة — صفقة واحدة لكل (عملة، إطار) لكل شمعة"""
     # تحقق من حد الصفقات المفتوحة
+    funnel = TrackerAdmissionFunnel.begin(_FUNNEL) if _FUNNEL is not None else None
     if config.MAX_OPEN_TRADES > 0:
         open_count = await Database.fetchval(
             "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
         ) or 0
-        if open_count >= config.MAX_OPEN_TRADES:
+        pre = capacity.tracker_precheck(open_count, config.MAX_OPEN_TRADES, site='loop_entry')
+        if pre.blocked:
             _v2_capacity(True, open_count, config.MAX_OPEN_TRADES)
             logger.info(f"⏸️ وصلنا للحد الأقصى للصفقات المفتوحة: {open_count}/{config.MAX_OPEN_TRADES}")
+            if funnel is not None:
+                funnel.loop_entry_full(pre)
+                funnel.finish()
             return
         _v2_capacity(False, open_count, config.MAX_OPEN_TRADES)
 
@@ -748,14 +862,19 @@ async def register_new_signals():
         ORDER BY s.symbol, s.signal_time DESC
     """)
 
-    for sig in new_signals:
+    if funnel is not None:
+        funnel.considered(len(new_signals))
+    for index, sig in enumerate(new_signals):
         if config.MAX_OPEN_TRADES > 0:
             open_count = await Database.fetchval(
                 "SELECT COUNT(*) FROM active_trades WHERE status = 'open'"
             ) or 0
-            if open_count >= config.MAX_OPEN_TRADES:
+            pre = capacity.tracker_precheck(open_count, config.MAX_OPEN_TRADES, site='per_signal')
+            if pre.blocked:
                 _v2_capacity(True, open_count, config.MAX_OPEN_TRADES)
                 logger.info(f"⏸️ توقف تسجيل إشارات جديدة — وصلنا الحد: {open_count}/{config.MAX_OPEN_TRADES}")
+                if funnel is not None:
+                    funnel.capacity_full(new_signals[index:], pre)
                 break
 
         if integrity_mode(config) == 'enforce':                    # A44: admit fresh setups only
@@ -766,12 +885,16 @@ async def register_new_signals():
                 # Terminal exactly like an entry rejection (A38 reconciliation acks it).
                 await Database.execute(
                     "UPDATE signals SET telegram_sent=false WHERE id=$1", sig['id'])
+                if funnel is not None:
+                    funnel.exclude('F4_integrity')
                 continue
 
         fill_entry = await get_current_price(sig['symbol'])
         if not fill_entry:
             _v2_admission(sig, 'no_price', 'no_current_fill_price')
             logger.warning(f"تعذر تسجيل {sig['symbol']}: لا يوجد سعر تعبئة حالي")
+            if funnel is not None:
+                funnel.no_price(sig)
             continue
 
         features = sig['features_snapshot'] or {}
@@ -802,11 +925,15 @@ async def register_new_signals():
             # Make the rejection terminal without mislabelling it as a model decision.
             await Database.execute(
                 "UPDATE signals SET telegram_sent=false WHERE id=$1", sig['id'])
+            if funnel is not None:
+                funnel.entry_rejected(sig, entry_decision.reason)
             continue
         if fill.action == 'wait':
             logger.info(
                 f"⏳ Limit paper order {sig['symbol']} @ {sig['entry_price']}; "
                 f"السعر الحالي {fill_entry} — لا نطارد السعر ({fill.basis})")
+            if funnel is not None:
+                funnel.held_wait()
             continue
         observed_price, fill_entry = fill_entry, float(fill.price)
         min_notional = await get_min_notional(sig['symbol'])
@@ -831,6 +958,8 @@ async def register_new_signals():
                 f"{risk_decision.reason} (daily={risk_decision.daily_pnl_pct:.2f}%, "
                 f"weekly={risk_decision.weekly_pnl_pct:.2f}%, "
                 f"drawdown={risk_decision.drawdown_pct:.2f}%)")
+            if funnel is not None:
+                funnel.risk_refused(sig, _last_capacity_decision(risk_decision))
             continue
         try:
             bracket = rebase_long_bracket(
@@ -841,6 +970,8 @@ async def register_new_signals():
         except ValueError as exc:
             _v2_admission(sig, 'bracket_invalid', exc)
             logger.error(f"رفض bracket غير صالح لـ {sig['symbol']}: {exc}")
+            if funnel is not None:
+                funnel.exclude('F5_bracket_invalid')
             continue
 
         expiry_h, t1_expiry_h, no_t1_expiry_h = expiry_policy_for_timeframe(sig['timeframe'])
@@ -860,6 +991,8 @@ async def register_new_signals():
                     logger.warning(
                         f"⛔ إلغاء فتح {sig['symbol']}: قاطع سلسلة الخسائر أصبح نشطاً "
                         f"قبل تثبيت الصفقة")
+                    if funnel is not None:
+                        funnel.halt_under_lock(sig)
                     continue
                 trade_id = await conn.fetchval("""
                     INSERT INTO active_trades
@@ -895,13 +1028,19 @@ async def register_new_signals():
                              if streak_observed else {}))
             _v2_trade_opened(sig, trade_id, bracket, fill_entry, entry_decision, risk_decision,
                              min_notional, (expiry_h, t1_expiry_h, no_t1_expiry_h))
+            if funnel is not None:
+                funnel.admitted()
         else:
             _v2_admission(sig, 'already_registered', 'active_trade_exists_for_signal')
+            if funnel is not None:
+                funnel.already_registered(sig)
         if trade_id:
             drift_pct = (fill_entry / float(sig['entry_price']) - 1) * 100
             logger.info(
                 f"📋 صفقة جديدة مسجلة: {sig['symbol']} @ {fill_entry} "
                 f"(سعر الإشارة {sig['entry_price']}، drift {drift_pct:+.3f}%)")
+    if funnel is not None:
+        funnel.finish()
 
 
 async def _loss_streak_under_lock(conn) -> tuple[bool, str | None]:
@@ -944,13 +1083,13 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
     now = datetime.now(timezone.utc)
     week_start = now.date()
     week_start = week_start.fromordinal(week_start.toordinal() - week_start.weekday())
-    fee_usdt = config.TRADE_AMOUNT_USDT * config.FEE_ROUNDTRIP_PCT / 100.0
+    costs = _costs()            # legacy_tracker_v1: the flat round trip, recomputed (PR-06)
     cumulative = 0.0
     peak = config.RISK_CAPITAL_USDT
     daily = weekly = 0.0
     net_results = []
     for row in results:
-        net = float(row['profit_usdt']) - fee_usdt
+        net = costs.net_usdt(float(row['profit_usdt']))
         cumulative += net
         peak = max(peak, config.RISK_CAPITAL_USDT + cumulative)
         exit_time = row['exit_time']
@@ -971,21 +1110,11 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
             unrealized = float('nan')  # Missing market state must fail closed.
             break
         entry = float(trade['entry_price'])
-        unrealized += ((price / entry) - 1.0) * config.TRADE_AMOUNT_USDT - fee_usdt
+        unrealized += costs.net_usdt(((price / entry) - 1.0) * config.TRADE_AMOUNT_USDT)
 
-    limits = RiskLimits(
-        capital_usdt=config.RISK_CAPITAL_USDT,
-        trade_amount_usdt=config.TRADE_AMOUNT_USDT,
-        max_open_trades=min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES),
-        max_gross_exposure_pct=config.MAX_GROSS_EXPOSURE_PERCENT,
-        max_symbol_exposure_pct=config.MAX_SYMBOL_EXPOSURE_PERCENT,
-        max_strategy_exposure_pct=config.MAX_STRATEGY_EXPOSURE_PERCENT,
-        max_regime_exposure_pct=config.MAX_REGIME_EXPOSURE_PERCENT,
-        max_daily_loss_pct=config.MAX_DAILY_LOSS_PERCENT,
-        max_weekly_loss_pct=config.MAX_WEEKLY_LOSS_PERCENT,
-        max_drawdown_pct=config.MAX_DRAWDOWN_PERCENT,
-        loss_halt_count=config.STOP_ON_CONSECUTIVE_LOSSES,
-    )
+    # WP-E08: the limits the capacity authority reads, built exactly as before
+    # (min(MAX_OPEN_TRADES, RISK_CANARY_MAX_OPEN_TRADES) slots plus the configured limits).
+    limits = capacity.legacy_risk_limits(config)
     snapshot = RiskSnapshot(
         realized_total_usdt=cumulative,
         daily_pnl_usdt=daily,
@@ -1003,7 +1132,27 @@ async def assess_new_trade_risk(symbol: str, trade_type: str | None = None,
         manual_pause_reason=pause_reason,
     )
     _v2_note_risk_context(risk_start, snapshot, limits)
-    return evaluate_with_policy(snapshot, limits, economic_halt_mode())
+    # WP-E08: one F7 capacity decision; the returned object is the policy's own decision.
+    decision, authority = routed_risk_decision(
+        snapshot, limits, economic_halt_mode(), evaluate=evaluate_with_policy,
+        on_attribution_error=_capacity_attribution_error)
+    _LAST_CAPACITY[:] = [decision, authority]
+    return decision
+
+
+_LAST_CAPACITY: list = []       # [decision, CapacityDecision | None] of the last assessment
+
+
+def _last_capacity_decision(decision):
+    """The capacity authority's description of ``decision`` when it was the last assessed."""
+    if len(_LAST_CAPACITY) == 2 and _LAST_CAPACITY[0] is decision:
+        return _LAST_CAPACITY[1]
+    return None
+
+
+def _capacity_attribution_error(exc) -> None:
+    logger.error(f"capacity attribution did not reproduce the risk decision "
+                 f"(decision unchanged): {format_error(exc)}")
 
 
 RISK_PRICE_FETCH_MAX_RETRIES = 3
@@ -1204,10 +1353,11 @@ async def evaluate_trade(trade: dict, current_price: float,
     hours_open = (now - opened).total_seconds() / 3600
 
     # بناء Config و State من صف DB
+    # Cost arguments from legacy_tracker_v1; PAPER_BREAK_EVEN_POLICY (R4.b, default legacy)
+    # changes only the roundtrip_cost that the pinned break-even formula reads.
     cfg   = create_config_from_trade(
         trade, trade_amount=config.TRADE_AMOUNT_USDT,
-        stop_slippage=config.STOP_SLIPPAGE,
-        roundtrip_cost=config.FEE_ROUNDTRIP_PCT / 100.0,
+        **cost_policy.barrier_cost_kwargs(_costs(), WP2_FLAGS.break_even_policy),
     )
     state = create_state_from_trade(trade)
     # ضبط ساعات الفتح الحالية (تُحسب من DB)
@@ -1279,6 +1429,8 @@ async def evaluate_trade(trade: dict, current_price: float,
         except Exception:
             _v2_stop = None
         _v2_target_hits(trade, partial_fills, state.highest_target, current_price, source, _v2_stop)
+        if WP2_FLAGS.position_state_shadow:
+            _shadow_target_hits(trade, cfg, state, prev_highest, partial_fills)
         logger.info(
             f"🎯 {symbol} وصل T{state.highest_target} عبر {source}; "
             f"السعر={current_price:.6f}, شرائح={len(partial_fills)}")
@@ -1333,12 +1485,14 @@ async def close_trade_barrier(
         # Weighted average exit keeps the legacy result row interpretable.
         sold_fraction = max(0.0, 1.0 - remaining_fraction)
         realized_exit_value = 0.0
+        fills = []
         if sold_fraction > 0:
             fills = await Database.fetch(
                 "SELECT fill_price,quantity_fraction FROM trade_target_fills "
                 "WHERE active_trade_id=$1", trade_id)
             realized_exit_value = sum(
                 float(f['fill_price']) * float(f['quantity_fraction']) for f in fills)
+        target_legs = tuple((float(f['quantity_fraction']), float(f['fill_price'])) for f in fills)
         weighted_exit = realized_exit_value + exit_price * remaining_fraction
         if sold_fraction + remaining_fraction <= 0:
             weighted_exit = exit_price
@@ -1347,6 +1501,13 @@ async def close_trade_barrier(
             async with conn.transaction():
                 # `result` keeps its legacy gross meaning; the economic (net) label is stored
                 # beside it with its cost and policy (A38, shared.fees.economic_close).
+                # Booked through legacy_tracker_v1 (shared.cost_models): under the default
+                # PAPER_COST_LABEL_POLICY this is the bound model's economic_close, i.e.
+                # shared.fees.economic_close on the configured values (R4.a/R4.e: flagged).
+                economic_close = cost_policy.close_booking(
+                    _costs(), WP2_FLAGS.cost_label_policy, entry_price=entry,
+                    target_fills=target_legs, final_exit_price=exit_price,
+                    remaining_fraction=remaining_fraction)
                 econ = economic_close(profit_usdt)
                 inserted = await conn.fetchval("""
                 INSERT INTO trade_results
@@ -1384,6 +1545,11 @@ async def close_trade_barrier(
 
         _v2_trade_closed(trade, inserted, reason, exit_price, weighted_exit, profit_pct,
                          profit_usdt, hours_open, target_reached, stop_hit)
+        if WP2_FLAGS.position_state_shadow:
+            _shadow_close(trade, reason, exit_price)
+        if WP2_FLAGS.ledger_shadow and inserted:
+            _shadow_reconcile(trade, inserted, target_legs, exit_price, remaining_fraction,
+                              profit_usdt, econ)
         result = 'WIN' if profit_usdt > 0 else 'LOSS'
     finally:
         _closing.discard(trade_id)

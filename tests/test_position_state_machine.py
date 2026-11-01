@@ -891,14 +891,16 @@ def test_module_imports_only_the_standard_library():
     assert names <= {"__future__", "dataclasses", "decimal", "math", "re", "typing"}
 
 
-def test_no_service_imports_the_module_yet():
+def test_only_the_tracker_shadow_imports_the_module():
+    """Wired (WP2 integration): exactly one importer, the default-off tracker shadow
+    (POSITION_STATE_SHADOW); no service imports the machine directly and none enforces it."""
     pattern = re.compile(r"(from\s+shared(\.|\s+import\s+[^\n]*\b)|import\s+shared\.)position_state\b")
     offenders = [str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py")
                  if "tests" not in p.parts and p.stem != "position_state"
                  and pattern.search(p.read_text(errors="ignore"))]
-    assert offenders == []
+    assert offenders == ["shared/position_state_shadow.py"]
 
 
-def test_registered_with_the_experimental_registry_until_wired():
+def test_removed_from_the_experimental_registry_once_wired():
     from experimental_modules import EXPERIMENTAL_SHARED
-    assert "position_state" in EXPERIMENTAL_SHARED
+    assert "position_state" not in EXPERIMENTAL_SHARED

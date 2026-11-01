@@ -30,6 +30,9 @@ from shared.telegram_messages import (
     observed_loss_streak_status_lines,
 )
 from shared.trading_state import get_pause_state
+from shared.capacity_authority import delivery_gate, legacy_slot_limit
+from shared.admission_capacity import funnel_service, record_delivery_refusal
+from shared.funnel_flags import funnel_recording_enabled
 from shared.signal_readiness import (
     LEGACY_SIGNAL_REVIEWED_EVENT, READY_SQL_PREDICATE, SIGNAL_READY_EVENT,
     decision_breakdown, decision_breakdown_lines, decision_label, is_deliverable_for_event,
@@ -42,6 +45,15 @@ from shared.risk_epoch import (
 from whitelist import WhitelistManager, ApprovalManager, BlacklistManager
 
 logger = setup_logger('telegram_sender')
+_FUNNEL = None              # shared.funnel_hooks.FunnelService, only with FUNNEL_RECORDING=on
+_LAST_DELIVERY_GATE: list = []   # [DeliveryGate] of the last delivery check, only while recording
+
+
+def configure_funnel(environ=None):
+    """FUNNEL_RECORDING (shared/funnel_flags.py): an unknown value refuses to start."""
+    global _FUNNEL
+    _FUNNEL = funnel_service('telegram') if funnel_recording_enabled(environ) else None
+    return _FUNNEL is not None
 
 
 def restricted(func):
@@ -118,6 +130,7 @@ def _v2_delivery(event_type: str, signal, outcome: str, reason=None, event_id=No
 
 async def main():
     logger.info("🚀 بدء تشغيل Telegram Bot...")
+    configure_funnel()                           # WP-B01: unknown FUNNEL_RECORDING refuses
     await Database.connect()
     await require_schema('telegram')
     await mark_started('telegram')
@@ -272,6 +285,9 @@ async def handle_candidate_event(bot: Bot, approval_mgr: ApprovalManager, owner:
                 signal['symbol'], block_reason)
             await ack(event['id'], owner)
             _v2_delivery('delivery.refused', signal, 'refused', block_reason, event['id'], event_type)
+            if _FUNNEL is not None:
+                record_delivery_refusal(_FUNNEL, signal,
+                                        _LAST_DELIVERY_GATE[0] if _LAST_DELIVERY_GATE else None)
             return False
         signal = dict(signal)
         action = await approval_mgr.process_signal(signal)
@@ -372,14 +388,18 @@ async def can_deliver_candidate() -> tuple[bool, str]:
     stream_meta = tracker_meta.get('price_stream') or {}
     stream_status = ('✅ لحظي' if stream_meta.get('connected')
                      else '⚠️ REST احتياطي')
-    if paused:
-        return False, pause_reason or 'trading_paused'
-    open_count = await Database.fetchval(
-        "SELECT COUNT(*) FROM active_trades WHERE status='open'") or 0
-    capacity = min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
-    if capacity > 0 and open_count >= capacity:
-        return False, f'portfolio_capacity_{open_count}/{capacity}'
-    return True, 'eligible'
+    # WP-E08: the capacity authority's delivery mirror; ``.legacy`` is the exact legacy pair.
+    open_count = None
+    if not paused:
+        open_count = await Database.fetchval(
+            "SELECT COUNT(*) FROM active_trades WHERE status='open'") or 0
+    gate = delivery_gate(
+        paused=paused, pause_reason=pause_reason, open_count=open_count,
+        max_open_trades=config.MAX_OPEN_TRADES,
+        risk_canary_max_open_trades=config.RISK_CANARY_MAX_OPEN_TRADES)
+    if _FUNNEL is not None:
+        _LAST_DELIVERY_GATE[:] = [gate]
+    return gate.legacy
 
 
 LIFECYCLE_EVENT_TYPES = (
@@ -761,7 +781,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reason_line += (
                 f"\n⏳ {streak.open_positions} صفقة مفتوحة قد تكسر السلسلة بإغلاق رابح"
             )
-    capacity = min(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
+    capacity = legacy_slot_limit(config.MAX_OPEN_TRADES, config.RISK_CANARY_MAX_OPEN_TRADES)
     await update.message.reply_text(
         f"📊 حالة النظام: {status}{reason_line}\n\n"
         f"📅 اليوم:\n"
