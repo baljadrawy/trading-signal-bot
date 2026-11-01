@@ -1,0 +1,55 @@
+{
+ "release": "se1-funnel-ea8ae4f (PREPARED, NOT BUILT): signal_engine only; every other service unchanged",
+ "dockerignore_excludes": [
+  "*.log",
+  "*.csv",
+  "*.jsonl",
+  "*.pkl",
+  "*.joblib",
+  "data/*",
+  "logs/*",
+  "backups/*",
+  "**/__pycache__/*",
+  ".env",
+  ".env.*"
+ ],
+ "services": [
+  {
+   "service": "signal_engine",
+   "container": "trading_signal_engine",
+   "image": "tsb-se1-signal_engine:ee042f6-r1",
+   "source_commit": "ee042f6420be2a267295c173232d451a17aacbd6",
+   "app_root": "app",
+   "copy_map": [
+    [
+     "signal_engine/requirements.txt",
+     "requirements.txt"
+    ],
+    [
+     "shared/",
+     "shared/"
+    ],
+    [
+     "signal_engine/",
+     ""
+    ],
+    [
+     "research/continuous_learner.py",
+     "research/continuous_learner.py"
+    ],
+    [
+     "research/rollback_learned_gates.py",
+     "research/rollback_learned_gates.py"
+    ],
+    [
+     "research/strategy_performance_review.py",
+     "research/strategy_performance_review.py"
+    ],
+    [
+     "research/null_a/",
+     "research/null_a/"
+    ]
+   ]
+  }
+ ]
+}
