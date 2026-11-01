@@ -141,17 +141,33 @@ def engine_label_code(label: Any):
 
 # ── per-service state and emission ─────────────────────────────────────────────────────────
 
-class FunnelService:
-    """Per-process funnel state of one service: cycle numbering, compaction, health counters."""
+DAY_MS = 86_400_000
 
-    def __init__(self, service: str, *, compact_stages=(), max_records_per_cycle: int | None = None):
+
+def _positive_int_or_none(value, name):
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+        raise ValueError(f"{name} must be a positive int or None")
+    return value
+
+
+class FunnelService:
+    """Per-process funnel state of one service: cycle numbering, compaction, emission bounds and
+    health counters.
+
+    Two emission bounds apply to ``funnel.rejection`` and ``funnel.rejection_series_closed``:
+    ``max_records_per_cycle`` (a pathological cycle; the excess is retried next cycle) and
+    ``max_records_per_day`` (``FUNNEL_MAX_RECORDS_PER_DAY``; per UTC day of the cycle's decision
+    time). Once the daily cap is reached those records are suppressed until the next UTC day; the
+    per-cycle ``funnel.cycle`` envelope, with its complete counts, is always emitted. A record
+    held back by either bound is not marked as emitted, so a series still open the next day is
+    recorded then. ``None`` means unbounded."""
+
+    def __init__(self, service: str, *, compact_stages=(), max_records_per_cycle: int | None = None,
+                 max_records_per_day: int | None = None):
         self.service = service
         self.compact_stages = frozenset(compact_stages)
-        if max_records_per_cycle is not None and (isinstance(max_records_per_cycle, bool)
-                                                  or not isinstance(max_records_per_cycle, int)
-                                                  or max_records_per_cycle < 1):
-            raise ValueError("max_records_per_cycle must be a positive int or None")
-        self.max_records_per_cycle = max_records_per_cycle
+        self.max_records_per_cycle = _positive_int_or_none(max_records_per_cycle, "max_records_per_cycle")
+        self.max_records_per_day = _positive_int_or_none(max_records_per_day, "max_records_per_day")
         try:
             self.config_hash = evidence_v2.compute_config_hash(config)
         except Exception:
@@ -161,18 +177,29 @@ class FunnelService:
         self._series_cap = int(getattr(config, "EVIDENCE_V2_STATE_CACHE", 50000) or 50000)
         self.stats = {"cycles": 0, "valid_cycles": 0, "invalid_cycles": 0, "records": 0,
                       "events_recorded": 0, "not_recorded": 0, "compacted_repeats": 0,
-                      "series_closed": 0, "publish_failures": 0, "records_overflow": 0}
+                      "series_closed": 0, "publish_failures": 0, "records_overflow": 0,
+                      "suppressed_daily_cap": 0}
         self.last_envelope: dict | None = None
         self.last_records: tuple = ()
         self._budget: int | None = None
         self._overflow = 0
+        self._day: int | None = None
+        self._day_emitted = 0
+        self._day_suppressed = 0
+        self._cycle_suppressed = 0
 
     def begin(self, decision_time_ms: int | None = None) -> "FunnelCycle":
         t = decision_time_ms if decision_time_ms is not None else evidence_v2.now_ms()
         return FunnelCycle(self, f"{self.service}:{t}:{next(self._cycles)}", int(t))
 
+    @property
+    def cap_reached(self) -> bool:
+        return self.max_records_per_day is not None and self._day_emitted >= self.max_records_per_day
+
     def health(self) -> dict:
-        return dict(self.stats, last_cycle_valid=(self.last_envelope or {}).get("valid"))
+        return dict(self.stats, last_cycle_valid=(self.last_envelope or {}).get("valid"),
+                    max_records_per_day=self.max_records_per_day, records_emitted_today=self._day_emitted,
+                    suppressed_daily_cap_today=self._day_suppressed, cap_reached=self.cap_reached)
 
     def _emit(self, event_type: str, subject: dict, payload: dict, event_time_ms: int) -> bool:
         try:
@@ -183,12 +210,20 @@ class FunnelService:
         self.stats["events_recorded" if ok else "not_recorded"] += 1
         return ok
 
-    def _emit_record(self, record: RejectionRecord, series: dict | None = None) -> None:
+    def _take(self) -> bool:
+        """Reserve one record emission under both bounds; False = hold it back (counted)."""
+        if self._budget is not None and self._budget <= 0:
+            self._overflow += 1
+            return False
+        if self.cap_reached:
+            self._cycle_suppressed += 1
+            return False
         if self._budget is not None:
-            if self._budget <= 0:
-                self._overflow += 1
-                return
             self._budget -= 1
+        self._day_emitted += 1
+        return True
+
+    def _emit_record(self, record: RejectionRecord, series: dict | None = None) -> None:
         payload = record.as_dict()
         if series is not None:
             payload["series"] = series
@@ -196,14 +231,21 @@ class FunnelService:
                                         "reason_code": record.reason_code, "symbol": record.symbol,
                                         "timeframe": record.timeframe}, payload, record.decision_time)
 
+    def _roll_day(self, decision_time: int) -> None:
+        day = int(decision_time) // DAY_MS
+        if day != self._day:
+            self._day, self._day_emitted, self._day_suppressed = day, 0, 0
+
     def publish(self, cycle: "FunnelCycle", *, chain=(), close_series: bool = False) -> dict:
         report = cycle.recorder.report(chain=tuple(chain))
         records = report.records if report is not None else ()
-        self._budget, self._overflow = self.max_records_per_cycle, 0
+        self._roll_day(cycle.decision_time)
+        self._budget, self._overflow, self._cycle_suppressed = self.max_records_per_cycle, 0, 0
         seen = set()
         for r in records:
             if r.stage not in self.compact_stages:
-                self._emit_record(r)
+                if self._take():
+                    self._emit_record(r)
                 continue
             # one series per (stage, scope, subject, reason, analysis identity); the subject of a
             # candidate-scope record already carries its bar_close_time and setup_key
@@ -215,11 +257,10 @@ class FunnelService:
                 entry["repeat_count"] += 1
                 self.stats["compacted_repeats"] += 1
                 continue
-            series = {"compaction": "state_change_v1", "first_seen_ms": r.decision_time}
-            if self._budget is not None and self._budget <= 0:
-                self._overflow += 1                    # not tracked: retried on the next cycle
-                seen.discard(key)
+            if not self._take():
+                seen.discard(key)                      # not tracked: retried on a later cycle
                 continue
+            series = {"compaction": "state_change_v1", "first_seen_ms": r.decision_time}
             if len(self._series) < self._series_cap:
                 self._series[key] = {"first_seen_ms": r.decision_time, "last_seen_ms": r.decision_time,
                                      "repeat_count": 1, "first_record_id": r.record_id,
@@ -229,16 +270,15 @@ class FunnelService:
             self._emit_record(r, series)
         if close_series:
             for key in [k for k in self._series if k not in seen]:
-                if self._budget is not None:
-                    if self._budget <= 0:
-                        break                          # closed on a later cycle (still absent)
-                    self._budget -= 1
+                if not self._take():
+                    break                              # closed on a later cycle (still absent)
                 entry = self._series.pop(key)
                 self.stats["series_closed"] += 1
                 self._emit("funnel.rejection_series_closed",
                            {"first_record_id": entry["first_record_id"], "stage": key[0],
                             "reason_code": entry["reason_code"], "symbol": entry["symbol"]},
                            {**entry, "closed_in_cycle": cycle.cycle_id}, cycle.decision_time)
+        self._day_suppressed += self._cycle_suppressed
         valid = bool(report is not None and report.valid and not cycle.failures)
         summary = report.as_dict() if report is not None else {}
         summary.pop("records", None)
@@ -246,6 +286,9 @@ class FunnelService:
                     "service": self.service, "cycle_id": cycle.cycle_id,
                     "decision_time": cycle.decision_time, "valid": valid,
                     "record_count": len(records), "records_overflow": self._overflow,
+                    "suppressed_daily_cap": self._cycle_suppressed,
+                    "max_records_per_day": self.max_records_per_day,
+                    "records_emitted_today": self._day_emitted, "cap_reached": self.cap_reached,
                     "report": summary,
                     "integration_failures": [list(x) for x in sorted(cycle.failures.items())],
                     "notes": dict(cycle.notes), "snapshot_hash": SNAPSHOT_HASH_UNAVAILABLE}
@@ -255,6 +298,7 @@ class FunnelService:
         self.stats["valid_cycles" if valid else "invalid_cycles"] += 1
         self.stats["records"] += len(records)
         self.stats["records_overflow"] += self._overflow
+        self.stats["suppressed_daily_cap"] += self._cycle_suppressed
         self.last_envelope, self.last_records = envelope, records
         return envelope
 
@@ -688,14 +732,15 @@ class SignalEngineTap:
     # Stages whose records are compacted to one per state change (SE-1 volume bound).
     COMPACT_STAGES = ("F2", "F3", "F4", "F5", "F6")
 
-    def __init__(self, engine, *, limit: int, cut_list_rows: int, service: FunnelService | None = None):
+    def __init__(self, engine, *, limit: int, cut_list_rows: int, max_records_per_day: int | None = None,
+                 service: FunnelService | None = None):
         # Per cycle at most: one record per symbol of the <= limit rows (F2-F5 or F3), one per
         # ranked loser (<= limit), the listed cut rows (<= cut_list_rows) and one record for an
         # unlisted cut tail. A larger emission is a pathological cycle: the excess is counted
         # (records_overflow), never emitted. Both numbers are the caller's existing bounds.
         self.service = service or FunnelService(
             "signal_engine", compact_stages=self.COMPACT_STAGES,
-            max_records_per_cycle=2 * limit + cut_list_rows + 1)
+            max_records_per_cycle=2 * limit + cut_list_rows + 1, max_records_per_day=max_records_per_day)
         self.limit = limit
         self.cut_list_rows = cut_list_rows
         self.cycle: FunnelCycle | None = None
