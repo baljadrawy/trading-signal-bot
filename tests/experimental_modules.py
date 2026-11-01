@@ -24,4 +24,5 @@ EXPERIMENTAL_SHARED = (
     "funnel_records",            # WP2 lane B (R1/R6): RejectionRecord + conservation, dormant
     "funnel_recorder",           # WP2 lane B (R1/R6): default-off recorder, dormant
     "portfolio_ledger",          # WP2 lane E (R7): isolated accounting ledger, dormant
+    "position_state",            # WP2 WP-D03 (SE-66): pure position lifecycle machine; not yet wired
 )
