@@ -16,4 +16,8 @@ EXPERIMENTAL_SHARED = (
     "s3_shadow",                 # S3 shadow evaluation (disabled; no production caller)
     "s3_shadow_store",           # S3 shadow bounded JSONL store (disabled)
     "s3_shadow_sidecar",         # S3 shadow out-of-process read-only runner (disabled)
+    "strategy_identity",         # WP2 lane A (R5): closure-hash identity, dormant
+    "strategy_config_snapshot",  # WP2 lane A (R5): versioned decision-config snapshot, dormant
+    "decision_metadata",         # WP2 lane A (R5): replay-stable decision records, dormant
+    "strategy_version_boundary", # WP2 lane A (R5.e): pure version-boundary report, dormant
 )
