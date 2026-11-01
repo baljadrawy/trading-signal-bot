@@ -10,11 +10,19 @@ is reported as a separate, unchanged artefact; it is never read or recomputed.
 
 Classification (SE-38; charter section 6, "unversioned strategy change"):
   NO_CHANGE          identity fields equal (lineage alone may differ: metadata, WP-IR-09)
-  LABEL_ONLY         version label differs, all three hashes equal: no rule change; review
+  LABEL_ONLY         version label differs, all three hashes equal: no rule change, but the identity tuple
+                     moved, so an activation record is still required (see below)
   DECLARED_CHANGE    hashes and version both differ: a boundary entry is required
                      (a MINOR/PATCH step additionally needs a byte-identical golden replay)
   UNDECLARED_CHANGE  a hash differs under the same version label: stop condition
   DIFFERENT_STRATEGY strategy_id differs: not a boundary of one strategy
+
+`activation_record_required` is true whenever any of the five identity fields changes (DECLARED_CHANGE,
+UNDECLARED_CHANGE or LABEL_ONLY). Decision keys may be derived from the identity tuple (composition SK-A of
+docs/design/SETUP_KEY_PROPOSAL_SE84.md, finding SK-09), so even a label-only change re-keys setups; the entry
+draft then carries an activation minute and the SE-36 no-re-fire rule. This holds under every SE-84
+composition (DG-35 is on HOLD): a label change also changes the identifier written on every record.
+`boundary_required` keeps its SE-38 meaning (a strategy-version boundary for outcome stratification).
 
 `drift_status` maps the classification onto drift_check.py's vocabulary for a future check.
 Wiring it into drift_check.py would edit that existing file and is BLOCKED (owner gate).
@@ -37,6 +45,8 @@ DRIFT_STATUS = {NO_CHANGE: 'MATCH', LABEL_ONLY: 'DRIFT', DECLARED: 'DRIFT', UNDE
 EXIT = {NO_CHANGE: 0, LABEL_ONLY: 0, DECLARED: 1, UNDECLARED: 3, OTHER: 2}
 HASHES = ('source_hash', 'config_hash', 'contract_hash')
 PENDING = 'PENDING'
+NO_REFIRE_RULE = ('only bars whose bar_close_time is at or after activation_utc_minute are evaluated under '
+                  'the new identity; a bar evaluated under the old identity is never re-evaluated (SE-36)')
 STRATIFICATION_RULE = ('outcomes before and after activation_utc_minute must never be pooled without '
                        'stratification; no retroactive attribution (deploy/VERSION_BOUNDARY.md rules)')
 
@@ -98,6 +108,8 @@ def version_boundary_report(before, after):
         flags.append('identity hash changed under an unchanged version label (SE-38 stop condition)')
     if cls == LABEL_ONLY:
         flags.append('version label changed without any rule, config or contract change')
+        flags.append('identity tuple changed: decision keys derived from it re-key at activation; an '
+                     'activation minute and the SE-36 no-re-fire rule are required (SK-09)')
     if step == 'REGRESSION':
         flags.append('version label decreased')
     if not diff.get('closure_spec_equal', True):
@@ -114,10 +126,12 @@ def version_boundary_report(before, after):
         required = 'NOT_APPLICABLE'
     else:
         required = 'NO'
+    activation = cls in (DECLARED, UNDECLARED, LABEL_ONLY)
     entry = None
-    if cls in (DECLARED, UNDECLARED):
+    if activation:
         entry = {
             'boundary_id': PENDING,
+            'entry_kind': 'identity_rekey' if cls == LABEL_ONLY else 'strategy_boundary',
             'strategy_id': after['strategy_id'],
             'version_before': before['version'], 'version_after': after['version'],
             **{f'{h}_before': before[h] for h in HASHES},
@@ -127,6 +141,7 @@ def version_boundary_report(before, after):
             'activation_utc_minute': PENDING,
             'admission_authority_service': PENDING,
             'images': PENDING,
+            'no_refire_rule': NO_REFIRE_RULE,
             'stratification_rule': STRATIFICATION_RULE,
             'write_status': 'NOT_WRITTEN: an entry is written only for an owner-approved activation (SE-36)',
         }
@@ -135,6 +150,7 @@ def version_boundary_report(before, after):
         'classification': cls,
         'drift_status': DRIFT_STATUS[cls],
         'boundary_required': required,
+        'activation_record_required': activation,
         'strategy_id_before': before.get('strategy_id'),
         'strategy_id_after': after.get('strategy_id'),
         'version_before': before['version'], 'version_after': after['version'],

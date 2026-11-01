@@ -1,7 +1,7 @@
 """Versioned strategy configuration: a frozen, validated snapshot of decision parameters.
 
-Pure and dormant (WP2 lane A; R5.d, R2.c; SE-37). The snapshot holds the **effective** values of
-the declared decision keys, passed in explicitly by the caller. Nothing is read from the
+Pure (WP2 lane A; R5.d, R2.c; SE-37). The snapshot holds the **effective** values of the
+declared decision keys, passed in explicitly by the caller. Nothing is read from the
 environment, ``shared.config`` or the database, and no key has a default: every declared key
 must be supplied, and an undeclared key is refused, so the hash can never silently omit a value.
 
@@ -10,9 +10,10 @@ different, narrower quantity than the evidence-v2 envelope ``config_hash``
 (``shared/evidence_v2.py`` hashes every non-secret config attribute); the two are reported side
 by side, never substituted for each other.
 
-``DRAFT_CURRENT_FAMILY_SCHEMA`` lists key **names** only, for the WP-A01 owner review. It
-chooses no value. Database-held thresholds enter as one explicit ``DB_THRESHOLDS`` object; who
-may read them, and how, is an owner gate (protected data), so this module never fetches them.
+``DRAFT_CURRENT_FAMILY_SCHEMA`` lists key **names** only: an evidence-backed proposal for owner
+review (docs/design/STRATEGY_INTERFACE_v1.md section 5). It chooses no value. Database-held
+inputs enter as explicit ``DB_*`` keys; who may read them, and how, is an owner gate (protected
+data), so this module never fetches them.
 """
 from __future__ import annotations
 
@@ -210,26 +211,56 @@ def changed_keys(a: StrategyConfigSnapshot, b: StrategyConfigSnapshot) -> list:
                   if k not in va or k not in vb or canonical_json(va[k]) != canonical_json(vb[k]))
 
 
-# Key names only (R2.c: T1_CAP_POLICY and SIGNAL_INTEGRITY_MODE; R3.d: APP_VERSION is part of the
-# A44 setup key; the entry, universe, spread and cost keys that current_contract() resolves from
-# runtime configuration). Values are always supplied by the caller. Pending WP-A01 review.
+# Key names only. Rule (STRATEGY_INTERFACE_v1.md section 5): a key is in config_hash when an ACTIVE
+# closure path reads it under the runtime-verified configuration, or when it selects between an
+# ACTIVE and a DORMANT path. Keys read only on DORMANT paths (APP_VERSION inside the enforce-mode
+# key, MIN_SCORE_TO_SIGNAL, the learned-gate parameters) join the schema of the version that
+# activates their path. Portfolio and risk-policy keys belong to the separate risk-policy identity
+# (deploy/VERSION_BOUNDARY.md VB-2026-10-27-01); operational cadence and evidence keys are excluded.
 DRAFT_CURRENT_FAMILY_SCHEMA = ConfigSchema(
-    schema_id="current-families-decision-keys/draft-1",
+    schema_id="current-families-decision-keys/proposal-1",
     keys=(
+        # path-selecting switches
+        ConfigKey("LIVE_LEARNING_MODE", "bool", "env"),          # selection policy switch
+        ConfigKey("SIGNAL_INTEGRITY_MODE", "enum", "env", SIGNAL_INTEGRITY_MODE_CHOICES),
         ConfigKey("T1_CAP_POLICY", "enum", "env", T1_CAP_POLICY_CHOICES),
-        ConfigKey("SIGNAL_INTEGRITY_MODE", "enum", "env",
-                  SIGNAL_INTEGRITY_MODE_CHOICES),
-        ConfigKey("APP_VERSION", "str", "env"),
+        ConfigKey("LEARNING_GATES_ENABLED", "bool", "env"),
+        ConfigKey("PRICE_STREAM_ENABLED", "bool", "env"),
+        ConfigKey("PAPER_ENTRY_FILL_MODEL", "str", "env"),
+        # universe and candles
         ConfigKey("TIMEFRAMES", "str_list", "env"),
         ConfigKey("MIN_VOLUME_USDT", "float", "env"),
         ConfigKey("MIN_PRICE_CHANGE_PERCENT", "float", "code_constant"),
+        ConfigKey("CANDLES_TO_FETCH", "int", "code_constant"),
+        # indicators (shared/config.py code constants)
+        ConfigKey("RSI_PERIOD", "int", "code_constant"),
+        ConfigKey("MACD_FAST", "int", "code_constant"),
+        ConfigKey("MACD_SLOW", "int", "code_constant"),
+        ConfigKey("MACD_SIGNAL", "int", "code_constant"),
+        ConfigKey("EMA_SHORT", "int", "code_constant"),
+        ConfigKey("EMA_MEDIUM", "int", "code_constant"),
+        ConfigKey("EMA_LONG", "int", "code_constant"),
+        ConfigKey("BB_PERIOD", "int", "code_constant"),
+        ConfigKey("BB_STD", "float", "code_constant"),
+        ConfigKey("ATR_PERIOD", "int", "code_constant"),
+        ConfigKey("STOCH_RSI_WINDOW", "int", "code_constant"),
+        ConfigKey("STOCH_K", "int", "code_constant"),
+        ConfigKey("STOCH_D", "int", "code_constant"),
+        # entry predicates
         ConfigKey("MOM_BREAKOUT_N", "int", "env"),
         ConfigKey("MOM_VOL_MULT", "float", "env"),
         ConfigKey("REV_RSI", "float", "env"),
         ConfigKey("REV_BB_MAX_POSITION", "float", "env"),
+        # gates
         ConfigKey("MAX_SPREAD_PCT", "float", "env"),
+        ConfigKey("USDTD_SPIKE_PP", "float", "env"),
+        ConfigKey("MACRO_CACHE_HOURS", "int", "env"),
+        ConfigKey("MACRO_MAX_STALE_HOURS", "int", "env"),
+        # legacy cost terms read by the exit barrier and the booking (cost model legacy_tracker_v1)
         ConfigKey("FEE_ROUNDTRIP_PCT", "float", "env"),
         ConfigKey("STOP_SLIPPAGE", "float", "env"),
-        ConfigKey("DB_THRESHOLDS", "json_object", "database"),
+        # database-held inputs (legacy path: indicator_weights only order the candidate query)
+        ConfigKey("DB_INDICATOR_WEIGHTS", "json_object", "database"),
+        ConfigKey("DB_SYMBOL_BLACKLIST", "str_list", "database"),
     ),
 )

@@ -18,8 +18,18 @@ NOT_APPLICABLE are neutral and are always printed, so a metadata-only MATCH is n
 
 Usage:
   drift_check.py check   [--manifest deploy/DEPLOYED.json] [--deep] [--json REPORT] [--max-age-days 30]
+                         [--strategy-identity [--identity-reference REF] [--identity-current CUR]]
   drift_check.py validate [--manifest ...]
   drift_check.py observe  [--manifest ...] [--out FILE]   # current observations (no provenance, no env), for review
+  drift_check.py strategy [--identity-reference REF] [--identity-current CUR] [--json REPORT]
+
+Strategy identity (WP2 lane A; R5.d, R5.e; report-only): `strategy`, or `check --strategy-identity`, adds the
+S1/S2 section. S1 hashes the declared decision closure of each strategy family in this checkout
+(shared/strategy_identity.py; read-only file reads, no Docker) and compares it with REF (a previous
+`strategy --json` report, an identity manifest or a closure document). S2 classifies the version boundary
+between REF and CUR when both are identity manifests (shared/strategy_version_boundary.py). The section never
+changes OVERALL, COVERAGE or the exit code of `check`; `strategy` exits 0, or 2 when REF/CUR is unreadable.
+Without these flags the existing modes behave exactly as before and do not import shared/.
 
 Output and reports are INTERNAL INFRASTRUCTURE METADATA: authorized operational use only; never upload them to public
 services; never commit generated observations automatically. Files written by --json/--out are mode 0600.
@@ -328,15 +338,138 @@ def write_private(path, obj):
             os.close(fd)
 
 
+# --------------------------------------------------------------------------- strategy identity (report-only)
+STRATEGY_REPORT_SCHEMA = 'tsb-strategy-closure-report/1'
+
+
+def _strategy_modules():
+    """Imported lazily, so check/validate/observe never load shared/ unless the section is requested."""
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from shared import strategy_identity as si
+    from shared import strategy_version_boundary as vb
+    return si, vb
+
+
+def _strategy_refs(reference, si):
+    """{strategy_id: document} from a previous report, one identity manifest or one closure document."""
+    if not isinstance(reference, dict):
+        raise ValueError('reference must be a JSON object')
+    if reference.get('schema') == STRATEGY_REPORT_SCHEMA:
+        fams = reference.get('families')
+        if not isinstance(fams, dict):
+            raise ValueError('reference report has no families')
+        return fams
+    if reference.get('schema') in (si.IDENTITY_MANIFEST_SCHEMA, si.CLOSURE_DOCUMENT_SCHEMA):
+        return {reference.get('strategy_id'): reference}
+    raise ValueError('unrecognized reference schema')
+
+
+def strategy_report(root=ROOT, reference=None, identity_current=None, manifests=None):
+    """S1 closure comparison and S2 boundary classification. Pure apart from reading the declared
+    closure files under `root`; deterministic (no clock, environment, Docker or network)."""
+    si, vb = _strategy_modules()
+    manifests = si.DRAFT_MANIFESTS if manifests is None else manifests
+    refs = _strategy_refs(reference, si) if reference is not None else {}
+    rows, families = [], {}
+
+    def add(check, target, status, detail):
+        rows.append({'check': check, 'target': target, 'status': status, 'detail': detail})
+
+    for sid in sorted(manifests):
+        manifest = manifests[sid]
+        try:
+            doc = si.closure_document(manifest, si.read_closure_sources(root, manifest))
+        except si.ClosureError as exc:
+            add('S1', sid, UNKNOWN, f'closure unresolved: {exc}')
+            continue
+        families[sid] = doc
+        size = f"{len(doc['files'])} ACTIVE, {len(doc['inactive_files'])} inactive files"
+        ref = refs.get(sid)
+        if reference is None:
+            add('S1', sid, NOT_RUN, f"source_hash {doc['source_hash'][:16]} ({size}); no reference supplied")
+            continue
+        if not isinstance(ref, dict):
+            add('S1', sid, UNKNOWN, 'reference has no entry for this strategy')
+            continue
+        try:
+            diff = si.compare_to_reference(doc, ref)
+        except si.ClosureError as exc:
+            add('S1', sid, UNKNOWN, f'reference invalid: {exc}')
+            continue
+        moved = diff['files_changed'] + diff['files_added'] + diff['files_removed']
+        same_spec = diff.get('closure_spec_equal', True)
+        inactive = diff.get('inactive_files_changed', []) + diff.get('inactive_files_added', [])
+        if diff['source_hash_equal'] and same_spec:
+            add('S1', sid, MATCH, f'ACTIVE closure equals the reference ({size})'
+                + (f"; inactive files changed: {', '.join(inactive[:5])}" if inactive else ''))
+        else:
+            add('S1', sid, DRIFT, 'changed: ' + (', '.join(moved[:5]) or 'none')
+                + ('; declared closure changed' if not same_spec else ''))
+    boundary = None
+    if identity_current is not None:
+        sid = identity_current.get('strategy_id') if isinstance(identity_current, dict) else None
+        ref = refs.get(sid)
+        if not isinstance(identity_current, dict) or identity_current.get('schema') != si.IDENTITY_MANIFEST_SCHEMA:
+            add('S2', str(sid), UNKNOWN, 'current is not an identity manifest')
+        elif not isinstance(ref, dict) or ref.get('schema') != si.IDENTITY_MANIFEST_SCHEMA:
+            add('S2', sid, UNKNOWN, 'a boundary needs an identity manifest on both sides')
+        elif sid not in families:
+            add('S2', sid, UNKNOWN, 'strategy not in this checkout\'s closure')
+        else:
+            here = si.compare_to_reference(families[sid], identity_current)
+            if not (here['source_hash_equal'] and here.get('closure_spec_equal', True)):
+                add('S2', sid, UNKNOWN, 'current identity manifest does not describe this checkout')
+            else:
+                try:
+                    boundary = vb.version_boundary_report(ref, identity_current)
+                except (vb.ReportError, si.ClosureError) as exc:
+                    add('S2', sid, UNKNOWN, f'boundary report refused: {exc}')
+                else:
+                    add('S2', sid, boundary['drift_status'],
+                        f"{boundary['classification']} {boundary['version_before']} -> {boundary['version_after']}"
+                        f"; boundary_required={boundary['boundary_required']}")
+    return {'schema': STRATEGY_REPORT_SCHEMA, 'report_only': True, 'results': rows, 'families': families,
+            'boundary': boundary, 'historical_freeze': dict(si.HISTORICAL_FREEZE)}
+
+
+def _load_optional_json(path):
+    if path is None:
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def print_strategy_section(report):
+    for r in report['results']:
+        print(f"{r['check']:3} {r['status']:15} {r['target']:28} {r['detail']}")
+    print('STRATEGY report-only (excluded from OVERALL and COVERAGE); historical freeze hash not read or recomputed')
+
+
 def main(argv=None, host=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('mode', choices=['check', 'validate', 'observe'])
+    ap.add_argument('mode', choices=['check', 'validate', 'observe', 'strategy'])
     ap.add_argument('--manifest', default=os.path.join(ROOT, 'deploy', 'DEPLOYED.json'))
     ap.add_argument('--deep', action='store_true')
     ap.add_argument('--json', help='write the check report (mode 0600)')
     ap.add_argument('--out', help='observe: write observations to this file (mode 0600) instead of stdout')
     ap.add_argument('--max-age-days', type=int, default=30)
+    ap.add_argument('--strategy-identity', action='store_true',
+                    help='check: add the report-only strategy identity section (S1/S2)')
+    ap.add_argument('--identity-reference', help='strategy section: reference report or identity manifest')
+    ap.add_argument('--identity-current', help='strategy section: identity manifest of this checkout')
     a = ap.parse_args(argv)
+    if a.mode == 'strategy':
+        try:
+            report = strategy_report(reference=_load_optional_json(a.identity_reference),
+                                     identity_current=_load_optional_json(a.identity_current))
+        except (OSError, ValueError) as exc:
+            print(f'UNKNOWN strategy identity inputs unreadable: {type(exc).__name__}')
+            return EXIT[UNKNOWN]
+        print_strategy_section(report)
+        if a.json:
+            write_private(a.json, report)
+        return 0
     host = host or Host()
     try:
         m = json.load(open(a.manifest))
@@ -364,10 +497,23 @@ def main(argv=None, host=None):
              'INCOMPLETE': 'INCOMPLETE (some required evidence unavailable)'}[cov['verification']]
     print('COVERAGE ' + ' '.join(f'{k}={v}' for k, v in cov['counts'].items()) + f" verification={cov['verification']}")
     print(f'OVERALL {ov} ({scope}); no remediation performed')
+    strategy = None
+    if a.strategy_identity:
+        try:
+            strategy = strategy_report(reference=_load_optional_json(a.identity_reference),
+                                       identity_current=_load_optional_json(a.identity_current))
+        except (OSError, ValueError) as exc:
+            strategy = {'schema': STRATEGY_REPORT_SCHEMA, 'report_only': True, 'families': {}, 'boundary': None,
+                        'results': [{'check': 'S1', 'target': 'inputs', 'status': UNKNOWN,
+                                     'detail': f'strategy identity inputs unreadable: {type(exc).__name__}'}]}
+        print_strategy_section(strategy)
     if a.json:
-        write_private(a.json, {'_notice': METADATA_NOTICE, 'overall': ov, 'scope': scope, 'coverage': cov,
-                               'manifest_observed_at': m.get('observed_at'), 'checked_at': host.now().isoformat(),
-                               'results': results})
+        report = {'_notice': METADATA_NOTICE, 'overall': ov, 'scope': scope, 'coverage': cov,
+                  'manifest_observed_at': m.get('observed_at'), 'checked_at': host.now().isoformat(),
+                  'results': results}
+        if strategy is not None:
+            report['strategy_identity'] = strategy
+        write_private(a.json, report)
     return EXIT[ov]
 
 

@@ -1,7 +1,8 @@
 """Strategy-rule identity: a declared decision closure and deterministic StrategyVersion hashes.
 
-Pure and dormant: no service imports this module and nothing here reads the environment, the
-clock, the network or a database. Hashes are computed only over the bytes the caller passes in.
+Pure: nothing here reads the environment, the clock, the network or a database. Hashes are
+computed only over the bytes the caller passes in. No service imports it today; the integration
+points are listed in docs/design/STRATEGY_INTERFACE_v1.md section 9.
 
 What it is for (WP2 lane A; R5.d; SE-04, SE-37, SE-61, SE-63; WP-IR-09):
 
@@ -22,8 +23,18 @@ What it is not:
 * It never recomputes, reads or rewrites ``research/governance/research_freeze.json`` or the v1
   ``current_contract()`` hash. The historical freeze hash is a separate, unchanged artefact with
   a different scheme; ``compare_to_reference`` says so explicitly in every report.
-* The closure list and the decision-key list are drafts for the WP-A01 owner review. Changing a
-  version, activating identity emission or writing a boundary entry needs owner approval.
+* The closure data below is an evidence-backed proposal for owner review (WP-A01; the call-path
+  inventory is docs/design/STRATEGY_INTERFACE_v1.md section 3). Changing a version, activating
+  identity emission or writing a boundary entry needs owner approval.
+
+Classification (WP-A01): every closure file and region is ``ACTIVE`` (on a call path that can
+change a decision under the runtime-verified configuration), ``DORMANT`` (reachable only behind an
+off flag or an unused mode) or ``POTENTIAL`` (on no call path). Only ACTIVE entries feed
+``source_hash``. DORMANT and POTENTIAL files are hashed separately into ``inactive_hash``: a
+reviewer sees their drift, but they cannot move the identity until a version activates them,
+and that activation is itself a boundary (it flips a ``config_hash`` key or the closure spec).
+A file's ``scope`` is ``file`` (all normalized bytes count; the default) or ``regions`` (only
+its ACTIVE regions count; used where the decision rules are a small part of a larger file).
 
 Normalization: CR LF and lone CR become LF before hashing. Python reads source with universal
 newlines, so this changes no behaviour; every other byte (whitespace included) counts.
@@ -42,12 +53,21 @@ from typing import Any, Mapping
 
 IDENTITY_MANIFEST_SCHEMA = "tsb-strategy-identity/1"
 IDENTITY_DIFF_SCHEMA = "tsb-strategy-identity-diff/1"
+CLOSURE_DOCUMENT_SCHEMA = "tsb-strategy-closure/1"
 SOURCE_SCHEME = "tsb-strategy-source/1"
 CLOSURE_SPEC_SCHEME = "tsb-strategy-closure-spec/1"
 CONTRACT_SCHEME = "tsb-strategy-contract/1"
 VERSION_SCHEME = "tsb-strategy-version/1"
 
 DRAFT_STATUS = "DRAFT_PENDING_WP_A01_REVIEW"
+PROPOSAL_STATUS = "EVIDENCE_BACKED_PROPOSAL_PENDING_OWNER_REVIEW"
+INACTIVE_SCHEME = "tsb-strategy-inactive-source/1"
+REGION_SCOPE_SCHEME = "tsb-strategy-region-scope/1"
+
+ACTIVE, DORMANT, POTENTIAL = "ACTIVE", "DORMANT", "POTENTIAL"
+CLASSIFICATIONS = (ACTIVE, DORMANT, POTENTIAL)
+FILE_SCOPE, REGIONS_SCOPE = "file", "regions"
+SCOPES = (FILE_SCOPE, REGIONS_SCOPE)
 
 # The nine logic files the legacy research contract hashes (research/foundation/contract.py:L68-71
 # @ 46578aa). Listed for coverage reporting only; the v1 hash itself is never recomputed here.
@@ -157,13 +177,17 @@ class RegionSpec:
       ``def:Name`` / ``def:Class.method``   a function or class (decorators included);
       ``assign:NAME``                        a module-level assignment;
       ``literal:TEXT``                       the single string constant containing TEXT.
-    ``purpose`` is documentation only and does not enter any hash.
+    ``purpose`` is documentation only and does not enter any hash. ``classification`` says whether
+    the region is on an active decision path (it enters the closure spec only when not ACTIVE).
     """
     region_id: str
     selector: str
     purpose: str = ""
+    classification: str = ACTIVE
 
     def __post_init__(self):
+        if self.classification not in CLASSIFICATIONS:
+            raise ClosureError(f"invalid classification {self.classification!r}")
         if not isinstance(self.region_id, str) or not REGION_ID.match(self.region_id):
             raise ClosureError(f"invalid region_id {self.region_id!r}")
         kind, sep, arg = str(self.selector).partition(":")
@@ -177,21 +201,34 @@ class RegionSpec:
 
 @dataclass(frozen=True)
 class ClosureFile:
-    """One file of the decision closure. The whole file always enters ``source_hash``; regions
-    name the decision-critical parts so a report can say which of them changed, and fail closed
-    when one of them disappears or becomes ambiguous."""
+    """One file of the decision closure. With ``scope="file"`` (default) the whole normalized file
+    is its digest; with ``scope="regions"`` the digest covers its ACTIVE regions only. Regions name
+    the decision-critical parts so a report can say which of them changed, and fail closed when
+    one of them disappears or becomes ambiguous. Only ACTIVE files feed ``source_hash``."""
     path: str
     role: str
     regions: tuple = ()
+    classification: str = ACTIVE
+    scope: str = FILE_SCOPE
 
     def __post_init__(self):
         _check_path(self.path)
+        if self.classification not in CLASSIFICATIONS:
+            raise ClosureError(f"{self.path}: invalid classification {self.classification!r}")
+        if self.scope not in SCOPES:
+            raise ClosureError(f"{self.path}: invalid scope {self.scope!r}")
         regions = tuple(self.regions)
         if any(not isinstance(r, RegionSpec) for r in regions):
             raise ClosureError(f"regions of {self.path} must be RegionSpec")
         if regions and not self.path.endswith(".py"):
             raise ClosureError(f"regions need a Python file: {self.path}")
+        if self.scope == REGIONS_SCOPE and not any(r.classification == ACTIVE for r in regions):
+            raise ClosureError(f"{self.path}: scope 'regions' needs at least one ACTIVE region")
         object.__setattr__(self, "regions", tuple(sorted(regions, key=lambda r: r.region_id)))
+
+    @property
+    def is_active(self) -> bool:
+        return self.classification == ACTIVE
 
     @property
     def in_legacy_contract_v1(self) -> bool:
@@ -218,26 +255,57 @@ class StrategyRuleManifest:
         region_ids = [r.region_id for f in files for r in f.regions]
         if len(set(region_ids)) != len(region_ids):
             raise ClosureError("duplicate region_id in closure")
+        if not any(f.is_active for f in files):
+            raise ClosureError("a closure needs at least one ACTIVE file")
         object.__setattr__(self, "files", tuple(sorted(files, key=lambda f: f.path)))
 
     @property
     def paths(self) -> tuple:
+        """Every declared path (ACTIVE and inactive): all of them must be supplied."""
         return tuple(f.path for f in self.files)
 
+    @property
+    def active_paths(self) -> tuple:
+        return tuple(f.path for f in self.files if f.is_active)
+
+    @property
+    def inactive_paths(self) -> tuple:
+        return tuple(f.path for f in self.files if not f.is_active)
+
+    def file(self, path: str) -> "ClosureFile":
+        for f in self.files:
+            if f.path == path:
+                return f
+        raise ClosureError(f"{path} is not in the closure")
+
     def spec(self) -> dict:
-        """The hashed part of the declaration (roles and purposes are documentation)."""
-        return {"scheme": CLOSURE_SPEC_SCHEME, "strategy_id": self.strategy_id,
-                "files": [{"path": f.path,
-                           "regions": [[r.region_id, r.selector] for r in f.regions]}
-                          for f in self.files]}
+        """The hashed part of the declaration (roles and purposes are documentation). Non-default
+        classifications and scopes are added only when present, so an all-ACTIVE, file-scoped
+        manifest keeps the spec form of tsb-strategy-closure-spec/1 unchanged."""
+        files = []
+        for f in self.files:
+            entry = {"path": f.path,
+                     "regions": [[r.region_id, r.selector] + ([r.classification]
+                                                              if r.classification != ACTIVE else [])
+                                 for r in f.regions]}
+            if f.classification != ACTIVE:
+                entry["classification"] = f.classification
+            if f.scope != FILE_SCOPE:
+                entry["scope"] = f.scope
+            files.append(entry)
+        return {"scheme": CLOSURE_SPEC_SCHEME, "strategy_id": self.strategy_id, "files": files}
 
     @property
     def closure_spec_hash(self) -> str:
         return canonical_hash(self.spec())
 
     def outside_legacy_contract_v1(self) -> tuple:
-        """Closure files the legacy 9-file contract hash cannot see (the SE-04 gap)."""
-        return tuple(f.path for f in self.files if not f.in_legacy_contract_v1)
+        """ACTIVE closure files the legacy 9-file contract hash cannot see (the SE-04 gap)."""
+        return tuple(f.path for f in self.files if f.is_active and not f.in_legacy_contract_v1)
+
+    def legacy_contract_v1_inactive(self) -> tuple:
+        """Files the legacy contract hashes although no service call path reaches them."""
+        return tuple(f.path for f in self.files if not f.is_active and f.in_legacy_contract_v1)
 
 
 # ── region resolution ──────────────────────────────────────────────────────────────────────
@@ -294,11 +362,14 @@ def region_digest(text: str, path: str, region: RegionSpec) -> str:
 class ClosureDigest:
     strategy_id: str
     closure_spec_hash: str
-    files: tuple          # ((path, sha256), ...) sorted by path
-    regions: tuple        # ((region_id, path, selector, sha256), ...) sorted by region_id
+    files: tuple          # ((path, digest), ...) of ACTIVE files, sorted by path
+    regions: tuple        # ((region_id, path, selector, sha256), ...) of all regions, by region_id
     source_hash: str
+    inactive_files: tuple = ()     # ((path, classification, digest), ...) of DORMANT/POTENTIAL files
+    inactive_hash: str | None = None
 
     def file_map(self) -> dict:
+        """ACTIVE files only: exactly the pairs ``source_hash`` covers."""
         return dict(self.files)
 
 
@@ -314,9 +385,16 @@ def source_hash_from_digests(file_digests: Mapping[str, str]) -> str:
     return canonical_hash({"scheme": SOURCE_SCHEME, "files": pairs})
 
 
+def inactive_hash_from(entries) -> str | None:
+    """sha256 over the sorted ``[path, classification, digest]`` of the non-ACTIVE files."""
+    rows = sorted([_check_path(p), c, d] for p, c, d in entries)
+    return canonical_hash({"scheme": INACTIVE_SCHEME, "files": rows}) if rows else None
+
+
 def compute_closure(manifest: StrategyRuleManifest, sources: Mapping[str, bytes]) -> ClosureDigest:
-    """Hash exactly the declared closure. ``sources`` maps each declared path to its bytes; a
-    missing or an undeclared path is refused, so nothing outside the closure can move the hash."""
+    """Hash exactly the declared closure. ``sources`` maps each declared path (ACTIVE and
+    inactive) to its bytes; a missing or an undeclared path is refused, so nothing outside the
+    closure can move the hash. Every region must resolve, whatever its classification."""
     if not isinstance(manifest, StrategyRuleManifest):
         raise ClosureError("manifest must be a StrategyRuleManifest")
     given, declared = set(sources), set(manifest.paths)
@@ -324,23 +402,34 @@ def compute_closure(manifest: StrategyRuleManifest, sources: Mapping[str, bytes]
         raise ClosureError(f"closure files missing: {sorted(declared - given)}")
     if given - declared:
         raise ClosureError(f"files not in the declared closure: {sorted(given - declared)}")
-    files, regions = {}, []
+    files, inactive, regions = {}, [], []
     for entry in manifest.files:
         data = normalize_source(sources[entry.path])
-        files[entry.path] = hashlib.sha256(data).hexdigest()
+        digest = hashlib.sha256(data).hexdigest()
         if entry.regions:
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
                 raise ClosureError(f"{entry.path}: not UTF-8") from None
-            for region in entry.regions:
-                regions.append((region.region_id, entry.path, region.selector,
-                                region_digest(text, entry.path, region)))
+            own = [(region.region_id, entry.path, region.selector,
+                    region_digest(text, entry.path, region)) for region in entry.regions]
+            regions.extend(own)
+            if entry.scope == REGIONS_SCOPE:
+                active = {r.region_id for r in entry.regions if r.classification == ACTIVE}
+                digest = canonical_hash({"scheme": REGION_SCOPE_SCHEME,
+                                         "regions": [[rid, sel, sha] for rid, _, sel, sha in own
+                                                     if rid in active]})
+        if entry.is_active:
+            files[entry.path] = digest
+        else:
+            inactive.append((entry.path, entry.classification, digest))
     return ClosureDigest(strategy_id=manifest.strategy_id,
                          closure_spec_hash=manifest.closure_spec_hash,
                          files=tuple(sorted(files.items())),
                          regions=tuple(sorted(regions)),
-                         source_hash=source_hash_from_digests(files))
+                         source_hash=source_hash_from_digests(files),
+                         inactive_files=tuple(sorted(inactive)),
+                         inactive_hash=inactive_hash_from(inactive))
 
 
 def read_closure_sources(root: Path, manifest: StrategyRuleManifest) -> dict:
@@ -410,6 +499,36 @@ class StrategyVersion:
         return f"{self.strategy_id}/{self.version}/{self.identity_hash[:16]}"
 
 
+def _closure_fields(manifest: StrategyRuleManifest, digest: ClosureDigest) -> dict:
+    legacy = {f.path: f.in_legacy_contract_v1 for f in manifest.files}
+    scope = {f.path: f.scope for f in manifest.files}
+    region_class = {r.region_id: r.classification for f in manifest.files for r in f.regions}
+    return {
+        "closure_status": manifest.status,
+        "closure_spec_hash": digest.closure_spec_hash,
+        "files": {path: {"sha256": sha, "in_legacy_contract_v1": legacy[path], "scope": scope[path]}
+                  for path, sha in digest.files},
+        "inactive_files": {path: {"sha256": sha, "classification": cls,
+                                  "in_legacy_contract_v1": legacy[path], "scope": scope[path]}
+                           for path, cls, sha in digest.inactive_files},
+        "inactive_hash": digest.inactive_hash,
+        "regions": {rid: {"path": path, "selector": sel, "sha256": sha,
+                          "classification": region_class[rid]}
+                    for rid, path, sel, sha in digest.regions},
+    }
+
+
+def closure_document(manifest: StrategyRuleManifest, sources: Mapping[str, bytes]) -> dict:
+    """The source side of an identity manifest, without config or contract: what a checkout
+    alone can prove (used by the drift_check ``strategy`` report)."""
+    digest = compute_closure(manifest, sources)
+    doc = {"schema": CLOSURE_DOCUMENT_SCHEMA, "strategy_id": manifest.strategy_id,
+           "source_hash": digest.source_hash, **_closure_fields(manifest, digest),
+           "historical_freeze": dict(HISTORICAL_FREEZE)}
+    canonical_json(doc)
+    return doc
+
+
 def build_identity(manifest: StrategyRuleManifest, sources: Mapping[str, bytes], *, version: str,
                    config_snapshot, contract_descriptor: Mapping, lineage=()) -> tuple:
     """Compute ``(StrategyVersion, identity manifest dict)`` from explicit inputs only.
@@ -425,18 +544,12 @@ def build_identity(manifest: StrategyRuleManifest, sources: Mapping[str, bytes],
                          source_hash=digest.source_hash, config_hash=config_hash,
                          contract_hash=contract_descriptor_hash(contract_descriptor),
                          lineage=tuple(lineage))
-    legacy = {f.path: f.in_legacy_contract_v1 for f in manifest.files}
     doc = {
         "schema": IDENTITY_MANIFEST_SCHEMA,
         **sv.identity(),
         "identity_hash": sv.identity_hash,
         "lineage": list(sv.lineage),
-        "closure_status": manifest.status,
-        "closure_spec_hash": digest.closure_spec_hash,
-        "files": {path: {"sha256": sha, "in_legacy_contract_v1": legacy[path]}
-                  for path, sha in digest.files},
-        "regions": {rid: {"path": path, "selector": sel, "sha256": sha}
-                    for rid, path, sel, sha in digest.regions},
+        **_closure_fields(manifest, digest),
         "config": config_snapshot.to_dict(),
         "contract_descriptor": json.loads(canonical_json(dict(contract_descriptor))),
         "historical_freeze": dict(HISTORICAL_FREEZE),
@@ -447,8 +560,11 @@ def build_identity(manifest: StrategyRuleManifest, sources: Mapping[str, bytes],
 
 # ── comparison with a reference ────────────────────────────────────────────────────────────
 
+_SOURCE_DOCS = (IDENTITY_MANIFEST_SCHEMA, CLOSURE_DOCUMENT_SCHEMA)
+
+
 def _file_digests_of(doc: Mapping) -> dict:
-    if doc.get("schema") == IDENTITY_MANIFEST_SCHEMA:
+    if doc.get("schema") in _SOURCE_DOCS:
         files = doc.get("files")
         if not isinstance(files, Mapping):
             raise ClosureError("identity manifest without files")
@@ -465,15 +581,17 @@ def _file_digests_of(doc: Mapping) -> dict:
 def compare_to_reference(current: Mapping, reference: Mapping) -> dict:
     """Report which closure files (and regions) differ from a reference.
 
-    ``current`` is an identity manifest; ``reference`` is an identity manifest or a plain
-    ``{path: sha256}`` mapping. Pure and deterministic. The historical research freeze hash is
-    reported as a separate, unchanged artefact: it is never read, recomputed or compared."""
-    if not isinstance(current, Mapping) or current.get("schema") != IDENTITY_MANIFEST_SCHEMA:
-        raise ClosureError("current must be an identity manifest")
+    ``current`` is an identity manifest or a closure document (``closure_document``);
+    ``reference`` is either of those or a plain ``{path: sha256}`` mapping. Pure and
+    deterministic. Config, contract and identity equality are reported only when both sides are
+    identity manifests. The historical research freeze hash is reported as a separate, unchanged
+    artefact: it is never read, recomputed or compared."""
+    if not isinstance(current, Mapping) or current.get("schema") not in _SOURCE_DOCS:
+        raise ClosureError("current must be an identity manifest or a closure document")
     if not isinstance(reference, Mapping):
         raise ClosureError("reference must be a mapping")
     cur, ref = _file_digests_of(current), _file_digests_of(reference)
-    full_ref = reference.get("schema") == IDENTITY_MANIFEST_SCHEMA
+    full_ref = reference.get("schema") in _SOURCE_DOCS
     changed = sorted(p for p in cur.keys() & ref.keys() if cur[p] != ref[p])
     legacy = {p: bool((current["files"].get(p) or {}).get("in_legacy_contract_v1",
                                                          p in LEGACY_CONTRACT_V1_SOURCES))
@@ -481,7 +599,9 @@ def compare_to_reference(current: Mapping, reference: Mapping) -> dict:
     report = {
         "schema": IDENTITY_DIFF_SCHEMA,
         "strategy_id": current.get("strategy_id"),
-        "reference_kind": "identity_manifest" if full_ref else "file_digests",
+        "reference_kind": ({IDENTITY_MANIFEST_SCHEMA: "identity_manifest",
+                            CLOSURE_DOCUMENT_SCHEMA: "closure_document"}[reference["schema"]]
+                           if full_ref else "file_digests"),
         "files_changed": changed,
         "files_added": sorted(cur.keys() - ref.keys()),
         "files_removed": sorted(ref.keys() - cur.keys()),
@@ -502,70 +622,174 @@ def compare_to_reference(current: Mapping, reference: Mapping) -> dict:
             "regions_removed": sorted(rr.keys() - cr.keys()),
             "closure_spec_equal": current.get("closure_spec_hash") == reference.get("closure_spec_hash"),
         })
+        both_identity = (current.get("schema") == reference.get("schema")
+                         == IDENTITY_MANIFEST_SCHEMA)
         for name in ("config_hash", "contract_hash", "identity_hash"):
-            report[f"{name}_equal"] = current.get(name) == reference.get(name)
+            report[f"{name}_equal"] = (current.get(name) == reference.get(name)
+                                       if both_identity else None)
+        ci = {p: (v or {}).get("sha256") for p, v in (current.get("inactive_files") or {}).items()}
+        ri = {p: (v or {}).get("sha256") for p, v in (reference.get("inactive_files") or {}).items()}
+        report.update({
+            "inactive_files_changed": sorted(p for p in ci.keys() & ri.keys() if ci[p] != ri[p]),
+            "inactive_files_added": sorted(ci.keys() - ri.keys()),
+            "inactive_files_removed": sorted(ri.keys() - ci.keys()),
+            "inactive_hash_equal": current.get("inactive_hash") == reference.get("inactive_hash"),
+        })
     return report
 
 
-# ── draft closure for the frozen 1.0.0 families (SE-39), pending WP-A01 owner review ───────
+# ── closure of the frozen 1.0.0 families (SE-39): evidence-backed proposal, owner review ──
+# Classification from source-level call paths at a03efdd under the runtime-verified configuration
+# (LIVE_LEARNING_MODE=true, SIGNAL_INTEGRITY_MODE off, LEARNING_GATES_ENABLED false, T1_CAP_POLICY
+# unset, PAPER_ECONOMIC_HALT_MODE observe; OPPORTUNITY_FUNNEL.md OF-02). The call paths, line
+# citations and the differences at the deployed commits ea8ae4f / bb7825f are in
+# docs/design/STRATEGY_INTERFACE_v1.md section 3. Both families run through one shared pipeline
+# (the analyzer sets trade_type; every later stage is common), so they share one closure; the
+# split is an identity mapping only (SE-39).
 
-def _legacy(path: str, role: str) -> ClosureFile:
-    return ClosureFile(path=path, role=role)
+def _f(path, role, *regions, classification=ACTIVE, scope=FILE_SCOPE) -> ClosureFile:
+    return ClosureFile(path=path, role=role, regions=tuple(regions),
+                       classification=classification, scope=scope)
+
+
+def _r(region_id, selector, purpose, classification=ACTIVE) -> RegionSpec:
+    return RegionSpec(region_id, selector, purpose, classification)
 
 
 _CURRENT_FAMILY_FILES = (
-    _legacy("analyzer/simple_entry.py", "entry predicates"),
-    _legacy("shared/regime.py", "regime provider (classify_regime)"),
-    _legacy("shared/signal_stop.py", "stop geometry"),
-    _legacy("shared/triple_barrier.py", "exit barriers and holding expiry"),
-    _legacy("shared/partial_exits.py", "partial exits"),
-    _legacy("shared/risk_management.py", "risk checks"),
-    _legacy("shared/strategy_math.py", "strategy arithmetic"),
-    _legacy("scanner/scanner_logic.py", "universe filter"),
-    _legacy("signal_engine/signal_logic.py", "signal decision and emission"),
-    ClosureFile("analyzer/technical_analyzer.py", "geometry and T1 cap call site (W3); scores", (
-        RegionSpec("analyzer_calculate_levels", "def:TechnicalAnalyzer._calculate_levels",
-                   "W3: bracket and T1 cap applied through shared.t1_cap"),
-        RegionSpec("analyzer_calculate_scores", "def:TechnicalAnalyzer._calculate_scores",
-                   "total_score, which orders the candidate query"),
-    )),
-    ClosureFile("shared/t1_cap.py", "T1 resistance-cap policy (W3)", (
-        RegionSpec("t1_cap_fill", "assign:RESISTANCE_FILL", "cap factor"),
-        RegionSpec("t1_cap_window", "assign:WINDOW", "legacy window length"),
-        RegionSpec("t1_cap_policies", "assign:T1_CAP_POLICIES", "selectable policies"),
-        RegionSpec("t1_cap_policy_select", "def:t1_cap_policy", "fail-closed policy selection"),
-        RegionSpec("t1_cap_legacy_window", "def:legacy_window_resistance", "legacy_window_v1"),
-        RegionSpec("t1_cap_independent_swing", "def:independent_swing_resistance",
-                   "independent_swing_v1"),
-        RegionSpec("t1_cap_resistance_for", "def:resistance_for", "policy dispatch"),
-        RegionSpec("t1_cap_capped_t1", "def:capped_t1", "the cap itself"),
-    )),
-    ClosureFile("shared/signal_identity.py", "setup identity, freshness, integrity mode", (
-        RegionSpec("sid_identity_version", "assign:IDENTITY_VERSION", "key version"),
-        RegionSpec("sid_integrity_mode", "def:integrity_mode", "SIGNAL_INTEGRITY_MODE"),
-        RegionSpec("sid_setup_identity", "def:SetupIdentity", "setup_key composition"),
-        RegionSpec("sid_freshness_at", "def:freshness_at", "one-bar freshness bound"),
-        RegionSpec("sid_integrity_check", "def:integrity_check", "enforce-mode verdict"),
-    )),
-    ClosureFile("signal_engine/main.py", "candidate selection", (
-        RegionSpec("selection_limit_constant", "assign:SELECTION_LIMIT", "the selection LIMIT"),
-        RegionSpec("selection_candidate_query", "literal:LIMIT 200",
-                   "ordering and alphabetical LIMIT 200 cut of the candidate query"),
-    )),
-    ClosureFile("shared/macro_context.py", "macro veto regime input (SE-06; B5)"),
-    ClosureFile("shared/fees.py", "cost booking", (
-        RegionSpec("fees_economic_close", "def:economic_close", "net-of-cost booking"),
-        RegionSpec("fees_fee_usdt", "def:fee_usdt", "modeled roundtrip cost"),
-    )),
-    ClosureFile("trade_tracker/main.py", "exits, holding and cost booking", (
-        RegionSpec("tracker_evaluate_trade", "def:evaluate_trade", "exit rules (manage)"),
-        RegionSpec("tracker_close_trade_barrier", "def:close_trade_barrier", "cost booking at close"),
-        RegionSpec("tracker_assess_new_trade_risk", "def:assess_new_trade_risk",
-                   "net-of-cost admission snapshot"),
-    )),
+    # scanner: universe, pause gate, retention
+    _f("scanner/scanner_logic.py", "universe filter, pause gate, scanner BTC trend"),
+    _f("scanner/main.py", "scan loop and pipeline retention call"),
+    _f("shared/trading_state.py", "pause decision read (scanner, delivery, admission)",
+       _r("pause_state", "def:get_pause_state", "fail-closed pause gate")),
+    _f("shared/maintenance.py", "row expiry and retention",
+       _r("maintain_pipeline", "def:maintain_pipeline", "expires and deletes funnel rows")),
+    _f("shared/ohlcv.py", "closed-bar selection and candle validation",
+       _r("ohlcv_closed_klines", "def:closed_klines", "closed-bar rule"),
+       _r("ohlcv_prepare", "def:prepare_ohlcv", "history and data-quality rejection")),
+    _f("shared/candle.py", "candle interval arithmetic (closed bar, same-candle admission guard)"),
+    # analyzer: history, indicators, regime, setup, levels, order book
+    _f("analyzer/main.py", "intake, per-timeframe loop, order-book reuse, upsert reset",
+       _r("analyzer_intake_query", "literal:LIMIT 50", "newest-first intake of 50 rows"),
+       _r("analyzer_symbol_all_timeframes", "def:analyze_symbol_all_timeframes",
+          "upsert resets signal_generated (same-bar re-fire)")),
+    _f("analyzer/technical_analyzer.py", "indicators, scores, setup call, levels and T1 cap (W3)",
+       _r("analyzer_warmup", "def:indicator_warmup_bars", "minimum history"),
+       _r("analyzer_analyze", "def:TechnicalAnalyzer.analyze", "per-timeframe analysis"),
+       _r("analyzer_indicators", "def:TechnicalAnalyzer._calculate_indicators", "indicators"),
+       _r("analyzer_weights", "def:TechnicalAnalyzer._get_indicator_weights",
+          "database-held indicator_weights (legacy path, total_score only)"),
+       _r("analyzer_calculate_scores", "def:TechnicalAnalyzer._calculate_scores",
+          "total_score, which orders the candidate query"),
+       _r("analyzer_calculate_levels", "def:TechnicalAnalyzer._calculate_levels",
+          "W3: bracket and T1 cap applied through shared.t1_cap")),
+    _f("analyzer/simple_entry.py", "entry predicates (momentum, reversion)"),
+    _f("analyzer/orderbook_analyzer.py", "order-book validity and spread",
+       _r("orderbook_analyze", "def:OrderBookAnalyzer.analyze", "valid flag and spread_pct")),
+    _f("shared/regime.py", "regime provider (classify_regime)"),
+    _f("shared/signal_stop.py", "stop geometry and candle invalidation"),
+    _f("shared/t1_cap.py", "T1 resistance-cap policy (W3)",
+       _r("t1_cap_fill", "assign:RESISTANCE_FILL", "cap factor"),
+       _r("t1_cap_window", "assign:WINDOW", "legacy window length"),
+       _r("t1_cap_policies", "assign:T1_CAP_POLICIES", "selectable policies"),
+       _r("t1_cap_policy_select", "def:t1_cap_policy", "fail-closed policy selection"),
+       _r("t1_cap_legacy_window", "def:legacy_window_resistance", "legacy_window_v1"),
+       _r("t1_cap_independent_swing", "def:independent_swing_resistance",
+          "independent_swing_v1 (T1_CAP_POLICY unset)", DORMANT),
+       _r("t1_cap_resistance_for", "def:resistance_for", "policy dispatch"),
+       _r("t1_cap_capped_t1", "def:capped_t1", "the cap itself")),
+    # signal engine: selection, gates, ranking, emission
+    _f("signal_engine/main.py", "selection query, selector dispatch, emit and mark",
+       _r("selection_limit_constant", "assign:SELECTION_LIMIT", "the selection LIMIT"),
+       _r("selection_candidate_query", "literal:LIMIT 200",
+          "ordering and alphabetical LIMIT 200 cut of the candidate query")),
+    _f("signal_engine/signal_logic.py", "gates, ranking and signal emission",
+       _r("signal_live_selector", "def:SignalEngine.find_best_signal_live", "live selector"),
+       _r("signal_fixed_rank_key", "def:SignalEngine._fixed_candidate_key", "ranking key"),
+       _r("signal_cooldown_sql", "assign:COOLDOWN_SQL", "2 h symbol cooldown"),
+       _r("signal_cooldown_set", "def:SignalEngine._get_symbol_cooldown_set",
+          "cooldown read (fails open)"),
+       _r("signal_save", "def:SignalEngine.save_signal", "insert and signal.ready"),
+       _r("signal_legacy_selector", "def:SignalEngine.find_best_signal",
+          "legacy score selector (LIVE_LEARNING_MODE=true)", DORMANT)),
+    _f("shared/macro_context.py", "cycle-wide macro veto (both families)",
+       _r("macro_should_block_now", "def:MacroContext.should_block_now", "veto and stale block"),
+       _r("macro_should_block", "def:should_block", "veto rule"),
+       _r("macro_btc_trend", "def:_trend_from_change", "BTC/ETH trend labels"),
+       _r("macro_usdtd_trend", "def:classify_usdtd_trend", "USDT.D trend label"),
+       _r("macro_refresh", "def:MacroContext.refresh", "inputs and fail-closed refresh"),
+       _r("macro_fresh", "def:MacroContext.data_is_fresh", "staleness bound"),
+       _r("macro_state_key", "def:MacroContext.macro_state_key",
+          "learned-gate cell key (gates off)", DORMANT)),
+    _f("shared/signal_readiness.py", "signal completeness and delivery readiness",
+       _r("ready_sql_predicate", "assign:READY_SQL_PREDICATE", "admission readiness"),
+       _r("ready_deliverable", "def:is_deliverable_for_event", "delivery readiness"),
+       _r("ready_complete", "def:assert_signal_complete", "emission completeness")),
+    _f("shared/signal_identity.py", "integrity mode switch; enforce-mode identity (off)",
+       _r("sid_integrity_mode", "def:integrity_mode", "SIGNAL_INTEGRITY_MODE path switch"),
+       _r("sid_identity_version", "assign:IDENTITY_VERSION", "key version", DORMANT),
+       _r("sid_setup_identity", "def:SetupIdentity", "setup_key composition", DORMANT),
+       _r("sid_freshness_at", "def:freshness_at", "one-bar freshness bound", DORMANT),
+       _r("sid_integrity_check", "def:integrity_check", "enforce-mode verdict", DORMANT)),
+    # delivery (telegram): gate and acknowledgement semantics
+    _f("telegram/main.py", "delivery gate; the rest of the file is notification formatting",
+       _r("delivery_handle_candidate", "def:handle_candidate_event", "deliver, refuse or skip"),
+       _r("delivery_failure", "def:_candidate_failure", "retry and dead-letter semantics"),
+       _r("delivery_send_direct", "def:send_signal_direct", "hand-off to admission"),
+       _r("delivery_gate", "def:can_deliver_candidate", "pause and capacity refusal"),
+       _r("delivery_mark_delivered", "def:mark_delivered", "signal.delivered transaction"),
+       scope=REGIONS_SCOPE),
+    _f("telegram/whitelist.py", "approval routing",
+       _r("approval_process_signal", "def:ApprovalManager.process_signal",
+          "manual approval disabled: unconditional sent_direct")),
+    # admission, entry, exits, costs (trade_tracker)
+    _f("trade_tracker/main.py", "admission, entry, exits, holding and cost booking",
+       _r("tracker_register_new_signals", "def:register_new_signals", "admission loop"),
+       _r("tracker_integrity_refusal", "def:integrity_admission_refusal",
+          "enforce-mode freshness refusal", DORMANT),
+       _r("tracker_assess_new_trade_risk", "def:assess_new_trade_risk",
+          "net-of-cost admission snapshot and capacity"),
+       _r("tracker_track_open_trades", "def:track_open_trades", "REST backup and invalidation"),
+       _r("tracker_evaluate_trade", "def:evaluate_trade", "exit rules (manage)"),
+       _r("tracker_close_trade_barrier", "def:close_trade_barrier", "cost booking at close"),
+       _r("tracker_usable_price", "def:usable_price", "price validity"),
+       _r("tracker_enforce_max_open", "def:enforce_max_open_trades", "capacity enforcement"),
+       _r("tracker_close_blacklisted", "def:close_blacklisted_trades", "blacklist closes")),
+    _f("trade_tracker/binance_price_stream.py", "tick ordering and validity for exit evaluation",
+       _r("stream_handle", "def:BinancePriceStream._handle", "tick filter")),
+    _f("shared/entry_execution.py", "entry decision and paper fill model",
+       _r("entry_decide", "def:decide_long_entry", "entry decision"),
+       _r("entry_fill", "def:resolve_entry_fill", "fill resolution"),
+       _r("entry_fill_models", "assign:FILL_MODELS", "selectable fill models")),
+    _f("shared/execution.py", "bracket rebase on fill",
+       _r("bracket_rebase", "def:rebase_long_bracket", "bracket rebase")),
+    _f("shared/triple_barrier.py", "exit barriers and holding expiry"),
+    _f("shared/partial_exits.py", "partial exits"),
+    _f("shared/risk_management.py", "portfolio admission rules (evaluate_new_trade)"),
+    _f("shared/economic_halt_policy.py", "observe/enforce wrapper around evaluate_new_trade",
+       _r("halt_evaluate_with_policy", "def:evaluate_with_policy", "policy wrapper"),
+       _r("halt_mode", "def:economic_halt_mode", "PAPER_ECONOMIC_HALT_MODE")),
+    _f("shared/risk_epoch.py", "risk epoch and loss-streak halt",
+       _r("epoch_effective_start", "def:effective_risk_start", "which closes count"),
+       _r("epoch_loss_streak_halt", "def:loss_streak_halt_active", "loss-streak halt")),
+    _f("shared/fees.py", "cost booking",
+       _r("fees_economic_close", "def:economic_close", "net-of-cost booking"),
+       _r("fees_fee_usdt", "def:fee_usdt", "modeled roundtrip cost")),
+    # DORMANT: reachable only behind an off flag or an unused mode
+    _f("shared/learning_governance.py", "learned-gate exploration (LEARNING_GATES_ENABLED false)",
+       classification=DORMANT),
+    _f("shared/dependency_safety.py", "enforce-mode fail-closed reads (integrity off)",
+       classification=DORMANT),
+    _f("research/continuous_learner.py", "out-of-band learned_gates writer (learner stopped)",
+       classification=DORMANT),
+    # POTENTIAL: on no service call path (hashed by the legacy contract, executed by no service)
+    _f("shared/strategy_math.py", "research copy of stop/T1 arithmetic (shared.trade_geometry only)",
+       classification=POTENTIAL),
 )
 
+CURRENT_FAMILY_IDS = ("momentum_breakout", "reversion_rsi_bb")
+
 DRAFT_MANIFESTS = MappingProxyType({
-    sid: StrategyRuleManifest(strategy_id=sid, files=_CURRENT_FAMILY_FILES)
-    for sid in ("momentum_breakout", "reversion_rsi_bb")
+    sid: StrategyRuleManifest(strategy_id=sid, files=_CURRENT_FAMILY_FILES, status=PROPOSAL_STATUS)
+    for sid in CURRENT_FAMILY_IDS
 })

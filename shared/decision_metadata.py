@@ -1,10 +1,11 @@
 """Traceable decision metadata: an immutable, deterministic record of one decision's identity.
 
-Pure and dormant (WP2 lane A; R5.d, R5 test 2; SE-51, SE-55; WP-IR-08, WP-IR-09). This is the
+Pure (WP2 lane A; R5.d, R5 test 2; SE-51, SE-55; WP-IR-08, WP-IR-09). This is the
 identity-and-inputs core of the SE-51 ``DecisionRecord``: which strategy version decided, on
 which inputs, with which models, at which bar, producing which canonical output. It does not
-emit anything, does not register an evidence-v2 payload and does not verify chains; those are
-the remaining WP-A05 steps.
+emit anything and does not verify chains. A record is emitted through the existing
+``shared.evidence_v2.emit`` (no payload registry exists there); the flag-gated emission point is
+listed in docs/design/STRATEGY_INTERFACE_v1.md section 9 (WP-A05 remainder).
 
 * ``decision_id`` = sha256 over the canonical (decision_type, the five StrategyVersion fields,
   input hashes, input facts, bar close time, model and selection ids, parent decision ids).

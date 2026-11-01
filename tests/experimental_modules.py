@@ -1,7 +1,9 @@
 """Declared experimental (production-disconnected) modules under shared/.
 
 Isolation tests use this one registry: production code must never import these, while they may
-import each other. Wired A43/A44 modules (signal_identity, dependency_safety) are NOT listed."""
+import each other. Wired A43/A44 modules (signal_identity, dependency_safety) are NOT listed.
+WP2 lane A: strategy_identity and strategy_version_boundary are NOT listed either; the report-only
+strategy section of ops/provenance/drift_check.py imports them (WP-A01/R5 integration)."""
 EXPERIMENTAL_SHARED = (
     "signal_quality",            # A42
     "counterfactual_barrier",    # A42
@@ -16,10 +18,8 @@ EXPERIMENTAL_SHARED = (
     "s3_shadow",                 # S3 shadow evaluation (disabled; no production caller)
     "s3_shadow_store",           # S3 shadow bounded JSONL store (disabled)
     "s3_shadow_sidecar",         # S3 shadow out-of-process read-only runner (disabled)
-    "strategy_identity",         # WP2 lane A (R5): closure-hash identity, dormant
     "strategy_config_snapshot",  # WP2 lane A (R5): versioned decision-config snapshot, dormant
     "decision_metadata",         # WP2 lane A (R5): replay-stable decision records, dormant
-    "strategy_version_boundary", # WP2 lane A (R5.e): pure version-boundary report, dormant
     "signal_integrity_v2",       # WP2 lane C (R3): candle/setup identity + freshness, dormant
     "funnel_records",            # WP2 lane B (R1/R6): RejectionRecord + conservation, dormant
     "funnel_recorder",           # WP2 lane B (R1/R6): default-off recorder, dormant

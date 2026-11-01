@@ -209,7 +209,7 @@ def test_manifest_declarations_are_validated(make):
 def test_draft_manifest_covers_the_se04_gap():
     assert set(si.DRAFT_MANIFESTS) == {'momentum_breakout', 'reversion_rsi_bb'}
     for m in si.DRAFT_MANIFESTS.values():
-        assert m.status == si.DRAFT_STATUS
+        assert m.status == si.PROPOSAL_STATUS
         legacy = {f.path for f in m.files if f.in_legacy_contract_v1}
         assert legacy == set(si.LEGACY_CONTRACT_V1_SOURCES)
         outside = set(m.outside_legacy_contract_v1())
@@ -222,6 +222,115 @@ def test_draft_manifest_covers_the_se04_gap():
         assert ('shared/t1_cap.py', 'def:capped_t1') in selectors
         assert ('shared/signal_identity.py', 'def:SetupIdentity') in selectors
         assert ('trade_tracker/main.py', 'def:close_trade_barrier') in selectors
+
+
+def test_draft_manifest_classification_follows_the_call_path_inventory():
+    a, b = (si.DRAFT_MANIFESTS[k] for k in si.CURRENT_FAMILY_IDS)
+    assert a.files == b.files                     # one shared pipeline, identity split only (SE-39)
+    active = set(a.active_paths)
+    # added by the WP-A01 call-path trace (STRATEGY_INTERFACE_v1.md section 3)
+    assert {'analyzer/main.py', 'analyzer/orderbook_analyzer.py', 'scanner/main.py', 'shared/ohlcv.py',
+            'shared/candle.py', 'shared/maintenance.py', 'shared/trading_state.py',
+            'shared/signal_readiness.py', 'shared/entry_execution.py', 'shared/execution.py',
+            'shared/economic_halt_policy.py', 'shared/risk_epoch.py', 'telegram/main.py',
+            'telegram/whitelist.py', 'trade_tracker/binance_price_stream.py',
+            'shared/macro_context.py'} <= active
+    cls = {f.path: f.classification for f in a.files}
+    assert cls['shared/strategy_math.py'] == si.POTENTIAL
+    assert a.legacy_contract_v1_inactive() == ('shared/strategy_math.py',)
+    for path in ('shared/learning_governance.py', 'shared/dependency_safety.py',
+                 'research/continuous_learner.py'):
+        assert cls[path] == si.DORMANT
+    regions = {r.selector: r.classification for f in a.files for r in f.regions}
+    assert regions['def:SignalEngine.find_best_signal'] == si.DORMANT
+    assert regions['def:SignalEngine.find_best_signal_live'] == si.ACTIVE
+    assert regions['def:independent_swing_resistance'] == si.DORMANT
+    assert regions['def:SetupIdentity'] == si.DORMANT and regions['def:integrity_mode'] == si.ACTIVE
+    assert regions['def:MacroContext.should_block_now'] == si.ACTIVE
+    assert a.file('telegram/main.py').scope == si.REGIONS_SCOPE
+    assert all(f.scope == si.FILE_SCOPE for f in a.files if f.path != 'telegram/main.py')
+
+
+def test_draft_closure_resolves_on_this_tree():
+    """Reads only the declared closure source files of this checkout (no data)."""
+    for sid, m in si.DRAFT_MANIFESTS.items():
+        digest = si.compute_closure(m, si.read_closure_sources(pathlib.Path(ROOT), m))
+        assert len(digest.regions) >= 22 and len(digest.files) == len(m.active_paths)
+        assert {p for p, _c, _d in digest.inactive_files} == set(m.inactive_paths)
+        assert digest.inactive_hash is not None
+
+
+# ── classification and scope ───────────────────────────────────────────────────────────────
+
+def test_hash_scheme_unchanged_for_all_active_file_scoped_manifests():
+    """Values computed with the iteration-1 module (9668485): the new fields are backward compatible."""
+    d = si.compute_closure(manifest(), SOURCES)
+    assert d.source_hash == '5d6191bffcebaad3d7a1eeb8e1856104396da6c0144069cd9ade9d4c58fba156'
+    assert d.closure_spec_hash == '56e1c4ebda77e3b1448739c915e7ff569b5c88af258d7ca93fc4c5f3b34fc617'
+    assert d.inactive_files == () and d.inactive_hash is None
+    spec = manifest().spec()
+    assert all(set(f) == {'path', 'regions'} and all(len(r) == 2 for r in f['regions'])
+               for f in spec['files'])
+
+
+def _with(path, **over):
+    return [dataclasses.replace(f, **over) if f.path == path else f for f in _files()]
+
+
+def test_inactive_files_are_hashed_separately():
+    m = manifest(files=_with('pkg/rules.py', classification=si.DORMANT))
+    base, edit = (si.compute_closure(m, src) for src in
+                  (SOURCES, edited('pkg/rules.py', b'x > 1', b'x > 2')))
+    assert 'pkg/rules.py' not in base.file_map()
+    assert base.source_hash == edit.source_hash and base.inactive_hash != edit.inactive_hash
+    assert base.inactive_files[0][:2] == ('pkg/rules.py', si.DORMANT)
+    assert m.closure_spec_hash != manifest().closure_spec_hash
+    assert base.source_hash != si.compute_closure(manifest(), SOURCES).source_hash
+    with pytest.raises(si.ClosureError, match='missing'):
+        si.compute_closure(m, {k: v for k, v in SOURCES.items() if k != 'pkg/rules.py'})
+
+
+def test_regions_scope_counts_active_regions_only():
+    regions = (si.RegionSpec('entry_levels', 'def:Analyzer.levels'),
+               si.RegionSpec('entry_cap', 'assign:CAP', classification=si.DORMANT),
+               si.RegionSpec('entry_query', 'literal:LIMIT 7'))
+    m = manifest(files=_with('pkg/entry.py', regions=regions, scope=si.REGIONS_SCOPE))
+    base = si.compute_closure(m, SOURCES)
+    for old, new, moves in ((b'return 1', b'return 2', False), (b'CAP = 0.99', b'CAP = 0.98', False),
+                            (b'min(x, CAP)', b'max(x, CAP)', True), (b'ORDER BY a', b'ORDER BY b', True)):
+        other = si.compute_closure(m, edited('pkg/entry.py', old, new))
+        assert (other.source_hash != base.source_hash) is moves, old
+    assert len(base.regions) == 3
+
+
+@pytest.mark.parametrize('make', [
+    lambda: si.ClosureFile('a.py', 'r', classification='LIVE'),
+    lambda: si.ClosureFile('a.py', 'r', scope='lines'),
+    lambda: si.ClosureFile('a.py', 'r', (si.RegionSpec('x', 'def:f', classification=si.DORMANT),),
+                           scope=si.REGIONS_SCOPE),
+    lambda: si.RegionSpec('x', 'def:f', classification='OFF'),
+    lambda: si.StrategyRuleManifest('s', (si.ClosureFile('a.py', 'r', classification=si.POTENTIAL),)),
+])
+def test_classification_and_scope_are_validated(make):
+    with pytest.raises(si.ClosureError):
+        make()
+
+
+def test_closure_document_and_cross_schema_comparison():
+    m = manifest(files=_with('pkg/rules.py', classification=si.POTENTIAL))
+    doc = si.closure_document(m, SOURCES)
+    assert doc['schema'] == si.CLOSURE_DOCUMENT_SCHEMA and 'config_hash' not in doc
+    assert doc['inactive_files']['pkg/rules.py']['classification'] == si.POTENTIAL
+    sv_, ident = si.build_identity(m, SOURCES, version='1.0.0', config_snapshot=snap(),
+                                   contract_descriptor=CONTRACT)
+    assert ident['source_hash'] == doc['source_hash'] == sv_.source_hash
+    report = si.compare_to_reference(doc, ident)
+    assert report['reference_kind'] == 'identity_manifest' and report['source_hash_equal'] is True
+    assert report['config_hash_equal'] is None and report['inactive_hash_equal'] is True
+    later = si.closure_document(m, edited('pkg/rules.py', b'x > 1', b'x > 2'))
+    report = si.compare_to_reference(later, doc)
+    assert report['reference_kind'] == 'closure_document'
+    assert report['source_hash_equal'] is True and report['inactive_files_changed'] == ['pkg/rules.py']
 
 
 # ── StrategyVersion ────────────────────────────────────────────────────────────────────────
@@ -374,7 +483,9 @@ def test_draft_schema_declares_names_only():
     names = {k.name: k for k in scs.DRAFT_CURRENT_FAMILY_SCHEMA.keys}
     assert names['T1_CAP_POLICY'].choices == tuple(T1_CAP_POLICIES)
     assert names['SIGNAL_INTEGRITY_MODE'].choices == tuple(INTEGRITY_MODES)
-    assert names['DB_THRESHOLDS'].source == 'database'
+    assert names['DB_INDICATOR_WEIGHTS'].source == names['DB_SYMBOL_BLACKLIST'].source == 'database'
+    assert {'LIVE_LEARNING_MODE', 'USDTD_SPIKE_PP', 'MACRO_MAX_STALE_HOURS', 'PAPER_ENTRY_FILL_MODEL'} <= set(names)
+    assert 'APP_VERSION' not in names          # enters only the enforce-mode key (DORMANT path)
     assert not any(hasattr(k, 'default') for k in names.values())
     with pytest.raises(scs.ConfigSnapshotError, match='missing'):
         scs.snapshot_config('momentum_breakout', scs.DRAFT_CURRENT_FAMILY_SCHEMA, {})
@@ -491,6 +602,24 @@ def test_report_label_only():
     report = VBR.version_boundary_report(a, b)
     assert report['classification'] == 'LABEL_ONLY' and report['boundary_required'] == 'NO'
     assert any('without any rule' in f for f in report['flags'])
+    # SK-09: a label-only change still moves the identity tuple, so decision keys re-key
+    assert report['activation_record_required'] is True
+    entry = report['boundary_entry_draft']
+    assert entry['entry_kind'] == 'identity_rekey' and entry['activation_utc_minute'] == 'PENDING'
+    assert 'never re-evaluated' in entry['no_refire_rule']
+
+
+def test_activation_record_follows_the_identity_tuple_only():
+    _, a = identity()
+    lineage_only = VBR.version_boundary_report(a, identity(lineage=('parent',))[1])
+    assert lineage_only['activation_record_required'] is False
+    assert lineage_only['boundary_entry_draft'] is None
+    declared = VBR.version_boundary_report(a, identity(edited('pkg/rules.py', b'x > 1', b'x > 2'),
+                                                       version='2.0.0')[1])
+    assert declared['activation_record_required'] is True
+    assert declared['boundary_entry_draft']['entry_kind'] == 'strategy_boundary'
+    other = VBR.version_boundary_report(a, identity(sid='another_strategy')[1])
+    assert other['activation_record_required'] is False
 
 
 def test_report_undeclared_change_is_a_stop_condition():
