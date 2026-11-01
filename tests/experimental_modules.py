@@ -20,4 +20,5 @@ EXPERIMENTAL_SHARED = (
     "strategy_config_snapshot",  # WP2 lane A (R5): versioned decision-config snapshot, dormant
     "decision_metadata",         # WP2 lane A (R5): replay-stable decision records, dormant
     "strategy_version_boundary", # WP2 lane A (R5.e): pure version-boundary report, dormant
+    "signal_integrity_v2",       # WP2 lane C (R3): candle/setup identity + freshness, dormant
 )
