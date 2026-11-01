@@ -118,7 +118,11 @@ Owner-selected values: `FUNNEL_RECORDING=on`, `FUNNEL_MAX_RECORDS_PER_DAY=20000`
    - The independent reviewer integrates it into `main`; it is then installed in the production checkout per COMPOSE_OPERATIONS.md.
 4. **Pre-recreate captures (read-only).**
    - Identity of all running containers: ID, image ID, StartedAt, RestartCount, config-hash, IPs. The current signal_engine config-hash is `20dcae19…`.
-   - **B3/PAPER_HALTED gate (R2-03):** a named read-only query. Record the pause row and the `risk.halted` outbox row count before the recreate; they must be identical after it. This follows the precedent `deploy/paper-observe-bb7825f/IMAGES.md`.
+   - **B3/PAPER_HALTED gate (R2-03).** Read before and after the recreate; the results must be identical. This follows the precedent `deploy/paper-observe-bb7825f/IMAGES.md`. Run inside `BEGIN READ ONLY` on the trading database. Explicit columns only; no outcome columns. This read needs owner approval as part of the request.
+     - Q1, the latest explicit pause/resume decision (the same predicate as `shared/trading_state.py:26-33`):
+       `SELECT id, is_trading_paused, pause_reason, (date IS NULL OR date > CURRENT_DATE) AS date_invalid FROM risk_management WHERE is_trading_paused = true OR pause_reason = 'manual_resume' ORDER BY date DESC NULLS FIRST, id DESC LIMIT 1;`
+     - Q2, the halt notices:
+       `SELECT count(*) FROM outbox_events WHERE event_type = 'risk.halted';`
    - Record the collector as the expected pre-state: it is currently unhealthy, in a separate project, and must not trigger a STOP.
 5. **Recreate (Class B), signal_engine only.** `docker compose -p trading-signal-bot -f docker-compose.yml up -d --no-deps --no-build --pull never --force-recreate signal_engine`
 6. **Boundary entry** written with the activation minute.
