@@ -1,28 +1,28 @@
 # External Review Evidence Access & Distribution Policy
 
-Status: Owner-approved default process (2026-11-01)
-Scope: All external reviews for this project. Intended as a reusable default for the owner's other software projects, subject to each project's stricter governance.
-Authority: Owner approval of this process does NOT authorize release, production changes, access to protected research, or sharing with unapproved recipients.
+Status: Owner-approved, revised 2026-11-01
+Scope: Trading Signal Bot external reviews; recommended default for other projects, subject to their stricter policies.
+Authority: Permission to prepare and share appropriate review evidence does not authorize release, merge, host changes, deployment, restart, protected holdout access, or live trading.
 
-## 1. Evidence-first prerequisite
-Before asking an external reviewer for a verdict, prepare a reproducible, minimum-necessary source/evidence package for the exact baseline and candidate commit IDs. Include the relevant diff, source and dependency context, tests and synthetic fixtures, operational context, navigation index, explicit omissions/redactions, and reproduction instructions. Avoid developer conclusions or prior review verdicts in the initial independent review package.
+## 1. Transparency is the default
+This is a development and Paper-testing project. Do **not** automatically classify test results, Paper trade counts, historical profit factors, research conclusions, previous audit verdicts, loss-streak halt status, dirty Git checkouts, deployment defects, Docker/Compose details, backup procedures, or operational observations as secrets. Share facts and weaknesses needed for an accurate review, including unfavorable results. The reviewer must be able to audit real issues; do not sanitize away relevant failures.
 
-## 2. Secure distribution
-Run and document a secret, identity, host-detail, and protected-data scan **before** distribution. Exclude credentials, production evidence, protected holdouts, trade outcomes, P&L, and other data not expressly authorized for the review. Where redaction is necessary, label it and explain what cannot be verified. Do not claim a scan guarantees absence of all secrets.
+For an initial blind scientific review, prior verdicts or outcomes may be temporarily separated to limit anchoring, with disclosure in a subsequent contextual/closure phase. This is methodological staging, not secrecy.
 
-Use restricted Google Drive sharing with named, owner-approved reviewers when a suitable authorized connection is available. Use private GitHub for canonical source, tests, and release artifacts and, when appropriate, repository access for approved reviewers. Do not make repositories or Drive links public; do not alter access permissions without owner approval. Uploads and grants must be explicitly authorized, not assumed from the existence of a package. If the preferred channel is unavailable, stop and request a secure alternative rather than sending an inaccessible path.
+## 2. What must remain protected
+Never distribute credentials, API keys, tokens, private keys, passwords, unredacted authentication URLs, personal data, or third-party confidential material. Do not expose actionable access credentials or unnecessarily precise attack-enabling host information. Keep protected A29/holdout data, protected experiment evidence, and separately governed research materials sealed unless specifically authorized under their own controls. If uncertain about a genuinely sensitive item, ask the owner; do not invent blanket restrictions.
 
-## 3. Integrity and access confirmation
-Record package name, exact commit SHAs, file manifest, SHA-256, archive size, distribution location, redactions, and recipients. Independently verify that the uploaded bytes match the local checksum and that **each reviewer can actually access and inspect the contents** before starting the review. A server-local pathname, checksum alone, or inaccessible Drive reference is not evidence delivery.
+## 3. Evidence-first packaging
+Prepare a reproducible package bound to exact baseline and candidate commit IDs: source, diff, relevant dependencies, tests, synthetic fixtures, deployment/operational evidence, manifest, SHA-256, navigation index, reproduction instructions, and explicit limitations. Include enough operating context for R2 to evaluate real risks. Redact only what section 2 requires; label redactions and resulting review limitations.
 
-## 4. Independent review
-Use distinct reviewer sessions; prefer different providers when available. Do not describe same-provider or developer-coordinated agents as genuinely external. Each reviewer must inspect the actual evidence and distinguish verified results, unverified claims, and access limits. Missing source access yields INSUFFICIENT EVIDENCE, not GO. Keep individual first-round reports separate and unchanged.
+## 4. Pre-distribution checks
+Verify archive integrity, manifest, extraction safety, code/diff parity, and absence of actual secrets. Use automated scanning plus independent semantic/manual inspection; repeating the same regex does not count as independent verification. A failed check blocks distribution until resolved. Review the exact final archive, not only its source directory.
 
-## 5. Rounds and closure
-Run one independent round, consolidate findings, and run a targeted closure round only for safety-critical disagreements, material missing evidence, or necessary corrections. Code changes require a new immutable candidate identity and revalidation of affected findings. Do not use majority vote to override a substantiated blocker.
+## 5. Secure access
+Prefer restricted Google Drive sharing with named, owner-approved reviewers for review archives and private GitHub for canonical source, tests, and release artifacts. No public/anyone-with-link access or permission changes without explicit owner approval. Record location, checksum, recipients, and access scope. Confirm each reviewer can actually retrieve and inspect the package before requesting a verdict. A server-local path or checksum alone is insufficient.
 
-## 6. Separation of approvals
-Evidence sharing, code review, merge, image build, deployment, restart, database changes, protected evidence access, and production activation are separate approval boundaries. Review completion is not deployment permission. Honor PAPER_ONLY, B3/PAPER_HALTED, A29 D1/D2 HOLD, and applicable Class B operations gates.
+## 6. Independent reviews and closure
+Use distinct reviewer sessions, preferably distinct providers. Internal developer agents are not external reviewers. Each reviewer reports verified findings, unverified claims, and access limits. Lack of source access means INSUFFICIENT EVIDENCE, not GO. Preserve first-round reports; run focused closure reviews for substantive blockers, missing evidence, and conflicts. Do not vote away substantiated findings.
 
-## 7. Evidence record
-Retain a review register with reviewer identity/provider, evidence package digest, confirmed access, source commits, verdict, findings, closure status, and remaining limitations. Never record a review as completed if the reviewer could not access the evidence.
+## 7. Approval separation and audit register
+Sharing evidence does not authorize code merges, builds, deployments, restarts, production DB changes, protected-data access, or live trading. Preserve PAPER_ONLY, B3/PAPER_HALTED, A29 D1/D2 HOLD, and Class B gates. Record reviewer identity/provider, package hash, confirmed access, commit identities, findings, verdict, closure, and limitations.
