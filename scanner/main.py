@@ -17,12 +17,14 @@ from shared.schema import require_schema
 from shared.maintenance import maintain_pipeline
 from scanner_logic import BinanceScanner
 from shared.funnel_flags import funnel_recording_enabled
+from shared.market_snapshot import market_snapshot_shadow_enabled
 
 logger = setup_logger('scanner')
 
 async def main():
     logger.info("🚀 بدء تشغيل Scanner...")
     funnel_on = funnel_recording_enabled()       # WP-B01: unknown FUNNEL_RECORDING refuses to start
+    snapshot_on = market_snapshot_shadow_enabled()   # WP-B03: unknown MARKET_SNAPSHOT_SHADOW refuses
     await Database.connect()
     await require_schema('scanner')
     await mark_started('scanner')
@@ -40,6 +42,13 @@ async def main():
         from shared.funnel_hooks import ScannerTap
         tap = ScannerTap(scanner)
         ev2_task = evidence_v2.start_flusher('scanner')
+    snap = None
+    if snapshot_on:                              # observe-only MarketSnapshot (shared/market_snapshot.py)
+        from shared import evidence_v2
+        from shared.market_snapshot import SnapshotShadowTap
+        snap = SnapshotShadowTap(scanner)
+        if ev2_task is None:
+            ev2_task = evidence_v2.start_flusher('scanner')
     consecutive_errors = 0
 
     try:
@@ -48,7 +57,11 @@ async def main():
                 logger.info("🔍 بدء دورة المسح...")
                 if tap is not None:
                     tap.begin()
+                if snap is not None:
+                    snap.begin()
                 candidates = await scanner.scan()
+                if snap is not None:
+                    snap.end(candidates)
                 if tap is not None:
                     await tap.end(candidates)
                 maintenance = await maintain_pipeline()
@@ -57,10 +70,14 @@ async def main():
                 metadata = {'candidates': len(candidates), 'maintenance': maintenance}
                 if tap is not None:
                     metadata['funnel'] = tap.health()
+                if snap is not None:
+                    metadata['market_snapshot'] = snap.health()
                 await mark_success('scanner', metadata)
                 await asyncio.sleep(config.SCAN_INTERVAL_SECONDS)
 
             except Exception as e:
+                if snap is not None:
+                    snap.end(error=e)                    # no-op when the cycle was already closed
                 if tap is not None:
                     await tap.end(error=e)               # no-op when the cycle was already closed
                 consecutive_errors += 1
