@@ -21,4 +21,6 @@ EXPERIMENTAL_SHARED = (
     "decision_metadata",         # WP2 lane A (R5): replay-stable decision records, dormant
     "strategy_version_boundary", # WP2 lane A (R5.e): pure version-boundary report, dormant
     "signal_integrity_v2",       # WP2 lane C (R3): candle/setup identity + freshness, dormant
+    "funnel_records",            # WP2 lane B (R1/R6): RejectionRecord + conservation, dormant
+    "funnel_recorder",           # WP2 lane B (R1/R6): default-off recorder, dormant
 )
